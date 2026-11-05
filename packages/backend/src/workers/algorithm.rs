@@ -1,13 +1,12 @@
 //! Backend-owned algorithm children. No admission or automatic work retry.
 use onlyalpha_calculation_bridge::{
-    ChartInstallation, ProcessControl, ProcessState, Result, Worker, WorkerConnector, WorkerError,
+    ChartInstallation, ProcessControl, ProcessState, Result, Worker, WorkerError,
 };
 use std::{
     os::{fd::OwnedFd, unix::net::UnixStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
-    time::Duration,
 };
 fn terminate_owned<T>(
     slot: &mut Option<T>,
@@ -91,7 +90,6 @@ impl ProcessControl for Control {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum WorkerRole {
-    Legacy,
     Research,
     Trading,
 }
@@ -100,24 +98,8 @@ pub struct AlgorithmProcess {
     interpreter: PathBuf,
 }
 impl AlgorithmProcess {
-    pub fn new(interpreter: PathBuf) -> Self {
+    fn new(interpreter: PathBuf) -> Self {
         Self { interpreter }
-    }
-    pub fn spawn(
-        interpreter: &Path,
-        generation: String,
-        artifact: String,
-        deadline: Duration,
-    ) -> Result<Worker> {
-        Self::new(interpreter.into()).connect(generation, artifact, false, deadline)
-    }
-    pub fn spawn_hosted(
-        interpreter: &Path,
-        generation: String,
-        artifact: String,
-        deadline: Duration,
-    ) -> Result<Worker> {
-        Self::new(interpreter.into()).connect(generation, artifact, true, deadline)
     }
     pub fn native_chart(
         executable: &std::fs::File,
@@ -154,16 +136,17 @@ impl AlgorithmProcess {
         installation: &ChartInstallation,
         generation: &str,
         completion: Box<dyn Send>,
-    ) -> Result<Worker> {
+    ) -> Result<super::research_calculations::ResearchProcess> {
         installation.verify()?;
-        Self::new(installation.root().join("bin/python")).spawn_bound(
+        let image = describe_research_runtime(env!("CARGO_PKG_VERSION"))?;
+        let worker = Self::new(installation.root().join("bin/python")).spawn_bound(
             generation.into(),
             installation.artifact_fingerprint().into(),
-            false,
-            Some(installation.root()),
-            Some(completion),
+            installation.root(),
+            completion,
             WorkerRole::Research,
-        )
+        )?;
+        Ok(super::research_calculations::ResearchProcess::new(worker, image["artifact"].as_str().ok_or(WorkerError::Invalid)?.into(), image["version"].as_str().ok_or(WorkerError::Invalid)?.into()))
     }
     /// Installed numerical factory process, retaining its owning hold to join.
     pub fn trading(
@@ -175,9 +158,8 @@ impl AlgorithmProcess {
         Self::new(installation.root().join("bin/python")).spawn_bound(
             generation.into(),
             installation.artifact_fingerprint().into(),
-            false,
-            Some(installation.root()),
-            Some(completion),
+            installation.root(),
+            completion,
             WorkerRole::Trading,
         )
     }
@@ -185,9 +167,8 @@ impl AlgorithmProcess {
         &self,
         generation: String,
         artifact: String,
-        hosted: bool,
-        installation: Option<&Path>,
-        completion: Option<Box<dyn Send>>,
+        installation: &Path,
+        completion: Box<dyn Send>,
         role: WorkerRole,
     ) -> Result<Worker> {
         let sha = |s: &str| {
@@ -195,12 +176,7 @@ impl AlgorithmProcess {
                 && s.bytes()
                     .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
         };
-        if !self.interpreter.is_absolute()
-            || !sha(&generation)
-            || !sha(&artifact)
-            || (role == WorkerRole::Legacy) != installation.is_none()
-            || (hosted && role != WorkerRole::Legacy)
-        {
+        if !self.interpreter.is_absolute() || !sha(&generation) || !sha(&artifact) {
             return Err(WorkerError::Invalid);
         }
         let (parent, child) = UnixStream::pair().map_err(|_| WorkerError::Invalid)?;
@@ -212,22 +188,17 @@ impl AlgorithmProcess {
             "-I",
             "-m",
             match role {
-                WorkerRole::Legacy => "onlyalpha_calculation_worker.worker",
                 WorkerRole::Research => "onlyalpha_backend_algorithms.research_worker",
                 WorkerRole::Trading => "onlyalpha_backend_algorithms.trading_worker",
             },
             "--generation",
             &generation,
         ]);
-        if let Some(root) = installation {
-            command.arg("--installation").arg(root);
-            if matches!(role, WorkerRole::Research | WorkerRole::Trading) {
-                command.arg("--artifact").arg(&artifact);
-            }
-        }
-        if hosted {
-            command.arg("--hosted-generation");
-        }
+        command
+            .arg("--installation")
+            .arg(installation)
+            .arg("--artifact")
+            .arg(&artifact);
         let child = command
             .env_clear()
             .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -239,34 +210,11 @@ impl AlgorithmProcess {
             .map_err(|_| WorkerError::Invalid)?;
         let control = Arc::new(Control(Arc::new(Mutex::new(ChildOwner {
             child: Some(child),
-            completion,
+            completion: Some(completion),
             uncertain: false,
             failed_hold: None,
         }))));
-        Worker::from_stream(
-            parent,
-            generation,
-            artifact,
-            control,
-            if installation.is_some() {
-                8 * 1024 * 1024
-            } else {
-                1024 * 1024
-            },
-        )
-    }
-}
-impl WorkerConnector for AlgorithmProcess {
-    fn connect(
-        &self,
-        generation: String,
-        artifact: String,
-        hosted: bool,
-        deadline: Duration,
-    ) -> Result<Worker> {
-        let mut worker = self.spawn_bound(generation, artifact, hosted, None, None, WorkerRole::Legacy)?;
-        worker.handshake(deadline)?;
-        Ok(worker)
+        Worker::from_stream(parent, generation, artifact, control, 8 * 1024 * 1024)
     }
 }
 #[cfg(test)]
@@ -472,11 +420,12 @@ pub fn describe_native_runtime(version: &str) -> Result<serde_json::Value> {
         return Err(WorkerError::Invalid);
     }
     let image = describe_research_runtime(version)?;
-    let implementations =
+    let mut implementations =
         onlyalpha_calculation_bridge::native_predicates::implementation_manifests(
             image["artifact"].as_str().ok_or(WorkerError::Invalid)?,
         )
         .map_err(|_| WorkerError::Invalid)?;
+    implementations.extend(onlyalpha_calculation_bridge::native_operators::implementation_manifests(image["artifact"].as_str().ok_or(WorkerError::Invalid)?).map_err(|_| WorkerError::Invalid)?);
     Ok(
         serde_json::json!({"schema_version":1,"protocol":"onlyalpha.native.runtime/1","image":image,
         "execution_capabilities":[{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},{"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}],
@@ -506,7 +455,7 @@ mod native_runtime_tests {
         let path = root.join("original");
         std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
         let stripped = Command::new("strip")
-            .arg("--strip-debug")
+            .arg("--strip-all")
             .arg(&path)
             .output()
             .unwrap();
@@ -543,16 +492,11 @@ mod native_runtime_tests {
             native["execution_capabilities"],
             json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},{"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}])
         );
-        assert_eq!(
-            native["implementations"],
-            json!(
-                onlyalpha_calculation_bridge::native_predicates::implementation_manifests(
-                    legacy["artifact"].as_str().unwrap()
-                )
-                .unwrap()
-            )
-        );
-        assert_eq!(native["implementations"].as_array().unwrap().len(), 36);
+        let image=legacy["artifact"].as_str().unwrap();
+        let mut expected=onlyalpha_calculation_bridge::native_predicates::implementation_manifests(image).unwrap();
+        expected.extend(onlyalpha_calculation_bridge::native_operators::implementation_manifests(image).unwrap());
+        assert_eq!(native["implementations"],json!(expected));
+        assert_eq!(native["implementations"].as_array().unwrap().len(),80);
     }
     #[test]
     fn loaded_image_survives_executable_path_replacement() {

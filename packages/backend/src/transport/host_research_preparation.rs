@@ -881,7 +881,7 @@ impl Host {
             .as_str()
             .ok_or(INVALID)?
             .to_owned();
-        let prepared = tokio::task::spawn_blocking(
+        let mut prepared = tokio::task::spawn_blocking(
             move || -> Result<crate::application::research_admission::PreparedInputs> {
                 let original = validated_inputs(
                     &o_for_preflight.accepted["study"],
@@ -927,8 +927,9 @@ impl Host {
         )
         .await
         .map_err(|_| "RESEARCH_PREPARATION_PROCESS_OUTCOME_UNKNOWN")??;
+        prepared.bind_factor_authoring_generation()?;
         let spec = Specification {
-            schema_version: 4,
+            schema_version: 6,
             kind: "TIME_SERIES_FACTOR_RESEARCH".into(),
             candidate: json!({"hypothesis":o.accepted["factor_confirmation"]["snapshot"]["preview"]["hypothesis"],"expression":o.accepted["factor_confirmation"]["snapshot"]["preview"]["expression"]}),
             draft: current.draft.record().clone(),
@@ -951,6 +952,7 @@ impl Host {
             )?
             .into(),
             algorithm_artifact_fingerprint: installation.artifact_fingerprint().into(),
+            authoring_generation_fingerprint: Some(prepared.factor_authoring_generation_fingerprint()?.into()),
             execution_binding: prepared.record()["execution_binding"].clone(),
         };
         let policy = crate::bootstrap::research_namespace::policy();

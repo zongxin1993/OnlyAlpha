@@ -652,27 +652,13 @@ that artifact is not the authoring Authority. Hot plug and rollback create/selec
 never reload modules or rebind an active Run/StrategyRevision. Missing exact historical artifacts fail closed rather than falling
 forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not Asset/Draft/Revision status fields or registries.
 
-ADR 0116 closes the execution side of candidate provenance. For a future DB-native private Revision, an Authoring Execution Generation
-binds the exact Revision/source content, candidate executable content, Candidate Provider and complete Catalog generation to one
-process-lifetime Calculation composition. The authoring execution role (currently `packages/onlyalpha-authoring-execution-worker/`, targeting backend modules under ADR 0142) verifies that generation before it may register presence or claim work. Normal
-Research Workers claim only unbound Runs; an authoring Worker claims only Runs bound to its exact generation fingerprint, with the filter
-inside the existing transactional Attempt authority. Git/path/artifact loading remains outside Core, active Runs are never rebound, and
-Evidence can cross admission only when executable Provider content remains identical. Release, Catalog activation, Strategy promotion and
-LIVE authorization remain separate authorities.
+ADR 0116 规定候选来源的执行绑定。Authoring Execution Generation 将确切 Revision、源码、候选可执行内容、Candidate Provider 和完整 Catalog Generation 绑定到同一执行组合。后端 `packages/backend/src/workers/research.rs` 与 `persistence/research_execution.rs` 在认领前核对该绑定和保留的安装。普通 Research Worker 只能认领未绑定的 Run，Authoring Worker 只能在原事务性 Attempt Authority 中认领绑定到自身确切 Generation 的 Run。活动 Run 保持原绑定，Evidence 准入要求可执行 Provider 内容一致。Release、Catalog 激活、Strategy 晋级和 LIVE 授权各有正式归属。
 
-ADR 0117 closes the admitted distribution-to-runtime boundary. A locator-independent Distribution Artifact manifest binds exact wheel
-bytes, source revision, Provider content, asset inventory, implementation fingerprints and tested Core execution identity. The Generation manager (currently `packages/onlyalpha-runtime-generation-manager/`, targeting backend modules under ADR 0142) verifies a content-addressed artifact set, installs it into a clean isolated
-environment and recomputes installed Provider, Catalog and implementation closure, including Core-owned built-in implementations, before
-producing an immutable RuntimeGeneration. The resulting immutable RuntimeGeneration Validation Evidence is the only proof accepted for a
-`PREPARING → READY` transition. A validated environment carries a non-identity operational seal; a formal Worker must verify that seal,
-the exact retained wheel bytes, installed file hashes and recomputed Provider/Catalog/implementation closure before it becomes claim-capable.
+ADR 0117 规定发行工件与 Runtime 的绑定。与位置无关的 Distribution Artifact Manifest 绑定确切 wheel 字节、源码版本、Provider 内容、资产清单、实现指纹及已验证的执行身份。Rust Runtime Registry 位于 `packages/backend/src/persistence/research_runtime.rs` 及其 `lifecycle.rs`、`contracts.rs`，负责核对内容寻址工件与完整 Provider、Catalog、实现闭包。后端准备流程绑定保留的隔离编写环境和原生可执行映像，再生成不可变 RuntimeGeneration。`PREPARING → READY` 只接受正式 RuntimeGeneration Validation Evidence。Worker 在具备认领能力前核对安装封印、保留的确切 wheel、安装文件摘要和完整实现闭包。
 
-The same Artifact Store may retain the narrowly scoped SUPPORT-only Linux Kernel diagnostic ELF described by
-[Rust development](rust-kernel-development.md#retained-native-diagnostic-artifacts). Its declared target and exact bytes are
-retention inputs, not Runtime admission or equivalence proof. New and historical Python Generation builders reject these native
-diagnostics before installation; they cannot enter the admitted wheel closure or become a second official writer.
+同一 Artifact Store 可以保留 [Rust 开发](rust-kernel-development.md#retained-native-diagnostic-artifacts) 定义的 SUPPORT 专用 Linux Kernel 诊断 ELF。其 target 和确切字节属于保留输入。正式准入仍要求相应执行工件及验证证据。
 
-The manager also owns the bounded, read-only [Predicate comparison diagnostic](predicate-comparison.md). It verifies an existing exact work binding and physically sealed Python generation, then compares a fresh stateless registered Python backend with one explicitly pinned native artifact. It neither binds/activates work nor publishes formal facts, effects or Calculation equivalence Evidence. Its private local process frame is not the cross-node Gateway/plugin protocol.
+旧 Python Generation manager 的 [Predicate 比较诊断](predicate-comparison.md) 随该包退役。历史比较契约保留其原用途，当前 Runtime 准入和原生执行覆盖需要独立验证。保留的原生诊断入口遵循原比较权限范围。
 
 One append-only hash-chained generation ledger is the durable operational Authority for READY, `ACTIVE_FOR_NEW_WORK`, DRAINING/RETIRED
 and immutable work bindings. Activation and rollback are expected-current compare-and-set transitions; a Run reads the pointer once and

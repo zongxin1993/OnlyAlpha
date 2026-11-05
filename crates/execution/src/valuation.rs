@@ -1,5 +1,6 @@
 use crate::{Components, model::*};
 use serde_json::{Value, json};
+use std::sync::Arc;
 #[cfg(test)]
 std::thread_local! {
     pub(crate) static FULL_LEDGER_STATE_CAPTURES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
@@ -90,19 +91,19 @@ impl Components {
             self.ledger_apply(&c)?;
         }
         let c = self.command(input, "VALUATION", Value::Null, 0);
-        if boundary(self.account.apply_valuation(&c, &effect))?.status
+        if boundary(Arc::make_mut(&mut self.account).apply_valuation(&c, &effect))?.status
             != onlyalpha_account::Status::Applied
         {
             return Err(err("EXECUTION_VALUATION_NOT_APPLIED"));
         }
         for m in p["marks"].as_array().expect("validated marks") {
             let i = text(&m["instrument"])?;
-            self.meta["valuation_marks"][i] = m.clone();
-            self.meta["valuation_sources"][text(&m["source_ref"])?] = json!(hash(m));
+            Arc::make_mut(&mut self.meta)["valuation_marks"][i] = m.clone();
+            Arc::make_mut(&mut self.meta)["valuation_sources"][text(&m["source_ref"])?] = json!(hash(m));
             // Keep fill consumers' cached marks aligned with this account-wide valuation.
             for cluster in &clusters {
                 if !self.meta["marks"][cluster][i].is_null() {
-                    self.meta["marks"][cluster][i] = m["mark"].clone();
+                    Arc::make_mut(&mut self.meta)["marks"][cluster][i] = m["mark"].clone();
                 }
             }
         }

@@ -833,3 +833,100 @@ fn same_call_readback_retains_actual_flags_and_full_cold_body_without_planner_or
             .unwrap();
     }
 }
+
+
+#[test]
+fn complete_actual_payload_reads_reuse_only_equal_utf8_and_keep_cold_and_point_isolation() {
+    let h = dictionary_history();
+    let expected = h.store.read_records().unwrap();
+    let count = expected.len() as u64;
+    let raw = h.store.decoded_rows.borrow().iter()
+        .map(|(sequence, row)| (*sequence, std::sync::Arc::clone(&row.payload)))
+        .collect::<Vec<_>>();
+    PAYLOAD_TEXT_VALIDATIONS.with(|n| n.set(0));
+    PAYLOAD_TEXT_REUSES.with(|n| n.set(0));
+    SOURCE_RAW_ROWS.with(|n| n.set(0));
+    for _ in 0..3 { assert_eq!(h.store.read_records().unwrap(), expected); }
+    assert_eq!(SOURCE_RAW_ROWS.with(std::cell::Cell::get), 3 * count);
+    assert_eq!(PAYLOAD_TEXT_VALIDATIONS.with(std::cell::Cell::get), 0);
+    assert_eq!(PAYLOAD_TEXT_REUSES.with(std::cell::Cell::get), 3 * count);
+    for (sequence, original) in raw {
+        let rows = h.store.decoded_rows.borrow();
+        assert!(std::sync::Arc::ptr_eq(&original, &rows[&sequence].payload));
+        if let Some(dictionary) = &rows[&sequence].dictionary
+            && dictionary.anchor.sequence() == sequence {
+            assert!(std::sync::Arc::ptr_eq(&dictionary.raw, &rows[&sequence].payload),
+                "cold anchor and body cache must own one bounded raw allocation");
+        }
+    }
+    PAYLOAD_TEXT_REUSES.with(|n| n.set(0));
+    let point = h.store.read_one(1).unwrap().unwrap().0;
+    assert_eq!(point, expected[0]);
+    assert_eq!(PAYLOAD_TEXT_REUSES.with(std::cell::Cell::get), 1);
+    assert!(!std::ptr::eq(point.prepared().value(),
+        h.store.decoded_rows.borrow()[&1].record.prepared().value()));
+    h.store.decoded_rows.borrow_mut().clear();
+    PAYLOAD_TEXT_VALIDATIONS.with(|n| n.set(0));
+    PAYLOAD_TEXT_REUSES.with(|n| n.set(0));
+    assert_eq!(h.store.read_records().unwrap(), expected);
+    assert_eq!(PAYLOAD_TEXT_VALIDATIONS.with(std::cell::Cell::get), count);
+    assert_eq!(PAYLOAD_TEXT_REUSES.with(std::cell::Cell::get), 0);
+}
+
+#[test]
+fn payload_text_reuse_cannot_change_type_utf8_error_order_flags_or_same_body_associations() {
+    for fault in ["utf8-first", "blob", "flags", "input", "digest"] {
+        let h = dictionary_history();
+        h.store.read_records().unwrap();
+        let original = std::sync::Arc::clone(&h.store.decoded_rows.borrow()[&1].payload);
+        let db = Connection::open(h.root.db()).unwrap();
+        db.execute_batch("PRAGMA ignore_check_constraints=ON;").unwrap();
+        if fault == "blob" {
+            db.execute_batch("PRAGMA writable_schema=ON; UPDATE sqlite_schema SET sql=replace(sql,' STRICT','') WHERE name='records'; PRAGMA writable_schema=OFF;").unwrap();
+            let version: i64 = db.pragma_query_value(None, "schema_version", |r| r.get(0)).unwrap();
+            db.pragma_update(None, "schema_version", version + 1).unwrap();
+        }
+        match fault {
+            "utf8-first" => { db.execute_batch("UPDATE records SET payload=CAST(X'80' AS TEXT),digest='bad',ready=7 WHERE sequence=1").unwrap(); }
+            "blob" => { db.execute_batch("UPDATE records SET payload=CAST(payload AS BLOB),digest='bad',ready=7 WHERE sequence=1").unwrap(); }
+            "flags" => { db.execute_batch("UPDATE records SET ready=7 WHERE sequence=1").unwrap(); }
+            "input" => { db.execute_batch("UPDATE records SET input_id='foreign-input' WHERE sequence=1").unwrap(); }
+            _ => { db.execute("UPDATE records SET digest=?1 WHERE sequence=1", ["f".repeat(64)]).unwrap(); }
+        }
+        let first_column_error = if matches!(fault, "utf8-first" | "blob") {
+            Some(db.query_row("SELECT payload FROM records WHERE sequence=1", [], |row| {
+                Ok(text_column(row, 0).unwrap_err().0)
+            }).unwrap())
+        } else { None };
+        drop(db);
+        let before = fs::read(h.root.db()).unwrap();
+        PAYLOAD_TEXT_REUSES.with(|n| n.set(0));
+        let error = h.store.read_one(1).unwrap_err();
+        if let Some(expected) = &first_column_error {
+            assert_eq!(&error.0, expected, "later digest/flags error overtook payload {fault}");
+            assert_eq!(PAYLOAD_TEXT_REUSES.with(std::cell::Cell::get), 0);
+        } else {
+            assert_eq!(PAYLOAD_TEXT_REUSES.with(std::cell::Cell::get), 1,
+                "actual equal bytes may prove UTF-8 only, not {fault} validity");
+            if fault == "flags" { assert_eq!(error.0, "RUNTIME_STORE_FLAGS"); }
+        }
+        assert!(h.store.read_records().is_err(), "actual scan accepted {fault}");
+        assert!(std::sync::Arc::ptr_eq(&original, &h.store.decoded_rows.borrow()[&1].payload));
+        assert_eq!(fs::read(h.root.db()).unwrap(), before);
+    }
+}
+
+#[test]
+fn oversized_cold_payload_remains_borrowed_until_original_codec_bounds_reject_it() {
+    let h = dictionary_history();
+    h.store.decoded_rows.borrow_mut().clear();
+    let raw = " ".repeat(crate::codec::STORED_LIMIT + 1);
+    h.store.connection.execute("UPDATE records SET payload=?1,digest=?2 WHERE sequence=1",
+        params![&raw, digest(raw.as_bytes())]).unwrap();
+    SOURCE_OWNED_PAYLOAD_BYTES.with(|n| n.set(0));
+    PAYLOAD_TEXT_REUSES.with(|n| n.set(0));
+    assert!(h.store.read_one(1).is_err());
+    assert_eq!(SOURCE_OWNED_PAYLOAD_BYTES.with(std::cell::Cell::get), 0);
+    assert_eq!(PAYLOAD_TEXT_REUSES.with(std::cell::Cell::get), 0);
+    assert!(h.store.decoded_rows.borrow().is_empty());
+}

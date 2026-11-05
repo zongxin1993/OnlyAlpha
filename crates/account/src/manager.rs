@@ -10,7 +10,7 @@ pub struct Manager {
     // Rebuildable canonical byte count; neither state nor source authority.
     pub(crate) journal_bytes: usize,
     // Pure canonical encoding of this immutable state, never a source proof.
-    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<(Vec<u8>,String)>>,
+    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<crate::recovery::CachedCheckpoint>>,
 }
 impl Manager {
     pub fn new(mut config: Value) -> Result<Self, Error> {

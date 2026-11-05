@@ -2,6 +2,14 @@ use crate::model::*;
 use num_bigint::BigInt;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+// One representation bundle for this exact accepted Risk state. It carries
+// checkpoint data only, never Runtime source or Ready authority.
+pub(crate) struct CachedCheckpoint {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) fingerprint: String,
+    pub(crate) record: std::sync::Arc<Value>,
+}
+
 #[derive(Clone)]
 pub struct Manager {
     pub(crate) config: Value,
@@ -21,6 +29,7 @@ pub struct Manager {
     pub(crate) epoch: u64,
     pub(crate) watermark: u64,
     pub(crate) now: Option<BigInt>,
+    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<CachedCheckpoint>>,
 }
 impl Manager {
     pub fn new(mut config_value: Value) -> Result<Self, Error> {
@@ -47,6 +56,7 @@ impl Manager {
             epoch: 0,
             watermark: 0,
             now: None,
+            checkpoint_cache: std::sync::OnceLock::new(),
         })
     }
     pub fn snapshot(&self, cluster: &str) -> Result<Value, Error> {
@@ -122,6 +132,9 @@ impl Manager {
             return Err(err("RISK_SEQUENCE_OR_TIME_REGRESSION"));
         }
         let mut candidate = self.clone();
+        // All writes occur on this candidate. An error leaves the accepted
+        // owner's representation intact, including admission-budget failures.
+        let _ = candidate.checkpoint_cache.take();
         let op = text(&r["op"])?;
         let payload = &r["payload"];
         let mut status = Status::Applied;

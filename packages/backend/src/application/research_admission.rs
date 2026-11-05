@@ -78,6 +78,11 @@ impl std::error::Error for PreparationError {}
 pub struct PreparedInputs {
     runtime: Arc<RuntimeInputHold>,
     record: Value,
+    authoring_generation: Option<PreparedAuthoringGeneration>,
+}
+struct PreparedAuthoringGeneration {
+    provider: Value,
+    fingerprint: String,
 }
 impl PreparedInputs {
     pub(crate) fn runtime_hold(&self) -> Arc<RuntimeInputHold> {
@@ -88,6 +93,38 @@ impl PreparedInputs {
     }
     pub fn record(&self) -> &Value {
         &self.record
+    }
+    pub fn factor_authoring_generation_fingerprint(&self) -> Result<&str> {
+        self.authoring_generation
+            .as_ref()
+            .map(|generation| generation.fingerprint.as_str())
+            .ok_or(INVALID)
+    }
+    pub(crate) fn verify_factor_authoring_generation(
+        &self,
+        specification: &crate::application::research_run::Specification,
+    ) -> Result<()> {
+        let generation = self.authoring_generation.as_ref().ok_or(INVALID)?;
+        let expected = authoring_generation_fingerprint(
+            &specification.revision,
+            &self.record["algorithm_resolution"],
+            &generation.provider,
+            &json!(specification.catalog_generation_fingerprint),
+            &specification.execution_binding,
+        )?;
+        if generation.fingerprint != expected
+            || specification.authoring_generation_fingerprint.as_ref().is_some_and(|pin| pin != &expected)
+        {
+            return Err(INVALID);
+        }
+        Ok(())
+    }
+    pub fn bind_factor_authoring_generation(&mut self) -> Result<()> {
+        let fingerprint = self.factor_authoring_generation_fingerprint()?.to_owned();
+        self.record["schema_version"] = json!(2);
+        self.record["contract"] = json!("ONLYALPHA_RESEARCH_PREPARED_INPUTS_V2");
+        self.record["authoring_generation_fingerprint"] = json!(fingerprint);
+        Ok(())
     }
     pub fn verify_runtime(&self) -> Result<()> {
         self.runtime.verify()
@@ -126,6 +163,10 @@ pub fn restore(
         datasets,
         &materialized,
     )?;
+    let mut restored = restored;
+    if spec.authoring_generation_fingerprint.is_some() {
+        restored.bind_factor_authoring_generation()?;
+    }
     if restored.record() != &run.prepared_inputs {
         return Err(INVALID.into());
     }
@@ -269,10 +310,73 @@ pub fn prepare(
         return Err(INVALID.into());
     }
     check_binding(&resolved, &saved, binding, runtime.manifest())?;
+    let provider = &saved["provider"];
+    let provider = json!({
+        "id": provider["manifest"]["provider_id"],
+        "version": provider["manifest"]["provider_version"],
+        "content_fingerprint": provider["content_fingerprint"],
+    });
+    let fingerprint = authoring_generation_fingerprint(
+        revision,
+        &resolved,
+        &provider,
+        &runtime.manifest()["catalog_generation_fingerprint"],
+        &execution_binding,
+    )?;
     runtime.verify()?;
     let record = json!({"schema_version":1,"contract":"ONLYALPHA_RESEARCH_PREPARED_INPUTS_V1","runtime_generation_fingerprint":generation,"execution_binding":execution_binding,"runtime_work_binding":runtime.binding(),"factor_preparation_fingerprint":factor.fingerprint(),"factor_revision_fingerprint":factor.revision_fingerprint(),"input_window":w,"dataset_snapshot_fingerprint":snapshot,"dataset_materialization":materialized.lineage(),"dataset_construction_fingerprint":dataset.dataset().construction_fingerprint(),"algorithm_resolution":resolved});
-    Ok(PreparedInputs { runtime, record })
+    Ok(PreparedInputs {
+        runtime,
+        record,
+        authoring_generation: Some(PreparedAuthoringGeneration { provider, fingerprint }),
+    })
 }
+
+fn authoring_generation_fingerprint(
+    revision: &Value,
+    resolution: &Value,
+    provider: &Value,
+    catalog: &Value,
+    execution: &Value,
+) -> Result<String> {
+    exact(provider, &["id", "version", "content_fingerprint"])?;
+    for pin in [
+        &revision["revision_fingerprint"],
+        &revision["source_sha256"],
+        &resolution["source_artifact"]["source_artifact_fingerprint"],
+        &resolution["algorithm_artifact"],
+        &provider["content_fingerprint"],
+        catalog,
+        &execution["executor_manifest_fingerprint"],
+        &execution["executor_artifact_sha256"],
+        &execution["core_execution_fingerprint"],
+    ] {
+        if !pin.as_str().is_some_and(crate::is_sha256_hex) {
+            return Err(INVALID);
+        }
+    }
+    if ["id", "version"]
+        .iter()
+        .any(|key| provider[*key].as_str().is_none_or(str::is_empty))
+        || resolution["source_artifact"]["revision_fingerprint"] != revision["revision_fingerprint"]
+        || resolution["source_artifact"]["source_sha256"] != revision["source_sha256"]
+        || execution["protocol"] != "onlyalpha.research.executor/1"
+    {
+        return Err(INVALID);
+    }
+    let identity = json!({
+        "contract": "ONLYALPHA_NATIVE_AUTHORING_GENERATION_V1",
+        "revision_fingerprint": revision["revision_fingerprint"],
+        "source_sha256": revision["source_sha256"],
+        "source_artifact_fingerprint": resolution["source_artifact"]["source_artifact_fingerprint"],
+        "algorithm_artifact_fingerprint": resolution["algorithm_artifact"],
+        "provider": provider,
+        "catalog_generation_fingerprint": catalog,
+        "execution_binding": execution,
+    });
+    hash(&identity)
+}
+
 /// Recompute the existing Manifest1 identities before comparing capabilities.
 /// The owning installed producer separately proves actual resource bytes.
 pub(crate) fn implementation_projection(record: &Value) -> Result<Value> {
@@ -494,6 +598,41 @@ fn check_snapshot(snapshot: &Value, entry: &Value, expected: &Value) -> Result<(
 #[cfg(test)]
 mod proof_tests {
     use super::*;
+
+    #[test]
+    fn authoring_generation_changes_with_verified_provider_and_rejects_foreign_source() {
+        let revision = json!({"revision_fingerprint":"a".repeat(64),"source_sha256":"b".repeat(64)});
+        let mut resolution = json!({
+            "algorithm_artifact": "c".repeat(64),
+            "source_artifact": {
+                "revision_fingerprint": revision["revision_fingerprint"],
+                "source_sha256": revision["source_sha256"],
+                "source_artifact_fingerprint": "d".repeat(64),
+            },
+        });
+        let mut provider = json!({"id":"private.factor","version":"1","content_fingerprint":"e".repeat(64)});
+        let catalog = json!("f".repeat(64));
+        let execution = json!({
+            "protocol": "onlyalpha.research.executor/1",
+            "executor_manifest_fingerprint": "0".repeat(64),
+            "executor_artifact_sha256": "1".repeat(64),
+            "core_execution_fingerprint": "2".repeat(64),
+        });
+        let original =
+            authoring_generation_fingerprint(&revision, &resolution, &provider, &catalog, &execution)
+                .unwrap();
+        provider["content_fingerprint"] = json!("3".repeat(64));
+        let changed =
+            authoring_generation_fingerprint(&revision, &resolution, &provider, &catalog, &execution)
+                .unwrap();
+        assert_ne!(original, changed);
+        resolution["source_artifact"]["source_sha256"] = json!("4".repeat(64));
+        assert!(
+            authoring_generation_fingerprint(&revision, &resolution, &provider, &catalog, &execution)
+                .is_err()
+        );
+    }
+
     fn evidence() -> Value {
         let mut v = json!({"disposition":"PASS"});
         for k in [

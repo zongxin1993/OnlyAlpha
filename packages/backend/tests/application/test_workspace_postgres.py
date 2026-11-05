@@ -11,15 +11,10 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from packages.backend.tests.application.test_schema_postgres import migration_backend as migration_backend
+from packages.backend.tests.application.test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
-
-
-@pytest.fixture
-def workspace_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
 
 
 def config() -> dict[str, Any]:
@@ -82,7 +77,7 @@ def run(
     return cast(dict[str, Any], json.loads(result.stdout))
 
 
-def test_workspace_cas_restart_and_exact_historical_receipt(native_probe: Path, workspace_db: str) -> None:
+def test_workspace_cas_restart_and_exact_historical_receipt(native_probe: Path, schema_db: str) -> None:
     ns = str(uuid4())
     original = str(uuid4())
     assert run(native_probe, "read", ns) == {"book": single_book(0)}
@@ -98,7 +93,7 @@ def test_workspace_cas_restart_and_exact_historical_receipt(native_probe: Path, 
     }
     losing = str(uuid4())
     assert run(native_probe, "save", ns, command=losing) == {"error": "WORKSPACE_VERSION_CONFLICT"}
-    with psycopg.connect(workspace_db) as db:
+    with psycopg.connect(schema_db) as db:
         assert db.execute(
             "SELECT count(*) FROM product_command_admission WHERE command_id=%s", (losing,)
         ).fetchone() == (0,)
@@ -106,11 +101,11 @@ def test_workspace_cas_restart_and_exact_historical_receipt(native_probe: Path, 
     assert run(native_probe, "command", str(uuid4()), command=original) == {"error": "WORKSPACE_HISTORY_CORRUPT"}
 
 
-def test_workspace_unknown_and_cross_kind_never_resubmit(native_probe: Path, workspace_db: str) -> None:
+def test_workspace_unknown_and_cross_kind_never_resubmit(native_probe: Path, schema_db: str) -> None:
     ns = str(uuid4())
     command = str(uuid4())
     fp = "a" * 64
-    with psycopg.connect(workspace_db) as db:
+    with psycopg.connect(schema_db) as db:
         db.execute(
             "INSERT INTO product_command_admission(command_id,command_kind,command_fingerprint,schema_version) VALUES(%s,'SAVE_WORKSPACE',%s,1)",
             (command, fp),
@@ -118,7 +113,7 @@ def test_workspace_unknown_and_cross_kind_never_resubmit(native_probe: Path, wor
     assert run(native_probe, "command", ns, command=command) == {"error": "WORKSPACE_COMMAND_UNKNOWN"}
     assert run(native_probe, "save", ns, command=command) == {"error": "WORKSPACE_COMMAND_CONFLICT"}
     assert run(native_probe, "read", ns) == {"book": single_book(0)}
-    with psycopg.connect(workspace_db) as db:
+    with psycopg.connect(schema_db) as db:
         db.execute(
             "INSERT INTO product_command_admission(command_id,command_kind,command_fingerprint,schema_version) VALUES(%s,'SAVE_WATCHLISTS',%s,1)",
             (other := str(uuid4()), fp),
@@ -126,17 +121,17 @@ def test_workspace_unknown_and_cross_kind_never_resubmit(native_probe: Path, wor
     assert run(native_probe, "command", ns, command=other) == {"error": "WORKSPACE_COMMAND_CONFLICT"}
 
 
-def test_workspace_immutable_revision_and_missing_head_fail_closed(native_probe: Path, workspace_db: str) -> None:
+def test_workspace_immutable_revision_and_missing_head_fail_closed(native_probe: Path, schema_db: str) -> None:
     ns = str(uuid4())
     run(native_probe, "save", ns)
-    with pytest.raises(psycopg.Error), psycopg.connect(workspace_db) as db:
+    with pytest.raises(psycopg.Error), psycopg.connect(schema_db) as db:
         db.execute("UPDATE workspace_library_revision SET library_json='{}' WHERE namespace_id=%s", (ns,))
-    with psycopg.connect(workspace_db) as db:
+    with psycopg.connect(schema_db) as db:
         db.execute("DELETE FROM workspace_library_head WHERE namespace_id=%s", (ns,))
     assert run(native_probe, "read", ns) == {"error": "WORKSPACE_HISTORY_CORRUPT"}
 
 
-def test_workspace_study_intent_roundtrips_without_numeric_results(native_probe: Path, workspace_db: str) -> None:
+def test_workspace_study_intent_roundtrips_without_numeric_results(native_probe: Path, schema_db: str) -> None:
     ns = str(uuid4())
     configuration = config()
     configuration["studies"] = [
@@ -168,7 +163,7 @@ def test_workspace_study_intent_roundtrips_without_numeric_results(native_probe:
 
 
 def test_named_workspace_library_preserves_two_choices_and_exact_command_history(
-    native_probe: Path, workspace_db: str
+    native_probe: Path, schema_db: str
 ) -> None:
     ns = str(uuid4())
     first_id, second_id = str(uuid4()), str(uuid4())

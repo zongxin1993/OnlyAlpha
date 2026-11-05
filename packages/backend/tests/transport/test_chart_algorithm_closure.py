@@ -2,7 +2,6 @@
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -27,26 +26,6 @@ def test_sdk_wheel_release_comes_from_frozen_source(tmp_path, monkeypatch):
     assert "Requires-Dist: onlyalpha==0.11.0\n" in metadata
     assert "Requires-Dist: protobuf\n" in metadata
     assert "0.10.21" not in metadata
-
-
-def test_algorithm_plugin_wheel_keeps_its_own_version(tmp_path, monkeypatch):
-    import zipfile
-
-    from scripts import build_algorithm_sdk as builder
-
-    source = tmp_path / "source"
-    backend = source / "packages/backend/Cargo.toml"
-    backend.parent.mkdir(parents=True)
-    backend.write_text('[package]\nversion = "0.7.0"\n')
-    plugin = source / "packages/onlyalpha-operators/pyproject.toml"
-    plugin.parent.mkdir(parents=True)
-    plugin.write_text('[project]\nversion = "0.2.0"\n')
-    monkeypatch.setattr(builder, "ROOT", source)
-    path = builder.wheel(tmp_path, "onlyalpha-plugin-operators", {}, ("onlyalpha",))
-    with zipfile.ZipFile(path) as archive:
-        metadata = archive.read("onlyalpha_plugin_operators-0.2.0.dist-info/METADATA").decode()
-    assert "Version: 0.2.0\n" in metadata
-    assert "Requires-Dist: onlyalpha==0.7.0\n" in metadata
 
 
 def test_managed_sdk_contains_source_execution_without_product_authoring(tmp_path: Path) -> None:
@@ -75,7 +54,8 @@ def test_managed_sdk_contains_source_execution_without_product_authoring(tmp_pat
         "onlyalpha/quant_assets/__init__.py",
         "onlyalpha/quant_assets/private_factor_provider_snapshot.py",
     }
-    assert any(path.name.startswith("onlyalpha_plugin_operators-") for path in wheels)
+    assert not any(path.name.startswith("onlyalpha_plugin_operators-") for path in wheels)
+    assert "onlyalpha_backend_algorithms/research_session.py" in worker_names
     assert any(path.name.startswith("onlyalpha_backend_algorithms-") for path in wheels)
 
 
@@ -103,7 +83,10 @@ def test_installed_research_source_resolution_is_not_execution(tmp_path: Path) -
     request = {
         "schema_version": 1,
         "source": {name: vector["revision"][name] for name in names},
-        "graph": vector["graph"],
+        "graph": {
+            "schema_version": 1,
+            "nodes": [node for node in vector["graph"]["nodes"] if node["definition"]["kind"] == "FACTOR"],
+        },
         "core_artifact": {
             "path": str(core),
             "sha256": hashlib.sha256(core.read_bytes()).hexdigest(),
@@ -123,7 +106,7 @@ r=resolve(p,sys.argv[1])
 assert r['graph']==p['graph']
 assert r['core_artifact_sha256']==p['core_artifact']['sha256']
 assert r['factor_revision_fingerprint']==p['source']['revision_fingerprint']
-assert len(r['implementations'])==6
+assert len(r['implementations'])==2
 for m in r['implementations']:
  assert OnlyCalculationImplementationManifest.from_dict(m).to_dict()==m
 assert 'equivalence_evidence' not in r and 'runtime_generation_fingerprint' not in r

@@ -29,7 +29,7 @@ fn valuation_metadata_reads_original_history_without_recapturing_account_checkpo
         }
         let before = h.components.checkpoint().unwrap();
         let rows = h.store.rows.clone();
-        let metadata = h.components.meta.clone();
+        let metadata = h.components.meta.as_ref().clone();
         super::VALUATION_HISTORY_ACCOUNT_CAPTURES.with(|count| count.set(0));
         for _ in 0..3 { h.components.validate_valuation_metadata(&metadata).unwrap(); }
         for field in ["valuation_marks", "valuation_sources"] {

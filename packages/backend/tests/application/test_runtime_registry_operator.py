@@ -14,8 +14,9 @@ import pytest
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 
-from scripts.database import _initialize_deployment
+from packages.backend.tests.application.test_schema_postgres import DEFAULT_MIGRATION_ROOT, migrate
 from scripts.native_http_contract import ROOT, native_executable
+from scripts.native_web_e2e import research_deployment_id
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
@@ -27,14 +28,13 @@ def runtime_operator() -> Path:
 
 @pytest.fixture
 def runtime_namespace(runtime_operator: Path, postgres_dsn: str, tmp_path: Path) -> Path:
-    subprocess.run(
-        ["python", "-m", "scripts.database", "migrate"],
-        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": postgres_dsn},
-        check=True,
-        capture_output=True,
-        text=True,
+    result = migrate(runtime_operator, postgres_dsn, DEFAULT_MIGRATION_ROOT)
+    assert result.returncode == 0, result.stderr
+    research_deployment_id(
+        runtime_operator,
+        ["--initialize-research-deployment", str(tmp_path), str(DEFAULT_MIGRATION_ROOT)],
+        make_conninfo(postgres_dsn, sslmode="disable"),
     )
-    _initialize_deployment(postgres_dsn, tmp_path, runtime_operator)
     return tmp_path
 
 

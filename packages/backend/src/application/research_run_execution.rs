@@ -129,7 +129,7 @@ pub struct Executed {
     pub(crate) statistics: Vec<Value>,
     pub(crate) evidence: Value,
 }
-fn verify_executor_image(image: &Value, binding: &Value) -> Result<()> {
+pub(crate) fn verify_executor_image(image: &Value, binding: &Value) -> Result<()> {
     if image["artifact"] != binding["executor_artifact_sha256"]
         || image["protocol"] != binding["protocol"]
         || !image["version"]
@@ -207,7 +207,9 @@ pub fn verify_inputs(run: &VerifiedRun, inputs: &PreparedInputs) -> Result<()> {
         horizon_bars: spec.study.horizon_bars,
     })?;
     let r = inputs.record();
-    if *r != run.prepared_inputs
+    inputs.verify_factor_authoring_generation(spec)?;
+    if !spec.matches_prepared_authoring(r)
+        || *r != run.prepared_inputs
         || r["dataset_snapshot_fingerprint"] != spec.dataset_snapshot_fingerprint
         || r["runtime_generation_fingerprint"] != spec.runtime_generation_fingerprint
         || r["execution_binding"] != spec.execution_binding

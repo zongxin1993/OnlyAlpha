@@ -26,3 +26,5 @@ pub fn fingerprint(raw: &[u8]) -> String {
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
+
+pub mod native_operators;

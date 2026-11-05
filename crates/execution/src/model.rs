@@ -221,17 +221,30 @@ impl Prepared {
     pub(crate) fn retained_expansion(&self) -> Option<std::sync::Weak<Value>> {
         self.value.get().map(std::sync::Arc::downgrade)
     }
-    pub(crate) fn new(mut v: Value) -> Result<Self, Error> {
-        v["payload_hash"] = json!(hash(&v));
+    #[cfg(test)]
+    pub(crate) fn new(v: Value) -> Result<Self, Error> {
+        Self::new_local(v, None)
+    }
+    /// Only the local planner can supply the actual owning post-transition
+    /// components. Decoded data never gains this transient representation.
+    pub(crate) fn new_with_typed_after(v: Value, after: crate::Components) -> Result<Self, Error> {
+        Self::new_local(v, Some(after))
+    }
+    fn new_local(mut v: Value, after: Option<crate::Components>) -> Result<Self, Error> {
+        if v.get("payload_hash").is_some() {
+            return Err(err("EXECUTION_PAYLOAD_HASH"));
+        }
+        let payload_hash = hash(&v);
+        v["payload_hash"] = json!(&payload_hash);
         let mut result = Self {
             value: std::sync::OnceLock::from(std::sync::Arc::new(v)),
             data: None,
             input_fingerprint: std::sync::Arc::new(std::sync::OnceLock::new()),
             validated_transition_data: std::sync::Arc::new(std::sync::OnceLock::new()),
             planned: true,
-            typed_after: None,
+            typed_after: after.map(Box::new),
         };
-        result.validate()?;
+        result.validate_with_payload_hash(Some(&payload_hash))?;
         let bytes = serde_json::to_vec(result.value())?;
         // Value permits unchecked arbitrary-precision Number construction.
         // Prove this exact representation has the original reader's meaning
@@ -312,10 +325,6 @@ impl Prepared {
                 "position_checkpoint_fingerprint":projections[1]["result_hash"]}),
         };
         self.data = Some(std::sync::Arc::new(data));
-    }
-    pub(crate) fn with_typed_after(mut self, after: crate::Components) -> Self {
-        self.typed_after = Some(Box::new(after));
-        self
     }
     pub(crate) fn typed_after(&self) -> Option<&crate::Components> {
         self.typed_after.as_deref()
@@ -452,6 +461,11 @@ impl Prepared {
         }
     }
     fn validate(&self) -> Result<(), Error> {
+        self.validate_with_payload_hash(None)
+    }
+    // Only new() supplies the hash it just computed over its owned local body.
+    // External bytes always use validate() and recompute their complete hash.
+    fn validate_with_payload_hash(&self, local_hash: Option<&str>) -> Result<(), Error> {
         #[cfg(test)]
         PREPARED_VALIDATIONS.with(|count| count.set(count.get() + 1));
         let v = self.value();
@@ -479,14 +493,20 @@ impl Prepared {
         if text(&v["transaction_id"])? != format!("ETX-{}", self.input_fingerprint()) {
             return Err(err("EXECUTION_IDENTITY"));
         }
-        let mut content = v.clone();
-        let expected = content
-            .as_object_mut()
-            .expect("row")
-            .remove("payload_hash")
-            .expect("row");
-        if expected != hash(&content) {
-            return Err(err("EXECUTION_PAYLOAD_HASH"));
+        if let Some(expected) = local_hash {
+            if v["payload_hash"].as_str() != Some(expected) {
+                return Err(err("EXECUTION_PAYLOAD_HASH"));
+            }
+        } else {
+            let mut content = v.clone();
+            let expected = content
+                .as_object_mut()
+                .expect("row")
+                .remove("payload_hash")
+                .expect("row");
+            if expected != hash(&content) {
+                return Err(err("EXECUTION_PAYLOAD_HASH"));
+            }
         }
         let ps = v["projections"]
             .as_array()
@@ -494,7 +514,15 @@ impl Prepared {
             .ok_or_else(|| err("EXECUTION_PROJECTIONS"))?;
         for (i, p) in ps.iter().enumerate() {
             row(p, &["component", "before_hash", "result_hash", "result"])?;
-            if p["component"] != COMPONENTS[i] || p["result_hash"] != hash(&p["result"]) {
+            if p["component"] != COMPONENTS[i] {
+                return Err(err("EXECUTION_PROJECTION_HASH_OR_ORDER"));
+            }
+            if i < 5 && self.typed_after.is_some() {
+                // The same owner already encoded and hashed these exact bytes.
+                // Require its complete JSON value, hash, config, planner origin
+                // and Account format, rather than trusting a supplied digest.
+                let _ = crate::Components::validated_typed_after(self, i)?;
+            } else if p["result_hash"] != hash(&p["result"]) {
                 return Err(err("EXECUTION_PROJECTION_HASH_OR_ORDER"));
             }
             fp(&p["before_hash"])?;

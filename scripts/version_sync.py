@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import re
 import subprocess
@@ -30,89 +29,6 @@ TEST_DISTRIBUTION_PATHS = (
 )
 WEB_PACKAGE_PATH = Path("packages/frontend/package.json")
 WEB_LOCK_PATH = Path("packages/frontend/package-lock.json")
-QUANT_ASSET_VERSION_PROJECTIONS = {
-    Path("packages/onlyalpha-operators/src/onlyalpha_plugin_operators/metadata.py"): re.compile(
-        r'(?m)^(?P<prefix>DISTRIBUTION_VERSION\s*=\s*)"(?P<version>[^"]+)"(?P<suffix>[ \t]*)$'
-    ),
-
-}
-
-
-def _operator_provider_uses_projection(path: Path, version: str) -> bool:
-    try:
-        tree = ast.parse(path.read_text())
-        metadata = ast.parse(path.with_name("metadata.py").read_text())
-    except (OSError, SyntaxError):
-        return False
-    bindings = [
-        node
-        for node in ast.walk(metadata)
-        if isinstance(node, ast.Name) and node.id == "DISTRIBUTION_VERSION" and not isinstance(node.ctx, ast.Load)
-    ]
-    assignments = [
-        node
-        for node in metadata.body
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and node.targets[0] in bindings
-        and isinstance(node.value, ast.Constant)
-        and node.value.value == version
-    ]
-    if len(bindings) != 1 or len(assignments) != 1:
-        return False
-    imports = [
-        alias
-        for node in tree.body
-        if isinstance(node, ast.ImportFrom) and node.module == "onlyalpha_plugin_operators.metadata" and node.level == 0
-        for alias in node.names
-        if alias.name == "DISTRIBUTION_VERSION" and alias.asname is None
-    ]
-    if len(imports) != 1:
-        return False
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Name)
-            and node.id == "DISTRIBUTION_VERSION"
-            and not isinstance(node.ctx, ast.Load)
-            or isinstance(node, ast.arg)
-            and node.arg == "DISTRIBUTION_VERSION"
-            or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and node.name == "DISTRIBUTION_VERSION"
-            or isinstance(node, ast.alias)
-            and (node.asname or node.name) == "DISTRIBUTION_VERSION"
-            and node is not imports[0]
-        ):
-            return False
-    functions = [
-        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "quant_asset_provider"
-    ]
-    match functions:
-        case [
-            ast.FunctionDef(
-                body=[
-                    ast.Return(
-                        value=ast.Call(
-                            func=ast.Name(id="OnlyQuantAssetProvider"),
-                            args=[ast.Call(func=ast.Name(id="OnlyQuantAssetProviderManifest"), keywords=keywords), *_],
-                        )
-                    )
-                ]
-            )
-        ]:
-            sources = [keyword.value for keyword in keywords if keyword.arg == "source"]
-        case _:
-            return False
-    match sources:
-        case [ast.Call(func=ast.Name(id="OnlyDistributionProviderSource")) as call]:
-            pass
-        case _:
-            return False
-    if any(isinstance(argument, ast.Starred) for argument in call.args) or any(
-        keyword.arg is None for keyword in call.keywords
-    ):
-        return False
-    versions = [*call.args[1:], *(keyword.value for keyword in call.keywords if keyword.arg == "distribution_version")]
-    return len(versions) == 1 and isinstance(versions[0], ast.Name) and versions[0].id == "DISTRIBUTION_VERSION"
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,7 +232,6 @@ def workspace_graph_errors(
     units = load_release_units(root)
     distributions = load_workspace_distributions(root)
     formal_index = distribution_index(distributions)
-    distributions_by_directory = {distribution.path.parent: distribution for distribution in distributions}
     errors: list[str] = []
     for distribution in distributions:
         expected = units[_python_unit(distribution, root)]
@@ -338,19 +253,6 @@ def workspace_graph_errors(
             errors.append("Web lock version differs from frontend")
     except (OSError, ValueError, KeyError, TypeError) as error:
         errors.append(f"invalid Web lock: {error}")
-    for relative, pattern in QUANT_ASSET_VERSION_PROJECTIONS.items():
-        path = root / relative
-        plugin = distributions_by_directory.get(root.joinpath(*relative.parts[:2]))
-        if plugin is not None or path.exists():
-            matches = tuple(pattern.finditer(path.read_text())) if path.is_file() else ()
-            if (
-                plugin is None
-                or len(matches) != 1
-                or matches[0]["version"] != str(plugin.version)
-                or relative.name == "metadata.py"
-                and not _operator_provider_uses_projection(path.with_name("provider.py"), str(plugin.version))
-            ):
-                errors.append(f"{relative}: quant asset distribution provenance mismatch")
     try:
         lock = tomllib.loads((root / "Cargo.lock").read_text())
         for path, document, unit in _rust_members(root):
@@ -398,7 +300,6 @@ def rewrite_unit(
     documents: dict[Path, Any] = {}
     distributions = load_workspace_distributions(root)
     changed_names = frozenset(d.canonical_name for d in distributions if _python_unit(d, root) == unit)
-    changed_directories = {d.path.parent for d in distributions if d.canonical_name in changed_names}
     for distribution in (*distributions, *load_test_distributions(root, test_distribution_paths)):
         document = read_document(distribution.path)
         project = document["project"]
@@ -437,16 +338,6 @@ def rewrite_unit(
                     if dependency == f"{name} {old}":
                         package["dependencies"][index] = f"{name} {version}"
         documents[root / "Cargo.lock"] = lock
-    providers = []
-    for relative, pattern in QUANT_ASSET_VERSION_PROJECTIONS.items():
-        path = root / relative
-        if path.exists() and root.joinpath(*relative.parts[:2]) in changed_directories:
-            providers.append(
-                (
-                    path,
-                    pattern.sub(lambda m: m["prefix"] + f'"{version}"' + m["suffix"], path.read_text()),
-                )
-            )
     web = []
     if unit == "frontend":
         for relative in (WEB_PACKAGE_PATH, WEB_LOCK_PATH):
@@ -458,8 +349,6 @@ def rewrite_unit(
             web.append((path, document))
     for path, document in documents.items():
         write_document(path, document)
-    for path, source in providers:
-        path.write_text(source)
     for path, document in web:
         path.write_text(json.dumps(document, indent=4, ensure_ascii=False) + "\n")
 

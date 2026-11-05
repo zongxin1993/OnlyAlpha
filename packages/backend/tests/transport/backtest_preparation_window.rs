@@ -114,3 +114,16 @@ pub(crate) async fn stopped_worker_preserves_accepted_replay_and_refuses_new_sub
     assert_eq!(replay.specification_fingerprint(),original.specification_fingerprint());
     assert_eq!(replay.admission_resolution_fingerprint(),original.admission_resolution_fingerprint());
 }
+
+
+#[test]
+fn only_the_original_running_confirmation_keeps_an_absent_future_outcome_unknown() {
+    use State::*;
+    assert!(backtest_confirmation_in_progress(Running, "CONFIRMING"));
+    for state in [Accepted, InputPending, Ready, Blocked, Unknown, CancelRequested, Cancelled] {
+        assert!(!backtest_confirmation_in_progress(state, "CONFIRMING"), "{state:?}");
+    }
+    for phase in ["ACCEPTED", "VALIDATING", "INPUTS", "READY_FOR_HUMAN_CONFIRMATION", "STOPPED", "CANCELLATION", "OWNER_DRAINED"] {
+        assert!(!backtest_confirmation_in_progress(Running, phase), "{phase}");
+    }
+}

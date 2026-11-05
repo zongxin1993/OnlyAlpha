@@ -8,6 +8,7 @@ use std::{
     collections::BTreeMap,
     fs::{File, OpenOptions},
     path::Path,
+    sync::OnceLock,
     time::Duration,
 };
 const APPLICATION: i64 = 0x4f415250;
@@ -38,6 +39,50 @@ pub(crate) fn text_column<'row>(
         .as_str()
         .map_err(|cause| error(&format!("SQL: {cause}")))
 }
+// A Shared body proves UTF-8 only: its complete bytes were compared against
+// this invocation's actual SQLite TEXT. It proves no index/digest/flags/source.
+pub(crate) enum PayloadText<'row> {
+    Borrowed(&'row str),
+    Shared(std::sync::Arc<str>),
+}
+impl PayloadText<'_> {
+    pub(crate) fn as_str(&self) -> &str {
+        match self { Self::Borrowed(value) => value, Self::Shared(value) => value.as_ref() }
+    }
+    pub(crate) fn matches(&self, original: &std::sync::Arc<str>) -> bool {
+        match self {
+            Self::Shared(value) if std::sync::Arc::ptr_eq(value, original) => true,
+            _ => self.as_str() == original.as_ref(),
+        }
+    }
+    pub(crate) fn to_shared(&self) -> std::sync::Arc<str> {
+        match self {
+            Self::Borrowed(value) => std::sync::Arc::from(*value),
+            Self::Shared(value) => std::sync::Arc::clone(value),
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn is_borrowed(&self) -> bool { matches!(self, Self::Borrowed(_)) }
+}
+pub(crate) fn payload_column<'row>(
+    row: &'row rusqlite::Row<'_>, index: usize, cached: Option<&std::sync::Arc<str>>,
+) -> Result<PayloadText<'row>, Error> {
+    let actual = sql(row.get_ref(index))?;
+    if let (rusqlite::types::ValueRef::Text(bytes), Some(cached)) = (&actual, cached)
+        && *bytes == cached.as_bytes()
+    {
+        #[cfg(test)]
+        PAYLOAD_TEXT_REUSES.with(|count| count.set(count.get() + 1));
+        return Ok(PayloadText::Shared(std::sync::Arc::clone(cached)));
+    }
+    // Keep the original type/UTF-8 error before reading any later columns.
+    // Cold or changed bodies remain borrowed until all original bounds and
+    // semantic checks permit retention in their owning codec cache.
+    #[cfg(test)]
+    PAYLOAD_TEXT_VALIDATIONS.with(|count| count.set(count.get() + 1));
+    actual.as_str().map(PayloadText::Borrowed)
+        .map_err(|cause| error(&format!("SQL: {cause}")))
+}
 fn io<T, E: std::fmt::Display>(r: Result<T, E>) -> Result<T, Error> {
     r.map_err(|e| error(&format!("IO: {e}")))
 }
@@ -56,6 +101,8 @@ std::thread_local! {
     static SOURCE_HEAD_AGGREGATES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     pub(crate) static SOURCE_RAW_ROWS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static SOURCE_OWNED_PAYLOAD_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    pub(crate) static PAYLOAD_TEXT_VALIDATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    pub(crate) static PAYLOAD_TEXT_REUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static SOURCE_PROJECTION_COPIES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 fn prepared_hash(prepared: &Prepared) -> Result<String, Error> {
@@ -101,14 +148,14 @@ fn record_bound(prepared_size: usize, ready: bool, delivered: bool) -> Result<()
 // Pure codec bytes tied to one actually observed complete anchor row. The
 // same Arc is shared by the block; it is never a Ready or source-proof cache.
 struct DictionaryAnchorSource {
-    raw: String,
+    raw: std::sync::Arc<str>,
     anchor: crate::dictionary_codec::Anchor,
 }
 // Borrowed columns of one actual SQLite row; no decoded data or source permit.
 struct RecordRow<'a> {
     sequence: u64,
     input_id: &'a str,
-    payload: &'a str,
+    payload: PayloadText<'a>,
     expected: &'a str,
     flags: Option<(i64, i64)>,
 }
@@ -118,7 +165,7 @@ struct DecodedRow {
     prepared_size: Option<usize>,
     dictionary: Option<std::sync::Arc<DictionaryAnchorSource>>,
     input: String,
-    payload: String,
+    payload: std::sync::Arc<str>,
     digest: String,
     prepared_digest: String,
     projection_hashes: Vec<(String, String)>,
@@ -130,6 +177,8 @@ struct DecodedRow {
 pub struct SqliteStore {
     pub(crate) storage_version: u32,
     decoded_rows: RefCell<BTreeMap<u64, DecodedRow>>,
+    // Pure configuration-derived hashes only; never observed Store state.
+    genesis_hashes: OnceLock<(Value, Vec<String>)>,
     pub(crate) decoded_replay_rows: RefCell<BTreeMap<i64, crate::replay::DecodedReplayRow>>,
     pub(crate) replay_anchors:
         RefCell<BTreeMap<u64, (String, std::sync::Arc<crate::dictionary_codec::Anchor>)>>,
@@ -197,6 +246,7 @@ impl SqliteStore {
         let mut store = Self {
             storage_version,
             decoded_rows: RefCell::new(BTreeMap::new()),
+            genesis_hashes: OnceLock::new(),
             decoded_replay_rows: RefCell::new(BTreeMap::new()),
             replay_anchors: RefCell::new(BTreeMap::new()),
             replay_reference_metadata: RefCell::new(BTreeMap::new()),
@@ -278,6 +328,7 @@ impl SqliteStore {
         let store = Self {
             storage_version,
             decoded_rows: RefCell::new(BTreeMap::new()),
+            genesis_hashes: OnceLock::new(),
             decoded_replay_rows: RefCell::new(BTreeMap::new()),
             replay_reference_metadata: RefCell::new(BTreeMap::new()),
             replay_anchors: RefCell::new(BTreeMap::new()),
@@ -354,7 +405,7 @@ impl SqliteStore {
         Ok(())
     }
     fn validate_schema(&self) -> Result<(), Error> {
-        if !matches!(self.storage_version, 2 | 3 | 4) {
+        if !matches!(self.storage_version, 2..=4) {
             return Err(error("SCHEMA"));
         }
         self.validate_schema_version(i64::from(self.storage_version))
@@ -390,7 +441,7 @@ impl SqliteStore {
                 }
             })
             .collect();
-        if matches!(expected_version, 2 | 3 | 4) {
+        if matches!(expected_version, 2..=4) {
             expected.extend(REPLAY_SCHEMA.iter().map(|s| s.to_string()));
         }
         expected.sort();
@@ -440,35 +491,37 @@ impl SqliteStore {
         let RecordRow {
             sequence,
             input_id,
-            payload,
+            payload: payload_text,
             expected,
             flags,
         } = row;
+        let payload = payload_text.as_str();
         // Re-read every durable row. Reuse decoding only for the exact previously verified bytes and index.
-        if let Some((ready, delivered)) = flags {
-            if !matches!(ready, 0 | 1) || !matches!(delivered, 0 | 1) || delivered > ready {
-                return Err(error("FLAGS"));
-            }
+        if let Some((ready, delivered)) = flags
+            && (!matches!(ready, 0 | 1) || !matches!(delivered, 0 | 1) || delivered > ready)
+        {
+            return Err(error("FLAGS"));
         }
         if let Some(cached) = self.decoded_rows.borrow().get(&sequence)
             && cached.version == self.storage_version
             && (self.storage_version != 4
                 || match (&cached.dictionary, dictionary) {
                     (Some(old), Some(actual)) => {
-                        old.raw == actual.raw
-                            && old.anchor.physical() == actual.anchor.physical()
-                            && old.anchor.sequence() == actual.anchor.sequence()
-                            && old.anchor.logical() == actual.anchor.logical()
+                        std::sync::Arc::ptr_eq(old, actual)
+                            || (old.raw == actual.raw
+                                && old.anchor.physical() == actual.anchor.physical()
+                                && old.anchor.sequence() == actual.anchor.sequence()
+                                && old.anchor.logical() == actual.anchor.logical())
                     }
                     (Some(old), None) => {
                         old.anchor.sequence() == sequence
-                            && old.raw == payload
+                            && payload_text.matches(&old.raw)
                             && old.anchor.physical() == expected
                     }
                     _ => false,
                 })
             && cached.input == input_id
-            && cached.payload == payload
+            && payload_text.matches(&cached.payload)
             && cached.digest == expected
             && (matches!(self.storage_version, 3 | 4) || cached.flags == flags)
         {
@@ -522,7 +575,7 @@ impl SqliteStore {
                 }
                 let (value, anchor) = crate::dictionary_codec::decode_anchor(&frame)?;
                 actual_dictionary = Some(std::sync::Arc::new(DictionaryAnchorSource {
-                    raw: payload.into(),
+                    raw: payload_text.to_shared(),
                     anchor,
                 }));
                 value
@@ -610,10 +663,17 @@ impl SqliteStore {
             None => prepared_hash(prepared)?,
         };
         let projection_hashes = prepared.projection_hashes().to_vec();
-        let cached_payload = payload.to_owned();
+        // A freshly decoded dictionary anchor already retained these exact
+        // bounded bytes. Reuse that same allocation for the row's body cache.
+        let cached_payload = actual_dictionary.as_ref()
+            .filter(|source| source.anchor.sequence() == sequence)
+            .map(|source| std::sync::Arc::clone(&source.raw))
+            .unwrap_or_else(|| payload_text.to_shared());
         #[cfg(test)]
-        SOURCE_OWNED_PAYLOAD_BYTES
-            .with(|count| count.set(count.get() + cached_payload.len() as u64));
+        if payload_text.is_borrowed() {
+            SOURCE_OWNED_PAYLOAD_BYTES
+                .with(|count| count.set(count.get() + cached_payload.len() as u64));
+        }
         self.decoded_rows.borrow_mut().insert(
             sequence,
             DecodedRow {
@@ -655,7 +715,8 @@ impl SqliteStore {
             return Ok(None);
         };
         let input_id = text_column(row, 0)?;
-        let payload = text_column(row, 1)?;
+        let payload = payload_column(row, 1, self.decoded_rows.borrow().get(&sequence)
+            .filter(|cached| cached.version == self.storage_version).map(|cached| &cached.payload))?;
         let expected = text_column(row, 2)?;
         let ready: Option<i64> = sql(row.get(3))?;
         let delivered: Option<i64> = sql(row.get(4))?;
@@ -752,14 +813,26 @@ impl SqliteStore {
         Ok(head)
     }
     fn genesis_hashes(&self) -> Result<Vec<String>, Error> {
-        Ok(
-            Components::new(self.identity["configuration"].clone())?.checkpoint()?["components"]
-                .as_array()
-                .ok_or_else(|| error("GENESIS"))?
-                .iter()
-                .map(hash)
-                .collect(),
-        )
+        let configuration = &self.identity["configuration"];
+        if let Some((original, hashes)) = self.genesis_hashes.get()
+            && original == configuration
+        {
+            return Ok(hashes.clone());
+        }
+        let hashes = Components::new(configuration.clone())?.checkpoint()?["components"]
+            .as_array()
+            .ok_or_else(|| error("GENESIS"))?
+            .iter()
+            .map(hash)
+            .collect::<Vec<_>>();
+        // A different configuration is recomputed normally. The original memo
+        // cannot authorize it or suppress any configuration validation failure.
+        if self.genesis_hashes.get().is_none() {
+            let _ = self
+                .genesis_hashes
+                .set((configuration.clone(), hashes.clone()));
+        }
+        Ok(hashes)
     }
     pub(crate) fn read_records(&self) -> Result<Vec<Record>, Error> {
         self.validate_identity()?;
@@ -776,7 +849,8 @@ impl SqliteStore {
             let sequence =
                 u64::try_from(sql(row.get::<_, i64>(0))?).map_err(|_| error("SEQUENCE"))?;
             let input_id = text_column(row, 1)?;
-            let payload = text_column(row, 2)?;
+            let payload = payload_column(row, 2, self.decoded_rows.borrow().get(&sequence)
+                .filter(|cached| cached.version == self.storage_version).map(|cached| &cached.payload))?;
             let expected = text_column(row, 3)?;
             let ready: Option<i64> = sql(row.get(4))?;
             let delivered: Option<i64> = sql(row.get(5))?;
@@ -1194,7 +1268,7 @@ impl Store for SqliteStore {
             let cached = rows
                 .get_mut(&p.sequence())
                 .ok_or_else(|| error("COMMIT_READBACK"))?;
-            if cached.payload != *raw
+            if cached.payload.as_ref() != raw.as_str()
                 || cached.digest != digest(raw.as_bytes())
                 || observed.prepared() != p
             {

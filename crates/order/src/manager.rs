@@ -36,6 +36,8 @@ pub struct Manager {
     pub(crate) journal: Vec<Value>,
     journal_bytes: usize,
     pub(crate) sequence: u64,
+    // Pure canonical representation of this state, never source or Ready proof.
+    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<crate::recovery::CachedCheckpoint>>,
 }
 impl Manager {
     pub fn new(config: Value) -> Result<Self, Error> {
@@ -63,6 +65,7 @@ impl Manager {
             journal: Vec::new(),
             journal_bytes: 2,
             sequence: 0,
+            checkpoint_cache: std::sync::OnceLock::new(),
         })
     }
     pub fn get(&self, cluster: &str, order: &str) -> Result<OnlyOrderSnapshot, Error> {
@@ -583,6 +586,9 @@ impl Manager {
         Ok(())
     }
     fn commit(&mut self, value: &Value, size: usize) {
+        // Both actual mutation paths join here after all fallible checks.
+        // No checkpoint read or callback intervenes after their state writes.
+        let _ = self.checkpoint_cache.take();
         self.journal.push(value.clone());
         self.journal_bytes += size + 1;
         self.sequence += 1;

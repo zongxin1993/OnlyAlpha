@@ -5,15 +5,12 @@ from importlib.metadata import version
 from typing import Any
 
 import pyarrow as pa  # type: ignore[import-untyped]
-from onlyalpha_plugin_operators.metadata import provider_manifest
-from onlyalpha_plugin_operators.registration import registrations
-
 from onlyalpha.calculation.definition import OnlyCalculationDefinition
-from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.quant_assets.private_factor_provider_snapshot import (
     OnlyPrivateFactorProviderSnapshotEntryV1,
     OnlyPrivateFactorProviderSnapshotV1,
 )
+
 from onlyalpha_backend_algorithms.chart_isolation import restrict
 from onlyalpha_backend_algorithms.research_evaluation import ManagedProgramHost
 from onlyalpha_backend_algorithms.research_worker import resolve, verify_distribution
@@ -52,17 +49,6 @@ def certify(payload: dict[str, Any]) -> dict[str, Any]:
         {name: Decimal(2 + index * 7 + column) for column, name in enumerate(sorted(source.input_contract))}
         for index in range(8)
     )
-    operators = [
-        {
-            "type": r.type_definition.descriptor(),
-            "backend": r.backend.value,
-            "implementation_fingerprint": r.implementation_manifest.implementation_fingerprint,
-            "state_capability": None if r.state_capability is None else r.state_capability.value,
-            "checkpoint_schema_version": r.checkpoint_schema_version,
-        }
-        for r in registrations()
-        if r.implementation_manifest is not None
-    ]
     # Arrow initialization may load its declared shared libraries before seccomp.
     pa.array([Decimal("1")], type=pa.decimal128(38, 18))
     isolation = restrict()
@@ -78,8 +64,6 @@ def certify(payload: dict[str, Any]) -> dict[str, Any]:
         "provider_snapshot": snapshot.to_dict(),
         "certification_policy": "ONLYALPHA_PRIVATE_FACTOR_ABI_VECTORS_V1",
         "certification_vectors": {"vectors": list(vectors), "parameters": parameters},
-        "operator_provider_manifest": provider_manifest(),
-        "operator_calculations": sorted(operators, key=only_canonical_fingerprint),
     }
 
 
@@ -96,20 +80,20 @@ def prepare(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
 
 def prepare_strategy(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
     """Observe the actual installed Target library before entering confinement."""
+    from onlyalpha_backend_algorithms.research_resolution import private_calculation_records
     from onlyalpha_backend_algorithms.targets.registration import registrations as target_registrations
 
-    from onlyalpha_backend_algorithms.research_resolution import private_calculation_records
-
     if (
-        set(payload)
-        != {"schema_version", "contract", "source", "graph", "core_artifact", "operator_artifact", "target_artifact"}
+        set(payload) != {"schema_version", "contract", "source", "graph", "core_artifact", "target_artifact"}
         or type(payload["schema_version"]) is not int
         or payload["schema_version"] != 1
         or payload["contract"] != STRATEGY_CONTRACT
         or payload["target_artifact"]["distribution_version"] != version("onlyalpha-backend-algorithms")
     ):
         raise ValueError("RESEARCH_STRATEGY_PREPARATION_INPUT_INVALID")
-    target = verify_distribution(payload["target_artifact"], "onlyalpha_backend_algorithms", "onlyalpha-backend-algorithms")
+    target = verify_distribution(
+        payload["target_artifact"], "onlyalpha_backend_algorithms", "onlyalpha-backend-algorithms"
+    )
     registrations = target_registrations()
     if not registrations or any(
         row.type_definition.kind.value != "TARGET"
@@ -134,25 +118,12 @@ def prepare_strategy(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
 
 
 def _prepare_factor(payload: dict[str, Any], artifact: str) -> dict[str, Any]:
-    if set(payload) != {"schema_version", "source", "graph", "core_artifact", "operator_artifact"}:
+    if set(payload) != {"schema_version", "source", "graph", "core_artifact"}:
         raise ValueError("RESEARCH_PREPARATION_INPUT_INVALID")
-    declared = provider_manifest()["source"]
-    if (
-        not isinstance(declared, dict)
-        or version(str(declared["distribution_name"])) != declared["distribution_version"]
-    ):
-        raise ValueError("RESEARCH_PREPARATION_DISTRIBUTION_MISMATCH")
-    if payload["operator_artifact"]["distribution_version"] != declared["distribution_version"]:
-        raise ValueError("RESEARCH_PREPARATION_DISTRIBUTION_MISMATCH")
-    operator = verify_distribution(
-        payload["operator_artifact"], "onlyalpha_plugin_operators", "onlyalpha-plugin-operators"
-    )
-    resolved = resolve({key: value for key, value in payload.items() if key != "operator_artifact"}, artifact)
+    resolved = resolve(payload, artifact)
     observation = certify({"source": payload["source"], "graph": payload["graph"]})
     return {
         **resolved,
         **observation,
         "contract": "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1",
-        "operator_artifact_sha256": operator["artifact_sha256"],
-        "operator_resources_fingerprint": operator["resources_fingerprint"],
     }

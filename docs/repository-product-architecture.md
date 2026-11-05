@@ -119,11 +119,11 @@ All backend roles and backend base Python resources ship under one backend versi
 work; new activation/rollback changes only new-work selection under ADR 0117. Version equality is not permission to claim work,
 and a process restart is not a valid handover protocol. Keep required historical artifacts, readers, facts and keys.
 
-## Original package to target responsibility map
+## 原工程职责与当前实现归属
 
-This maps the original package responsibilities, not automatic whole-directory moves or a completion checklist.
+下表保留原工程名称用于定位历史职责；当前实现归属以右侧源码为准。
 
-| Current `packages/onlyalpha-*` | Target |
+| 原 `packages/onlyalpha-*` 工程 | 当前职责归属 |
 |---|---|
 | `web-console` | `packages/frontend` |
 | `http-server` | backend transport/security/bootstrap and program entry |
@@ -132,9 +132,10 @@ This maps the original package responsibilities, not automatic whole-directory m
 | `gateway-protocol` | Rust bindings in `crates/calculation-bridge/src/protocol/`, canonical definitions in `contracts/gateway/`, Python bindings in backend resources |
 | `runtime-persistence` | reusable non-Kernel `crates/runtime/` library |
 | `backtest-driver` | reusable `onlyalpha-backtest`; admission/task/process entry belongs in backend |
-| `calculation-worker` | reusable `onlyalpha-calculation-bridge`; native supervision in backend; minimal Python code in backend resources |
-| `authoring-execution-worker` | backend authoring execution/worker modules; remaining Python business must migrate before retirement |
-| `runtime-generation-manager` | backend Generation modules, preserving the sole existing ledger/binding Authority |
+| `calculation-worker` | `crates/calculation-bridge` 提供可复用协议与原生适配；后端 `workers/algorithm.rs`、`trading_nodes.rs`、`research_calculations.rs` 负责进程与节点调度；受限 Python 编写接口位于 `backend/python/algorithms` |
+| `authoring-execution-worker` | 后端 `workers/research.rs`、`application/research_admission.rs` 和 `persistence/research_execution.rs` 负责准入证明、认领、执行与恢复 |
+| `runtime-generation-manager` | 后端 `persistence/research_runtime.rs` 及其 `lifecycle.rs` / `contracts.rs` 负责原有 Generation 日志、工件验证与工作绑定 |
+| `operators` | `crates/operators` 负责数值语义，`crates/calculation-bridge/src/native_operators.rs` 负责正式 Calculation 定义、实现清单、Provider 与检查点适配 |
 
 Moving Python business into `backend/python` is not Rust migration. A retained interim implementation must be explicitly
 classified in task context and follow the existing official-writer binding. No general compatibility re-export is added.
@@ -163,3 +164,23 @@ wiring after replacing its useful assertions. Retain the minimal Python algorith
 entire second Kernel. Exact historical artifact/readers remain under their owning contracts, without new legacy loaders or
 source shims. [The work program](repository-migration-work-program.md) defines sequencing and required proofs; it does not
 declare a module migrated or authorize deletion by directory name.
+
+## 内置算子与受限编写接口
+
+内置算子的数值内核位于 `crates/operators`，完整 Calculation 定义、实现清单和检查点适配位于
+`crates/calculation-bridge`。当前实现使用原有 `onlyalpha.operator.*` 名称和独立的语义版本 `2`。
+每步十进制运算采用 28 位有效数字及半偶数舍入，输出量化到 12 位小数。平方根和自然对数的舍入
+使用精确整数比较或可证明的上下界。零统一为正零。Delay 只依赖被移位的输入，Delta 同时依赖当前
+输入和被移位的输入。截面的汇总顺序采用冻结平面的规范 Instrument 顺序。旧版本 `1` 的引用和摘要
+不因此改变，当前编译入口不将旧引用自动解析为版本 `2`。
+
+Research 的图拓扑与内置算子由 Rust 执行。Trading 和 Backtest 复用原 Strategy Executor、
+Calculation 游标和收据，以独立节点实例执行原生算子。检查点绑定完整 Definition、实现、工作身份、
+事件位置和窗口，恢复先构建并核对候选状态，再提交。截面算子需要其调用方证明同一事件时刻的完整
+规范平面，时间序列不能冒充截面。受限 Python 编写接口和已明确隔离的算法不拥有图调度、Run、
+Attempt、Generation、数据库或恢复权限。
+
+Distribution Artifact Manifest `3` 将内置算子 Provider、24 项资产以及完整原生实现清单绑定到同一个
+`BACKEND_RUNTIME` ELF。Provider 版本为 `7`。算子的 Research 和 Trading 实现身份分别绑定实际
+入口及完整 ELF 摘要。该格式不再发布 Python 算子 wheel，也不把相同 ELF 包装成第二份发行工件。
+Manifest `1`、`2` 仍按原字段和身份读取，历史引用不通过当前实现重写。

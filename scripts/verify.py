@@ -200,7 +200,6 @@ IMPACT_RULES = (
             "test-data/settlement/",
             "test-data/margin/",
             "crates/calculation-bridge/",
-            "packages/onlyalpha-calculation-worker/",
             "crates/runtime/",
             "crates/backtest/",
             "packages/backend/",
@@ -589,7 +588,7 @@ IMPACT_RULES = (
         (
             "tests/research/factor/",
             "plugs/onlyalpha-plugin-factors/",
-            "packages/onlyalpha-operators/",
+            "crates/operators/",
             "examples/private-assets/factor/",
         ),
         (),

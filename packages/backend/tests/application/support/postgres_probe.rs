@@ -680,15 +680,50 @@ fn main() -> Result<(), Box<dyn StdError>> {
   let driver=tokio::spawn(connection);
   if std::env::args().any(|arg|arg=="--pid-barrier") {let pid:i32=client.query_one("SELECT pg_backend_pid()",&[]).await?.get(0);println!("{}",json!({"ready":true,"backend_pid":pid}));io::stdout().flush()?;}
   else if std::env::args().any(|arg|arg=="--barrier") {println!("{}",json!({"ready":true}));io::stdout().flush()?;}
-  let mut raw=String::new();io::stdin().take(270337).read_to_string(&mut raw)?;
-  if raw.len()>270336 {return Err("probe frame bound".into())}
+  let mut raw=String::new();io::stdin().take((8*1024*1024+4097) as u64).read_to_string(&mut raw)?;
+  if raw.len()>8*1024*1024+4096 {return Err("probe frame bound".into())}
   let request:Value=serde_json::from_str(&raw)?;
   // Factor Draft tests carry the 256 KiB Product input plus the probe envelope.
-  // Other probe operations retain their existing 128 KiB frame guard.
-  if raw.len()>131072 && request["op"]!="factor-authoring" {return Err("probe frame bound".into())}
+  // The Calculation ABI uses its explicit 8 MiB frame plus a bounded envelope.
+  // All other probe operations retain their existing 128 KiB frame guard.
+  if request["op"]=="factor-authoring" {if raw.len()>270336{return Err("probe frame bound".into());}}
+  else if request["op"]!="research-calculations" && raw.len()>131072 {return Err("probe frame bound".into())}
+  if request["op"]=="factor-reference" {
+   let candidate=&request["candidate"];
+   let draft=if request["draft"].is_null() {
+     onlyalpha_backend::application::factor_content::preview(candidate,request["factor_id"].as_str().ok_or("factor id")?)?["draft"].clone()
+   } else {request["draft"].clone()};
+   let revision=onlyalpha_backend::application::private_assets::authoring::Draft::new(draft.clone())?.revision()?;
+   onlyalpha_backend::application::research_factor::compile(candidate,&draft,&revision)?;
+   println!("{}",json!({"candidate":candidate,"draft":draft,"revision":revision}));
+   drop(client);driver.await??;return Ok(());
+  }
   if request["op"]=="research-namespace" {let result=research_namespace_probe::run(&request,&mut client).await;println!("{result}");drop(client);driver.await??;return Ok(());}
   if request["op"]=="factor-study" {let result=factor_studies_probe::run(&request,&mut client).await;println!("{result}");drop(client);driver.await??;return Ok(());}
   if request["op"]=="market-storage" {drop(client);driver.await??;let result=match market_storage_probe::run(&request["request"]).await{Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})};println!("{result}");return Ok(());}
+  if request["op"]=="research-calculations" {
+   drop(client);driver.await??;
+   let result=(||->Result<Value,Box<dyn StdError>> {
+    use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
+    use onlyalpha_calculation_bridge::{ChartInstallation,ProcessState};
+    let installation=ChartInstallation::open(std::path::Path::new(request["installation"].as_str().ok_or("installation")?),request["algorithm_artifact"].as_str().ok_or("algorithm artifact")?)?;
+    let mut worker=AlgorithmProcess::research_resolution(&installation,request["generation"].as_str().ok_or("generation")?,Box::new(()))?;
+    let owner=worker.cancellation()?;
+    let deadline=Duration::from_secs(10);
+    let observed=(|| {
+     worker.handshake_research(deadline)?;
+     match request["action"].as_str() {
+      Some("resolve")=>worker.resolve_research(request["request"].clone(),deadline),
+      Some("evaluate")=>worker.evaluate_research(request["request"].clone(),deadline),
+      Some("prepare")=>worker.prepare_research(request["request"].clone(),deadline),
+      _=>Err(onlyalpha_calculation_bridge::WorkerError::Invalid),
+     }
+    })();
+    if owner.drain().is_err()||owner.state()!=ProcessState::Joined {return Err("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN".into());}
+    observed.map_err(|_|"RESEARCH_ALGORITHM_UNAVAILABLE".into())
+   })();
+   println!("{}",match result {Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})});return Ok(());
+  }
   if request["op"]=="runtime-environment" {
    let started=std::time::Instant::now();
    let progress=|phase:&str|eprintln!("[runtime-environment] phase={phase} elapsed_ms={}",started.elapsed().as_millis());

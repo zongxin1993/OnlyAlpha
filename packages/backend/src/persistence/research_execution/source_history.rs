@@ -226,7 +226,7 @@ fn run(v: &Value) -> Result<()> {
         return Err(UNAVAILABLE);
     }
     match schema {
-        4 if text(v, "origin_kind")? == "GENERAL"
+        4 | 6 if text(v, "origin_kind")? == "GENERAL"
             && v["strategy_research_composition_fingerprint"].is_null() => {},
         5 if text(v, "origin_kind")? == "PRIVATE_STRATEGY" => {
             sha(v,"strategy_research_composition_fingerprint")?;

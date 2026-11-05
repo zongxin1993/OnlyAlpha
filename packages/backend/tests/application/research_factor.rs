@@ -11,17 +11,40 @@ fn reference() -> Value {
     .unwrap()
 }
 #[test]
-fn canonical_graph_and_source_match_independent_sdk_contract() {
-    let r = reference();
-    let c = compile(&r["candidate"], &r["draft"], &r["revision"]).unwrap();
-    assert_eq!(c.graph().to_record(), r["graph"]);
-    assert_eq!(c.graph().fingerprint(), r["graph_fingerprint"]);
-    assert_eq!(
-        c.root_fingerprint(),
-        r["root_fingerprint"].as_str().unwrap()
-    );
-    assert_eq!(c.required_history_bars(), 20);
-    assert_eq!(c.columns(), &["close".to_string(), "volume".to_string()]);
+fn historical_graph_keeps_its_original_exact_identity() {
+    use onlyalpha_calculation::product::Graph;
+    let r=reference();
+    let historical=Graph::from_record(&r["graph"],1024*1024).unwrap();
+    assert_eq!(historical.to_record(),r["graph"]);
+    assert_eq!(historical.fingerprint(),r["graph_fingerprint"].as_str().unwrap());
+    for definition in historical.ordered_nodes() {
+        assert_eq!(definition.to_record()["semantic_version"],"1");
+    }
+}
+#[test]
+fn current_graph_uses_actual_native_operator_contracts_and_a_distinct_identity() {
+    use onlyalpha_calculation_bridge::native_operators::OperatorCalculation;
+    let r=reference();
+    let c=compile(&r["candidate"],&r["draft"],&r["revision"]).unwrap();
+    assert_ne!(c.graph().to_record(),r["graph"]);
+    assert_ne!(c.graph().fingerprint(),r["graph_fingerprint"].as_str().unwrap());
+    assert_ne!(c.root_fingerprint(),r["root_fingerprint"].as_str().unwrap());
+    let mut operators=0;
+    for definition in c.graph().ordered_nodes() {
+        let record=definition.to_record();
+        if record["kind"]=="INDICATOR" {
+            operators+=1;
+            assert_eq!(record["semantic_version"],"2");
+            let actual=OperatorCalculation::from_record(&record).unwrap();
+            assert_eq!(actual.definition(),definition);
+        }else{
+            assert_eq!(record["kind"],"FACTOR");
+            assert_eq!(record["semantic_version"],"1");
+        }
+    }
+    assert_eq!(operators,2);
+    assert_eq!(c.required_history_bars(),20);
+    assert_eq!(c.columns(), &["close".to_string(),"volume".to_string()]);
 }
 #[test]
 fn revision_source_and_reviewed_candidate_cannot_be_substituted() {
@@ -45,6 +68,10 @@ fn revision_source_and_reviewed_candidate_cannot_be_substituted() {
     let mut candidate = r["candidate"].clone();
     candidate["expression"]["left"]["left"]["right"]["lag"] = json!(21);
     assert!(compile(&candidate, &r["draft"], &r["revision"]).is_err());
+
+    let mut revision = r["revision"].clone();
+    revision["unverified_executable"] = json!({"artifact_fingerprint": "f".repeat(64)});
+    assert!(compile(&r["candidate"], &r["draft"], &revision).is_err());
 }
 #[test]
 fn exact_scope_includes_warmup_but_never_extends_forecast_beyond_approved_end() {
@@ -269,7 +296,7 @@ fn preparation_and_window_identity_survive_a_fresh_process() {
     let out = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "research_factor::preparation_and_window_identity_survive_a_fresh_process",
+            "preparation_and_window_identity_survive_a_fresh_process",
             "--nocapture",
             "--test-threads=1",
         ])
@@ -293,15 +320,15 @@ fn an_exact_published_revision_and_explicit_strategy_bindings_share_the_original
     use onlyalpha_backend::application::research_factor::compile_revision;
     let r = reference();
     let dependencies = json!({"close":{"input":"close","closed_only":true},
-        "close_lag_20":{"input":"close","operator":"onlyalpha.operator.delay","semantic_version":"1","period":20,"closed_only":true},
+        "close_lag_20":{"input":"close","operator":"onlyalpha.operator.delay","semantic_version":"2","period":20,"closed_only":true},
         "volume":{"input":"volume","closed_only":true},
-        "volume_mean_20":{"input":"volume","operator":"onlyalpha.operator.rolling_mean","semantic_version":"1","period":20,"closed_only":true}});
+        "volume_mean_20":{"input":"volume","operator":"onlyalpha.operator.rolling_mean","semantic_version":"2","period":20,"closed_only":true}});
     let compiled = compile_revision(&r["revision"], &dependencies).unwrap();
     let original = compile(&r["candidate"], &r["draft"], &r["revision"]).unwrap();
-    assert_eq!(compiled.graph().to_record(), r["graph"]);
+    assert_eq!(compiled.graph().to_record(), original.graph().to_record());
     assert_eq!(compiled.fingerprint(), original.fingerprint());
     assert_eq!(compiled.revision_fingerprint(), r["revision"]["revision_fingerprint"].as_str().unwrap());
-    for mutation in ["missing-port", "extra-port", "not-closed", "unsupported-operator", "unbounded-period", "semantic-version"] {
+    for mutation in ["missing-port", "extra-port", "not-closed", "unsupported-operator", "unbounded-period", "missing-version", "legacy-version", "semantic-version"] {
         let mut bindings = dependencies.clone();
         match mutation {
             "missing-port" => { bindings.as_object_mut().unwrap().remove("close"); },
@@ -309,7 +336,9 @@ fn an_exact_published_revision_and_explicit_strategy_bindings_share_the_original
             "not-closed" => bindings["close"]["closed_only"] = json!(false),
             "unsupported-operator" => bindings["close_lag_20"]["operator"] = json!("other.delay"),
             "unbounded-period" => bindings["close_lag_20"]["period"] = json!(u64::MAX),
-            _ => bindings["close_lag_20"]["semantic_version"] = json!("2"),
+            "missing-version" => { bindings["close_lag_20"].as_object_mut().unwrap().remove("semantic_version"); },
+            "legacy-version" => bindings["close_lag_20"]["semantic_version"] = json!("1"),
+            _ => bindings["close_lag_20"]["semantic_version"] = json!("3"),
         }
         assert!(compile_revision(&r["revision"], &bindings).is_err(), "{mutation}");
     }

@@ -3,7 +3,7 @@ use crate::{Runtime, SqliteStore, codec};
 use onlyalpha_execution::{Components, Error, Record, digest};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
-use std::io::Write;
+use std::{io::Write, sync::Arc};
 fn bad(reason: &str) -> Error {
     Error(format!("RUNTIME_REPLAY_{reason}"))
 }
@@ -41,15 +41,27 @@ fn fingerprint(value: &Value) -> Result<String, Error> {
         .map(str::to_owned)
         .ok_or_else(|| bad("REFERENCE_HASH"))
 }
+/// Data returned by one owning Replay completion. The pending result belongs
+/// to immediate delivery, not to completion success or future source authority.
+pub struct ReplayCompletion {
+    pub references: Vec<ReplayEntryRef>,
+    pub pending_events: Result<Vec<Value>, Error>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplayEntryRef {
+    body: Arc<ReplayEntryBody>,
+    // Observation only: never shared with the immutable decoded frame body.
+    ready: bool,
+}
+#[derive(Debug, PartialEq, Eq)]
+struct ReplayEntryBody {
     index: u64,
     previous: String,
     logical: String,
     physical: String,
     start: u64,
     inputs: Vec<String>,
-    ready: bool,
     version: u32,
     encoded: u64,
     decoded: u64,
@@ -59,39 +71,35 @@ pub struct ReplayEntryRef {
 // Pure frame/header decoding only. Ready is deliberately absent from the
 // cached expectation; every actual SQL row supplies and checks it separately.
 pub(crate) struct CachedReplayReference {
-    raw: String,
+    raw: Arc<str>,
     physical: String,
     version: u32,
     metadata: ReplayEntryRef,
 }
 impl ReplayEntryRef {
     pub fn index(&self) -> u64 {
-        self.index
+        self.body.index
     }
     pub fn logical_fingerprint(&self) -> &str {
-        &self.logical
+        &self.body.logical
     }
     pub fn physical_fingerprint(&self) -> &str {
-        &self.physical
+        &self.body.physical
     }
     pub fn execution_start(&self) -> u64 {
-        self.start
+        self.body.start
     }
     pub fn ready(&self) -> bool {
         self.ready
     }
     pub fn encoded_size(&self) -> u64 {
-        self.encoded
+        self.body.encoded
     }
     pub fn decoded_size(&self) -> u64 {
-        self.decoded
+        self.body.decoded
     }
     fn same_body(&self, other: &Self) -> bool {
-        let mut a = self.clone();
-        let mut b = other.clone();
-        a.ready = false;
-        b.ready = false;
-        a == b
+        self.body == other.body
     }
 }
 fn summary(step: &Value) -> Result<Value, Error> {
@@ -165,7 +173,8 @@ fn from_frame(
         (f.summary, f.logical, f.size as u64)
     } else {
         let value: Value = serde_json::from_str(raw)?;
-        if value.to_string() != raw || digest(raw.as_bytes()) != physical {
+        let canonical = value.to_string();
+        if canonical.as_str() != raw || digest(raw.as_bytes()) != physical {
             return Err(bad("DIGEST"));
         }
         (summary(&value)?, sha(&value), raw.len() as u64)
@@ -199,20 +208,22 @@ fn from_frame(
         .map(fingerprint)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ReplayEntryRef {
-        index: n,
-        previous: fingerprint(&meta["previous"])?,
-        logical,
-        physical: physical.into(),
-        start: meta["execution_start"]
-            .as_u64()
-            .ok_or_else(|| bad("PREFIX"))?,
-        inputs,
+        body: Arc::new(ReplayEntryBody {
+            index: n,
+            previous: fingerprint(&meta["previous"])?,
+            logical,
+            physical: physical.into(),
+            start: meta["execution_start"]
+                .as_u64()
+                .ok_or_else(|| bad("PREFIX"))?,
+            inputs,
+            version,
+            encoded: raw.len() as u64,
+            decoded,
+            dictionary,
+            basis,
+        }),
         ready: ready == 1,
-        version,
-        encoded: raw.len() as u64,
-        decoded,
-        dictionary,
-        basis,
     })
 }
 impl SqliteStore {
@@ -220,11 +231,12 @@ impl SqliteStore {
     // The caller still checks this invocation's lineage, flags, head and inputs.
     fn reference_metadata(
         &self,
-        raw: &str,
+        raw_text: &crate::store::PayloadText<'_>,
         physical: &str,
         index: i64,
         ready: i64,
     ) -> Result<ReplayEntryRef, Error> {
+        let raw = raw_text.as_str();
         if !matches!(ready, 0 | 1) {
             return Err(bad("READY"));
         }
@@ -233,7 +245,7 @@ impl SqliteStore {
         }
         if let Some(cached) = self.replay_reference_metadata.borrow().get(&index)
             && cached.version == self.storage_version
-            && cached.raw == raw
+            && raw_text.matches(&cached.raw)
             && cached.physical == physical
         {
             let mut entry = cached.metadata.clone();
@@ -244,11 +256,13 @@ impl SqliteStore {
         let mut metadata = entry.clone();
         metadata.ready = false;
         #[cfg(test)]
-        REFERENCE_OWNED_RAW_BYTES.with(|count| count.set(count.get() + raw.len() as u64));
+        if raw_text.is_borrowed() {
+            REFERENCE_OWNED_RAW_BYTES.with(|count| count.set(count.get() + raw.len() as u64));
+        }
         self.replay_reference_metadata.borrow_mut().insert(
             index,
             CachedReplayReference {
-                raw: raw.into(),
+                raw: raw_text.to_shared(),
                 physical: physical.into(),
                 version: self.storage_version,
                 metadata,
@@ -270,49 +284,50 @@ impl SqliteStore {
         let mut rows = sql(statement.query([]))?;
         while let Some(row) = sql(rows.next())? {
             let index: i64 = sql(row.get(0))?;
-            let raw = crate::store::text_column(row, 1)?;
+            let raw = crate::store::payload_column(row, 1,
+                self.replay_reference_metadata.borrow().get(&index)
+                    .filter(|cached| cached.version == self.storage_version).map(|cached| &cached.raw))?;
             let physical = crate::store::text_column(row, 2)?;
             let ready: i64 = sql(row.get(3))?;
             #[cfg(test)]
             REFERENCE_SOURCE_ROWS.with(|count| count.set(count.get() + 1));
-            let entry = self.reference_metadata(raw, physical, index, ready)?;
-            if let Some((base, physical, logical)) = &entry.basis {
+            let entry = self.reference_metadata(&raw, physical, index, ready)?;
+            if let Some((base, physical, logical)) = &entry.body.basis {
                 let anchor = result
                     .get(
                         usize::try_from(base.checked_sub(1).ok_or_else(|| bad("BASIS"))?)
                             .map_err(|_| bad("BASIS"))?,
                     )
                     .ok_or_else(|| bad("BASIS"))?;
-                if !anchor.dictionary
-                    || anchor.basis.is_some()
+                if !anchor.body.dictionary
+                    || anchor.body.basis.is_some()
                     || !anchor.ready
-                    || anchor.physical != *physical
-                    || anchor.logical != *logical
+                    || anchor.body.physical != *physical
+                    || anchor.body.logical != *logical
                 {
                     return Err(bad("BASIS"));
                 }
             }
-            if entry.index != result.len() as u64 + 1
-                || entry.previous != previous
-                || entry.start != execution
+            if entry.body.index != result.len() as u64 + 1
+                || entry.body.previous != previous
+                || entry.body.start != execution
                 || result.last().is_some_and(|r| !r.ready)
             {
                 return Err(bad("LINEAGE"));
             }
-            for expected in &entry.inputs {
+            for expected in &entry.body.inputs {
                 execution = execution.checked_add(1).ok_or_else(|| bad("BOUND"))?;
                 if let Some(actual) =
                     records.get(usize::try_from(execution - 1).map_err(|_| bad("BOUND"))?)
+                    && actual.prepared().input_fingerprint() != expected
                 {
-                    if actual.prepared().input_fingerprint() != expected {
-                        return Err(bad("EXECUTION_RELATION"));
-                    }
+                    return Err(bad("EXECUTION_RELATION"));
                 }
             }
             if entry.ready && execution > records.len() as u64 {
                 return Err(bad("READY_AHEAD"));
             }
-            previous = entry.logical.clone();
+            previous = entry.body.logical.clone();
             result.push(entry);
         }
         let (head, last): (i64, Option<String>) = sql(self.connection.query_row(
@@ -392,22 +407,36 @@ impl SqliteStore {
         Error,
     > {
         self.validate_identity_for_reference()?;
-        let base = reference.basis.as_ref().map_or(0, |b| b.0);
+        let base = reference.body.basis.as_ref().map_or(0, |b| b.0);
         // Target and fixed base are observed in one SQLite statement/snapshot.
-        let row:Option<(String,String,i64,Option<String>,Option<String>,Option<i64>)>=sql(self.connection.query_row("SELECT t.payload,t.digest,t.ready,b.payload,b.digest,b.ready FROM replay_steps t LEFT JOIN replay_steps b ON b.sequence=?2 WHERE t.sequence=?1",params![i64::try_from(reference.index).map_err(|_|bad("BOUND"))?,i64::try_from(base).map_err(|_|bad("BOUND"))?],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).optional())?;
+        let row = sql(self.connection.query_row(
+            "SELECT t.payload,t.digest,t.ready,b.payload,b.digest,b.ready FROM replay_steps t LEFT JOIN replay_steps b ON b.sequence=?2 WHERE t.sequence=?1",
+            params![
+                i64::try_from(reference.body.index).map_err(|_| bad("BOUND"))?,
+                i64::try_from(base).map_err(|_| bad("BOUND"))?,
+            ],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+            )),
+        ).optional())?;
         let (raw, physical, ready, base_raw, base_physical, base_ready) =
             row.ok_or_else(|| bad("MISSING_STEP"))?;
         let actual = from_frame(
             &raw,
             &physical,
-            reference.index as i64,
+            reference.body.index as i64,
             ready,
             self.storage_version,
         )?;
         if actual != *reference {
             return Err(bad("SOURCE_CHANGED"));
         }
-        let anchor = if let Some((base, expected_physical, expected_logical)) = &actual.basis {
+        let anchor = if let Some((base, expected_physical, expected_logical)) = &actual.body.basis {
             let base_raw = base_raw.ok_or_else(|| bad("BASIS"))?;
             let physical = base_physical.ok_or_else(|| bad("BASIS"))?;
             let observed = from_frame(
@@ -417,11 +446,11 @@ impl SqliteStore {
                 base_ready.ok_or_else(|| bad("BASIS"))?,
                 self.storage_version,
             )?;
-            if !observed.dictionary
-                || observed.basis.is_some()
+            if !observed.body.dictionary
+                || observed.body.basis.is_some()
                 || !observed.ready
-                || observed.physical != *expected_physical
-                || observed.logical != *expected_logical
+                || observed.body.physical != *expected_physical
+                || observed.body.logical != *expected_logical
             {
                 return Err(bad("BASIS"));
             }
@@ -436,8 +465,12 @@ impl SqliteStore {
     }
     pub(crate) fn logical_step(&self, reference: &ReplayEntryRef) -> Result<Value, Error> {
         let (raw, anchor) = self.observed_encoded_step(reference)?;
-        let value = if reference.dictionary {
-            let f = crate::dictionary_codec::inspect(&raw, &reference.physical, reference.index)?;
+        let value = if reference.body.dictionary {
+            let f = crate::dictionary_codec::inspect(
+                &raw,
+                &reference.body.physical,
+                reference.body.index,
+            )?;
             let value = if f.basis.is_none() {
                 crate::dictionary_codec::decode_anchor(&f)?.0
             } else {
@@ -448,7 +481,7 @@ impl SqliteStore {
             }
             value
         } else if matches!(self.storage_version, 3 | 4) {
-            let f = codec::inspect(&raw, &reference.physical)?;
+            let f = codec::inspect(&raw, &reference.body.physical)?;
             let value = codec::decode(&f)?;
             if summary(&value)? != f.summary {
                 return Err(bad("REFERENCE_BODY"));
@@ -457,7 +490,7 @@ impl SqliteStore {
         } else {
             serde_json::from_str(&raw)?
         };
-        if sha(&value) != reference.logical {
+        if sha(&value) != reference.body.logical {
             return Err(bad("REFERENCE_BODY"));
         }
         Ok(value)
@@ -477,11 +510,11 @@ impl SqliteStore {
                 let reference = prefix
                     .get(usize::try_from(base - 1).map_err(|_| bad("BASIS"))?)
                     .ok_or_else(|| bad("BASIS"))?;
-                if !reference.dictionary || reference.basis.is_some() || !reference.ready {
+                if !reference.body.dictionary || reference.body.basis.is_some() || !reference.ready {
                     return Err(bad("BASIS"));
                 }
                 let raw = self.encoded_step(reference)?;
-                Some(self.replay_anchor(&raw, &reference.physical, base)?)
+                Some(self.replay_anchor(&raw, &reference.body.physical, base)?)
             };
             crate::dictionary_codec::encode_bytes(
                 &serde_json::to_vec(step)?,
@@ -523,10 +556,10 @@ impl SqliteStore {
             return Err(bad("STEP_PRECONDITION"));
         }
         let previous = match prefix.last() {
-            Some(last) => last.logical.clone(),
+            Some(last) => last.body.logical.clone(),
             None => sha(&self.replay_binding()?.ok_or_else(|| bad("UNBOUND"))?),
         };
-        if expected.previous != previous || expected.start != execution_head as u64 {
+        if expected.body.previous != previous || expected.body.start != execution_head as u64 {
             return Err(bad("STEP_PRECONDITION"));
         }
         let tx = sql(self
@@ -538,7 +571,7 @@ impl SqliteStore {
         ))?;
         sql(tx.execute(
             "UPDATE replay_binding SET head=?1,last_hash=?2 WHERE singleton=1",
-            params![index as i64, &expected.logical],
+            params![index as i64, &expected.body.logical],
         ))?;
         sql(tx.commit())?;
         let (_, observed) = self.fresh_ref_source(current)?;
@@ -555,6 +588,15 @@ impl SqliteStore {
         original: &ReplayEntryRef,
         current: Option<&Components>,
     ) -> Result<Vec<ReplayEntryRef>, Error> {
+        self.complete_ref_observed(prefix, original, current, false).map(|value| value.references)
+    }
+    fn complete_ref_observed(
+        &mut self,
+        prefix: &[ReplayEntryRef],
+        original: &ReplayEntryRef,
+        current: Option<&Components>,
+        observe_pending: bool,
+    ) -> Result<ReplayCompletion, Error> {
         let (execution_head, actual) = self.fresh_ref_source(current)?;
         if actual.len() != prefix.len() + 1
             || actual[..prefix.len()] != *prefix
@@ -563,22 +605,44 @@ impl SqliteStore {
         {
             return Err(bad("INCOMPLETE"));
         }
-        if original.start.checked_add(original.inputs.len() as u64) != Some(execution_head as u64) {
+        if original
+            .body
+            .start
+            .checked_add(original.body.inputs.len() as u64)
+            != Some(execution_head as u64)
+        {
             return Err(bad("INCOMPLETE"));
         }
         sql(self.connection.execute(
             "UPDATE replay_steps SET ready=1 WHERE sequence=?1",
-            [original.index as i64],
+            [original.body.index as i64],
         ))?;
-        let (_, observed) = self.fresh_ref_source(current)?;
         let mut expected = prefix.to_vec();
         let mut last = original.clone();
         last.ready = true;
         expected.push(last);
-        if observed != expected {
-            return Err(bad("READY_READBACK"));
+        if observe_pending {
+            let current = current.ok_or_else(|| bad("PENDING_OBSERVATION_OWNER"))?;
+            // This same post-write cut reads every actual Execution row and
+            // reconciles it before checking all Replay relationships. No write,
+            // callback or public continuation can intervene before the data read.
+            self.with_ready_source(current, |source| {
+                let observed = self.replay_refs_from_source(source.records())?;
+                if observed != expected {
+                    return Err(bad("READY_READBACK"));
+                }
+                // A pending-observation error belongs to delivery, not to the
+                // already successful Replay completion. Keep it as local data.
+                let events = onlyalpha_execution::pending_events(source, current);
+                Ok(ReplayCompletion { references: observed, pending_events: events })
+            })
+        } else {
+            let (_, observed) = self.fresh_ref_source(current)?;
+            if observed != expected {
+                return Err(bad("READY_READBACK"));
+            }
+            Ok(ReplayCompletion { references: observed, pending_events: Ok(Vec::new()) })
         }
-        Ok(observed)
     }
 }
 impl Runtime {
@@ -667,6 +731,22 @@ impl Runtime {
         self.healthy = true;
         Ok(refs)
     }
+    /// Complete the original Replay and observe pending Events in its
+    /// same final actual source cut. The Event result is data for one immediate
+    /// owning continuation, never a permit for another call, callback or source.
+    pub fn complete_replay_ref_and_pending(
+        &mut self,
+        prefix: &[ReplayEntryRef],
+        original: &ReplayEntryRef,
+    ) -> Result<ReplayCompletion, Error> {
+        self.require_healthy()?;
+        self.healthy = false;
+        let observed = self.store.complete_ref_observed(
+            prefix, original, Some(&self.components), true,
+        )?;
+        self.healthy = true;
+        Ok(observed)
+    }
 }
 
 #[cfg(test)]
@@ -689,5 +769,34 @@ mod frame_bound_tests {
             0,
             "untrusted over-budget frame reached tag JSON parsing"
         );
+    }
+}
+
+#[cfg(test)]
+mod shared_reference_tests {
+    use super::*;
+
+    #[test]
+    fn clones_share_only_immutable_body_and_flags_remain_independent() {
+        let step = json!({"schema_version":1,"index":1,"previous":"a".repeat(64),"execution_start":0,"cause":{"kind":"BAR"},"inputs":[{"value":"1"}],"state":{"cursor":1}});
+        let raw = codec::encode(&step, summary(&step).unwrap()).unwrap();
+        let physical = digest(raw.as_bytes());
+        let pending = from_frame(&raw, &physical, 1, 0, 3).unwrap();
+        let mut ready = pending.clone();
+        assert!(Arc::ptr_eq(&pending.body, &ready.body));
+        ready.ready = true;
+        assert!(!pending.ready());
+        assert!(ready.ready());
+        assert_ne!(pending, ready, "full equality includes the fresh ready observation");
+        assert!(pending.same_body(&ready));
+        assert_eq!(pending.body.inputs, vec![sha(&step["inputs"][0])]);
+        // Independently decoded bytes must compare by complete content, even
+        // though these allocations are distinct. Sharing grants no source proof.
+        let observed = from_frame(&raw, &physical, 1, 1, 3).unwrap();
+        assert!(!Arc::ptr_eq(&ready.body, &observed.body));
+        assert_eq!(ready, observed);
+        let other_version = from_frame(&raw, &physical, 1, 1, 4).unwrap();
+        assert_ne!(ready, other_version, "body equality retains storage version");
+        assert!(from_frame(&raw, &physical, 1, 2, 3).is_err());
     }
 }

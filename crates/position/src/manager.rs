@@ -5,7 +5,16 @@ use onlyalpha_domain::{
     value::{OnlyMoney, OnlyPrice},
 };
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{collections::{BTreeMap, BTreeSet}, sync::{Arc, OnceLock}};
+
+/// Immutable representation of the exact original Position checkpoint.
+/// It contains no execution, Runtime source or Ready authority.
+#[derive(Debug)]
+pub(crate) struct CachedCheckpoint {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) fingerprint: String,
+    pub(crate) record: Arc<Value>,
+}
 #[derive(Clone, Debug)]
 pub struct Manager {
     pub(crate) config: Value,
@@ -13,6 +22,7 @@ pub struct Manager {
     pub(crate) currency: onlyalpha_domain::value::OnlyCurrency,
     pub(crate) clusters: BTreeSet<String>,
     pub(crate) state: State,
+    pub(crate) checkpoint_cache: OnceLock<Arc<CachedCheckpoint>>,
 }
 #[cfg(test)]
 std::thread_local! {
@@ -68,6 +78,7 @@ impl Manager {
             currency,
             clusters,
             state: State::default(),
+            checkpoint_cache: OnceLock::new(),
         })
     }
     pub(crate) fn spec(&self, i: &str) -> Result<&Instrument, Error> {
@@ -266,6 +277,9 @@ impl Manager {
             currency: self.currency.clone(),
             clusters: self.clusters.clone(),
             state: self.state.clone(),
+            // Every successful command records a new immutable journal state.
+            // Failure leaves the receiver and its existing memo untouched.
+            checkpoint_cache: OnceLock::new(),
         };
         candidate.state.now = if self.state.journal.is_empty() {
             at.clone()

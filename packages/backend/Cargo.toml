@@ -93,6 +93,10 @@ name = "application_time_series_statistics"
 path = "tests/application/time_series_statistics.rs"
 
 [[test]]
+name = "application_research_factor"
+path = "tests/application/research_factor.rs"
+
+[[test]]
 name = "application_credentials"
 path = "tests/application/credentials.rs"
 
@@ -176,10 +180,6 @@ path = "tests/transport/startup.rs"
 name = "transport_web_assets"
 path = "tests/transport/web_assets.rs"
 
-[[example]]
-name = "native-backtest-reference"
-path = "examples/native_backtest_reference.rs"
-
 [[test]]
 name = "workers_trading"
 path = "tests/workers/trading.rs"
@@ -189,3 +189,10 @@ name = "strategy_freeze_postgres"
 path = "tests/application/support/strategy_freeze_postgres.rs"
 # Explicit canonical PostgreSQL lane; ordinary library tests stay DB-independent.
 test = false
+[[test]]
+name = "application_research_runtime"
+path = "tests/application/research_runtime.rs"
+
+[[test]]
+name = "application_research_runtime_lifecycle"
+path = "tests/application/research_runtime_lifecycle.rs"

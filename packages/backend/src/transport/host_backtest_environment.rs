@@ -79,7 +79,7 @@ fn explicit_factor_bindings(
                 .ok_or(ENV_INVALID)?;
             let period = parameters.get("period").ok_or(ENV_INVALID)?;
             if node["type_reference"]["kind"] != "INDICATOR"
-                || node["type_reference"]["semantic_version"] != "1"
+                || node["type_reference"]["semantic_version"] != "2"
                 || inputs[0]["input_name"] != "value"
                 || period["kind"] != "FIXED"
                 || period["value"]["type"] != "INTEGER"
@@ -90,7 +90,7 @@ fn explicit_factor_bindings(
                 .as_u64()
                 .filter(|value| (1..=10000).contains(value))
                 .ok_or(ENV_INVALID)?;
-            json!({"input":field(&inputs[0]["source"])?,"operator":operator,"semantic_version":"1","period":period,"closed_only":true})
+            json!({"input":field(&inputs[0]["source"])?,"operator":operator,"semantic_version":node["type_reference"]["semantic_version"],"period":period,"closed_only":true})
         };
         if bindings.insert(name.to_owned(), dependency).is_some() {
             return Err(ENV_INVALID);
@@ -344,6 +344,22 @@ mod tests {
         let mut strategy = json!({"definition":definition});
         let bindings = explicit_factor_bindings(&strategy, &value["revision"]).unwrap();
         assert_eq!(bindings["close_lag_20"]["period"], 20);
+        assert_eq!(bindings["close_lag_20"]["semantic_version"], "2");
+        assert_eq!(bindings["volume_mean_20"]["semantic_version"], "2");
+        // Saved old/unknown references remain exact input records. Current
+        // native preparation rejects them instead of relabeling them as V2.
+        for version in [Value::Null, json!("1"), json!("3")] {
+            let mut historical=strategy.clone();
+            for node in historical["definition"]["calculations"].as_array_mut().unwrap() {
+                if node["type_reference"]["type_id"]=="onlyalpha.operator.delay" {
+                    if version.is_null() {node["type_reference"].as_object_mut().unwrap().remove("semantic_version");}
+                    else {node["type_reference"]["semantic_version"]=version.clone();}
+                }
+            }
+            let before=historical.clone();
+            assert!(explicit_factor_bindings(&historical,&value["revision"]).is_err());
+            assert_eq!(historical,before);
+        }
         for node in strategy["definition"]["calculations"]
             .as_array_mut()
             .unwrap()

@@ -7,7 +7,7 @@
 ## Rust decision component boundary
 
 `crates/strategy/` 是可独立构建的纯语义库，依赖 Domain、Calculation 与既有 MarketData Construction 值模型。
-它使用显式 Revision2 / Definition3 component contract；当前正式 Python Revision1 / Freeze reader 和 Runtime admission 保持原 Authority。
+它使用显式 Revision2 / Definition3 component contract；后端 `packages/backend/src/application/` 与 `persistence/` 负责正式 Strategy、Freeze 和 Runtime admission，`workers/trading_program.rs` 将精确选定的 Product SourceRevision 与实际能力绑定到该组件。
 component constructor、fingerprint 和技术比较不会生成正式 Freeze、equivalence evidence 或 LIVE 权限；不提供旧历史转换、别名或 fallback。
 
 Revision2 绑定完整 Universe、RAW Bar semantic、construction recipe、确定性 DAG、逐节点 TRADING implementation 与三个 Boolean role output。
@@ -22,9 +22,13 @@ producer；不存在的 CROSS_SECTION TRADING capability 必须明确拒绝，�
 checkpoint schema2 通过 `program_fingerprint` 绑定 owner 已持有的 exact immutable Program，保留完整 input prefix、accepted observation/outcome、每个节点 cursor/receipt/native state 与成功确认时保存的 state fingerprint；恢复先核对原 Program，再创建完整 fresh
 candidate，再原子替换。失败候选不得改变 receiver。外部保留的 expected digest 是信任根，派生 manifest 不是认证签名。schema1 checkpoint 保留原 inline Program 的 exact reader、canonical bytes 和 hash 解释，不转换为 schema2；新 capture 只使用 schema2。恢复不查询 current/latest Program，不改变 Strategy Revision identity，不删除任何节点状态、输入身份或历史。
 
-实际 Python Plugin 调用位于 `packages/onlyalpha-calculation-worker/`。同一私有 Protobuf 传输上的封闭 node operation 仅支持 resolve/create/
-update/checkpoint/fresh restore/close；没有任意方法或动态模块入口。TIME_SERIES indicator 采用自身 snapshot.ready；当前官方 operator/predicate
-采用显式 warmup.minimum_observations。CONTEXT Decimal 使用现有 worker 固定 ROUND_HALF_EVEN policy，绑定在 worker artifact；不读取环境精度。
+实际节点调度位于 `packages/backend/src/workers/trading_nodes.rs`，原生 Predicate 与 Operator 分别调用
+`crates/calculation-bridge/src/native_predicates.rs` 和 `native_operators.rs`，不启动 Python 算子或指标进程。
+只有私有 Factor 的受限 Python 编写接口经后端 `python/algorithms` 中的 `trading_worker.py` / `trading_session.py` 执行；
+同一已绑定进程持有这些 Factor 的数值实例，封闭操作覆盖初始化、更新、checkpoint、fresh restore 和关闭，不提供任意方法或动态模块入口。
+Rust owner 核对完整 Definition、实际实现指纹、端口和状态能力，按声明的 warmup.minimum_observations 形成 readiness，
+并持有原 child 的取消和回收责任。私有 Factor 的 CONTEXT Decimal 使用 SDK 明确的 ROUND_HALF_EVEN context，
+实现身份绑定实际安装工件，不读取环境精度。原生 Operator 的正式新语义为 @2，具体数值约定见[内置算子与受限编写接口](repository-product-architecture.md#内置算子与受限编写接口)。
 
 Infrastructure 的 `StrategyPreparation` 将真实 MarketData immutable plans/accepted preparation receipt 交给 Strategy；pure preparation callback
 只确认 preparation，不隐藏 Strategy 状态，也不代表实际决策执行。该首个 coordinator 限定一个 Cluster、一个 primary instrument 和 exact source/

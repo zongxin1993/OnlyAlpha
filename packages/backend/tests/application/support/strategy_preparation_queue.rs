@@ -19,14 +19,13 @@ pub(super) async fn setup(session:&mut AuthoritySession)->StrategyPrepareInput {
     let confirmed=Proposals::new(client).confirm(&command(6105),OWNER,proposal,AT).await.unwrap();
     let factor=confirmed["effect"]["authoring"]["factor_id"].as_str().unwrap();
     let factor_revision=Factors::new(client).publish(&command(6106),factor,confirmed["effect"]["authoring"]["result"]["draft_fingerprint"].as_str().unwrap(),AT).await.unwrap();
-    let seed:Value=serde_json::from_str(include_str!("../../../../../examples/private-assets/strategy/simple_momentum/strategy.json")).unwrap();
-    let calculations:Value=serde_json::from_str(include_str!("../fixtures/strategy_calculations.json")).unwrap();
-    let mut definition=seed["strategy"]["definition"].clone();
-    definition["universe"]=json!({"kind":"SINGLE_INSTRUMENT","instruments":["BTCUSDT.BINANCE"]});
-    definition["calculations"]=calculations["instances"].clone();
-    for instance in definition["calculations"].as_array_mut().unwrap() {if instance["type_reference"]["kind"]=="FACTOR" {instance["type_reference"]["type_id"]=json!(factor);}}
-    definition["factor_revision_dependencies"]=json!([{"factor_id":factor,"revision_fingerprint":factor_revision["result"]["revision"]["revision_fingerprint"]}]);
-    definition["signals"]["entry"]["operator"]=json!(">=");definition["signals"]["entry"]["right"]["value"]["value"]=json!("0.001");
+    // Publish a current native strategy from the actual Factor producer; the
+    // immutable historical strategy_calculations fixture remains unchanged.
+    let definition=crate::application::manual_backtest_context::btc_definition(&factor_revision["result"]["revision"]).unwrap().to_record();
+    for instance in definition["calculations"].as_array().unwrap() {
+        let reference=&instance["type_reference"];
+        assert_eq!(reference["semantic_version"],if reference["kind"]=="INDICATOR" {"2"} else {"1"});
+    }
     let id="private.strategy.use_test_preparation";
     let draft=json!({"schema_version":1,"strategy_id":id,"base_revision_fingerprint":null,"semantic_version":"1","description":"Controlled preparation precondition","tags":[],"definition":definition});
     let saved=Strategies::new(client).save(&command(6107),OWNER,id,draft,None,AT).await.unwrap();

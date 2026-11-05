@@ -2,7 +2,7 @@
 
 `crates/backtest/` composes finite market replay outside the Trading Kernel. `Inputs` pins immutable closed RAW revision0 Bars, exact Source/Snapshot/Dataset binding/DataVersion, declared priority and row count. `RunSpec` binds work identity, complete Execution configuration, separate Kernel and driver artifacts, initial virtual time, and the participant's exact Generation/Strategy revisions/Source set. A fingerprint binds bytes; it does not authenticate a producer or grant Product Runtime authority.
 
-The current trusted Application adapter `onlyalpha_calculation_worker.backtest_dataset.load_dataset_inputs` loads an exact economic binding and a bounded verified Dataset table through the existing owning readers. It decodes that same table, preserves opaque DataVersion, and rejects unsupported economic facts or a different Market Product composition. It never substitutes a current database query. Runtime input admission, authorization, artifact availability and formal Generation activation remain the responsibility of the admitted R5 composition.
+当前 Product 输入准备位于 `packages/backend/src/transport/host_backtest_preparation.rs`。它通过正式准入和 Dataset 读取器构造原生回测所消费的已验证输入绑定。后端 Application 和持久化模块负责运行时准入、授权、工件可用性和 Generation 激活。`packages/backend/src/workers/backtest_terminal.rs` 中的终态读取器在重新打开原生回放日志前，核对原始 Inputs、配置和可执行工件。
 
 ## Ordering and actual participants
 
@@ -149,4 +149,19 @@ The private candidate keeps earlier plans as compact canonical data and retains 
 
 Event delivery obtains pending Events and validates the exact expected Replay prefix in one complete actual source observation. An empty result invokes no consumer and performs no acknowledgement; the next public operation still verifies its own fresh source. Nonempty delivery retains each real consumer acceptance, actual acknowledgement and the final complete source check. A callback-tainted cut requires explicit recovery of the same session, preserving already accepted original Events.
 
+`step_and_deliver` 将无 observer 的步进与紧接着的事件投递组成一次同步调用。
+原 Replay Ready 写入后的完整实际来源读取、reconciliation 和 Replay 关联核验同时产生待投递事件快照。
+核验完成后到消费事件前只执行本地比较和状态赋值。事件快照仅在本次调用中传递，不保存在 Runtime 或 RunLoop 中。
+每个 consumer、ack 和非空投递后的完整来源核验继续走原实现。步骤失败与投递失败保留各自的错误归属。
+独立调用、observer、控制操作和恢复沿用各自的实际来源核验。
+
 Historical Backtest metadata is read through one narrow Runtime composition: the original Backtest binding, selected installed proof and archived executor body are data only. Complete actual artifact/record scans bracket the selection; a second directory selection detects missing or duplicate matching proofs, and newly read proof bytes join the final retained-record cut. No await, callback, write or process invocation intervenes inside that composition. Standalone Research installed-proof reads retain their independent pre/post guards. The context's original executor getter supplies immutable data only; its actual context cuts still precede and follow Evidence construction. READY continues to verify the original active/nonclosed work, actual linked native image/CAPS, admission, installation and final physical owners. No retained history grants current execution or substitutes the current image for an archived artifact.
+
+## 检查点表示与校验复用
+
+Order、Position、Account、Ledger 和 Risk 将原始检查点字节、摘要及生成这些字节的 JSON 保存在各自同一份纯数据缓存中。
+实际写入、恢复和分支提交沿用所属组件的缓存失效边界。Execution 按原值和摘要核对 typed after-state，复用该 JSON 表示。
+
+metadata 中的 Fee、Settlement、Margin checkpoint 与当前同配置下已验证的完整值相等时，复用其纯解码结果。
+同一不可变 Prepared 在完成完整转换后，可复用已验证的 metadata 内容。冷解码及发生变化的 checkpoint 继续执行完整 owner 校验。
+每次实际 Store、Ready、before/result 摘要、估值关联和 reconciliation 检查保持执行。

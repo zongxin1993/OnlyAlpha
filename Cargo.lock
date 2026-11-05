@@ -1493,6 +1493,7 @@ dependencies = [
 name = "onlyalpha-calculation-bridge"
 version = "0.11.1"
 dependencies = [
+ "onlyalpha-operators",
  "onlyalpha-calculation",
  "onlyalpha-domain",
  "onlyalpha-market-data",
@@ -1670,6 +1671,7 @@ dependencies = [
 name = "onlyalpha-operators"
 version = "0.11.1"
 dependencies = [
+ "bigdecimal",
  "num-bigint 0.4.8",
  "num-integer",
 ]

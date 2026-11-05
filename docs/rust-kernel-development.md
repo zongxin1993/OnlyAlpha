@@ -16,13 +16,13 @@ a prerequisite for the pure Predicate library build.
 ADR 0139 section 1.1 aligns modules by responsibility, not by matching Python and Rust file trees. Paths below are relative to the
 repository root. They identify source owners and consumers, not a second semantic specification or migration/admission status.
 
-| Responsibility | Python location | Rust location / boundary |
+| 职责 | 历史 Python 位置 | Rust 实现归属 |
 | --- | --- | --- |
-| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/predicates/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; these typed subsets do not replace the full Python registry/resolver |
+| Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/predicates/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; 当前原生定义和解析器位于 `crates/calculation-bridge/src/native_predicates.rs` |
 | Scalar TRADING evaluation | `src/onlyalpha/runtime/trading/predicate.py` | The same four Rust modules implement the selected typed scalar semantics; they do not provide Python backend registration or Runtime composition |
 | Exact finite Decimal reference/literal comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/predicates/src/decimal_predicate.rs` implements the twelve typed comparisons, with immutable literal/position configuration; no arithmetic or diagnostic transport |
-| Batch RESEARCH evaluation | `src/onlyalpha/research/calculation/predicate.py` | Python/Arrow backend retains its responsibility; scalar Rust modules are not a batch backend or Research execution path |
-| Isolated exact-artifact comparison orchestration | `packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/predicate_comparison.py` (`OnlyPredicateComparisonService`) | `crates/predicates/src/bin/predicate-diagnostic.rs` is the private diagnostic entry, outside the library's canonical semantics; its allowlist remains bounded by the comparison Contract |
+| Batch RESEARCH evaluation | `src/onlyalpha/research/calculation/predicate.py` | 后端 Rust 图执行器 `packages/backend/src/workers/research_calculations.rs` 组合原生 Predicate 适配器完成批量计算 |
+| Isolated exact-artifact comparison orchestration | 随旧 Generation manager 包退役的比较服务 | `crates/predicates/src/bin/predicate-diagnostic.rs` 保留私有诊断入口，其允许范围由原比较契约限定 |
 | Independent shared expected values | `test-data/predicate/`, regenerated and byte-guarded by the owning scripts/tests | Both languages consume the same corpora; neither implementation generates the other's expected results |
 | Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/predicates/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
 
@@ -387,10 +387,7 @@ admitted semantic closure; the worker closure adds its existing Gateway protocol
 
 ## Strategy decision responsibility map
 
-`strategy/` groups Revision2, exact execution Program, deterministic graph processing, readiness and decisions, and component recovery
-in one independently buildable semantic crate. Its local edges are Domain, Calculation and Construction values; no MarketData Pipeline,
-process, Runtime, Provider or Broker dependency points into it. `strategy/src/{model,execution,recovery}.rs` are internal responsibilities,
-not additional crates. The actual worker and MarketData coordinator remain Infrastructure under `packages/onlyalpha-calculation-worker/`.
+`crates/strategy` 负责 Revision2、确切执行 Program、确定性图计算、readiness、策略决策与组件恢复，只依赖 Domain、Calculation 和 Construction 值模型。进程与节点调度位于 `packages/backend/src/workers/{algorithm,trading_nodes,trading_program}.rs`，可复用协议和原生适配位于 `crates/calculation-bridge/`。受限私有 Factor 执行器作为后端构件位于 `packages/backend/python/algorithms/`。
 
 Audit corrections include withdrawing the entire owner after a possibly partial node update, fresh atomic restore, and rejecting stale
 upstream readiness. The Python reference is preserved for classified comparison, not reproduced when those audited behaviors are defective.

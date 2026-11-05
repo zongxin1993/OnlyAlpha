@@ -230,18 +230,18 @@ fn activity_query_rejects_incomplete_metadata_owner_relations_even_at_a_hash_mat
         apply(&mut h, &open(1, "BUY"));
         match fault {
             "orphan" => {
-                h.components.meta["orders"]["orphan-order"] =
+                std::sync::Arc::make_mut(&mut h.components.meta)["orders"]["orphan-order"] =
                     h.components.meta["orders"]["runtime-ORDER-000001"].clone()
             }
             "cluster" => {
-                h.components.meta["orders"]["runtime-ORDER-000001"]["cluster"] = json!("foreign")
+                std::sync::Arc::make_mut(&mut h.components.meta)["orders"]["runtime-ORDER-000001"]["cluster"] = json!("foreign")
             }
-            "omitted" => h.components.meta["orders"] = json!({}),
-            _ => h.components.meta["orders"]["runtime-ORDER-000001"]["cluster"] = Value::Null,
+            "omitted" => std::sync::Arc::make_mut(&mut h.components.meta)["orders"] = json!({}),
+            _ => std::sync::Arc::make_mut(&mut h.components.meta)["orders"]["runtime-ORDER-000001"]["cluster"] = Value::Null,
         }
         h.components.invalidate_payloads();
         let mut raw = h.store.rows[0].record();
-        raw["prepared"]["projections"][5]["result"] = h.components.meta.clone();
+        raw["prepared"]["projections"][5]["result"] = h.components.meta.as_ref().clone();
         raw["prepared"]["projections"][5]["result_hash"] = json!(hash(&h.components.meta));
         let mut content = raw["prepared"].clone();
         content.as_object_mut().unwrap().remove("payload_hash");

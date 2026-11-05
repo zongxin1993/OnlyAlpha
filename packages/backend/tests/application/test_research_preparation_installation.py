@@ -1,182 +1,253 @@
-"""Actual installed math worker and framed protocol; not Human/Product acceptance."""
+"""Actual native Runtime/Calculation preparation; no Human or Product acceptance."""
+
+from __future__ import annotations
 
 import hashlib
 import json
-import struct
 import subprocess
 import zipfile
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from onlyalpha_backend_algorithms.sdk.private_factor_source import OnlyPrivateFactorExecutableSourceRecordV1
-from onlyalpha_gateway_protocol.v1 import calculation_pb2 as wire
+import pytest
+from onlyalpha.canonical import only_canonical_fingerprint
 
-from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
-from scripts.build_algorithm_sdk import install
+from packages.backend.tests.application.support.research_admission_reference import build
+from packages.backend.tests.application.test_schema_postgres import migration_backend as migration_backend
+from packages.backend.tests.application.test_schema_postgres import schema_db as schema_db
+
+pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 
-def test_selected_installed_preparation_rejects_rehashed_foreign_operator_resources(tmp_path: Path) -> None:
-    wheels, installation = tmp_path / "wheels", tmp_path / "algorithms"
-    artifact = install(wheels, installation)
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
+@pytest.fixture
+def prepared_runtime(tmp_path: Path, native_release_probe: Path, schema_db: str) -> dict[str, Any]:
+    # The historical fixture contributes a candidate expression only. All current
+    # source/Definition/implementation identities come from the actual Rust owner.
+    candidate = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())["candidate"]
+    runtime = tmp_path / "runtime"
+    selected = build(
+        runtime, native_release_probe, candidate_record=candidate, work_id="work", preparation_kind="FACTOR"
+    )
+    selected["executable"] = runtime / "native-executor"
+    selected["release"] = Path(selected["installation"]).parent
+    assert hashlib.sha256(selected["executable"].read_bytes()).hexdigest() == selected["executor_sha256"]
+    proofs = list((runtime / "runtime-generation-installed-proof" / selected["generation"]).glob("*.json"))
+    assert len(proofs) == 1
+    selected["proof"] = json.loads(proofs[0].read_text())
+    return selected
 
-    def wheel(path: Path) -> dict[str, object]:
-        return {
-            "path": str(path),
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "size": path.stat().st_size,
-            "distribution_version": path.name.split("-")[1],
-        }
 
-    operator = next(wheels.glob("onlyalpha_plugin_operators-*.whl"))
-    request = {
-        "schema_version": 1,
-        "source": {
-            key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__
+def native_call(selected: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
+    result = subprocess.run(
+        [str(selected["executable"])], input=json.dumps(request), text=True, capture_output=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    value = json.loads(result.stdout)
+    assert isinstance(value, dict)
+    return value
+
+
+def exchange(selected: dict[str, Any], payload: dict[str, Any], action: str = "resolve") -> dict[str, Any]:
+    return native_call(
+        selected,
+        {
+            "op": "research-calculations",
+            "action": action,
+            "installation": selected["installation"],
+            "algorithm_artifact": selected["algorithm_artifact"],
+            "generation": selected["generation"],
+            "request": payload,
         },
-        "graph": vector["graph"],
-        "core_artifact": wheel(next(wheels.glob("onlyalpha-*.whl"))),
-        "operator_artifact": wheel(operator),
+    )
+
+
+def prepare_again(selected: dict[str, Any], root: Path, kind: str) -> dict[str, Any]:
+    return native_call(
+        selected,
+        {
+            "op": "runtime-environment",
+            "preparation_kind": kind,
+            "release_root": str(selected["release"]),
+            "runtime_root": str(root),
+            "factor": {key: selected[key] for key in ("candidate", "draft", "revision")},
+            "algorithm_artifact": selected["algorithm_artifact"],
+            "fresh": True,
+            "at": "2026-10-29T00:00:00Z",
+        },
+    )
+
+
+def wheel(selected: dict[str, Any], pattern: str) -> dict[str, Any]:
+    path = next((selected["release"] / "wheels").glob(pattern))
+    return {
+        "path": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "size": path.stat().st_size,
+        "distribution_version": path.name.split("-")[1],
     }
 
-    response = exchange(installation, artifact, request)
-    assert response.WhichOneof("outcome") == "result", response
-    actual = json.loads(response.result.record_json)
+
+def rehash_release(selected: dict[str, Any], path: Path) -> None:
+    manifest = selected["release"] / "manifest.json"
+    record = json.loads(manifest.read_text())
+    record["files"][str(path.relative_to(selected["release"]))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(record))
+
+
+def target_instance() -> dict[str, Any]:
+    return {
+        "instance_key": "target",
+        "type_reference": {"kind": "TARGET", "type_id": "onlyalpha.target.forward_return", "semantic_version": "1"},
+        "parameters": {"exit_offset": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 5}}},
+        "published_outputs": ["target_value"],
+        "primary_output": None,
+        "input_bindings": [
+            {"input_name": "entry_price", "source": "bar.close"},
+            {"input_name": "exit_price", "source": "bar.close"},
+        ],
+    }
+
+
+def resolution(selected: dict[str, Any], instances: list[dict[str, Any]], *, private: bool = False) -> dict[str, Any]:
+    source_keys = (
+        "factor_id",
+        "semantic_version",
+        "revision_fingerprint",
+        "source_text",
+        "source_sha256",
+        "factor_api_version",
+        "factor_api_contract_fingerprint",
+        "input_contract",
+        "parameter_contract",
+        "output_contract",
+    )
+    return {
+        "schema_version": 1,
+        "contract": "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1",
+        "sources": [{key: selected["revision"][key] for key in source_keys}] if private else [],
+        "instances": instances,
+        "core_artifact": wheel(selected, "onlyalpha-*.whl"),
+        "operator_artifact": {"sha256": selected["executor_sha256"], "distribution_version": "0.11.1"},
+        "target_artifact": wheel(selected, "onlyalpha_backend_algorithms-*.whl"),
+    }
+
+
+def feature_instances(selected: dict[str, Any]) -> list[dict[str, Any]]:
+    result = []
+    for key, operator, source in [("delay", "delay", "bar.close"), ("mean", "rolling_mean", "bar.volume")]:
+        result.append(
+            {
+                "instance_key": key,
+                "type_reference": {
+                    "kind": "INDICATOR",
+                    "type_id": f"onlyalpha.operator.{operator}",
+                    "semantic_version": "2",
+                },
+                "parameters": {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}},
+                "published_outputs": ["value"],
+                "primary_output": "value",
+                "input_bindings": [{"input_name": "value", "source": source}],
+            }
+        )
+    result.append(
+        {
+            "instance_key": "momentum",
+            "type_reference": {"kind": "FACTOR", "type_id": selected["revision"]["factor_id"], "semantic_version": "1"},
+            "parameters": {"literal_1": {"kind": "FIXED", "value": {"type": "DECIMAL", "value": "1"}}},
+            "published_outputs": ["value"],
+            "primary_output": "value",
+            "input_bindings": [
+                {"input_name": "close", "source": "bar.close"},
+                {"input_name": "volume", "source": "bar.volume"},
+                {
+                    "input_name": "close_lag_20",
+                    "source": {"kind": "VARIABLE", "instance_key": "delay", "output_name": "value"},
+                },
+                {
+                    "input_name": "volume_mean_20",
+                    "source": {"kind": "VARIABLE", "instance_key": "mean", "output_name": "value"},
+                },
+            ],
+        }
+    )
+    return result
+
+
+def test_selected_installed_preparation_rejects_rehashed_foreign_operator_resources(
+    prepared_runtime: dict[str, Any], tmp_path: Path
+) -> None:
+    selected = prepared_runtime
+    proof = selected["proof"]
+    actual = proof["algorithm_observation"]
     assert actual["contract"] == "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
+    assert actual["operator_artifact_sha256"] == selected["executor_sha256"]
+    assert actual["operator_provider_manifest"]["source"] == {
+        "kind": "DISTRIBUTION",
+        "distribution_name": "onlyalpha-backend",
+        "distribution_version": proof["native_descriptor"]["image"]["version"],
+    }
+    assert actual["operator_resources_fingerprint"] == only_canonical_fingerprint(
+        [{"relative_path": "bin/onlyalpha-backend", "byte_sha256": selected["executor_sha256"]}]
+    )
+    assert proof["native_descriptor"]["image"]["artifact"] == selected["executor_sha256"]
+    assert actual["source_artifact"]["source_sha256"] == selected["revision"]["source_sha256"]
+    assert (
+        actual["source_artifact"]["factor_api_contract_fingerprint"]
+        == selected["revision"]["factor_api_contract_fingerprint"]
+    )
+    assert actual["equivalence_evidence"]["disposition"] == "PASS"
+    assert (
+        actual["equivalence_evidence"]["research_output_fingerprint"]
+        == actual["equivalence_evidence"]["trading_output_fingerprint"]
+    )
     assert actual["equivalence_evidence"]["test_vector_set_fingerprint"] == only_canonical_fingerprint(
         actual["certification_vectors"]
     )
-    assert actual["operator_artifact_sha256"] == request["operator_artifact"]["sha256"]
-    assert (
-        actual["operator_provider_manifest"]["source"]["distribution_version"]
-        == request["operator_artifact"]["distribution_version"]
-    )
-    foreign = tmp_path / operator.name
-    with zipfile.ZipFile(operator) as source, zipfile.ZipFile(foreign, "w") as output:
-        for name in source.namelist():
-            raw = source.read(name)
-            output.writestr(name, raw + b"\n# foreign\n" if name.endswith("/registration.py") else raw)
-    assert wheel(foreign)["sha256"] != wheel(operator)["sha256"]
-    denied = exchange(installation, artifact, {**request, "operator_artifact": wheel(foreign)})
-    assert denied.WhichOneof("outcome") == "error"
-    assert denied.error.code == "REQUEST_REJECTED"
+    assert actual["certification_policy"] == "ONLYALPHA_PRIVATE_FACTOR_ABI_VECTORS_V1"
+    assert actual["certification_vectors"]["parameters"] == {"literal_1": "1"}
+    assert len(actual["certification_vectors"]["vectors"]) == 8
+    assert all(row["type"]["semantic_version"] == "2" for row in actual["operator_calculations"])
+    assert not list((selected["release"] / "wheels").glob("onlyalpha_plugin_operators-*.whl"))
+    foreign = selected["release"] / "bin/onlyalpha-backend"
+    raw = bytearray(foreign.read_bytes())
+    raw[15] ^= 1  # ELF padding preserves the envelope; the selected bytes changed.
+    foreign.chmod(0o700)
+    foreign.write_bytes(raw)
+    foreign.chmod(0o500)
+    rehash_release(selected, foreign)
+    assert hashlib.sha256(foreign.read_bytes()).hexdigest() != selected["executor_sha256"]
+    root = tmp_path / "foreign-runtime"
+    denied = prepare_again(selected, root, "FACTOR")
+    assert "error" in denied and "OUTCOME_UNKNOWN" not in denied["error"], denied
+    assert not root.exists(), "foreign image must fail before publishing Runtime authority"
 
 
-def exchange(
-    installation: Path, artifact: str, payload: dict[str, object], operation: str = "research_prepare"
-) -> wire.CalculationResponse:
-    handshake = wire.CalculationRequest(
-        protocol_version=1, generation="a" * 64, sequence=1, handshake=wire.CalculationEmpty()
-    )
-    prepare = wire.CalculationRequest(
-        protocol_version=1,
-        generation="a" * 64,
-        sequence=2,
-        **{
-            operation: {
-                "research_prepare": wire.ResearchPrepare,
-                "research_resolve": wire.ResearchResolve,
-                "research_evaluate": wire.ResearchEvaluate,
-            }[operation](request_json=only_canonical_json(payload).encode())
-        },
-    )
-    frames = b"".join(
-        struct.pack("!I", len(raw)) + raw
-        for message in (handshake, prepare)
-        for raw in (message.SerializeToString(deterministic=True),)
-    )
-    child = subprocess.run(
-        [
-            str(installation / "bin/python"),
-            "-B",
-            "-I",
-            "-m",
-            "onlyalpha_backend_algorithms.research_worker",
-            "--generation",
-            "a" * 64,
-            "--artifact",
-            artifact,
-            "--installation",
-            str(installation),
-        ],
-        input=frames,
-        capture_output=True,
-        check=False,
-        timeout=30,
-        env={},
-    )
-    assert child.returncode == 0, child.stderr.decode()
-    responses, remaining = [], child.stdout
-    while remaining:
-        size = struct.unpack("!I", remaining[:4])[0]
-        assert 0 < size <= 8 * 1024 * 1024
-        responses.append(wire.CalculationResponse.FromString(remaining[4 : 4 + size]))
-        remaining = remaining[4 + size :]
-    assert len(responses) == 2
-    assert [r.sequence for r in responses] == [1, 2]
-    assert all(r.artifact_fingerprint == artifact and r.generation == "a" * 64 for r in responses)
-    return responses[1]
-
-
-def test_installed_calculation_resolution_uses_exact_target_and_operator_resources(tmp_path: Path) -> None:
-    wheels, installation = tmp_path / "wheels", tmp_path / "algorithms"
-    artifact = install(wheels, installation)
-
-    def selected(pattern: str) -> dict[str, object]:
-        path = next(wheels.glob(pattern))
-        return {
-            "path": str(path),
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "size": path.stat().st_size,
-            "distribution_version": path.name.split("-")[1],
-        }
-
-    request = {
-        "schema_version": 1,
-        "contract": "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1",
-        "sources": [],
-        "instances": [
-            {
-                "instance_key": "target",
-                "type_reference": {
-                    "kind": "TARGET",
-                    "type_id": "onlyalpha.target.forward_return",
-                    "semantic_version": "1",
-                },
-                "parameters": {"exit_offset": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 5}}},
-                "published_outputs": ["target_value"],
-                "primary_output": None,
-                "input_bindings": [
-                    {"input_name": "entry_price", "source": "bar.close"},
-                    {"input_name": "exit_price", "source": "bar.close"},
-                ],
-            }
-        ],
-        "core_artifact": selected("onlyalpha-*.whl"),
-        "operator_artifact": selected("onlyalpha_plugin_operators-*.whl"),
-        "target_artifact": selected("onlyalpha_backend_algorithms-*.whl"),
-    }
-    response = exchange(installation, artifact, request, "research_resolve")
-    assert response.WhichOneof("outcome") == "result", response
-    actual = json.loads(response.result.record_json)
-    assert actual["contract"] == request["contract"]
-    assert actual["source_artifacts"] == []
+def test_installed_calculation_resolution_uses_exact_target_and_operator_resources(
+    prepared_runtime: dict[str, Any],
+) -> None:
+    selected = prepared_runtime
+    request = resolution(selected, [target_instance()])
+    actual = exchange(selected, request)
+    assert "error" not in actual, actual
+    assert actual["contract"] == request["contract"] and actual["source_artifacts"] == []
     assert actual["nodes"][0]["definition"]["type_id"] == "onlyalpha.target.forward_return"
     assert actual["target_artifact_sha256"] == request["target_artifact"]["sha256"]
+    assert actual["operator_artifact_sha256"] == selected["executor_sha256"]
     assert actual["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
     assert "equivalence_evidence" not in actual and "runtime_generation_fingerprint" not in actual
-    evaluated = exchange(
-        installation,
-        artifact,
+    observed = exchange(
+        selected,
         {
+            "contract": "ONLYALPHA_CALCULATION_PLANES_OBSERVATION_V1",
             "resolution": request,
             "rows": [{"at_ns": i * 60_000_000_000, "values": {"close": str(10 + i)}} for i in range(8)],
         },
-        "research_evaluate",
+        "evaluate",
     )
-    assert evaluated.WhichOneof("outcome") == "result", evaluated
-    observation = json.loads(evaluated.result.record_json)
-    assert observation["evaluation"]["outputs"][0]["values"]["target_value"] == [
+    assert "error" not in observed, observed
+    evaluation = observed["evaluation"]
+    assert evaluation["targets"]["outputs"][0]["values"]["target_value"] == [
         "0.500000000000",
         "0.454545454545",
         "0.416666666667",
@@ -186,159 +257,71 @@ def test_installed_calculation_resolution_uses_exact_target_and_operator_resourc
         None,
         None,
     ]
-    assert observation["evaluation"]["trading_outputs"] == []
-    assert observation["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
+    assert evaluation["feature"] is None and evaluation["trading_capabilities"] == []
     for name in ("core_artifact", "operator_artifact", "target_artifact"):
         changed = json.loads(json.dumps(request))
         changed[name]["sha256"] = "f" * 64
-        denied = exchange(installation, artifact, changed, "research_resolve")
-        assert denied.WhichOneof("outcome") == "error"
-        assert denied.error.code == "REQUEST_REJECTED"
+        assert exchange(selected, changed) == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}
 
 
 def test_installed_strategy_preparation_retains_actual_target_capabilities_and_refuses_foreign_bytes(
-    tmp_path: Path,
+    prepared_runtime: dict[str, Any], tmp_path: Path
 ) -> None:
-    wheels, installation = tmp_path / "wheels", tmp_path / "algorithms"
-    artifact = install(wheels, installation)
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-
-    def wheel(path: Path) -> dict[str, object]:
-        return {
-            "path": str(path),
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "size": path.stat().st_size,
-            "distribution_version": path.name.split("-")[1],
-        }
-
-    original = {
-        "schema_version": 1,
-        "source": {
-            key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__
-        },
-        "graph": vector["graph"],
-        "core_artifact": wheel(next(wheels.glob("onlyalpha-*.whl"))),
-        "operator_artifact": wheel(next(wheels.glob("onlyalpha_plugin_operators-*.whl"))),
-    }
-    legacy = exchange(installation, artifact, original)
-    assert legacy.WhichOneof("outcome") == "result", legacy
-    legacy_record = json.loads(legacy.result.record_json)
-    assert legacy_record["contract"] == "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
-    assert "target_calculations" not in legacy_record and "target_artifact_sha256" not in legacy_record
-
-    target = next(wheels.glob("onlyalpha_backend_algorithms-*.whl"))
-    request = {
-        **original,
-        "contract": "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1",
-        "target_artifact": wheel(target),
-    }
-    response = exchange(installation, artifact, request)
-    assert response.WhichOneof("outcome") == "result", response
-    actual = json.loads(response.result.record_json)
-    assert actual["contract"] == request["contract"]
-    assert actual["target_artifact_sha256"] == request["target_artifact"]["sha256"]
+    selected = prepared_runtime
+    legacy = selected["proof"]["algorithm_observation"]
+    assert legacy["contract"] == "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
+    assert "target_calculations" not in legacy and "target_artifact_sha256" not in legacy
+    prepared = prepare_again(selected, tmp_path / "strategy-runtime", "STRATEGY")
+    assert "error" not in prepared, prepared
+    actual = prepared["proof"]["algorithm_observation"]
+    assert actual["contract"] == "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1"
+    assert actual["target_artifact_sha256"] == wheel(selected, "onlyalpha_backend_algorithms-*.whl")["sha256"]
     assert len(actual["target_resources_fingerprint"]) == 64
     capabilities = actual["target_calculations"]
-    assert capabilities
-    assert all(c["type"]["kind"] == "TARGET" and c["backend"] == "RESEARCH" for c in capabilities)
-    assert all(c["state_capability"] is None and c["checkpoint_schema_version"] is None for c in capabilities)
-    assert "target_provider_manifest" not in actual
-    assert "runtime_generation_fingerprint" not in actual
-    assert actual["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
-    # The new inventory is an actual installed registration, independently
-    # rematerialized through the already shipping exact Calculation resolver.
-    resolved = exchange(
-        installation,
-        artifact,
-        {
-            "schema_version": 1,
-            "contract": "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1",
-            "sources": [],
-            "instances": [
-                {
-                    "instance_key": "forward_return",
-                    "type_reference": {
-                        "kind": "TARGET",
-                        "type_id": "onlyalpha.target.forward_return",
-                        "semantic_version": "1",
-                    },
-                    "parameters": {"exit_offset": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 5}}},
-                    "published_outputs": ["target_value"],
-                    "primary_output": None,
-                    "input_bindings": [
-                        {"input_name": "entry_price", "source": "bar.close"},
-                        {"input_name": "exit_price", "source": "bar.close"},
-                    ],
-                }
-            ],
-            "core_artifact": original["core_artifact"],
-            "operator_artifact": original["operator_artifact"],
-            "target_artifact": wheel(target),
-        },
-        "research_resolve",
+    assert capabilities and all(
+        row["type"]["kind"] == "TARGET" and row["backend"] == "RESEARCH" for row in capabilities
     )
-    assert resolved.WhichOneof("outcome") == "result", resolved
-    manifest = json.loads(resolved.result.record_json)["nodes"][0]["implementations"][0]
-    assert any(c["implementation_fingerprint"] == manifest["implementation_fingerprint"] for c in capabilities)
-    # All former Factor preparation values remain exact under the new explicit
-    # envelope. The Runtime owner adds the separately typed Target capability.
-    for key, value in legacy_record.items():
+    assert all(row["state_capability"] is None and row["checkpoint_schema_version"] is None for row in capabilities)
+    assert "target_provider_manifest" not in actual and "runtime_generation_fingerprint" not in actual
+    assert prepared["snapshot"]["active_for_new_work"] is None
+    assert actual["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
+    resolved = exchange(selected, resolution(selected, [target_instance()]))
+    manifest = resolved["nodes"][0]["implementations"][0]
+    assert any(row["implementation_fingerprint"] == manifest["implementation_fingerprint"] for row in capabilities)
+    for key, value in legacy.items():
         if key != "contract":
             assert actual[key] == value, key
-    foreign = tmp_path / target.name
+    original = wheel(selected, "onlyalpha_backend_algorithms-*.whl")
+    for change in ({"distribution_version": "missing"}, {"sha256": "f" * 64}):
+        request = resolution(selected, [target_instance()])
+        request["target_artifact"] = {**original, **change}
+        assert exchange(selected, request) == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}
+    target = Path(original["path"])
+    foreign = target.with_suffix(".foreign")
     with zipfile.ZipFile(target) as source, zipfile.ZipFile(foreign, "w") as output:
         for name in source.namelist():
             raw = source.read(name)
             output.writestr(name, raw + b"\n# foreign resource\n" if name.endswith("/registration.py") else raw)
-    assert wheel(foreign)["sha256"] != wheel(target)["sha256"]
-    denied = exchange(installation, artifact, {**request, "target_artifact": wheel(foreign)})
-    assert denied.WhichOneof("outcome") == "error"
-    assert denied.error.code == "REQUEST_REJECTED"
-    for change in ({"distribution_version": "missing"}, {"sha256": "f" * 64}):
-        denied = exchange(installation, artifact, {**request, "target_artifact": {**wheel(target), **change}})
-        assert denied.WhichOneof("outcome") == "error"
-        assert denied.error.code == "REQUEST_REJECTED"
+    target.write_bytes(foreign.read_bytes())
+    foreign.unlink()
+    rehash_release(selected, target)
+    root = tmp_path / "foreign-target-runtime"
+    denied = prepare_again(selected, root, "STRATEGY")
+    assert "error" in denied and "OUTCOME_UNKNOWN" not in denied["error"], denied
+    assert not root.exists()
 
 
-def _actual_node_profile_request(wheels: Path) -> dict[str, Any]:
-    """Controlled mathematical inputs retain actual Definition/implementation identity."""
-    from decimal import Decimal
-
-    from onlyalpha.calculation.definition import OnlyCalculationDefinition
-
-    root = Path(__file__).parents[4]
-    vector = json.loads((root / "packages/backend/tests/application/fixtures/research_factor.json").read_text())
-    calculations = json.loads(
-        (root / "packages/backend/tests/application/fixtures/strategy_calculations.json").read_text()
-    )
-
-    def selected(pattern: str) -> dict[str, object]:
-        wheel = next(wheels.glob(pattern))
-        return {
-            "path": str(wheel),
-            "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
-            "size": wheel.stat().st_size,
-            "distribution_version": wheel.name.split("-")[1],
-        }
-
-    resolution = {
-        "schema_version": 1,
-        "contract": "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1",
-        "sources": [
-            {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
-        ],
-        "instances": calculations["instances"],
-        "core_artifact": selected("onlyalpha-*.whl"),
-        "operator_artifact": selected("onlyalpha_plugin_operators-*.whl"),
-        "target_artifact": selected("onlyalpha_backend_algorithms-*.whl"),
-    }
+def _actual_node_profile_request(selected: dict[str, Any]) -> dict[str, Any]:
+    """Profile actual Rust/SDK-resolved Definitions; no upgraded historical wire."""
+    request = resolution(selected, feature_instances(selected), private=True)
+    actual = exchange(selected, request)
+    assert "error" not in actual, actual
     nodes = []
-    for record in calculations["nodes"]:
-        definition = record["definition"]
-        parsed = OnlyCalculationDefinition.from_dict(definition)
-        period = definition["parameters"].get("period", {}).get("value", 0)
-        count = max(parsed.warmup.minimum_observations, int(period) + 1) + 22
-        quantum = Decimal(str(definition["numeric"]["output_quantum"]))
+    for resolved in actual["nodes"]:
+        definition = resolved["definition"]
+        period = int(definition["parameters"].get("period", {}).get("value", 0))
+        count = max(definition["warmup"]["minimum_observations"], period + 1) + 22
+        quantum = Decimal(definition["numeric"]["output_quantum"])
         cases = []
         for name in (
             "FLAT_SEQUENCE",
@@ -358,54 +341,48 @@ def _actual_node_profile_request(wheels: Path) -> dict[str, Any]:
                     "WARMUP_AND_STEADY_STATE": Decimal(10 + index % 5),
                     "ZERO_BOUNDARY": Decimal(0),
                     "NULLABLE_INPUT_SEMANTICS": Decimal(2),
-                    "QUANTIZATION_BOUNDARY": quantum * Decimal("0.5") if index % 2 == 0 else quantum * Decimal("1.5"),
+                    "QUANTIZATION_BOUNDARY": quantum * Decimal("0.5" if index % 2 == 0 else "1.5"),
                 }[name]
-                row = {port.name: {"type": "DECIMAL", "value": format(value, "f")} for port in parsed.inputs}
-                if name == "NULLABLE_INPUT_SEMANTICS":
-                    nullable = [port.name for port in parsed.inputs if port.nullable]
-                    if nullable and index < len(nullable):
-                        row[nullable[index]] = {"type": "NULL", "value": None}
+                row = {port["name"]: {"type": "DECIMAL", "value": format(value, "f")} for port in definition["inputs"]}
+                nullable = [port["name"] for port in definition["inputs"] if port["nullable"]]
+                if name == "NULLABLE_INPUT_SEMANTICS" and index < len(nullable):
+                    row[nullable[index]] = {"type": "NULL", "value": None}
                 rows.append(row)
-            # This approved Factor's explicit public contract has close and a
-            # historical-close operand. Straddle output rounding with a ratio
-            # denominator of one, rather than merely attaching a case label.
             if definition["kind"] == "FACTOR" and name == "QUANTIZATION_BOUNDARY":
                 for index, row in enumerate(rows):
-                    for port in parsed.inputs:
-                        row[port.name] = {"type": "DECIMAL", "value": "1"}
+                    for port in definition["inputs"]:
+                        row[port["name"]] = {"type": "DECIMAL", "value": "1"}
                     row["close"] = {
                         "type": "DECIMAL",
-                        "value": format(
-                            Decimal(1) + quantum * (Decimal("0.5") if index % 2 == 0 else Decimal("1.5")), "f"
-                        ),
+                        "value": format(Decimal(1) + quantum * Decimal("0.5" if index % 2 == 0 else "1.5"), "f"),
                     }
             cases.append({"case_id": name, "inputs": rows})
         nodes.append({"definition": definition, "cases": cases})
     return {
         "schema_version": 1,
         "contract": "ONLYALPHA_CALCULATION_NODE_PROFILE_OBSERVATION_V1",
-        "resolution": resolution,
+        "resolution": request,
         "nodes": nodes,
     }
 
 
-def test_installed_node_profiles_observe_exact_factories_and_typed_nulls(tmp_path: Path) -> None:
-    from onlyalpha.calculation.definition import OnlyCalculationDefinition
-
-    wheels, installation = tmp_path / "wheels", tmp_path / "algorithms"
-    artifact = install(wheels, installation)
-    request = _actual_node_profile_request(wheels)
-    response = exchange(installation, artifact, request, "research_evaluate")
-    assert response.WhichOneof("outcome") == "result", response
-    actual = json.loads(response.result.record_json)
+def test_installed_node_profiles_observe_exact_factories_and_typed_nulls(prepared_runtime: dict[str, Any]) -> None:
+    request = _actual_node_profile_request(prepared_runtime)
+    actual = exchange(prepared_runtime, request, "evaluate")
+    assert "error" not in actual, actual
     assert actual["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
     observed = actual["evaluation"]
     assert set(observed) == {"schema_version", "contract", "nodes"}
     assert observed["schema_version"] == 1 and observed["contract"] == request["contract"]
-    expected = {OnlyCalculationDefinition.from_dict(row["definition"]).fingerprint: row for row in request["nodes"]}
+    # Associate profiles with the actual Rust resolver Definition identities.
+    resolved = exchange(prepared_runtime, request["resolution"])
+    expected = {
+        row["definition_fingerprint"]: next(n for n in request["nodes"] if n["definition"] == row["definition"])
+        for row in resolved["nodes"]
+    }
+    assert len(expected) == 3
     values = {row["node_fingerprint"]: row for row in observed["nodes"]}
-    assert len(values) == len(observed["nodes"]) == len(expected) == 3
-    assert values.keys() == expected.keys()
+    assert len(values) == len(observed["nodes"]) == len(expected) and values.keys() == expected.keys()
     implementations = {row["definition_fingerprint"]: row["implementations"] for row in actual["nodes"]}
     total = 0
     for key, node in values.items():
@@ -423,8 +400,7 @@ def test_installed_node_profiles_observe_exact_factories_and_typed_nulls(tmp_pat
             assert len(selected) == 1 and node[field] == selected[0]["implementation_fingerprint"]
         planned = {row["case_id"]: row for row in expected[key]["cases"]}
         cases = {row["case_id"]: row for row in node["cases"]}
-        assert len(cases) == len(node["cases"]) == len(planned) == 7
-        assert cases.keys() == planned.keys()
+        assert len(cases) == len(node["cases"]) == len(planned) == 7 and cases.keys() == planned.keys()
         for case_id, case in cases.items():
             assert set(case) == {"case_id", "inputs", "research_outputs", "trading_outputs"}
             assert case["inputs"] == planned[case_id]["inputs"]
@@ -440,22 +416,21 @@ def test_installed_node_profiles_observe_exact_factories_and_typed_nulls(tmp_pat
         for port in expected[key]["definition"]["inputs"]:
             if port["nullable"]:
                 assert any(row[port["name"]] == {"type": "NULL", "value": None} for row in nullable)
-        name = expected[key]["definition"]["type_id"]
-        if name == "onlyalpha.operator.delay":
-            count = expected[key]["definition"]["parameters"]["period"]["value"]
+        definition = expected[key]["definition"]
+        if definition["type_id"] == "onlyalpha.operator.delay":
+            count = definition["parameters"]["period"]["value"]
             flat = cases["FLAT_SEQUENCE"]["research_outputs"]
             assert [row["value"] for row in flat[:count]] == [{"type": "NULL", "value": None}] * count
-            assert flat[count]["value"] == {"type": "DECIMAL", "value": "100"}
-        if expected[key]["definition"]["kind"] == "FACTOR":
+            assert flat[count]["value"]["type"] == "DECIMAL" and Decimal(flat[count]["value"]["value"]) == Decimal(100)
+        if definition["kind"] == "FACTOR":
             assert all(
                 row["value"] == {"type": "NULL", "value": None} for row in cases["ZERO_BOUNDARY"]["research_outputs"]
             )
             boundary = cases["QUANTIZATION_BOUNDARY"]["research_outputs"]
-            assert boundary[0]["value"] == {"type": "DECIMAL", "value": "0"}
-            assert boundary[1]["value"] == {"type": "DECIMAL", "value": "0.000000000002"}
+            assert boundary[0]["value"]["type"] == boundary[1]["value"]["type"] == "DECIMAL"
+            assert Decimal(boundary[0]["value"]["value"]) == Decimal(0)
+            assert Decimal(boundary[1]["value"]["value"]) == Decimal("0.000000000002")
     assert total <= 8192
-    # This is a raw algorithm observation, not a portable Kernel checkpoint,
-    # execution receipt, Strategy state, authorization or admission certificate.
     forbidden = {"binding", "receipt", "cursor", "strategy_state", "grant", "permission", "equivalence_evidence"}
 
     def check(value: object) -> None:
@@ -470,10 +445,10 @@ def test_installed_node_profiles_observe_exact_factories_and_typed_nulls(tmp_pat
     check(observed)
 
 
-def test_installed_node_profiles_reject_foreign_definitions_scalars_control_and_work_budgets(tmp_path: Path) -> None:
-    wheels, installation = tmp_path / "wheels", tmp_path / "algorithms"
-    artifact = install(wheels, installation)
-    original = _actual_node_profile_request(wheels)
+def test_installed_node_profiles_reject_foreign_definitions_scalars_control_and_work_budgets(
+    prepared_runtime: dict[str, Any],
+) -> None:
+    original = _actual_node_profile_request(prepared_runtime)
     for fault in (
         "definition",
         "scalar",
@@ -482,6 +457,7 @@ def test_installed_node_profiles_reject_foreign_definitions_scalars_control_and_
         "duplicate-case",
         "case-budget",
         "package-budget",
+        "schema-version",
     ):
         request = json.loads(json.dumps(original))
         request["nodes"] = request["nodes"][:1]
@@ -500,30 +476,29 @@ def test_installed_node_profiles_reject_foreign_definitions_scalars_control_and_
             node["cases"].append(case)
         elif fault == "case-budget":
             case["inputs"] = case["inputs"][:1] * 8193
-        else:
+        elif fault == "package-budget":
             case["inputs"] = case["inputs"][:1] * 4097
             node["cases"].append({"case_id": "OTHER", "inputs": case["inputs"][:4096]})
-        response = exchange(installation, artifact, request, "research_evaluate")
-        assert response.WhichOneof("outcome") == "error", (fault, response)
-        assert response.error.code == "REQUEST_REJECTED"
+        else:
+            request["schema_version"] = 2
+        assert exchange(prepared_runtime, request, "evaluate") == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}, fault
 
 
-def test_installed_graph_observation_without_targets_uses_actual_feature_factories(tmp_path: Path) -> None:
-    """Targetless validation is actual arithmetic, not a fabricated Research study."""
-    from decimal import Decimal
-
-    wheels, installation = tmp_path / "wheels", tmp_path / "algorithms"
-    artifact = install(wheels, installation)
-    resolution = _actual_node_profile_request(wheels)["resolution"]
-    assert all(row["type_reference"]["kind"] != "TARGET" for row in resolution["instances"])
+def test_installed_graph_observation_without_targets_uses_actual_feature_factories(
+    prepared_runtime: dict[str, Any],
+) -> None:
+    request = resolution(prepared_runtime, feature_instances(prepared_runtime), private=True)
+    assert all(row["type_reference"]["kind"] != "TARGET" for row in request["instances"])
     rows = [
         {"at_ns": (index + 1) * 60_000_000_000, "values": {"close": str(100 + index), "volume": "2"}}
         for index in range(41)
     ]
-    request = {"contract": "ONLYALPHA_CALCULATION_PLANES_OBSERVATION_V1", "resolution": resolution, "rows": rows}
-    response = exchange(installation, artifact, request, "research_evaluate")
-    assert response.WhichOneof("outcome") == "result", response
-    actual = json.loads(response.result.record_json)
+    actual = exchange(
+        prepared_runtime,
+        {"contract": "ONLYALPHA_CALCULATION_PLANES_OBSERVATION_V1", "resolution": request, "rows": rows},
+        "evaluate",
+    )
+    assert "error" not in actual, actual
     assert actual["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
     observed = actual["evaluation"]
     assert observed["targets"] is None

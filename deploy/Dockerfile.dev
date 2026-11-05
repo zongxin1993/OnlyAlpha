@@ -206,7 +206,7 @@ import hashlib
 import importlib.util
 import json
 import subprocess
-from importlib.metadata import distribution, version
+from importlib.metadata import PackageNotFoundError, distribution, version
 from pathlib import Path
 
 import pyarrow
@@ -217,9 +217,15 @@ manifest_bytes = (root / "algorithm-installation.json").read_bytes()
 manifest = json.loads(manifest_bytes)
 assert hashlib.sha256(manifest_bytes).hexdigest() == Path("/opt/onlyalpha/algorithm-artifact.sha256").read_text().strip()
 assert version("onlyalpha") == manifest["distribution_version"]
-for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator"):
+for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator", "onlyalpha_plugin_operators"):
     assert importlib.util.find_spec(name) is None, name
-for name in ("onlyalpha", "onlyalpha-plugin-operators", "onlyalpha-gateway-protocol"):
+try:
+    distribution("onlyalpha-plugin-operators")
+except PackageNotFoundError:
+    pass
+else:
+    raise AssertionError("retired Python operators distribution is installed")
+for name in ("onlyalpha", "onlyalpha-gateway-protocol"):
     assert not distribution(name).entry_points, name
 entries = distribution("onlyalpha-backend-algorithms").entry_points
 assert [(entry.group, entry.name, entry.value) for entry in entries] == [

@@ -1,6 +1,8 @@
 //! Mutations of the original Generation journal, sharing its lock and replay.
 //! The hosting Product owner authenticates Human commands; this is no API proxy.
-use super::{History, INVALID, INVENTORY_LOCK_BUSY, LIMIT, Result, RuntimeInputHold, UNAVAILABLE, hash};
+use super::{
+    History, INVALID, INVENTORY_LOCK_BUSY, LIMIT, Result, RuntimeInputHold, UNAVAILABLE, hash,
+};
 use crate::application::command::CommandId;
 use onlyalpha_domain::time::OnlyUtcDateTime;
 use rustix::fs;
@@ -42,7 +44,9 @@ impl Registry {
         let mut bindings = Vec::new();
         for (work, (generation, active, original)) in &history.bindings {
             if *active {
-                if original["kind"] != "RuntimeWorkBound" || history.closed.contains(work) { return Err(INVALID); }
+                if original["kind"] != "RuntimeWorkBound" || history.closed.contains(work) {
+                    return Err(INVALID);
+                }
                 let reason = original["reason"].as_str().ok_or(INVALID)?;
                 bindings.push((work.clone(), generation.clone(), reason.to_owned()));
             }
@@ -52,12 +56,24 @@ impl Registry {
     }
     /// Read the exact original work occurrence and release status under the
     /// existing shared lock. These values cannot admit or reopen work.
-    pub(crate) fn inspect_work(root:&Path,work:&str,generation:&str,owner:&str)->Result<Value> {
-        let mut held=RuntimeInputHold::acquire(root,fs::FlockOperation::NonBlockingLockShared)?;
-        let history=held.replay()?;
-        let (original,active,event)=history.bindings.get(work).ok_or("RESEARCH_RUNTIME_WORK_UNBOUND")?;
-        if original!=generation || event["kind"]!="RuntimeWorkBound" || event["reason"]!=owner {return Err("RESEARCH_RUNTIME_WORK_MISMATCH");}
-        held.verify()?;Ok(json!({"binding":event,"active":active,"closed":history.closed.contains(work)}))
+    pub(crate) fn inspect_work(
+        root: &Path,
+        work: &str,
+        generation: &str,
+        owner: &str,
+    ) -> Result<Value> {
+        let mut held = RuntimeInputHold::acquire(root, fs::FlockOperation::NonBlockingLockShared)?;
+        let history = held.replay()?;
+        let (original, active, event) = history
+            .bindings
+            .get(work)
+            .ok_or("RESEARCH_RUNTIME_WORK_UNBOUND")?;
+        if original != generation || event["kind"] != "RuntimeWorkBound" || event["reason"] != owner
+        {
+            return Err("RESEARCH_RUNTIME_WORK_MISMATCH");
+        }
+        held.verify()?;
+        Ok(json!({"binding":event,"active":active,"closed":history.closed.contains(work)}))
     }
     /// Explicit fresh provisioning only. Never fallback for a missing/corrupt existing journal.
     pub fn initialize_fresh(root: &Path) -> Result<Self> {
@@ -197,12 +213,15 @@ impl Registry {
     }
     /// Storage publication only. The native Product owner first requires an actual
     /// installed PreparedGeneration; this grants no activation or Research permission.
-    pub fn prepare_generation(
+    pub fn prepare_candidate(
         &mut self,
         manifest: &Value,
         actor: &str,
         at: OnlyUtcDateTime,
-    ) -> Result<Value> {
+    ) -> Result<()> {
+        if actor.trim().is_empty() || actor.len() > 256 {
+            return Err(INVALID);
+        }
         self.held.verify()?;
         let id = super::digest(manifest, "runtime_generation_fingerprint")?;
         let directory = crate::security::immutable_json::Directory::open(&self.held.root_path)?;
@@ -235,6 +254,18 @@ impl Registry {
         ) {
             return Err("RUNTIME_GENERATION_NOT_PREPARING");
         }
+        Ok(())
+    }
+    /// Publish validation only after the same candidate owner has verified its exact artifacts.
+    pub fn prepare_generation(
+        &mut self,
+        manifest: &Value,
+        actor: &str,
+        at: OnlyUtcDateTime,
+    ) -> Result<Value> {
+        self.prepare_candidate(manifest, actor, at)?;
+        let id = super::digest(manifest, "runtime_generation_fingerprint")?;
+        let directory = crate::security::immutable_json::Directory::open(&self.held.root_path)?;
         let mut validation = json!({"schema_version":1,"validation_contract_version":"ONLYALPHA_RUNTIME_GENERATION_VALIDATION@1",
             "runtime_generation_fingerprint":id,"core_execution_fingerprint":hash(&manifest["core_execution"]).map_err(|_|INVALID)?});
         for key in [
@@ -362,30 +393,170 @@ impl Registry {
         actor: &str,
         at: OnlyUtcDateTime,
     ) -> Result<Value> {
-        if work.trim().is_empty() || work.len() > 512 || owner.trim().is_empty()
-            || owner.len() > 256 || actor.trim().is_empty() || actor.len() > 256
-            || !crate::is_sha256_hex(generation) {
+        if work.trim().is_empty()
+            || work.len() > 512
+            || owner.trim().is_empty()
+            || owner.len() > 256
+            || actor.trim().is_empty()
+            || actor.len() > 256
+            || !crate::is_sha256_hex(generation)
+        {
             return Err(INVALID);
         }
         self.held.verify()?;
-        let (original_generation, active, origin) = self.history.bindings.get(work)
+        let (original_generation, active, origin) = self
+            .history
+            .bindings
+            .get(work)
             .ok_or("RUNTIME_WORK_GENERATION_BINDING_CONFLICT")?;
-        if original_generation != generation || origin["kind"] != "RuntimeWorkBound" || origin["reason"] != owner {
+        if original_generation != generation
+            || origin["kind"] != "RuntimeWorkBound"
+            || origin["reason"] != owner
+        {
             return Err("RUNTIME_WORK_GENERATION_BINDING_CONFLICT");
         }
         if !active {
-            let ledger=self.held.record("generation-events.jsonl")?;
-            let mut original=None;
-            for line in std::str::from_utf8(&ledger).map_err(|_|INVALID)?.lines() {
-                let event:Value=serde_json::from_str(line).map_err(|_|INVALID)?;
-                if event["kind"]=="RuntimeWorkReleased" && event["work_id"]==work {
-                    if original.is_some() || event["generation_fingerprint"]!=generation || event["reason"]!=owner { return Err(INVALID); }
-                    original=Some(event);
+            let ledger = self.held.record("generation-events.jsonl")?;
+            let mut original = None;
+            for line in std::str::from_utf8(&ledger).map_err(|_| INVALID)?.lines() {
+                let event: Value = serde_json::from_str(line).map_err(|_| INVALID)?;
+                if event["kind"] == "RuntimeWorkReleased" && event["work_id"] == work {
+                    if original.is_some()
+                        || event["generation_fingerprint"] != generation
+                        || event["reason"] != owner
+                    {
+                        return Err(INVALID);
+                    }
+                    original = Some(event);
                 }
             }
             return original.ok_or(INVALID);
         }
         self.append(json!({"kind":"RuntimeWorkReleased","generation_fingerprint":generation,"work_id":work,"reason":owner}),actor,at)
+    }
+    /// Reject only a prepared, unvalidated candidate. Replay returns its original receipt.
+    pub fn reject(
+        &mut self,
+        generation: &str,
+        reason: &str,
+        actor: &str,
+        at: OnlyUtcDateTime,
+    ) -> Result<Value> {
+        if !crate::is_sha256_hex(generation)
+            || reason.trim().is_empty()
+            || reason.len() > 4096
+            || actor.trim().is_empty()
+            || actor.len() > 256
+        {
+            return Err(INVALID);
+        }
+        self.held.verify()?;
+        if self.history.states.get(generation) == Some(&"REJECTED") {
+            let event = self
+                .prior_event("GenerationRejected", "generation_fingerprint", generation)?
+                .ok_or(INVALID)?;
+            if event["reason"] != reason {
+                return Err("RUNTIME_GENERATION_REJECTION_CONFLICT");
+            }
+            return Ok(event);
+        }
+        if self.history.states.get(generation) != Some(&"PREPARING") {
+            return Err("RUNTIME_GENERATION_REJECTION_CONFLICT");
+        }
+        self.append(json!({"kind":"GenerationRejected","generation_fingerprint":generation,"reason":reason}),actor,at)
+    }
+    /// Retire a draining process generation only after every bound work has released.
+    /// Retained artifacts and historical identity are never removed by retirement.
+    pub fn retire(&mut self, generation: &str, actor: &str, at: OnlyUtcDateTime) -> Result<Value> {
+        if !crate::is_sha256_hex(generation) || actor.trim().is_empty() || actor.len() > 256 {
+            return Err(INVALID);
+        }
+        self.held.verify()?;
+        if self.history.states.get(generation) == Some(&"RETIRED") {
+            return self
+                .prior_event("GenerationRetired", "generation_fingerprint", generation)?
+                .ok_or(INVALID);
+        }
+        if self.history.active.as_deref() == Some(generation)
+            || self
+                .history
+                .bindings
+                .values()
+                .any(|(g, active, _)| g == generation && *active)
+        {
+            return Err("RUNTIME_GENERATION_STILL_REQUIRED");
+        }
+        if self.history.states.get(generation) != Some(&"DRAINING") {
+            return Err("RUNTIME_GENERATION_NOT_DRAINING");
+        }
+        self.append(
+            json!({"kind":"GenerationRetired","generation_fingerprint":generation}),
+            actor,
+            at,
+        )
+    }
+    /// Fence late new-work admission for this exact identity. Existing work must
+    /// already be explicitly released; absence does not imply work completion.
+    pub fn close_new_work_exact(
+        &mut self,
+        work: &str,
+        generation: &str,
+        owner: &str,
+        closure_reason: &str,
+        actor: &str,
+        at: OnlyUtcDateTime,
+    ) -> Result<Value> {
+        if work.trim().is_empty()
+            || work.len() > 512
+            || !crate::is_sha256_hex(generation)
+            || owner.trim().is_empty()
+            || owner.len() > 256
+            || closure_reason.trim().is_empty()
+            || closure_reason.len() > 4096
+            || actor.trim().is_empty()
+            || actor.len() > 256
+        {
+            return Err(INVALID);
+        }
+        self.held.verify()?;
+        let reason = json!({"owner":owner,"closure_reason":closure_reason}).to_string();
+        if let Some(event) = self.prior_event("RuntimeNewWorkClosed", "work_id", work)? {
+            if event["generation_fingerprint"] != generation || event["reason"] != reason {
+                return Err("RUNTIME_WORK_GENERATION_BINDING_CONFLICT");
+            }
+            return Ok(event);
+        }
+        if let Some((original, active, event)) = self.history.bindings.get(work) {
+            if original != generation
+                || event["kind"] != "RuntimeWorkBound"
+                || event["reason"] != owner
+            {
+                return Err("RUNTIME_WORK_GENERATION_BINDING_CONFLICT");
+            }
+            if *active {
+                return Err("RUNTIME_WORK_STILL_ACTIVE");
+            }
+        } else if !matches!(
+            self.history.states.get(generation),
+            Some(&"READY" | &"ACTIVE_FOR_NEW_WORK" | &"DRAINING" | &"RETIRED")
+        ) {
+            return Err("RUNTIME_GENERATION_NOT_READY");
+        }
+        self.append(json!({"kind":"RuntimeNewWorkClosed","generation_fingerprint":generation,"work_id":work,"reason":reason}),actor,at)
+    }
+    fn prior_event(&mut self, kind: &str, key: &str, value: &str) -> Result<Option<Value>> {
+        let ledger = self.held.record("generation-events.jsonl")?;
+        let mut found = None;
+        for line in std::str::from_utf8(&ledger).map_err(|_| INVALID)?.lines() {
+            let event: Value = serde_json::from_str(line).map_err(|_| INVALID)?;
+            if event["kind"] == kind && event[key] == value {
+                if found.is_some() {
+                    return Err(INVALID);
+                }
+                found = Some(event);
+            }
+        }
+        Ok(found)
     }
     fn append(&mut self, fields: Value, actor: &str, at: OnlyUtcDateTime) -> Result<Value> {
         if actor.trim().is_empty() || actor.len() > 256 {

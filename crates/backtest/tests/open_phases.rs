@@ -1314,3 +1314,107 @@ fn empty_delivery_keeps_the_actual_replay_cut_without_calling_or_acknowledging_a
     assert!(RunLoop::open(&root, spec(), inputs(), Phases::new()).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+
+fn actual_execution_rows(root: &std::path::Path) -> Vec<(i64, String, String, i64, i64)> {
+    let db = rusqlite::Connection::open_with_flags(root.join("runtime.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let mut query = db.prepare("SELECT sequence,payload,digest,ready,delivered FROM records ORDER BY sequence").unwrap();
+    query.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+        .unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap()
+}
+
+#[test]
+fn combined_step_delivery_matches_original_bytes_events_cursor_and_economics() {
+    let separate_root = root("combined-separate-equivalence");
+    let combined_root = root("combined-equivalence");
+    let mut separate = RunLoop::create(&separate_root, spec(), inputs(), Valuations::new(&[1, 1])).unwrap();
+    let mut combined = RunLoop::create(&combined_root, spec(), inputs(), Valuations::new(&[1, 1])).unwrap();
+    let mut expected_events = Vec::new();
+    let mut actual_events = Vec::new();
+    for _ in 0..5 {
+        let expected_advanced = separate.step().unwrap();
+        let expected_delivered = separate.deliver(|event| {expected_events.push(event.clone()); Ok(())}).unwrap();
+        let observed = combined.step_and_deliver(|event| {actual_events.push(event.clone()); Ok(())}).unwrap();
+        assert_eq!(observed, (expected_advanced, expected_delivered));
+        assert_eq!(actual_events, expected_events);
+        assert_eq!(combined.trace().unwrap(), separate.trace().unwrap());
+        assert_eq!(combined.state().unwrap(), separate.state().unwrap());
+        assert_eq!(actual_execution_rows(&combined_root), actual_execution_rows(&separate_root));
+        assert_eq!(operation_cut_rows(&combined_root), operation_cut_rows(&separate_root));
+    }
+    separate.close_input().unwrap(); combined.close_input().unwrap();
+    separate.deliver(|_| Ok(())).unwrap(); combined.deliver(|_| Ok(())).unwrap();
+    separate.finish_input().unwrap(); combined.finish_input().unwrap();
+    assert_eq!(combined.result().unwrap(), separate.result().unwrap());
+    drop(separate); drop(combined);
+    std::fs::remove_dir_all(separate_root).unwrap();
+    std::fs::remove_dir_all(combined_root).unwrap();
+}
+
+#[test]
+fn combined_empty_step_calls_no_consumer_and_exhausted_step_still_drains_old_events() {
+    let empty_root = root("combined-empty-consumer");
+    let mut empty = RunLoop::create(&empty_root, spec(), inputs(), Phases::new()).unwrap();
+    for _ in 0..4 {
+        assert_eq!(empty.step_and_deliver(|_| panic!("empty source invoked consumer")).unwrap(), (true, 0));
+    }
+    assert_eq!(empty.step_and_deliver(|_| panic!("empty source invoked consumer")).unwrap(), (false, 0));
+    drop(empty); std::fs::remove_dir_all(empty_root).unwrap();
+    let pending_root = root("combined-exhausted-old-pending");
+    let mut pending = RunLoop::create(&pending_root, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
+    pending.run().unwrap();
+    assert_eq!(pending.step_and_deliver(|_| Ok(())).unwrap(), (false, 1));
+    assert_eq!(pending.deliver(|_| Ok(())).unwrap(), 0);
+    drop(pending); std::fs::remove_dir_all(pending_root).unwrap();
+}
+
+#[test]
+fn combined_final_completion_cut_refuses_actual_missing_corrupt_flags_and_replay_history() {
+    for (name, fault) in [
+        ("missing", "DELETE FROM records WHERE sequence=1"),
+        ("corrupt", "UPDATE records SET payload='{}' WHERE sequence=1"),
+        ("flags", "UPDATE records SET ready=0,delivered=0 WHERE sequence=1"),
+        ("replay", "UPDATE replay_steps SET payload='{}' WHERE sequence=1"),
+    ] {
+        let selected = root(&format!("combined-postwrite-{name}"));
+        let mut run = RunLoop::create(&selected, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
+        assert!(run.step().unwrap());
+        let db = rusqlite::Connection::open(selected.join("runtime.sqlite3")).unwrap();
+        db.execute_batch(&format!("CREATE TRIGGER controlled_source_fault AFTER UPDATE OF ready ON replay_steps WHEN NEW.sequence=2 AND NEW.ready=1 BEGIN {fault}; END;")).unwrap();
+        drop(db);
+        let result = run.step_and_deliver(|_| panic!("corrupt final cut invoked consumer"));
+        assert!(matches!(result, Err(onlyalpha_backtest::StepAndDeliverError::Step(_))), "{name}");
+        assert!(run.progress().is_err(), "failed final cut must require original recovery: {name}");
+        drop(run); std::fs::remove_dir_all(selected).unwrap();
+    }
+}
+
+#[test]
+fn combined_consumer_failure_keeps_pending_and_callback_source_change_keeps_original_ack() {
+    for corrupt in [false, true] {
+        let selected = root(&format!("combined-consumer-{corrupt}"));
+        let mut run = RunLoop::create(&selected, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
+        assert!(run.step().unwrap());
+        let mut accepted = Vec::new();
+        let result = run.step_and_deliver(|event| {
+            accepted.push(event.clone());
+            if corrupt { operation_cut_rehash(&selected, 1); Ok(()) }
+            else { Err(Error("CONTROLLED_CONSUMER_UNKNOWN".into())) }
+        });
+        assert!(matches!(result, Err(onlyalpha_backtest::StepAndDeliverError::Delivery(_))));
+        assert_eq!(accepted.len(), 1);
+        let rows = actual_execution_rows(&selected);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].3, rows[0].4), (1, i64::from(corrupt)));
+        if corrupt {
+            assert!(run.progress().is_err());
+        } else {
+            assert_eq!(run.progress().unwrap()["cursor"], 1);
+            let mut retried = Vec::new();
+            assert_eq!(run.deliver(|event| {retried.push(event.clone()); Ok(())}).unwrap(), 1);
+            assert_eq!(retried, accepted, "consumer failure must retain the same stable Event");
+        }
+        drop(run); std::fs::remove_dir_all(selected).unwrap();
+    }
+}

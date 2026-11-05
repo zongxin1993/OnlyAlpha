@@ -63,6 +63,30 @@ def test_schema_migration_is_idempotent_and_refuses_changed_bytes(migration_back
     assert facts(schema_db) == tampered
 
 
+def test_native_authoring_run_rejects_incomplete_binding_before_attempt(schema_db: str) -> None:
+    run = str(uuid4())
+    statement = (
+        "INSERT INTO research_run(run_id,revision,state,specification_schema_version,specification_fingerprint,"
+        "specification_payload,admission_resolution_fingerprint,queued_at,"
+        "calculation_execution_evidence_fingerprints,origin_kind) "
+        "VALUES(%s,0,'QUEUED',6,%s,%s,%s,clock_timestamp(),ARRAY[]::text[],'GENERAL')"
+    )
+    complete = {
+        "schema_version": 6,
+        "kind": "TIME_SERIES_FACTOR_RESEARCH",
+        "authoring_generation_fingerprint": "a" * 64,
+    }
+    with psycopg.connect(schema_db) as connection:
+        for field in complete:
+            body = {key: value for key, value in complete.items() if key != field}
+            with pytest.raises(psycopg.errors.CheckViolation), connection.transaction():
+                connection.execute(statement, (run, "b" * 64, json.dumps(body), "c" * 64))
+        with pytest.raises(psycopg.errors.RaiseException, match="NATIVE_FACTOR_RESEARCH_RELATION_CORRUPT"):
+            with connection.transaction():
+                connection.execute(statement, (run, "b" * 64, json.dumps(complete), "c" * 64))
+        assert connection.execute("SELECT count(*) FROM research_run_attempt WHERE run_id=%s", (run,)).fetchone() == (0,)
+
+
 def test_schema_migration_respects_existing_operator_lock(migration_backend: Path, postgres_dsn: str) -> None:
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute("SELECT pg_catalog.pg_advisory_lock(591487210081::bigint)")

@@ -1,16 +1,39 @@
-use crate::{Manager, model::*};
+use crate::{Manager, manager::CachedCheckpoint, model::*};
+use std::sync::Arc;
 use serde_json::{Value, json};
 impl Manager {
+    fn cached_checkpoint(&self) -> Result<&CachedCheckpoint, Error> {
+        if let Some(checkpoint) = self.checkpoint_cache.get() {
+            return Ok(checkpoint.as_ref());
+        }
+        #[cfg(test)]
+        CHECKPOINT_ENCODINGS.with(|n| n.set(n.get() + 1));
+        let record = Arc::new(json!({
+            "schema_version": 2,
+            "config": self.config,
+            "journal": self.journal.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+            "state": self.state()
+        }));
+        let bytes = serde_json::to_vec(record.as_ref())?;
+        let fingerprint = digest(&bytes);
+        let checkpoint = CachedCheckpoint { bytes, fingerprint, record };
+        let _ = self.checkpoint_cache.set(Arc::new(checkpoint));
+        // Concurrent shared readers construct the same immutable state. A
+        // successful set, or another reader winning it, always leaves a value.
+        Ok(self.checkpoint_cache.get().expect("checkpoint was initialized").as_ref())
+    }
+
     pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
-        if let Some(bytes)=self.checkpoint_cache.get(){return Ok(bytes.as_ref().clone());}
-        #[cfg(test)] CHECKPOINT_ENCODINGS.with(|n|n.set(n.get()+1));
-        let bytes = serde_json::to_vec(
-            &json!({"schema_version":2,"config":self.config,"journal":self.journal.iter().map(std::sync::Arc::as_ref).collect::<Vec<_>>(),"state":self.state()}),
-        )?;
-        let hash = digest(&bytes);
-        let result=(bytes,hash);
-        let _=self.checkpoint_cache.set(std::sync::Arc::new(result.clone()));
-        Ok(result)
+        let checkpoint = self.cached_checkpoint()?;
+        Ok((checkpoint.bytes.clone(), checkpoint.fingerprint.clone()))
+    }
+
+    /// Exact JSON representation of the owning checkpoint encoder, with its
+    /// original byte fingerprint. This detached immutable data grants no Store,
+    /// source, Ready or execution authority.
+    pub fn checkpoint_record(&self) -> Result<(Arc<Value>, String), Error> {
+        let checkpoint = self.cached_checkpoint()?;
+        Ok((Arc::clone(&checkpoint.record), checkpoint.fingerprint.clone()))
     }
     /// Extend this exact canonical data prefix without reapplying its commands.
     /// This validates data only; it supplies no Store, source or Ready proof.

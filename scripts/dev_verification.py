@@ -90,7 +90,6 @@ def environment_inputs(root: Path) -> dict[str, str]:
             (
                 "packages/backend/python/algorithms/",
                 "packages/backend/python/gateway_protocol/src/",
-                "packages/onlyalpha-operators/src/",
                 "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets/",
             )
         )

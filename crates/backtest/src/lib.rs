@@ -10,7 +10,7 @@ pub use terminal::TerminalSnapshot;
 pub use inputs::{Inputs, MarketInput, OpeningInput, Source};
 pub use next_open::NextOpenPolicy;
 pub use onlyalpha_execution::Error;
-pub use run::{Candidate, Participants, RunLoop, RunSpec};
+pub use run::{Candidate, Participants, RunLoop, RunSpec, StepAndDeliverError};
 use serde_json::Value;
 pub use trading::Trading;
 fn err(s: &str) -> Error {

@@ -867,9 +867,6 @@ actor = "T01"
 [[actor_paths]]
 pattern = "src/onlyalpha/collector/backtest.py"
 actor = "A07"
-[[actor_paths]]
-pattern = "packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/worker.py"
-actor = "A23"
 
 [[actor_paths]]
 pattern = "src/onlyalpha/application/runtime_generation.py"
@@ -886,14 +883,6 @@ actor = "A19"
 [[actor_paths]]
 pattern = "src/onlyalpha/backtest/native_evidence.py"
 actor = "A19"
-
-[[actor_paths]]
-pattern = "packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/backtest_runtime.py"
-actor = "A21"
-
-[[actor_paths]]
-pattern = "packages/onlyalpha-runtime-generation-manager/src/onlyalpha_runtime_generation_manager/registry.py"
-actor = "A20"
 
 [[bindings]]
 capability = "C01"
@@ -960,7 +949,7 @@ capability = "C21"
 symbols = ["onlyalpha.backtest.worker.OnlyBacktestWorker", "onlyalpha.persistence.postgres.backtest_store.OnlyPostgresBacktestStore"]
 [[bindings]]
 capability = "C22"
-symbols = ["onlyalpha.backtest.worker.OnlyBacktestWorker", "onlyalpha.backtest.worker.OnlyEngineBacktestRuntimeExecutor", "onlyalpha_runtime_generation_manager.backtest_runtime.OnlyGenerationBacktestExecutor"]
+symbols = ["onlyalpha.backtest.worker.OnlyBacktestWorker", "onlyalpha.backtest.worker.OnlyEngineBacktestRuntimeExecutor"]
 [[bindings]]
 capability = "C23"
 symbols = ["onlyalpha.backtest.evidence.OnlyBacktestEvidenceStore"]
@@ -1112,12 +1101,12 @@ approved_paths = ["scripts/database.py"]
 id = "K06"
 capability = "C02"
 symbol = "onlyalpha.research.execution.scheduler.OnlyResearchScheduler"
-approved_paths = ["packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/worker.py", "src/onlyalpha/research/worker_main.py"]
+approved_paths = ["src/onlyalpha/research/worker_main.py"]
 [[constructors]]
 id = "K07"
 capability = "C03"
 symbol = "onlyalpha.research.execution.worker.OnlyResearchWorker"
-approved_paths = ["packages/onlyalpha-authoring-execution-worker/src/onlyalpha_authoring_execution_worker/worker.py", "src/onlyalpha/research/worker_main.py"]
+approved_paths = ["src/onlyalpha/research/worker_main.py"]
 [[constructors]]
 id = "K08"
 capability = "C12"

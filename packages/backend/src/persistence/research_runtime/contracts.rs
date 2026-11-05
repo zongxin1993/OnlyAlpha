@@ -200,7 +200,7 @@ pub(super) fn artifact(v: &Value) -> Result<()> {
         "implementations",
         "manifest_fingerprint",
     ];
-    if schema == Some(2) {
+    if matches!(schema, Some(2 | 3)) {
         fields.push("execution_capabilities");
     } else if schema != Some(1) {
         return Err(INVALID);
@@ -265,19 +265,20 @@ pub(super) fn artifact(v: &Value) -> Result<()> {
                 | "BACKTEST_RUNTIME"
                 | "RESEARCH_RUNTIME"
         ))
-        || (schema == Some(2) && role != "BACKEND_RUNTIME")
+        || (matches!(schema, Some(2 | 3)) && role != "BACKEND_RUNTIME")
     {
         return Err(INVALID);
     }
     // Old Research-only V2 manifests remain exact immutable history. Current
     // images may also declare the concrete, separately admitted Backtest owner.
-    if schema == Some(2)
+    if matches!(schema, Some(2 | 3))
         && v["execution_capabilities"]
             != json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"}])
-        && v["execution_capabilities"] != json!([
-            {"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},
-            {"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}
-        ])
+        && v["execution_capabilities"]
+            != json!([
+                {"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},
+                {"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}
+            ])
     {
         return Err(INVALID);
     }
@@ -352,7 +353,7 @@ pub(super) fn artifact(v: &Value) -> Result<()> {
         "provider_version",
         "provider_content_fingerprint",
     ];
-    if role == "QUANT_ASSET" {
+    if role == "QUANT_ASSET" || schema == Some(3) {
         if assets.is_empty()
             || provider.iter().any(|k| v[*k].is_null())
             || v["tested_core_execution_fingerprint"].is_null()
@@ -367,7 +368,54 @@ pub(super) fn artifact(v: &Value) -> Result<()> {
     {
         return Err(INVALID);
     }
-    if role == "BACKEND_RUNTIME" {
+    if role == "BACKEND_RUNTIME" && schema == Some(3) {
+        let image = text(v, "artifact_sha256")?;
+        let provider = onlyalpha_calculation_bridge::native_operators::provider_record(
+            image,
+            text(v, "distribution_version")?,
+        )
+        .map_err(|_| INVALID)?;
+        if v["provider_id"] != provider["manifest"]["provider_id"]
+            || v["provider_version"] != provider["manifest"]["provider_version"]
+            || v["provider_content_fingerprint"] != provider["content_fingerprint"]
+        {
+            return Err(INVALID);
+        }
+        let mut expected_assets = std::collections::BTreeMap::new();
+        for calculation in provider["calculations"].as_array().ok_or(INVALID)? {
+            let reference = &calculation["type"];
+            let key = ["kind", "type_id", "semantic_version"]
+                .map(|k| reference[k].as_str().unwrap_or("").to_owned());
+            expected_assets.insert(key,json!({"kind":reference["kind"],"asset_id":reference["type_id"],"semantic_version":reference["semantic_version"],"content_fingerprint":crate::application::factor_content::hash(reference).map_err(|_|INVALID)?}));
+        }
+        if v["assets"] != json!(expected_assets.into_values().collect::<Vec<_>>()) {
+            return Err(INVALID);
+        }
+        let mut native =
+            onlyalpha_calculation_bridge::native_predicates::implementation_manifests(image)
+                .map_err(|_| INVALID)?;
+        native.extend(
+            onlyalpha_calculation_bridge::native_operators::implementation_manifests(image)
+                .map_err(|_| INVALID)?,
+        );
+        let mut summaries = native
+            .iter()
+            .map(crate::application::research_admission::implementation_projection)
+            .collect::<Result<Vec<_>>>()?;
+        summaries.sort_by_key(|r| {
+            [
+                "kind",
+                "type_id",
+                "semantic_version",
+                "backend",
+                "implementation_fingerprint",
+            ]
+            .map(|k| r[k].as_str().unwrap_or("").to_owned())
+        });
+        if v["implementations"] != json!(summaries) {
+            return Err(INVALID);
+        }
+    } else if role == "BACKEND_RUNTIME" {
         for row in v["implementations"].as_array().ok_or(INVALID)? {
             if row["kind"] != "PREDICATE"
                 || !matches!(row["backend"].as_str(), Some("RESEARCH" | "TRADING"))
@@ -455,10 +503,17 @@ mod native_artifact_v2_tests {
             json!({"kind":"LIVE","contract":"onlyalpha.live.executor/1"}),
         ] {
             let mut corrupt = current.clone();
-            corrupt["execution_capabilities"].as_array_mut().unwrap().push(additional);
+            corrupt["execution_capabilities"]
+                .as_array_mut()
+                .unwrap()
+                .push(additional);
             assert!(artifact(&corrupt).is_err());
         }
-        assert_eq!(old, manifest2(), "old immutable manifests are never upgraded");
+        assert_eq!(
+            old,
+            manifest2(),
+            "old immutable manifests are never upgraded"
+        );
     }
     #[test]
     fn manifest2_rejects_empty_duplicate_corrupt_or_unimplemented_execution_capability() {
@@ -491,5 +546,71 @@ mod native_artifact_v2_tests {
             }
             assert!(artifact(&m).is_err(), "attack {attack}");
         }
+    }
+
+    #[test]
+    fn manifest3_binds_the_complete_native_operator_provider_to_one_original_image() {
+        let mut manifest = manifest2();
+        manifest["schema_version"] = json!(3);
+        let image = manifest["artifact_sha256"].as_str().unwrap().to_owned();
+        let provider = onlyalpha_calculation_bridge::native_operators::provider_record(
+            &image,
+            manifest["distribution_version"].as_str().unwrap(),
+        )
+        .unwrap();
+        for key in ["provider_id", "provider_version"] {
+            manifest[key] = provider["manifest"][key].clone();
+        }
+        manifest["provider_content_fingerprint"] = provider["content_fingerprint"].clone();
+        let mut assets = std::collections::BTreeMap::new();
+        for row in provider["calculations"].as_array().unwrap() {
+            let reference = &row["type"];
+            let key = ["kind", "type_id", "semantic_version"]
+                .map(|k| reference[k].as_str().unwrap().to_owned());
+            assets.insert(key,json!({"kind":reference["kind"],"asset_id":reference["type_id"],"semantic_version":reference["semantic_version"],"content_fingerprint":crate::application::factor_content::hash(reference).unwrap()}));
+        }
+        manifest["assets"] = json!(assets.into_values().collect::<Vec<_>>());
+        let mut implementations =
+            onlyalpha_calculation_bridge::native_predicates::implementation_manifests(&image)
+                .unwrap();
+        implementations.extend(
+            onlyalpha_calculation_bridge::native_operators::implementation_manifests(&image)
+                .unwrap(),
+        );
+        let mut implementations = implementations
+            .iter()
+            .map(crate::application::research_admission::implementation_projection)
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        implementations.sort_by_key(|r| {
+            [
+                "kind",
+                "type_id",
+                "semantic_version",
+                "backend",
+                "implementation_fingerprint",
+            ]
+            .map(|k| r[k].as_str().unwrap().to_owned())
+        });
+        manifest["implementations"] = json!(implementations);
+        assert!(artifact(&manifest).is_ok());
+        assert_eq!(manifest["assets"].as_array().unwrap().len(), 24);
+        assert_eq!(manifest["implementations"].as_array().unwrap().len(), 80);
+        for attack in 0..7 {
+            let mut changed = manifest.clone();
+            match attack {
+                0 => changed["provider_id"] = json!("foreign.provider"),
+                1 => changed["provider_version"] = json!("6"),
+                2 => changed["provider_content_fingerprint"] = json!("0".repeat(64)),
+                3 => changed["assets"] = json!([]),
+                4 => changed["implementations"] = json!([]),
+                5 => {
+                    changed["implementations"].as_array_mut().unwrap().pop();
+                }
+                _ => changed["schema_version"] = json!(2),
+            }
+            assert!(artifact(&changed).is_err(), "attack {attack}");
+        }
+        assert!(artifact(&manifest2()).is_ok());
     }
 }

@@ -296,7 +296,7 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                     Path::new(text(f, "installation")?),
                     text(f, "algorithm_artifact")?,
                 )?;
-                let inputs = onlyalpha_backend::application::research_admission::prepare(
+                let mut inputs = onlyalpha_backend::application::research_admission::prepare(
                     hold,
                     &installation,
                     &compiled,
@@ -305,6 +305,7 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                     &datasets,
                     &result,
                 )?;
+                inputs.bind_factor_authoring_generation()?;
                 inputs.verify_runtime()?;
                 inputs.record().clone()
             } else {
@@ -449,16 +450,15 @@ async fn retained_source_prerequisite(
     const START_MS: i64 = 1_767_225_600_000;
     const STRIDE_MS: i64 = 900_000;
     // Controlled current-slice input; the original retained browser profile is unchanged.
-    let next_open = match v.get("fixture_profile") {
-        None => false,
-        Some(Value::String(profile)) if profile == "BTC_SPOT_NEXT_OPEN_2025_V1" => true,
+    let (start_ms, stride_ms, row_count, minutes) = match v.get("fixture_profile") {
+        None => (START_MS, STRIDE_MS, 575i64, 15u16),
+        Some(Value::String(profile)) if profile == "BTC_SPOT_NEXT_OPEN_2025_V1" =>
+            (1_735_861_200_000i64, 60_000i64, 740i64, 1u16),
+        Some(Value::String(profile)) if profile == "RESEARCH_INPUT_ADMISSION_V1" =>
+            (START_MS, 60_000i64, 2i64, 1u16),
         _ => return Err("unknown controlled input profile".into()),
     };
-    let (start_ms, stride_ms, row_count, minutes) = if next_open {
-        (1_735_861_200_000i64, 60_000i64, 740i64, 1u16)
-    } else {
-        (START_MS, STRIDE_MS, 575i64, 15u16)
-    };
+    let next_open = v["fixture_profile"] == "BTC_SPOT_NEXT_OPEN_2025_V1";
     fn sha(bytes: &[u8]) -> String {
         Sha256::digest(bytes)
             .iter()

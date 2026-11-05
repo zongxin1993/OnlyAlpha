@@ -32,7 +32,8 @@ pub(crate) fn inspect(raw:&str,physical:&str)->Result<Frame,Error>{
   digest(raw.as_bytes())!=physical
  }{return Err(bad());}
  let v:Value=serde_json::from_str(raw)?;exact(&v,&["schema_version","codec","logical_sha256","logical_size","summary","data"])?;
- if v.to_string()!=raw||v["schema_version"]!=1||v["codec"]!=NAME{return Err(bad());}
+ let canonical = v.to_string();
+ if canonical.as_str()!=raw||v["schema_version"]!=1||v["codec"]!=NAME{return Err(bad());}
  let logical=v["logical_sha256"].as_str().filter(|s|s.len()==64&&s.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b))).ok_or_else(bad)?.to_owned();
  let size=usize::try_from(v["logical_size"].as_u64().ok_or_else(bad)?).map_err(|_|bad())?;if size>LIMIT{return Err(bad());}
  let data=v["data"].as_str().filter(|s|s.len()<=STORED_LIMIT).ok_or_else(bad)?.to_owned();

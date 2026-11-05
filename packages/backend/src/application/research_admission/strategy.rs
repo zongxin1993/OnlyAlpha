@@ -151,7 +151,14 @@ impl PreparedInputs {
             "dataset_construction_fingerprint":dataset.construction_fingerprint(),"run_specification_fingerprint":specification.fingerprint()?,
             "algorithm_resolution_request":request,"algorithm_resolution":observed,
             "native_implementations":native_used.into_values().collect::<Vec<_>>()});
-        Ok((Self { runtime, record }, specification))
+        Ok((
+            Self {
+                runtime,
+                record,
+                authoring_generation: None,
+            },
+            specification,
+        ))
     }
 }
 fn ns(value: &Value) -> Result<u64> {

@@ -25,6 +25,11 @@ use onlyalpha_domain::time::OnlyUtcDateTime;
 use onlyalpha_data_source_binance::spot_rest::PublicRest;
 use onlyalpha_market_crypto::spot::SpotRuleSnapshot;
 use std::{io::Write as _, os::fd::AsFd};
+/// An absent future Run does not settle the original durable confirmation.
+/// SQL Accepted/Pending observations take precedence at the call site.
+fn backtest_confirmation_in_progress(state: State, phase: &str) -> bool {
+    state == State::Running && phase == "CONFIRMING"
+}
 const BAR: u64 = 60_000_000_000;
 const START: &str = "2025-01-03T00:00:00Z";
 const END: &str = "2025-01-03T12:00:00Z";
@@ -1163,6 +1168,12 @@ impl Host {
                     return Ok(view);
                 }
                 CreationOutcome::Pending => {
+                    view["backtest_outcome"] = json!("OUTCOME_UNKNOWN");
+                    return Ok(view);
+                }
+                CreationOutcome::NotSubmitted
+                    if backtest_confirmation_in_progress(o.state, &o.phase) =>
+                {
                     view["backtest_outcome"] = json!("OUTCOME_UNKNOWN");
                     return Ok(view);
                 }

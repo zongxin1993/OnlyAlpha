@@ -10,19 +10,15 @@ resolution-markers = [
 [manifest]
 members = [
     "onlyalpha",
-    "onlyalpha-authoring-execution-worker",
     "onlyalpha-backend-algorithms",
     "onlyalpha-broker-binance",
     "onlyalpha-broker-virtual",
-    "onlyalpha-calculation-worker",
     "onlyalpha-data-source-binance",
     "onlyalpha-data-source-tushare",
     "onlyalpha-gateway-protocol",
     "onlyalpha-market-cn-ashare",
     "onlyalpha-market-crypto",
     "onlyalpha-plugin-generic-t0-cash",
-    "onlyalpha-plugin-operators",
-    "onlyalpha-runtime-generation-manager",
 ]
 
 [[package]]
@@ -895,12 +891,8 @@ dev = [
     { name = "import-linter" },
     { name = "mutmut" },
     { name = "mypy" },
-    { name = "onlyalpha-authoring-execution-worker" },
     { name = "onlyalpha-backend-algorithms" },
-    { name = "onlyalpha-calculation-worker" },
     { name = "onlyalpha-gateway-protocol" },
-    { name = "onlyalpha-plugin-operators" },
-    { name = "onlyalpha-runtime-generation-manager" },
     { name = "onlyalpha-test-factor-provider" },
     { name = "onlyalpha-test-plugin" },
     { name = "packaging" },
@@ -959,12 +951,8 @@ dev = [
     { name = "import-linter", specifier = ">=2.13" },
     { name = "mutmut", specifier = ">=3.7.0" },
     { name = "mypy", specifier = ">=1.15" },
-    { name = "onlyalpha-authoring-execution-worker", editable = "packages/onlyalpha-authoring-execution-worker" },
     { name = "onlyalpha-backend-algorithms", editable = "packages/backend/python/algorithms" },
-    { name = "onlyalpha-calculation-worker", editable = "packages/onlyalpha-calculation-worker" },
     { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
-    { name = "onlyalpha-plugin-operators", editable = "packages/onlyalpha-operators" },
-    { name = "onlyalpha-runtime-generation-manager", editable = "packages/onlyalpha-runtime-generation-manager" },
     { name = "onlyalpha-test-factor-provider", editable = "test-data/runtime_factor_provider" },
     { name = "onlyalpha-test-plugin", editable = "test-data/external_plugins/onlyalpha_test_plugin" },
     { name = "packaging", specifier = ">=25" },
@@ -982,35 +970,20 @@ dev = [
 ]
 
 [[package]]
-name = "onlyalpha-authoring-execution-worker"
-version = "0.11.1"
-source = { editable = "packages/onlyalpha-authoring-execution-worker" }
-dependencies = [
-    { name = "onlyalpha" },
-    { name = "onlyalpha-backend-algorithms" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "onlyalpha", editable = "." },
-    { name = "onlyalpha-backend-algorithms", editable = "packages/backend/python/algorithms" },
-]
-
-[[package]]
 name = "onlyalpha-backend-algorithms"
 version = "0.11.1"
 source = { editable = "packages/backend/python/algorithms" }
 dependencies = [
     { name = "onlyalpha" },
     { name = "onlyalpha-gateway-protocol" },
-    { name = "onlyalpha-plugin-operators" },
+    { name = "pyarrow" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "onlyalpha", editable = "." },
     { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
-    { name = "onlyalpha-plugin-operators", editable = "packages/onlyalpha-operators" },
+    { name = "pyarrow", specifier = ">=21.0.0" },
 ]
 
 [[package]]
@@ -1053,27 +1026,6 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.11" },
-]
-
-[[package]]
-name = "onlyalpha-calculation-worker"
-version = "0.11.1"
-source = { editable = "packages/onlyalpha-calculation-worker" }
-dependencies = [
-    { name = "onlyalpha" },
-    { name = "onlyalpha-broker-virtual" },
-    { name = "onlyalpha-gateway-protocol" },
-    { name = "onlyalpha-plugin-generic-t0-cash" },
-    { name = "onlyalpha-plugin-operators" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "onlyalpha", editable = "." },
-    { name = "onlyalpha-broker-virtual", editable = "plugs/onlyalpha-broker-virtual" },
-    { name = "onlyalpha-gateway-protocol", editable = "packages/backend/python/gateway_protocol" },
-    { name = "onlyalpha-plugin-generic-t0-cash", editable = "plugs/onlyalpha-plugin-generic-t0-cash" },
-    { name = "onlyalpha-plugin-operators", editable = "packages/onlyalpha-operators" },
 ]
 
 [[package]]
@@ -1207,47 +1159,15 @@ dev = [
 ]
 
 [[package]]
-name = "onlyalpha-plugin-operators"
-version = "0.11.1"
-source = { editable = "packages/onlyalpha-operators" }
-dependencies = [
-    { name = "onlyalpha" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "onlyalpha", editable = "." }]
-
-[[package]]
-name = "onlyalpha-runtime-generation-manager"
-version = "0.11.1"
-source = { editable = "packages/onlyalpha-runtime-generation-manager" }
-dependencies = [
-    { name = "onlyalpha" },
-    { name = "onlyalpha-backend-algorithms" },
-    { name = "onlyalpha-calculation-worker" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "onlyalpha", editable = "." },
-    { name = "onlyalpha-backend-algorithms", editable = "packages/backend/python/algorithms" },
-    { name = "onlyalpha-calculation-worker", editable = "packages/onlyalpha-calculation-worker" },
-]
-
-[[package]]
 name = "onlyalpha-test-factor-provider"
 version = "0.9.9"
 source = { editable = "test-data/runtime_factor_provider" }
 dependencies = [
     { name = "onlyalpha" },
-    { name = "onlyalpha-plugin-operators" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "onlyalpha", specifier = "==0.11.1" },
-    { name = "onlyalpha-plugin-operators", specifier = "==0.11.1" },
-]
+requires-dist = [{ name = "onlyalpha", specifier = "==0.11.1" }]
 
 [[package]]
 name = "onlyalpha-test-plugin"
@@ -1258,9 +1178,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "onlyalpha", specifier = "==0.11.1" },
-]
+requires-dist = [{ name = "onlyalpha", specifier = "==0.11.1" }]
 
 [[package]]
 name = "packaging"

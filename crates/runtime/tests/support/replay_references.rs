@@ -927,3 +927,45 @@ fn replay_bound_pending_events_observe_one_complete_actual_cut_without_writing_f
     drop(runtime);
     drop(root);
 }
+
+
+#[test]
+fn replay_payload_utf8_sharing_keeps_all_actual_rows_cold_reopen_and_metadata_associations() {
+    let (runtime, root, expected) = reference_history(8);
+    runtime.verify_replay_refs(&expected).unwrap();
+    crate::store::PAYLOAD_TEXT_VALIDATIONS.with(|n| n.set(0));
+    crate::store::PAYLOAD_TEXT_REUSES.with(|n| n.set(0));
+    REFERENCE_SOURCE_ROWS.with(|n| n.set(0));
+    assert_eq!(runtime.replay_refs().unwrap(), expected);
+    assert_eq!(REFERENCE_SOURCE_ROWS.with(std::cell::Cell::get), 8);
+    assert_eq!(crate::store::PAYLOAD_TEXT_VALIDATIONS.with(std::cell::Cell::get), 0);
+    assert_eq!(crate::store::PAYLOAD_TEXT_REUSES.with(std::cell::Cell::get), 8);
+    drop(runtime);
+    let runtime = Runtime::open(&root.0, support::config(), &"b".repeat(64)).unwrap();
+    crate::store::PAYLOAD_TEXT_VALIDATIONS.with(|n| n.set(0));
+    crate::store::PAYLOAD_TEXT_REUSES.with(|n| n.set(0));
+    assert_eq!(runtime.replay_refs().unwrap(), expected);
+    assert_eq!(crate::store::PAYLOAD_TEXT_VALIDATIONS.with(std::cell::Cell::get), 8);
+    assert_eq!(crate::store::PAYLOAD_TEXT_REUSES.with(std::cell::Cell::get), 0);
+    let db = rusqlite::Connection::open(root.0.join("runtime.sqlite3")).unwrap();
+    db.execute("UPDATE replay_steps SET digest=?1 WHERE sequence=1", ["f".repeat(64)]).unwrap();
+    drop(db);
+    assert!(runtime.replay_refs().is_err(), "equal raw bytes cannot authenticate another physical digest");
+    drop(runtime);
+}
+
+#[test]
+fn replay_bad_payload_utf8_still_precedes_later_ready_and_digest_failures() {
+    let (runtime, root, expected) = reference_history(2);
+    runtime.verify_replay_refs(&expected).unwrap();
+    let db = rusqlite::Connection::open(root.0.join("runtime.sqlite3")).unwrap();
+    db.execute_batch("PRAGMA ignore_check_constraints=ON; UPDATE replay_steps SET payload=CAST(X'80' AS TEXT),digest='bad',ready=7 WHERE sequence=1").unwrap();
+    let expected_error: String = db.query_row("SELECT payload FROM replay_steps WHERE sequence=1", [], |row| {
+        Ok(crate::store::text_column(row, 0).unwrap_err().0)
+    }).unwrap();
+    drop(db);
+    let before = fs::read(root.0.join("runtime.sqlite3")).unwrap();
+    assert_eq!(runtime.replay_refs().unwrap_err().0, expected_error);
+    assert_eq!(fs::read(root.0.join("runtime.sqlite3")).unwrap(), before);
+    drop(runtime);
+}

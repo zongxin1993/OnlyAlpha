@@ -47,11 +47,11 @@ SDK = (
     "algorithm/codec.py",
     "algorithm/type_declaration.py",
 )
-OPERATORS = ("metadata.py", "registration.py", "semantics.py", "research.py", "trading.py")
 WORKER = (
     "chart_isolation.py",
     "worker_io.py",
     "research_worker.py",
+    "research_session.py",
     "research_resolution.py",
     "research_evaluation.py",
     "trading_session.py",
@@ -67,9 +67,6 @@ WORKER = (
 
 
 def distribution_version(distribution: str) -> str:
-    if distribution.startswith("onlyalpha-plugin-"):
-        path = ROOT / "packages" / distribution.replace("onlyalpha-plugin-", "onlyalpha-") / "pyproject.toml"
-        return str(tomllib.loads(path.read_text())["project"]["version"])
     path = ROOT / "packages/backend/Cargo.toml"
     return str(tomllib.loads(path.read_text())["package"]["version"])
 
@@ -126,13 +123,6 @@ def build(output: Path) -> list[Path]:
         "onlyalpha/" + name: (ROOT / "packages/backend/python/algorithms/sdk/onlyalpha" / name).read_bytes()
         for name in SDK
     }
-    operators = {
-        "onlyalpha_plugin_operators/" + name: (
-            ROOT / "packages/onlyalpha-operators/src/onlyalpha_plugin_operators" / name
-        ).read_bytes()
-        for name in OPERATORS
-    }
-    operators["onlyalpha_plugin_operators/__init__.py"] = b'"""Installed pure Operator algorithms."""\n'
     worker = {
         "onlyalpha_backend_algorithms/" + name: (
             ROOT / "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms" / name
@@ -150,7 +140,6 @@ def build(output: Path) -> list[Path]:
         ).read_bytes()
     return [
         wheel(output, "onlyalpha", sdk, ()),
-        wheel(output, "onlyalpha-plugin-operators", operators, ("onlyalpha", "pyarrow")),
         wheel(
             output,
             "onlyalpha-backend-algorithms",

@@ -654,3 +654,46 @@ fn cold_encoded_source_digest_reuses_only_the_fully_verified_complete_frame_body
 
 #[path="prefix_work.rs"]
 mod prefix_work;
+
+#[test]
+fn genesis_hash_memo_matches_full_checkpoint_and_returned_values_are_independent() {
+    let root = Root::new();
+    let store = SqliteStore::create(&root.0, config(), &"b".repeat(64)).unwrap();
+    let expected = Components::new(config()).unwrap().checkpoint().unwrap()["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(hash)
+        .collect::<Vec<_>>();
+    assert_eq!(store.genesis_hashes().unwrap(), expected);
+    assert_eq!(store.genesis_hashes.get().unwrap(), &(config(), expected.clone()));
+    let mut observed = store.genesis_hashes().unwrap();
+    observed[0] = "f".repeat(64);
+    assert_eq!(store.genesis_hashes().unwrap(), expected);
+    assert_eq!(store.genesis_hashes.get().unwrap(), &(config(), expected));
+}
+
+#[test]
+fn genesis_hash_memo_cannot_mask_changed_or_invalid_configuration() {
+    let root = Root::new();
+    let mut store = SqliteStore::create(&root.0, config(), &"b".repeat(64)).unwrap();
+    let original = store.genesis_hashes().unwrap();
+    let mut changed = config();
+    changed["initial_cash"] = json!("2000.00");
+    changed["capitals"]["cluster"] = json!("2000.00");
+    let expected = Components::new(changed.clone()).unwrap().checkpoint().unwrap()["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(hash)
+        .collect::<Vec<_>>();
+    assert_ne!(original, expected);
+    store.identity["configuration"] = changed;
+    assert_eq!(store.genesis_hashes().unwrap(), expected);
+    assert_eq!(store.genesis_hashes.get().unwrap(), &(config(), original.clone()));
+    store.identity["configuration"] = Value::Null;
+    assert!(store.genesis_hashes().is_err());
+    assert_eq!(store.genesis_hashes.get().unwrap(), &(config(), original.clone()));
+    store.identity["configuration"] = config();
+    assert_eq!(store.genesis_hashes().unwrap(), original);
+}

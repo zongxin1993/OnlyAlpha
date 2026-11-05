@@ -13,6 +13,48 @@ test("normal backtest works without Agent and reopens the same run after restart
     if (sharedEvidence === undefined) throw new Error("canonical native restart harness required");
     const evidence = sharedEvidence + ".backtest";
     const agentWrites: string[] = [];
+    const confirmationObservations: {
+        command_id: string;
+        backtest_command_id: string;
+        reserved_run_id: string;
+    }[] = [];
+    const confirmationErrors: string[] = [];
+    page.on("response", async (response) => {
+        const path = new URL(response.url()).pathname;
+        if (
+            response.status() !== 200 ||
+            !path.startsWith("/api/v2/backtest/preparations/commands/")
+        )
+            return;
+        const projection = z
+            .object({
+                state: z.string(),
+                phase: z.string(),
+                command_id: z.uuid(),
+                backtest_command_id: z.uuid(),
+                reserved_run_id: z.uuid(),
+                run_id: z.uuid().nullable(),
+                backtest_outcome: z.string(),
+                readiness: z.object({ state: z.string() })
+            })
+            .parse(await response.json());
+        if (
+            projection.state === "RUNNING" &&
+            projection.phase === "CONFIRMING" &&
+            projection.run_id === null
+        ) {
+            if (
+                projection.backtest_outcome !== "OUTCOME_UNKNOWN" ||
+                projection.readiness.state !== "NOT_APPLICABLE"
+            )
+                confirmationErrors.push("确认仍在执行时返回了已确定未提交或重新生成的 readiness。");
+            confirmationObservations.push({
+                command_id: projection.command_id,
+                backtest_command_id: projection.backtest_command_id,
+                reserved_run_id: projection.reserved_run_id
+            });
+        }
+    });
     page.on("request", (request) => {
         if (request.method() !== "GET" && /\/api\/v\d+\/(agent|model)/.test(request.url()))
             agentWrites.push(request.url());
@@ -222,6 +264,15 @@ test("normal backtest works without Agent and reopens the same run after restart
         .toBe(true);
     expect(Date.now()).toBeLessThanOrEqual(runDeadline);
     const result = await resultView();
+    expect(confirmationErrors).toEqual([]);
+    for (const observed of confirmationObservations) {
+        expect(originalPreparation).toBe(`/backtest/preparations/${observed.command_id}`);
+        expect(result.path).toBe(`/backtest/runs/${observed.reserved_run_id}`);
+    }
+    await testInfo.attach("confirmation-observations", {
+        body: JSON.stringify(confirmationObservations),
+        contentType: "application/json"
+    });
     await page.reload();
     expect(await resultView()).toEqual(result);
     await page.getByRole("link", { name: "回测记录", exact: true }).click();

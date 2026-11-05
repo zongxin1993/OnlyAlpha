@@ -37,14 +37,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Prepare pinned official Rust components
-        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/test_suite.py rust-kernel
+          fetch-depth: 0
+      - run: python scripts/dev_verification.py prepare
+      - run: python scripts/dev_verification.py run -- python scripts/rust_kernel_check.py
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -374,6 +370,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Validate the canonical Compose model
         run: docker compose -f deploy/docker-compose.dev.yml config --quiet
       - name: Prepare fixed native validation tools
@@ -398,6 +396,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.5"
@@ -410,8 +410,9 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - run: npm ci
         working-directory: packages/frontend
+      - run: python scripts/dev_verification.py prepare
       - name: web-static
-        run: uv run python scripts/web_suite.py static
+        run: python scripts/dev_verification.py run -- python scripts/web_suite.py static
       - name: web-unit
         run: uv run python scripts/web_suite.py unit
       - name: web-build

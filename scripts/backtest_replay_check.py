@@ -59,6 +59,16 @@ def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) 
         and row.get("executable")
         and row["target"]["name"] == "workers_trading"
     )
+    # Run every process cut against one exact sealed Shipping-size test image.
+    # The compiler output is retained; only this owned test copy is stripped.
+    with tempfile.NamedTemporaryFile(prefix="workers-trading-", suffix=".elf", dir=artifacts, delete=False) as image:
+        selected = Path(image.name)
+    shutil.copyfile(executable, selected)
+    subprocess.run(["strip", "--strip-all", str(selected)], check=True, timeout=30)
+    selected.chmod(0o500)
+    if selected.stat().st_size > 128 * 1024 * 1024:
+        raise RuntimeError("REPLAY_NATIVE_IMAGE_BUDGET_EXCEEDED")
+    executable = selected
     receipts = []
     counter = 0
 

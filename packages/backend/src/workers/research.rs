@@ -11,7 +11,7 @@ use crate::{
         research_dataset::Store as Datasets,
         research_evidence::Store as Evidence,
         research_execution::{
-            Claim, Failure, FailurePhase, ResearchExecution, RetryDecision, RunState, RunStatus,
+            AuthoringClaim, Claim, Failure, FailurePhase, ResearchExecution, RetryDecision, RunState, RunStatus,
         },
     },
 };
@@ -189,13 +189,28 @@ async fn execute_once(
     if let Some(status) = recover_existing(access, &run, &root, &work.runtime_root, now).await? {
         return Ok(status);
     }
-    verify_inputs(&work.run, &work.inputs)?;
+    let authoring = match run.specification() {
+        NativeSpecification::Factor(spec) if spec.authoring_generation_fingerprint.is_some() => {
+            Some(AuthoringClaim::verify(&run, &work.inputs, &work.installation, &work.native_version)?)
+        }
+        _ => {
+            verify_inputs(&run, &work.inputs)?;
+            None
+        }
+    };
     let claim = {
         let mut held = access.enter().await;
-        ResearchExecution::new(held.client().await?)
-            .claim(&run, &work.worker_id, &work.attempt_id, now()?)
-            .await?
+        let mut execution = ResearchExecution::new(held.client().await?);
+        let at = now()?;
+        if let Some(proof) = &authoring {
+            execution
+                .claim_authoring(&run, proof, &work.worker_id, &work.attempt_id, at)
+                .await?
+        } else {
+            execution.claim(&run, &work.worker_id, &work.attempt_id, at).await?
+        }
     };
+    drop(authoring);
     let Some(mut claim) = claim else {
         let mut held = access.enter().await;
         return ResearchExecution::new(held.client().await?)

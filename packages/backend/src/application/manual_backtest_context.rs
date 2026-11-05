@@ -8,9 +8,9 @@ const INVALID:&str="BACKTEST_STRATEGY_CONTEXT_INVALID";
 /// authorize arbitrary historical inference; the bindings are saved explicitly.
 pub(crate) fn btc_definition(factor:&Value)->Result<Definition,&'static str> {
     let bindings=json!({"close":{"input":"close","closed_only":true},
-        "close_lag_20":{"input":"close","operator":"onlyalpha.operator.delay","semantic_version":"1","period":20,"closed_only":true},
+        "close_lag_20":{"input":"close","operator":"onlyalpha.operator.delay","semantic_version":"2","period":20,"closed_only":true},
         "volume":{"input":"volume","closed_only":true},
-        "volume_mean_20":{"input":"volume","operator":"onlyalpha.operator.rolling_mean","semantic_version":"1","period":20,"closed_only":true}});
+        "volume_mean_20":{"input":"volume","operator":"onlyalpha.operator.rolling_mean","semantic_version":"2","period":20,"closed_only":true}});
     let compiled=research_factor::compile_revision(factor,&bindings).map_err(|_|INVALID)?;
     let semantic=OnlyBarSemantic::from_record(&json!({"schema_version":3,"formation":{"schema_version":1,"kind":"FIXED_DURATION","window_minutes":1,"stride_minutes":1,"alignment":"SESSION_START"},"price_type":"LAST","adjustment_policy":"RAW"})).map_err(|_|INVALID)?;
     Definition::from_compiled_factor(&compiled,json!({"kind":"SINGLE_INSTRUMENT","instruments":["BTCUSDT.BINANCE"]}),json!({"schema_version":2,"data_kind":"BAR","bar_semantic":semantic.to_record(),"construction_requirement":{"schema_version":1,"kind":"EXACT_RECIPE","policy":null,"recipe":OnlyConstructionRecipe::native(semantic).to_record()},"observation_admission":"FINAL_ONLY"})).map_err(|_|INVALID)

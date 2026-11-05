@@ -1,33 +1,15 @@
 use onlyalpha_backend::{application::command::CommandId, persistence::research_runtime::Registry};
 use onlyalpha_domain::time::OnlyUtcDateTime;
 use serde_json::Value;
-use std::path::Path;
-use std::{fs, path::PathBuf, process::Command};
-
+use std::{fs, path::PathBuf};
+#[path = "support/research_runtime_fixture.rs"]
+mod research_runtime_fixture;
 fn fixture() -> (PathBuf, String, String) {
     let mut entropy = [0; 16];
     getrandom::fill(&mut entropy).unwrap();
     let root = std::env::temp_dir().join(format!("runtime-lifecycle-{entropy:?}"));
-    let out = Command::new("python")
-        .arg(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/application/support/research_runtime_reference.py"),
-        )
-        .arg(&root)
-        .arg("ready")
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let value: Value = serde_json::from_slice(&out.stdout).unwrap();
-    (
-        root,
-        value["generation"].as_str().unwrap().into(),
-        value["ready"].as_str().unwrap().into(),
-    )
+    let (generation, ready) = research_runtime_fixture::fixture(&root, true);
+    (root, generation, ready)
 }
 fn at() -> OnlyUtcDateTime {
     "2026-10-29T01:00:00.123400Z".parse().unwrap()
@@ -212,7 +194,7 @@ fn original_lock_and_root_identity_cannot_be_bypassed_by_the_native_writer() {
 }
 
 #[test]
-fn fresh_native_publication_remains_usable_by_the_original_actual_writer() {
+fn fresh_native_owner_roundtrip_preserves_exact_publication_and_work_binding() {
     let (reference, generation, _) = fixture();
     let root = reference.with_extension("native");
     let mut store = Registry::initialize_fresh(&root).unwrap();
@@ -261,14 +243,6 @@ fn fresh_native_publication_remains_usable_by_the_original_actual_writer() {
         }
     }
     drop(store);
-    // Still-active original callers must be able to append to a freshly
-    // provisioned native journal before any native mutation has replaced it.
-    let prepared=Command::new("python").arg("-c").arg("from pathlib import Path;import sys,json;from datetime import datetime,UTC;from onlyalpha_runtime_generation_manager.registry import OnlyRuntimeGenerationRegistry;from onlyalpha.generation_identity import OnlyRuntimeGenerationManifest;OnlyRuntimeGenerationRegistry(Path(sys.argv[1])).prepare(OnlyRuntimeGenerationManifest.from_dict(json.loads(Path(sys.argv[2]).read_text())),actor='fixture',occurred_at=datetime(2026,10,29,1,tzinfo=UTC))").arg(&root).arg(reference.join(format!("runtime-generations/{generation}.json"))).output().unwrap();
-    assert!(
-        prepared.status.success(),
-        "{}",
-        String::from_utf8_lossy(&prepared.stderr)
-    );
     let mut store = Registry::open_existing(&root).unwrap();
     let validation = store
         .prepare_generation(&manifest, "local-developer", at())
@@ -289,15 +263,14 @@ fn fresh_native_publication_remains_usable_by_the_original_actual_writer() {
         .activate(&id(), &generation, None, "local-developer", at())
         .unwrap();
     drop(store);
-    let out=Command::new("python").arg("-c").arg("from pathlib import Path;import sys;from datetime import datetime,UTC;from onlyalpha_runtime_generation_manager.registry import OnlyRuntimeGenerationRegistry;OnlyRuntimeGenerationRegistry(Path(sys.argv[1])).bind_new_work_exact('original-writer',sys.argv[2],owner='research',actor='fixture',occurred_at=datetime(2026,10,29,2,tzinfo=UTC))").arg(&root).arg(&generation).output().unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let mut store = Registry::open_existing(&root).unwrap();
+    store
+        .bind_new_work_exact("native-writer", &generation, "research", "fixture", at())
+        .unwrap();
+    drop(store);
     let hold = onlyalpha_backend::persistence::research_runtime::RuntimeInputHold::open(
         &root,
-        "original-writer",
+        "native-writer",
         "research",
         &generation,
     )
@@ -327,4 +300,266 @@ fn missing_physical_artifacts_cannot_publish_a_ready_generation() {
     drop(store);
     fs::remove_dir_all(root).unwrap();
     fs::remove_dir_all(reference).unwrap();
+}
+
+#[test]
+fn rejection_is_preparing_only_exact_and_restart_idempotent() {
+    let (root, original, ready) = fixture();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(root.join(format!("runtime-generations/{original}.json"))).unwrap(),
+    )
+    .unwrap();
+    let candidate = research_runtime_fixture::variant(&manifest, '6');
+    let target = candidate["runtime_generation_fingerprint"]
+        .as_str()
+        .unwrap();
+    let mut registry = Registry::open_existing(&root).unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    for invalid in [&original, &ready, &"f".repeat(64)] {
+        assert!(
+            registry
+                .reject(invalid, "fixture", "fixture", at())
+                .is_err()
+        );
+        assert_eq!(
+            fs::read(root.join("generation-events.jsonl")).unwrap(),
+            before
+        );
+    }
+    registry
+        .prepare_candidate(&candidate, "fixture", at())
+        .unwrap();
+    assert_eq!(registry.snapshot()["states"][target], "PREPARING");
+    assert!(
+        !root
+            .join(format!("runtime-generation-validation/{target}.json"))
+            .exists()
+    );
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert!(registry.reject(target, " ", "fixture", at()).is_err());
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    let receipt = registry
+        .reject(target, "invalid candidate", "fixture", at())
+        .unwrap();
+    assert_eq!(registry.snapshot()["states"][target], "REJECTED");
+    drop(registry);
+    let mut registry = Registry::open_existing(&root).unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert_eq!(
+        registry
+            .reject(target, "invalid candidate", "fixture", at())
+            .unwrap(),
+        receipt
+    );
+    assert!(
+        registry
+            .reject(target, "different reason", "fixture", at())
+            .is_err()
+    );
+    assert!(
+        registry
+            .prepare_generation(&candidate, "fixture", at())
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn retirement_requires_draining_and_no_live_work_and_preserves_artifacts() {
+    let (root, original, ready) = fixture();
+    let mut registry = Registry::open_existing(&root).unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert!(registry.retire(&original, "fixture", at()).is_err());
+    assert!(registry.retire(&ready, "fixture", at()).is_err());
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    registry
+        .activate(&id(), &ready, Some(&original), "fixture", at())
+        .unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert!(registry.retire(&original, "fixture", at()).is_err());
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    registry
+        .release_work_exact("work", &original, "research", "fixture", at())
+        .unwrap();
+    let receipt = registry.retire(&original, "fixture", at()).unwrap();
+    assert_eq!(registry.snapshot()["states"][&original], "RETIRED");
+    drop(registry);
+    let mut registry = Registry::open_existing(&root).unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert_eq!(
+        registry.retire(&original, "fixture", at()).unwrap(),
+        receipt
+    );
+    assert!(
+        registry
+            .activate(
+                &CommandId::new("00000000-0000-4000-8000-000000000903").unwrap(),
+                &original,
+                Some(&ready),
+                "fixture",
+                at()
+            )
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(root.join(format!("runtime-generations/{original}.json"))).unwrap(),
+    )
+    .unwrap();
+    for sha in manifest["artifact_sha256s"].as_array().unwrap() {
+        let sha = sha.as_str().unwrap();
+        assert!(
+            root.join("artifacts")
+                .join(&sha[..2])
+                .join(sha)
+                .join("manifest.json")
+                .is_file()
+        );
+    }
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn closure_requires_explicit_release_and_never_changes_a_different_binding() {
+    let (root, original, ready) = fixture();
+    let mut registry = Registry::open_existing(&root).unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert_eq!(
+        registry
+            .close_new_work_exact("work", &original, "research", "cancelled", "fixture", at())
+            .unwrap_err(),
+        "RUNTIME_WORK_STILL_ACTIVE"
+    );
+    assert!(
+        registry
+            .close_new_work_exact("work", &ready, "research", "cancelled", "fixture", at())
+            .is_err()
+    );
+    assert!(
+        registry
+            .close_new_work_exact(
+                "work",
+                &original,
+                "other-owner",
+                "cancelled",
+                "fixture",
+                at()
+            )
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    registry
+        .release_work_exact("work", &original, "research", "fixture", at())
+        .unwrap();
+    let receipt = registry
+        .close_new_work_exact("work", &original, "research", "cancelled", "fixture", at())
+        .unwrap();
+    drop(registry);
+    let mut registry = Registry::open_existing(&root).unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert_eq!(
+        registry
+            .close_new_work_exact("work", &original, "research", "cancelled", "fixture", at())
+            .unwrap(),
+        receipt
+    );
+    for (g, owner, reason) in [
+        (&ready, "research", "cancelled"),
+        (&original, "other", "cancelled"),
+        (&original, "research", "different"),
+    ] {
+        assert!(
+            registry
+                .close_new_work_exact("work", g, owner, reason, "fixture", at())
+                .is_err()
+        );
+    }
+    assert_eq!(
+        registry
+            .bind_new_work_exact("work", &original, "research", "fixture", at())
+            .unwrap_err(),
+        "RUNTIME_WORK_ADMISSION_CLOSED"
+    );
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn unbound_exact_cancellation_fences_late_admission_without_claiming_completion() {
+    let (root, original, ready) = fixture();
+    let mut registry = Registry::open_existing(&root).unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert!(
+        registry
+            .close_new_work_exact(
+                "late-work",
+                &"f".repeat(64),
+                "research",
+                "cancelled",
+                "fixture",
+                at()
+            )
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    let receipt = registry
+        .close_new_work_exact(
+            "late-work",
+            &ready,
+            "research",
+            "cancelled",
+            "fixture",
+            at(),
+        )
+        .unwrap();
+    assert_eq!(receipt["generation_fingerprint"], ready);
+    registry
+        .activate(&id(), &ready, Some(&original), "fixture", at())
+        .unwrap();
+    let before = fs::read(root.join("generation-events.jsonl")).unwrap();
+    assert_eq!(
+        registry
+            .bind_new_work_exact("late-work", &ready, "research", "fixture", at())
+            .unwrap_err(),
+        "RUNTIME_WORK_ADMISSION_CLOSED"
+    );
+    assert!(
+        registry
+            .release_work_exact("late-work", &ready, "research", "fixture", at())
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.join("generation-events.jsonl")).unwrap(),
+        before
+    );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
 }

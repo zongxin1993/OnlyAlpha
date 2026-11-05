@@ -1,12 +1,38 @@
-use crate::{Manager, model::*};
+use crate::{Manager, manager::CachedCheckpoint, model::*};
+use std::sync::Arc;
 use serde_json::{Value, json};
 impl Manager {
+    fn cached_checkpoint(&self) -> Result<&CachedCheckpoint, Error> {
+        if let Some(checkpoint) = self.checkpoint_cache.get() {
+            return Ok(checkpoint.as_ref());
+        }
+        #[cfg(test)]
+        CHECKPOINT_ENCODINGS.with(|n| n.set(n.get() + 1));
+        let record = Arc::new(json!({
+            "schema_version": 1,
+            "config": self.config,
+            "journal": self.journal,
+            "state": self.state()
+        }));
+        let bytes = serde_json::to_vec(record.as_ref())?;
+        let fingerprint = digest(&bytes);
+        let checkpoint = CachedCheckpoint { bytes, fingerprint, record };
+        let _ = self.checkpoint_cache.set(Arc::new(checkpoint));
+        // Shared readers see the same immutable owner. Either this reader or
+        // another successful set has now initialized the representation.
+        Ok(self.checkpoint_cache.get().expect("checkpoint was initialized").as_ref())
+    }
+
     pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
-        let b = serde_json::to_vec(
-            &json!({"schema_version":1,"config":self.config,"journal":self.journal,"state":self.state()}),
-        )?;
-        let h = digest(&b);
-        Ok((b, h))
+        let checkpoint = self.cached_checkpoint()?;
+        Ok((checkpoint.bytes.clone(), checkpoint.fingerprint.clone()))
+    }
+
+    /// Exact owning checkpoint JSON and its original byte fingerprint. This
+    /// immutable data grants no Runtime source, Ready or execution authority.
+    pub fn checkpoint_record(&self) -> Result<(Arc<Value>, String), Error> {
+        let checkpoint = self.cached_checkpoint()?;
+        Ok((Arc::clone(&checkpoint.record), checkpoint.fingerprint.clone()))
     }
     pub fn restore(&mut self, bytes: &[u8], expected: &str) -> Result<(), Error> {
         fp(&json!(expected))?;
@@ -38,3 +64,12 @@ impl Manager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+std::thread_local! {
+    static CHECKPOINT_ENCODINGS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+#[path = "checkpoint_tests.rs"]
+mod checkpoint_tests;

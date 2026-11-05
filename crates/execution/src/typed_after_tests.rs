@@ -135,3 +135,152 @@ fn typed_account_copy_cannot_cross_the_explicit_execution_format_binding(){
   let before=pending.checkpoint().unwrap();assert!(pending.components.install_projection(&pending.store,&planned,2).is_err());assert_eq!(pending.checkpoint().unwrap(),before);
  }
 }
+
+fn local_construction_parts() -> (Value, Components, Vec<u8>) {
+    let source = Harness::new(config()).unwrap();
+    let mut planned = source.prepare(&open(1, "BUY")).unwrap();
+    let original = planned.encode().unwrap();
+    let mut body = planned.record();
+    body.as_object_mut().unwrap().remove("payload_hash");
+    let after = *planned.typed_after.take().unwrap();
+    (body, after, original)
+}
+
+#[test]
+fn local_typed_native_owners_avoid_repeat_hash_but_cold_and_untyped_inputs_recheck() {
+    for selected in 0..5 {
+        let (body, after, original) = local_construction_parts();
+        let canonical = body["projections"][selected]["result"].to_string();
+        crate::model::HASHED_CANONICAL_WATCH.with(|watch| {
+            *watch.borrow_mut() = Some((canonical.clone(), 0));
+        });
+        let local = Prepared::new_with_typed_after(body.clone(), after).unwrap();
+        let calls = crate::model::HASHED_CANONICAL_WATCH
+            .with(|watch| watch.borrow_mut().take().unwrap().1);
+        assert_eq!(calls, 0, "owner {selected} exact checkpoint was hashed again");
+        assert_eq!(local.encode().unwrap(), original);
+        assert!(local.is_planned());
+        assert!(!local.has_validated_transition_data());
+
+        crate::model::HASHED_CANONICAL_WATCH.with(|watch| {
+            *watch.borrow_mut() = Some((canonical.clone(), 0));
+        });
+        let untyped = Prepared::new(body).unwrap();
+        let calls = crate::model::HASHED_CANONICAL_WATCH
+            .with(|watch| watch.borrow_mut().take().unwrap().1);
+        assert_eq!(calls, 1, "owner {selected} ordinary local body skipped its hash");
+        assert_eq!(untyped.encode().unwrap(), original);
+
+        crate::model::HASHED_CANONICAL_WATCH.with(|watch| {
+            *watch.borrow_mut() = Some((canonical, 0));
+        });
+        let cold = Prepared::decode(&original).unwrap();
+        let calls = crate::model::HASHED_CANONICAL_WATCH
+            .with(|watch| watch.borrow_mut().take().unwrap().1);
+        assert_eq!(calls, 1, "owner {selected} external bytes skipped their hash");
+        assert!(!cold.is_planned());
+        assert!(cold.typed_after().is_none());
+        assert!(!cold.has_validated_transition_data());
+        assert_eq!(cold, local);
+    }
+}
+
+#[test]
+fn typed_constructor_rejects_wrong_owner_hash_complete_value_config_and_account_format() {
+    for selected in 0..5 {
+        for fault in ["hash", "full-value", "config"] {
+            let (mut body, mut after, _) = local_construction_parts();
+            match fault {
+                "hash" => body["projections"][selected]["result_hash"] = json!("f".repeat(64)),
+                "full-value" => {
+                    body["projections"][selected]["result"]["state"]["unexpected"] = json!(true);
+                    body["projections"][selected]["result_hash"] = json!(crate::model::hash(
+                        &body["projections"][selected]["result"],
+                    ));
+                }
+                _ => after.config["generation"] = json!("f".repeat(64)),
+            }
+            assert!(
+                Prepared::new_with_typed_after(body, after).is_err(),
+                "owner {selected}, {fault}"
+            );
+        }
+    }
+    let (body, mut after, _) = local_construction_parts();
+    let mut foreign = config();
+    foreign["schema_version"] = json!(2);
+    foreign["account_checkpoint_version"] = json!(5);
+    after.account = Components::new(foreign).unwrap().account;
+    assert_eq!(
+        Prepared::new_with_typed_after(body, after).unwrap_err().0,
+        "EXECUTION_ACCOUNT_CHECKPOINT_FORMAT"
+    );
+}
+
+#[test]
+fn typed_constructor_keeps_unchecked_number_roundtrip_and_decoder_depth_rejection() {
+    for raw in ["null", "garbage", "00"] {
+        let (mut body, after, _) = local_construction_parts();
+        body["projections"][5]["result"]["numeric"] =
+            Value::Number(serde_json::Number::from_string_unchecked(raw.into()));
+        body["projections"][5]["result_hash"] = json!(crate::model::hash(
+            &body["projections"][5]["result"],
+        ));
+        assert!(Prepared::new_with_typed_after(body, after).is_err(), "{raw}");
+    }
+    let (mut body, after, _) = local_construction_parts();
+    let mut deep = Value::Null;
+    for _ in 0..140 {
+        deep = json!([deep]);
+    }
+    body["projections"][5]["result"]["deep"] = deep;
+    body["projections"][5]["result_hash"] = json!(crate::model::hash(
+        &body["projections"][5]["result"],
+    ));
+    assert!(Prepared::new_with_typed_after(body, after).is_err());
+}
+
+#[test]
+fn moved_projection_array_keeps_the_original_outer_json_and_canonical_prepared_bytes() {
+    let mut history = Harness::new(config()).unwrap();
+    for input in [
+        open(1, "BUY"),
+        stage(2, 1, "UNKNOWN"),
+        fill(3, 1, "1", "10.00", "1.00"),
+        terminal(4, 1, "CANCELLED"),
+    ] {
+        let planned = history.prepare(&input).unwrap();
+        let projections = planned.value()["projections"].as_array().unwrap().clone();
+        let sequence = history.components.sequence + 1;
+        let tx = format!("ETX-{}", crate::model::hash(&input));
+        // The exact original outer json! construction, including its owned
+        // Vec<Value> argument, remains an independent representation oracle.
+        let original = json!({
+            "schema_version": 1,
+            "transaction_id": tx,
+            "config_hash": crate::model::hash(&history.components.config),
+            "sequence": sequence,
+            "predecessor": history.components.sequence,
+            "input": input,
+            "projections": projections,
+            "events": [{
+                "schema_version": 1,
+                "event_id": format!("{tx}-EVENT-1"),
+                "transaction_id": tx,
+                "sequence": sequence,
+                "input": input
+            }]
+        });
+        let mut moved = planned.record();
+        moved.as_object_mut().unwrap().remove("payload_hash");
+        assert_eq!(moved, original);
+        assert_eq!(
+            serde_json::to_vec(&moved).unwrap(),
+            serde_json::to_vec(&original).unwrap()
+        );
+        let original = Prepared::new(original).unwrap();
+        assert_eq!(planned.encode().unwrap(), original.encode().unwrap());
+        assert_eq!(planned.payload_fingerprint(), original.payload_fingerprint());
+        coordinate(&mut history.store, &mut history.components, &planned).unwrap();
+    }
+}

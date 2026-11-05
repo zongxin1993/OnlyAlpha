@@ -188,6 +188,7 @@ POSITION_DEPENDENCIES = dict(ORDER_DEPENDENCIES)
 ACCOUNT_DEPENDENCIES = dict(ORDER_DEPENDENCIES)
 
 WORKER_DEPENDENCIES = {
+    "onlyalpha-operators": {"path": "../operators"},
     "onlyalpha-predicates": {"path": "../predicates"},
     "onlyalpha-strategy": {"path": "../strategy"},
     "onlyalpha-market-data": {"path": "../market-data"},
@@ -372,15 +373,19 @@ BACKEND_TEST_DEPENDENCIES = {
     "tokio": {"default-features": False, "features": ["test-util"], "version": "=1.54.1"},
 }
 
+BUILTIN_NUMERIC_DEPENDENCIES = {
+    "num-bigint": {"default-features": False, "features": ["std"], "version": "=0.4.8"},
+    "num-integer": {"default-features": False, "version": "=0.1.46"},
+}
 BUILTIN_CALCULATION_DEPENDENCIES = {
     "onlyalpha-operators": {
-        "num-bigint": {"default-features": False, "features": ["std"], "version": "=0.4.8"},
-        "num-integer": {"default-features": False, "version": "=0.1.46"},
+        **BUILTIN_NUMERIC_DEPENDENCIES,
+        "bigdecimal": DOMAIN_DEPENDENCIES["bigdecimal"],
     },
-}
-BUILTIN_CALCULATION_DEPENDENCIES["onlyalpha-indicators"] = {
-    **BUILTIN_CALCULATION_DEPENDENCIES["onlyalpha-operators"],
-    "onlyalpha-operators": {"path": "../operators"},
+    "onlyalpha-indicators": {
+        **BUILTIN_NUMERIC_DEPENDENCIES,
+        "onlyalpha-operators": {"path": "../operators"},
+    },
 }
 
 
@@ -1113,6 +1118,7 @@ def validate_calculation_sources(root: Path) -> None:
 # Exact compile-time resources, owned by their consuming source. These paths are
 # also materialized in isolated builds and covered by source_inputs hashing.
 _EXECUTION_SOURCE_TESTS = (
+    "components_cow_tests.rs",
     "payload_codec_tests.rs",
     "position_order_view_tests.rs",
     "prefix_read_tests.rs",
@@ -1124,6 +1130,9 @@ _EXECUTION_SOURCE_TESTS = (
     "valuation_ledger_view_tests.rs",
 )
 _INFRASTRUCTURE_RESOURCES = {
+    "crates/order/src/recovery.rs": {
+        "../../../test-data/order/domain-inputs.json": "test-data/order/domain-inputs.json",
+    },
     "crates/order/tests/fixtures.rs": {
         "../../../test-data/order/domain-inputs.json": "test-data/order/domain-inputs.json",
         "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
@@ -1231,6 +1240,9 @@ _INFRASTRUCTURE_RESOURCES = {
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    "crates/operators/src/algebra.rs": {
+        "algebra_tests.rs": "crates/operators/src/algebra_tests.rs",
+    },
     "packages/backend/src/persistence/research_runtime.rs": {
         "research_runtime/metadata_read_tests.rs": "packages/backend/src/persistence/research_runtime/metadata_read_tests.rs",
     },
@@ -1241,6 +1253,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
         for name in _EXECUTION_SOURCE_TESTS
     },
     "crates/execution/src/components.rs": {
+        "components_cow_tests.rs": "crates/execution/src/components_cow_tests.rs",
         "payload_codec_tests.rs": "crates/execution/src/payload_codec_tests.rs",
         "position_order_view_tests.rs": "crates/execution/src/position_order_view_tests.rs",
         "prefix_read_tests.rs": "crates/execution/src/prefix_read_tests.rs",
@@ -1255,6 +1268,12 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
     "crates/position/src/manager.rs": {
         "current_exposure_tests.rs": "crates/position/src/current_exposure_tests.rs",
+    },
+    "crates/position/src/recovery.rs": {
+        "checkpoint_cache_tests.rs": "crates/position/src/checkpoint_cache_tests.rs",
+    },
+    "crates/risk/src/recovery.rs": {
+        "checkpoint_tests.rs": "crates/risk/src/checkpoint_tests.rs",
     },
     "crates/strategy-ledger/src/recovery.rs": {
         "recovery_extension_tests.rs": "crates/strategy-ledger/src/recovery_extension_tests.rs",
@@ -1352,7 +1371,6 @@ _CARGO_VERSION_SOURCES = {
     "packages/backend/src/workers/backtest_service.rs",
     "packages/backend/src/workers/backtest_terminal.rs",
     "packages/backend/src/workers/trading_nodes.rs",
-    "packages/backend/examples/native_backtest_reference.rs",
     "packages/backend/src/main.rs",
     "packages/backend/src/bootstrap/workstation_startup.rs",
 }

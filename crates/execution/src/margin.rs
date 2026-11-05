@@ -3,6 +3,7 @@ use crate::{Components, components::settlement_config, model::*};
 use bigdecimal::{BigDecimal, Zero};
 use onlyalpha_domain::base::OnlyDomainModel;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 fn declaration(input: &Value) -> Result<&Value, Error> {
     let value = &input["payload"]["collateral"];
@@ -83,12 +84,12 @@ impl Components {
             "MACMD-{}",
             hash(&json!([input["input_id"], record["id"]]))
         ));
-        if boundary(self.account.apply_margin(&projection, &effect))?.status
+        if boundary(Arc::make_mut(&mut self.account).apply_margin(&projection, &effect))?.status
             != onlyalpha_account::Status::Applied
         {
             return Err(err("EXECUTION_ACCOUNT_NOT_APPLIED"));
         }
-        self.meta["margin_authority"] = owner.checkpoint();
+        Arc::make_mut(&mut self.meta)["margin_authority"] = owner.checkpoint();
         Ok(())
     }
     pub(crate) fn admit_collateral(&mut self, input: &Value) -> Result<(), Error> {

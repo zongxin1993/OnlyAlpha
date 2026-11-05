@@ -4,14 +4,17 @@ use onlyalpha_backend::{
     workers::{algorithm::describe_native_runtime, trading_nodes::InstalledTradingNodes},
 };
 use onlyalpha_calculation::{Definition, product::Definition as ProductDefinition};
-use onlyalpha_calculation_bridge::{Cancellation, ChartInstallation, ProcessState};
+use onlyalpha_calculation_bridge::{
+    Cancellation, ChartInstallation, ProcessState, native_operators::OperatorCalculation,
+};
 use onlyalpha_domain::{
     base::OnlyDomainModel,
     market::OnlyBar,
     time::{OnlyTimestamp, OnlyUtcDateTime},
 };
 use onlyalpha_strategy::{
-    Executor, NodeDescriptor, NodePort, Program, Revision, Scope, SourceRevision, record_fingerprint,
+    Executor, NodeDescriptor, NodePort, Program, Revision, Scope, SourceRevision,
+    record_fingerprint,
 };
 use serde_json::{Value, json};
 use std::{
@@ -29,7 +32,7 @@ const DEADLINE: Duration = Duration::from_secs(10);
 // Compile the same owning port with its private cfg(test) fault points. The
 // installed interpreter, process control and positive join are the real owners.
 mod algorithm {
-    pub use onlyalpha_backend::workers::algorithm::{AlgorithmProcess,describe_research_runtime};
+    pub use onlyalpha_backend::workers::algorithm::{AlgorithmProcess, describe_research_runtime};
 }
 #[path = "../../src/workers/trading_nodes.rs"]
 mod constructor_port;
@@ -40,9 +43,65 @@ impl Drop for Completion {
     }
 }
 fn fixture() -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&std::fs::read(std::env::var(
+    let mut case: Value = serde_json::from_slice(&std::fs::read(std::env::var(
         "ONLYALPHA_TRADING_TEST_INPUT",
-    )?)?)?)
+    )?)?)?;
+    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
+    let installation = ChartInstallation::open(
+        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
+        &artifact,
+    )?;
+    let native = describe_native_runtime(env!("CARGO_PKG_VERSION"))?;
+    let mut request = case["resolution_request"].clone();
+    request["operator_artifact"] = json!({"sha256":native["image"]["artifact"],"distribution_version":env!("CARGO_PKG_VERSION")});
+    let mut worker = algorithm::AlgorithmProcess::research_resolution(
+        &installation,
+        &"a".repeat(64),
+        Box::new(()),
+    )?;
+    let owner = worker.cancellation()?;
+    let observed = (|| -> Result<Value, Box<dyn Error>> {
+        worker.handshake_research(DEADLINE)?;
+        Ok(worker.resolve_research(request, DEADLINE)?)
+    })();
+    // Always drain this exact child, including after a known local rejection.
+    worker.terminate()?;
+    assert_eq!(owner.state(), ProcessState::Joined);
+    let observed = observed?;
+    installation.verify()?;
+    assert_eq!(
+        observed["operator_artifact_sha256"],
+        native["image"]["artifact"]
+    );
+    assert_eq!(observed["algorithm_artifact"], artifact);
+    assert_eq!(
+        observed["source_artifacts"]
+            .as_array()
+            .ok_or("private artifacts")?
+            .len(),
+        1
+    );
+    assert_eq!(
+        observed["source_artifacts"][0]["source_artifact"]["source_sha256"],
+        case["sources"][0]["source_sha256"]
+    );
+    let resolved = observed["nodes"].as_array().ok_or("resolved nodes")?;
+    assert_eq!(resolved.len(), 3);
+    let nodes=resolved.iter().map(|row|json!({"instance_key":row["instance_key"],"definition":row["definition"],"definition_fingerprint":row["definition_fingerprint"],"type_declaration":row["type_declaration"]})).collect::<Vec<_>>();
+    for row in &nodes {
+        let definition = &row["definition"];
+        assert_eq!(
+            definition["semantic_version"],
+            if definition["kind"] == "INDICATOR" {
+                "2"
+            } else {
+                "1"
+            }
+        );
+    }
+    case["calculations"]["nodes"] = json!(nodes);
+    case["resolved_calculations"] = observed;
+    Ok(case)
 }
 fn bar(base: &Value, index: i64) -> Result<OnlyBar, Box<dyn Error>> {
     let mut row = base.clone();
@@ -68,12 +127,18 @@ fn bar(base: &Value, index: i64) -> Result<OnlyBar, Box<dyn Error>> {
     }
     Ok(OnlyBar::from_record(&row)?)
 }
-fn setup(case: &Value, artifact: &str) -> Result<(Program, BTreeMap<String, ProductDefinition>), Box<dyn Error>> {
-    let (_,program,definitions)=product_setup(case,artifact)?;
-    Ok((program,definitions))
+fn setup(
+    case: &Value,
+    artifact: &str,
+) -> Result<(Program, BTreeMap<String, ProductDefinition>), Box<dyn Error>> {
+    let (_, program, definitions) = product_setup(case, artifact)?;
+    Ok((program, definitions))
 }
 // One shared component projection; a public value here is not an authenticated Freeze publication.
-pub(super) fn product_setup(case: &Value, artifact: &str) -> Result<(SourceRevision,Program,BTreeMap<String,ProductDefinition>),Box<dyn Error>> {
+pub(super) fn product_setup(
+    case: &Value,
+    artifact: &str,
+) -> Result<(SourceRevision, Program, BTreeMap<String, ProductDefinition>), Box<dyn Error>> {
     let mut strategy = case["strategy"].clone();
     strategy["universe"]["instruments"] = json!(["BTCUSDT.BINANCE"]);
     strategy["calculations"] = case["calculations"]["instances"].clone();
@@ -88,7 +153,10 @@ pub(super) fn product_setup(case: &Value, artifact: &str) -> Result<(SourceRevis
     let mut research = BTreeMap::new();
     for row in case["registrations"].as_array().ok_or("registrations")? {
         if row["backend"] == "RESEARCH" {
-            research.insert(row["type"]["type_id"].as_str().ok_or("type")?.to_owned(), row["implementation_fingerprint"].clone());
+            research.insert(
+                row["type"]["type_id"].as_str().ok_or("type")?.to_owned(),
+                row["implementation_fingerprint"].clone(),
+            );
         }
         if row["backend"] == "TRADING" {
             implementations.insert(
@@ -105,8 +173,17 @@ pub(super) fn product_setup(case: &Value, artifact: &str) -> Result<(SourceRevis
         .as_array()
         .ok_or("native manifests")?
     {
+        if row["calculation_type_reference"]["kind"] != "PREDICATE" {
+            continue;
+        }
         if row["backend_kind"] == "RESEARCH" {
-            research.insert(row["calculation_type_reference"]["type_id"].as_str().ok_or("native type")?.to_owned(), row["implementation_fingerprint"].clone());
+            research.insert(
+                row["calculation_type_reference"]["type_id"]
+                    .as_str()
+                    .ok_or("native type")?
+                    .to_owned(),
+                row["implementation_fingerprint"].clone(),
+            );
         }
         if row["backend_kind"] != "TRADING" {
             continue;
@@ -120,6 +197,35 @@ pub(super) fn product_setup(case: &Value, artifact: &str) -> Result<(SourceRevis
                 row["implementation_fingerprint"].clone(),
                 json!("STATELESS"),
                 Value::Null,
+            ),
+        );
+    }
+    for row in case["calculations"]["nodes"]
+        .as_array()
+        .ok_or("resolved arithmetic")?
+    {
+        let record = &row["definition"];
+        if record["kind"] != "INDICATOR" {
+            continue;
+        }
+        let operator = OperatorCalculation::from_record(record)?;
+        let image = native["image"]["artifact"].as_str().ok_or("native image")?;
+        let id = record["type_id"]
+            .as_str()
+            .ok_or("operator type")?
+            .to_owned();
+        research.insert(
+            id.clone(),
+            operator.implementation_manifest("RESEARCH", image)?["implementation_fingerprint"]
+                .clone(),
+        );
+        implementations.insert(
+            id,
+            (
+                operator.implementation_manifest("TRADING", image)?["implementation_fingerprint"]
+                    .clone(),
+                json!(operator.state_capability()),
+                json!(operator.checkpoint_schema_version()),
             ),
         );
     }
@@ -160,13 +266,16 @@ pub(super) fn product_setup(case: &Value, artifact: &str) -> Result<(SourceRevis
         let row=node.to_record();let key=row["type_id"].as_str().ok_or("node type")?;
         Ok(json!({"node_fingerprint":node.fingerprint(),"research_implementation_fingerprint":research.get(key).ok_or("research implementation")?,"trading_implementation_fingerprint":implementations.get(key).ok_or("trading implementation")?.0}))
     }).collect::<Result<Vec<_>,Box<dyn Error>>>()?;
-    bindings.sort_by_key(|row|row["node_fingerprint"].as_str().unwrap().to_owned());
-    let mut source=json!({"schema_version":1,"universe":strategy.to_record()["universe"],"market_input_contract":strategy.to_record()["market_input"],"decision_graph_fingerprint":decision.graph().fingerprint(),"implementation_bindings":bindings,"signal_semantics":decision.record()["signal_semantics"]});
-    let mut identity=source.clone();identity["domain"]=json!("onlyalpha.strategy.revision");
-    source["strategy_fingerprint"]=json!(record_fingerprint(&identity));source["decision_graph"]=decision.graph().to_record();
-    let source=SourceRevision::from_json(&source.to_string(),WORK)?;
-    let revision=Revision::from_product(source.to_record(),descriptors,mapping)?;
-    assert!(revision.is_product_materialization());assert_eq!(revision.fingerprint(),source.fingerprint());
+    bindings.sort_by_key(|row| row["node_fingerprint"].as_str().unwrap().to_owned());
+    let mut source = json!({"schema_version":1,"universe":strategy.to_record()["universe"],"market_input_contract":strategy.to_record()["market_input"],"decision_graph_fingerprint":decision.graph().fingerprint(),"implementation_bindings":bindings,"signal_semantics":decision.record()["signal_semantics"]});
+    let mut identity = source.clone();
+    identity["domain"] = json!("onlyalpha.strategy.revision");
+    source["strategy_fingerprint"] = json!(record_fingerprint(&identity));
+    source["decision_graph"] = decision.graph().to_record();
+    let source = SourceRevision::from_json(&source.to_string(), WORK)?;
+    let revision = Revision::from_product(source.to_record(), descriptors, mapping)?;
+    assert!(revision.is_product_materialization());
+    assert_eq!(revision.fingerprint(), source.fingerprint());
     let program = Program::new(
         revision,
         Scope {
@@ -266,13 +375,20 @@ fn actual_installed_nodes_keep_native_predicates_and_restore_factory_state()
         original.to_record()
     );
     let before_cancel = executor.capture_checkpoint()?;
-    let control = executor.port().cancellation()?.ok_or("installed math child")?;
+    let control = executor
+        .port()
+        .cancellation()?
+        .ok_or("installed math child")?;
     assert_eq!(control.state(), ProcessState::Running);
     control.cancel()?;
     assert_eq!(control.state(), ProcessState::Joined);
     let next = bar(&case["base"], 22)?;
     let next_time = OnlyTimestamp::from_datetime(*next.bar_end());
-    assert!(executor.process(&next, &next_time, &"d".repeat(64)).is_err());
+    assert!(
+        executor
+            .process(&next, &next_time, &"d".repeat(64))
+            .is_err()
+    );
     assert!(executor.is_failed());
     assert!(executor.capture_checkpoint().is_err());
 
@@ -285,10 +401,17 @@ fn actual_installed_nodes_keep_native_predicates_and_restore_factory_state()
     assert_eq!(resumed_control.state(), ProcessState::Running);
     assert_eq!(resumed.capture_checkpoint()?, before_cancel);
     assert_eq!(
-        resumed.process(&next, &next_time, &"d".repeat(64))?.to_record(),
-        restored.process(&next, &next_time, &"d".repeat(64))?.to_record()
+        resumed
+            .process(&next, &next_time, &"d".repeat(64))?
+            .to_record(),
+        restored
+            .process(&next, &next_time, &"d".repeat(64))?
+            .to_record()
     );
-    assert_eq!(resumed.capture_checkpoint()?, restored.capture_checkpoint()?);
+    assert_eq!(
+        resumed.capture_checkpoint()?,
+        restored.capture_checkpoint()?
+    );
     drop(resumed);
     assert_eq!(resumed_control.state(), ProcessState::Joined);
     eprintln!("Strategy execution, original child cancellation and fresh continuation verified");
@@ -330,6 +453,7 @@ fn algorithm_process_owns_the_installed_math_child_until_positive_join()
         .as_array()
         .ok_or("nodes")?
         .iter()
+        .filter(|row| row["definition"]["kind"] == "FACTOR")
         .enumerate()
         .map(|(index, row)| (index.to_string(), row["definition"].clone()))
         .collect::<serde_json::Map<_, _>>();
@@ -337,7 +461,10 @@ fn algorithm_process_owns_the_installed_math_child_until_positive_join()
         json!({"schema_version":1,"op":"INITIALIZE","sources":case["sources"],"nodes":nodes});
     let state = worker.exchange_trading_numerics(initialize, DEADLINE)?;
     assert_eq!(state["schema_version"], 1);
-    assert_eq!(state["nodes"].as_object().ok_or("nodes")?.len(), 3);
+    assert_eq!(state["nodes"].as_object().ok_or("nodes")?.len(), 1);
+    assert_eq!(state["nodes"]["0"]["state_capability"], "STATELESS");
+    assert!(state["nodes"]["0"]["checkpoint_schema_version"].is_null());
+    assert!(state["nodes"]["0"]["state"].is_null());
     assert!(state.get("cursor").is_none() && state.get("receipt").is_none());
     assert_eq!(count.load(Ordering::SeqCst), 1);
     control.cancel()?;
@@ -349,123 +476,267 @@ fn algorithm_process_owns_the_installed_math_child_until_positive_join()
 }
 
 #[test]
-fn constructor_handshake_failure_reports_the_new_original_child_after_an_old_join() -> Result<(),Box<dyn Error>> {
+fn constructor_handshake_failure_reports_the_new_original_child_after_an_old_join()
+-> Result<(), Box<dyn Error>> {
     use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
     use onlyalpha_strategy::NodeFailure;
-    let case=fixture()?;let artifact=std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
-    let installation=Arc::new(ChartInstallation::open(Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),&artifact)?);
-    let (program,definitions)=setup(&case,&artifact)?;
-    let old=AlgorithmProcess::trading(&installation,program.generation(),Box::new(Arc::new(())))?;
-    let previous=old.cancellation()?;old.terminate()?;drop(old);
-    assert_eq!(previous.state(),ProcessState::Joined);
-    let observed=Arc::new(std::sync::Mutex::new(Vec::<Cancellation>::new()));
-    let captured=observed.clone();let prior=previous.clone();
-    let count=Arc::new(AtomicUsize::new(1));let hold:Arc<dyn Send+Sync>=Arc::new(Completion(count.clone()));
-    let result=constructor_port::InstalledTradingNodes::new_owned(installation,program,definitions,case["sources"].as_array().unwrap().clone(),hold.clone(),DEADLINE,Arc::new(move |child:Cancellation| {
-        assert_eq!(child.state(),ProcessState::Running);
-        assert!(!child.same_owner(&prior));
-        captured.lock().unwrap().push(child.clone());
-        // A real shutdown before the handshake produces deterministic UNKNOWN.
-        child.cancel().map_err(|_|NodeFailure::Unknown)
-    }));
-    assert!(matches!(result,Err(NodeFailure::Unknown)));
-    let children=observed.lock().unwrap();assert_eq!(children.len(),1);
-    assert!(!children[0].same_owner(&previous));children[0].drain()?;
-    assert_eq!(children[0].state(),ProcessState::Joined);
-    drop(children);drop(hold);assert_eq!(count.load(Ordering::SeqCst),0);
+    let case = fixture()?;
+    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
+    let installation = Arc::new(ChartInstallation::open(
+        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
+        &artifact,
+    )?);
+    let (program, definitions) = setup(&case, &artifact)?;
+    let old =
+        AlgorithmProcess::trading(&installation, program.generation(), Box::new(Arc::new(())))?;
+    let previous = old.cancellation()?;
+    old.terminate()?;
+    drop(old);
+    assert_eq!(previous.state(), ProcessState::Joined);
+    let observed = Arc::new(std::sync::Mutex::new(Vec::<Cancellation>::new()));
+    let captured = observed.clone();
+    let prior = previous.clone();
+    let count = Arc::new(AtomicUsize::new(1));
+    let hold: Arc<dyn Send + Sync> = Arc::new(Completion(count.clone()));
+    let result = constructor_port::InstalledTradingNodes::new_owned(
+        installation,
+        program,
+        definitions,
+        case["sources"].as_array().unwrap().clone(),
+        hold.clone(),
+        DEADLINE,
+        Arc::new(move |child: Cancellation| {
+            assert_eq!(child.state(), ProcessState::Running);
+            assert!(!child.same_owner(&prior));
+            captured.lock().unwrap().push(child.clone());
+            // A real shutdown before the handshake produces deterministic UNKNOWN.
+            child.cancel().map_err(|_| NodeFailure::Unknown)
+        }),
+    );
+    assert!(matches!(result, Err(NodeFailure::Unknown)));
+    let children = observed.lock().unwrap();
+    assert_eq!(children.len(), 1);
+    assert!(!children[0].same_owner(&previous));
+    children[0].drain()?;
+    assert_eq!(children[0].state(), ProcessState::Joined);
+    drop(children);
+    drop(hold);
+    assert_eq!(count.load(Ordering::SeqCst), 0);
     Ok(())
 }
 
 #[test]
-fn constructor_initialize_failure_keeps_the_fresh_child_handle_available_for_drain() -> Result<(),Box<dyn Error>> {
+fn constructor_initialize_failure_keeps_the_fresh_child_handle_available_for_drain()
+-> Result<(), Box<dyn Error>> {
     use onlyalpha_strategy::NodeFailure;
-    let case=fixture()?;let artifact=std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
-    let installation=Arc::new(ChartInstallation::open(Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),&artifact)?);
-    let (program,definitions)=setup(&case,&artifact)?;
-    let observed=Arc::new(std::sync::Mutex::new(Vec::<Cancellation>::new()));let captured=observed.clone();
-    let count=Arc::new(AtomicUsize::new(1));let hold:Arc<dyn Send+Sync>=Arc::new(Completion(count.clone()));
+    let case = fixture()?;
+    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
+    let installation = Arc::new(ChartInstallation::open(
+        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
+        &artifact,
+    )?);
+    let (program, definitions) = setup(&case, &artifact)?;
+    let observed = Arc::new(std::sync::Mutex::new(Vec::<Cancellation>::new()));
+    let captured = observed.clone();
+    let count = Arc::new(AtomicUsize::new(1));
+    let hold: Arc<dyn Send + Sync> = Arc::new(Completion(count.clone()));
     constructor_port::test_fail_before_initialize();
-    let result=constructor_port::InstalledTradingNodes::new_owned(installation,program,definitions,case["sources"].as_array().unwrap().clone(),hold.clone(),DEADLINE,Arc::new(move |child:Cancellation| {
-        assert_eq!(child.state(),ProcessState::Running);captured.lock().unwrap().push(child);Ok(())
-    }));
-    assert!(matches!(result,Err(NodeFailure::Unknown)));
-    let children=observed.lock().unwrap();assert_eq!(children.len(),1);
-    assert!(children[0].same_owner(&children[0].clone()));children[0].drain()?;
-    assert_eq!(children[0].state(),ProcessState::Joined);
-    drop(children);drop(hold);assert_eq!(count.load(Ordering::SeqCst),0);
+    let result = constructor_port::InstalledTradingNodes::new_owned(
+        installation,
+        program,
+        definitions,
+        case["sources"].as_array().unwrap().clone(),
+        hold.clone(),
+        DEADLINE,
+        Arc::new(move |child: Cancellation| {
+            assert_eq!(child.state(), ProcessState::Running);
+            captured.lock().unwrap().push(child);
+            Ok(())
+        }),
+    );
+    assert!(matches!(result, Err(NodeFailure::Unknown)));
+    let children = observed.lock().unwrap();
+    assert_eq!(children.len(), 1);
+    assert!(children[0].same_owner(&children[0].clone()));
+    children[0].drain()?;
+    assert_eq!(children[0].state(), ProcessState::Joined);
+    drop(children);
+    drop(hold);
+    assert_eq!(count.load(Ordering::SeqCst), 0);
     Ok(())
 }
 
 #[test]
-fn constructor_restore_failure_attaches_fresh_child_and_preserves_the_original_port() -> Result<(),Box<dyn Error>> {
+fn constructor_restore_failure_attaches_fresh_child_and_preserves_the_original_port()
+-> Result<(), Box<dyn Error>> {
     use onlyalpha_strategy::NodeFailure;
-    let case=fixture()?;let artifact=std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
-    let installation=Arc::new(ChartInstallation::open(Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),&artifact)?);
-    let (program,definitions)=setup(&case,&artifact)?;
-    let observed=Arc::new(std::sync::Mutex::new(Vec::<Cancellation>::new()));let captured=observed.clone();
-    let count=Arc::new(AtomicUsize::new(1));let hold:Arc<dyn Send+Sync>=Arc::new(Completion(count.clone()));
-    let mut port=constructor_port::InstalledTradingNodes::new_owned(installation,program,definitions,case["sources"].as_array().unwrap().clone(),hold.clone(),DEADLINE,Arc::new(move |child:Cancellation| {
-        captured.lock().unwrap().push(child);Ok(())
-    })).map_err(|_|"actual initialized SDK port")?;
-    let original=port.cancellation().map_err(|_|"original child owner")?.ok_or("math child")?;
-    let checkpoint=port.capture().map_err(|_|"actual SDK checkpoint")?;
+    let case = fixture()?;
+    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
+    let installation = Arc::new(ChartInstallation::open(
+        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
+        &artifact,
+    )?);
+    let (program, definitions) = setup(&case, &artifact)?;
+    let observed = Arc::new(std::sync::Mutex::new(Vec::<Cancellation>::new()));
+    let captured = observed.clone();
+    let count = Arc::new(AtomicUsize::new(1));
+    let hold: Arc<dyn Send + Sync> = Arc::new(Completion(count.clone()));
+    let mut port = constructor_port::InstalledTradingNodes::new_owned(
+        installation,
+        program,
+        definitions,
+        case["sources"].as_array().unwrap().clone(),
+        hold.clone(),
+        DEADLINE,
+        Arc::new(move |child: Cancellation| {
+            captured.lock().unwrap().push(child);
+            Ok(())
+        }),
+    )
+    .map_err(|_| "actual initialized SDK port")?;
+    let original = port
+        .cancellation()
+        .map_err(|_| "original child owner")?
+        .ok_or("math child")?;
+    let checkpoint = port.capture().map_err(|_| "actual SDK checkpoint")?;
     constructor_port::test_fail_before_initialize();
-    assert!(matches!(port.restore_candidate(&checkpoint),Err(NodeFailure::Unknown)));
-    let children=observed.lock().unwrap();assert_eq!(children.len(),2);
-    assert!(children[0].same_owner(&original));assert!(!children[1].same_owner(&original));
-    assert_eq!(original.state(),ProcessState::Running,"a failed fresh candidate cannot kill or replace the old transactional port");
-    children[1].drain()?;assert_eq!(children[1].state(),ProcessState::Joined);
-    original.cancel()?;drop(children);drop(port);drop(hold);
-    assert_eq!(count.load(Ordering::SeqCst),0);
+    assert!(matches!(
+        port.restore_candidate(&checkpoint),
+        Err(NodeFailure::Unknown)
+    ));
+    let children = observed.lock().unwrap();
+    assert_eq!(children.len(), 2);
+    assert!(children[0].same_owner(&original));
+    assert!(!children[1].same_owner(&original));
+    assert_eq!(
+        original.state(),
+        ProcessState::Running,
+        "a failed fresh candidate cannot kill or replace the old transactional port"
+    );
+    children[1].drain()?;
+    assert_eq!(children[1].state(), ProcessState::Joined);
+    original.cancel()?;
+    drop(children);
+    drop(port);
+    drop(hold);
+    assert_eq!(count.load(Ordering::SeqCst), 0);
     Ok(())
 }
 
 #[test]
-fn trading_capabilities_metadata_observes_actual_installed_registrations_without_market_rows() -> Result<(),Box<dyn Error>> {
+fn trading_capabilities_metadata_observes_actual_installed_registrations_without_market_rows()
+-> Result<(), Box<dyn Error>> {
     use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
     use onlyalpha_calculation::product::Graph;
-    let case=fixture()?;let artifact=std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
-    let installation=ChartInstallation::open(Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),&artifact)?;
-    let (source,program,_)=product_setup(&case,&artifact)?;
-    let graph=Graph::from_record(&source.to_record()["decision_graph"],WORK)?;
-    let definitions=graph.ordered_nodes().map(|definition|definition.to_record()).filter(|record|record["kind"]!="PREDICATE").collect::<Vec<_>>();
+    let case = fixture()?;
+    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
+    let installation = ChartInstallation::open(
+        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
+        &artifact,
+    )?;
+    let (source, program, _) = product_setup(&case, &artifact)?;
+    let graph = Graph::from_record(&source.to_record()["decision_graph"], WORK)?;
+    let definitions = graph
+        .ordered_nodes()
+        .map(|definition| definition.to_record())
+        .filter(|record| record["kind"] != "PREDICATE")
+        .collect::<Vec<_>>();
     assert!(!definitions.is_empty());
-    let mut expected=BTreeMap::new();
+    let mut expected = BTreeMap::new();
     for definition in &definitions {
-        let matches=case["registrations"].as_array().unwrap().iter().filter(|row|row["backend"]=="TRADING"&&row["type"]["type_id"]==definition["type_id"]&&row["type"]["semantic_version"]==definition["semantic_version"]).collect::<Vec<_>>();
-        assert_eq!(matches.len(),1);let registration=matches[0];
-        let id=ProductDefinition::from_record(definition, WORK)?.fingerprint();
-        expected.insert(id.clone(),json!({"node_fingerprint":id,"implementation_fingerprint":registration["implementation_fingerprint"],"state_capability":registration["state_capability"],"checkpoint_schema_version":registration["checkpoint_schema_version"]}));
+        let id = ProductDefinition::from_record(definition, WORK)?.fingerprint();
+        let (implementation, capability, schema) = if definition["kind"] == "INDICATOR" {
+            let operator = OperatorCalculation::from_record(definition)?;
+            let image = describe_native_runtime(env!("CARGO_PKG_VERSION"))?;
+            (
+                operator.implementation_manifest(
+                    "TRADING",
+                    image["image"]["artifact"].as_str().ok_or("image")?,
+                )?["implementation_fingerprint"]
+                    .clone(),
+                json!(operator.state_capability()),
+                json!(operator.checkpoint_schema_version()),
+            )
+        } else {
+            let matches = case["registrations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| {
+                    row["backend"] == "TRADING"
+                        && row["type"]["type_id"] == definition["type_id"]
+                        && row["type"]["semantic_version"] == definition["semantic_version"]
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(matches.len(), 1);
+            let registration = matches[0];
+            (
+                registration["implementation_fingerprint"].clone(),
+                registration["state_capability"].clone(),
+                registration["checkpoint_schema_version"].clone(),
+            )
+        };
+        expected.insert(id.clone(),json!({"node_fingerprint":id,"implementation_fingerprint":implementation,"state_capability":capability,"checkpoint_schema_version":schema}));
     }
-    let mut worker=AlgorithmProcess::research_resolution(&installation,&program.generation(),Box::new(Arc::new(())))?;
-    let owner=worker.cancellation()?;
+    let mut worker = AlgorithmProcess::research_resolution(
+        &installation,
+        &program.generation(),
+        Box::new(Arc::new(())),
+    )?;
+    let owner = worker.cancellation()?;
     worker.handshake_research(DEADLINE)?;
-    let request=json!({"schema_version":1,"contract":"ONLYALPHA_TRADING_NODE_CAPABILITIES_V1","sources":case["sources"],"definitions":definitions});
-    assert!(request.get("rows").is_none()&&request.get("input").is_none());
-    let observed=worker.resolve_research(request,DEADLINE)?;
-    worker.terminate()?;assert_eq!(owner.state(),ProcessState::Joined);
-    assert_eq!(observed,json!({"schema_version":1,"contract":"ONLYALPHA_TRADING_NODE_CAPABILITIES_V1","nodes":expected.into_values().collect::<Vec<_>>(),"isolation":"LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"}));
+    let request = json!({"schema_version":1,"contract":"ONLYALPHA_TRADING_NODE_CAPABILITIES_V1","sources":case["sources"],"definitions":definitions});
+    assert!(request.get("rows").is_none() && request.get("input").is_none());
+    let observed = worker.resolve_research(request, DEADLINE)?;
+    worker.terminate()?;
+    assert_eq!(owner.state(), ProcessState::Joined);
+    assert_eq!(
+        observed,
+        json!({"schema_version":1,"contract":"ONLYALPHA_TRADING_NODE_CAPABILITIES_V1","nodes":expected.into_values().collect::<Vec<_>>(),"isolation":"LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"})
+    );
     Ok(())
 }
 #[test]
-fn trading_capabilities_metadata_rejects_vector_inputs_and_native_predicates() -> Result<(),Box<dyn Error>> {
+fn trading_capabilities_metadata_rejects_vector_inputs_and_native_predicates()
+-> Result<(), Box<dyn Error>> {
     use onlyalpha_backend::workers::algorithm::AlgorithmProcess;
-    use onlyalpha_calculation::{product::Graph};
+    use onlyalpha_calculation::product::Graph;
     use onlyalpha_calculation_bridge::WorkerError;
-    let case=fixture()?;let artifact=std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
-    let installation=ChartInstallation::open(Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),&artifact)?;
-    let (source,program,_)=product_setup(&case,&artifact)?;
-    let graph=Graph::from_record(&source.to_record()["decision_graph"],WORK)?;
-    let arithmetic=graph.ordered_nodes().find(|definition|definition.to_record()["kind"]!="PREDICATE").ok_or("arithmetic")?.to_record();
-    let predicate=graph.ordered_nodes().find(|definition|definition.to_record()["kind"]=="PREDICATE").ok_or("native Predicate")?.to_record();
+    let case = fixture()?;
+    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
+    let installation = ChartInstallation::open(
+        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
+        &artifact,
+    )?;
+    let (source, program, _) = product_setup(&case, &artifact)?;
+    let graph = Graph::from_record(&source.to_record()["decision_graph"], WORK)?;
+    let arithmetic = graph
+        .ordered_nodes()
+        .find(|definition| definition.to_record()["kind"] != "PREDICATE")
+        .ok_or("arithmetic")?
+        .to_record();
+    let predicate = graph
+        .ordered_nodes()
+        .find(|definition| definition.to_record()["kind"] == "PREDICATE")
+        .ok_or("native Predicate")?
+        .to_record();
     for request in [
         json!({"schema_version":1,"contract":"ONLYALPHA_TRADING_NODE_CAPABILITIES_V1","sources":case["sources"],"definitions":[arithmetic],"rows":[{"close":"1"}]}),
         json!({"schema_version":1,"contract":"ONLYALPHA_TRADING_NODE_CAPABILITIES_V1","sources":case["sources"],"definitions":[predicate]}),
     ] {
-        let mut worker=AlgorithmProcess::research_resolution(&installation,&program.generation(),Box::new(Arc::new(())))?;
+        let mut worker = AlgorithmProcess::research_resolution(
+            &installation,
+            &program.generation(),
+            Box::new(Arc::new(())),
+        )?;
+        let owner = worker.cancellation()?;
         worker.handshake_research(DEADLINE)?;
-        assert_eq!(worker.resolve_research(request,DEADLINE),Err(WorkerError::Rejected));
+        assert_eq!(
+            worker.resolve_research(request, DEADLINE),
+            Err(WorkerError::Invalid)
+        );
         worker.terminate()?;
+        assert_eq!(owner.state(), ProcessState::Joined);
     }
     Ok(())
 }

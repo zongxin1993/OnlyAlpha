@@ -29,7 +29,7 @@ impl Components {
         visit: F,
     ) -> Result<Value, Error> {
         let _ = self.payload_hashes()?;
-        let genesis = Self::genesis_payload_hashes(&self.config)?;
+        let genesis = self.cached_genesis_payload_hashes()?;
         self.verified_source_with_genesis(store, &genesis, visit)
     }
     fn verified_source_with_genesis<S: Store, F: FnMut(&Record) -> Result<(), Error>>(
@@ -116,7 +116,7 @@ impl Components {
         ))?;
         let mut expected = BTreeMap::new();
         let owners = self.payloads()?;
-        let genesis = Self::genesis_payload_hashes(&self.config)?;
+        let genesis = self.cached_genesis_payload_hashes()?;
         let source = self.verified_source_with_genesis(store, &genesis, |record| {
             record_fee(record, &mut fee_owner, &mut expected)
         })?;

@@ -9,7 +9,7 @@ fn reset_capture(){PAYLOAD_CAPTURE_BYTES.with(|count|count.set(0));}
 fn actual_images(components:&Components)->Vec<Value>{
  let mut values=Vec::new();
  for bytes in [components.order.checkpoint().unwrap().0,components.position.checkpoint().unwrap().0,components.account.checkpoint().unwrap().0,components.ledger.checkpoint().unwrap().0,components.risk.checkpoint().unwrap().0]{values.push(serde_json::from_slice(&bytes).unwrap());}
- values.push(components.meta.clone());values
+ values.push(components.meta.as_ref().clone());values
 }
 #[test]
 fn unchanged_payload_reads_share_encoding_without_recapturing_owner_history(){
@@ -184,7 +184,7 @@ fn actual_owner_checkpoint_bytes_and_hashes_equal_the_original_value_codec_at_bo
    assert_eq!(hashes[index],*fingerprint);
   }
   assert_eq!(actual[2]["schema_version"],if modern{5}else{4});
-  assert_eq!(actual[5],history.components.meta);assert_eq!(hashes[5],digest(history.components.meta.to_string().as_bytes()));
+  assert_eq!(actual[5],*history.components.meta);assert_eq!(hashes[5],digest(history.components.meta.to_string().as_bytes()));
  }
 }
 #[test]
@@ -209,6 +209,140 @@ fn cold_payload_capture_reuses_each_actual_returned_hash_but_still_hashes_comple
   let image=actual.payloads().unwrap();let fingerprint=actual.payload_hashes().unwrap()[5].clone();
   let calls=crate::model::HASHED_CANONICAL_WATCH.with(|watch|watch.borrow_mut().take().unwrap().1);
   assert_eq!(calls,1,"unencoded complete metadata still needs its original actual hash");
-  assert_eq!(fingerprint,expected);assert_eq!(image[5],actual.meta);
+  assert_eq!(fingerprint,expected);assert_eq!(image[5],*actual.meta);
  }
+}
+
+#[test]
+fn unchanged_metadata_owner_checkpoints_are_reused_during_cold_replay() {
+    let slots = ["fee_authority", "settlement_authority", "margin_authority"];
+    let mut history = Harness::new(config()).unwrap();
+    let mut expected = [0_u64; 3];
+    for input in [open(1, "BUY"), stage(2, 1, "UNKNOWN"), fill(3, 1, "1", "10.00", "1.00"), terminal(4, 1, "CANCELLED")] {
+        let planned = history.prepare(&input).unwrap();
+        let body = planned.record();
+        for (index, slot) in slots.iter().enumerate() {
+            expected[index] += u64::from(history.components.meta[slot] != body["projections"][5]["result"][slot]);
+        }
+        crate::coordinate(&mut history.store, &mut history.components, &planned).unwrap();
+    }
+    assert!(expected[0] > 0, "the source must include real Fee history");
+    let mut cold = support::MemoryStore::default();
+    cold.rows = history.store.rows.iter().map(|record| crate::Record::decode(&record.record()).unwrap()).collect();
+    let mut restored = Components::new(config()).unwrap();
+    METADATA_CHECKPOINT_DECODERS.with(|counts| counts.set([0; 3]));
+    crate::recover(&mut cold, &mut restored).unwrap();
+    assert_eq!(METADATA_CHECKPOINT_DECODERS.with(std::cell::Cell::get), expected);
+    assert_eq!(restored.checkpoint().unwrap(), history.checkpoint().unwrap());
+    assert_eq!(restored.state(&cold).unwrap(), history.state().unwrap());
+    assert_eq!(crate::pending_events(&cold, &restored).unwrap(), crate::pending_events(&history.store, &history.components).unwrap());
+
+    let checkpoint = history.checkpoint().unwrap();
+    let mut fresh = Components::new(config()).unwrap();
+    let changed: [u64; 3] = std::array::from_fn(|index| u64::from(fresh.meta[slots[index]] != history.components.meta[slots[index]]));
+    METADATA_CHECKPOINT_DECODERS.with(|counts| counts.set([0; 3]));
+    fresh.restore(&checkpoint, &hash(&checkpoint)).unwrap();
+    assert_eq!(METADATA_CHECKPOINT_DECODERS.with(std::cell::Cell::get), changed);
+    assert_eq!(fresh.checkpoint().unwrap(), checkpoint);
+}
+
+#[test]
+fn changed_or_invalid_metadata_slots_keep_their_complete_owner_decoder() {
+    let source = Components::new(config()).unwrap();
+    for (index, slot) in ["fee_authority", "settlement_authority", "margin_authority"].iter().enumerate() {
+        for fault in ["null", "schema", "foreign-config", "extra-field"] {
+            let mut receiver = Components::new(config()).unwrap();
+            let before = receiver.checkpoint().unwrap();
+            let mut metadata = source.meta.as_ref().clone();
+            match fault {
+                "null" => metadata[slot] = Value::Null,
+                "schema" => metadata[slot]["schema_version"] = json!(999),
+                "foreign-config" => metadata[slot]["config"]["generation"] = json!("f".repeat(64)),
+                _ => metadata[slot]["unexpected"] = json!(true),
+            }
+            METADATA_CHECKPOINT_DECODERS.with(|counts| counts.set([0; 3]));
+            assert!(receiver.install_payload(5, &metadata).is_err(), "{slot}: {fault}");
+            assert_eq!(METADATA_CHECKPOINT_DECODERS.with(std::cell::Cell::get)[index], 1);
+            assert_eq!(receiver.checkpoint().unwrap(), before);
+        }
+    }
+}
+
+#[test]
+fn metadata_envelope_is_checked_even_when_every_owner_checkpoint_is_unchanged() {
+    for fault in ["schema", "missing-field", "extra-field"] {
+        let mut receiver = Components::new(config()).unwrap();
+        let before = receiver.checkpoint().unwrap();
+        let mut metadata = receiver.meta.as_ref().clone();
+        match fault {
+            "schema" => metadata["schema_version"] = json!(4),
+            "missing-field" => { metadata.as_object_mut().unwrap().remove("orders"); }
+            _ => metadata["unexpected"] = Value::Null,
+        }
+        METADATA_CHECKPOINT_DECODERS.with(|counts| counts.set([0; 3]));
+        assert!(receiver.install_payload(5, &metadata).is_err());
+        assert_eq!(METADATA_CHECKPOINT_DECODERS.with(std::cell::Cell::get), [0; 3]);
+        assert_eq!(receiver.checkpoint().unwrap(), before);
+    }
+}
+
+#[test]
+fn owner_record_capture_keeps_exact_values_hashes_and_detached_clone_isolation() {
+    for modern in [false, true] {
+        let mut configuration = config();
+        if modern {
+            configuration["schema_version"] = json!(2);
+            configuration["account_checkpoint_version"] = json!(5);
+        }
+        let mut history = Harness::new(configuration).unwrap();
+        for input in [open(1, "BUY"), stage(2, 1, "UNKNOWN"), fill(3, 1, "1", "10.00", "1.00")] {
+            let prepared = history.prepare(&input).unwrap();
+            crate::coordinate(&mut history.store, &mut history.components, &prepared).unwrap();
+        }
+        let expected = actual_images(&history.components);
+        let owners = (0..5)
+            .map(|index| history.components.owner_checkpoint_record(index).unwrap())
+            .collect::<Vec<_>>();
+        history.components.invalidate_payloads();
+        let image = history.components.payloads().unwrap();
+        assert_eq!(image.as_ref(), &expected);
+        for (index, value) in expected.iter().enumerate() {
+            assert_eq!(history.components.payload_hashes().unwrap()[index], hash(value));
+        }
+        for (index, owner) in owners.iter().enumerate() {
+            assert_eq!(history.components.payload_hashes().unwrap()[index], owner.1);
+        }
+        let mut detached = std::sync::Arc::clone(&image);
+        for index in 0..5 {
+            std::sync::Arc::make_mut(&mut detached)[index]["state"] = Value::Null;
+        }
+        assert_eq!(history.components.payloads().unwrap().as_ref(), &expected);
+        for (index, original) in owners.iter().enumerate() {
+            let retained = history.components.owner_checkpoint_record(index).unwrap();
+            assert!(std::sync::Arc::ptr_eq(&original.0, &retained.0));
+            assert_eq!(retained.0.as_ref(), &expected[index]);
+        }
+    }
+}
+
+#[test]
+fn selected_owner_record_hashes_do_not_cache_a_partial_image_or_supply_source_authority() {
+    let mut history = Harness::new(config()).unwrap();
+    let planned = history.prepare(&open(1, "BUY")).unwrap();
+    crate::coordinate(&mut history.store, &mut history.components, &planned).unwrap();
+    for selected in 0..5 {
+        history.components.invalidate_payloads();
+        let owner = history.components.owner_checkpoint_record(selected).unwrap();
+        assert_eq!(history.components.payload_digest(selected).unwrap(), owner.1);
+        assert!(history.components.payload_cache.get().is_none());
+        assert_eq!(history.components.payloads().unwrap()[selected], *owner.0);
+    }
+    // Pure owner representations must not hide a changed original source.
+    let source = history.store.rows.pop().unwrap();
+    assert!(history.components.ready_source(&history.store).is_err());
+    assert!(history.components.state(&history.store).is_err());
+    assert!(history.components.reconcile(&history.store).is_err());
+    history.store.rows.push(source);
+    history.components.ready_source(&history.store).unwrap();
+    assert_eq!(history.components.payload_digest(6).unwrap_err().0, "EXECUTION_PROJECTION_INDEX");
 }

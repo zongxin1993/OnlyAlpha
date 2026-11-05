@@ -41,7 +41,7 @@ def test_explicit_fresh_evidence_operator_provisions_only_the_empty_owner(
     runtime_operator: Path, postgres_dsn: str, runtime_namespace: Path
 ) -> None:
     root = runtime_namespace / "backtest"
-    assert not root.exists(), "Python deployment tooling must not publish a partial Evidence owner"
+    assert not root.exists(), "Research deployment must not publish a partial Evidence owner"
     runtime = initialize_runtime(runtime_operator, postgres_dsn, runtime_namespace)
     assert runtime.returncode == 0, runtime.stderr
     result = initialize(runtime_operator, postgres_dsn, runtime_namespace)

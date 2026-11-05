@@ -95,7 +95,12 @@ class Lane:
 
 
 LANES = {
-    OnlyTestLane.ARCHITECTURE: Lane(("tests/architecture",), "architecture", "0", "no"),
+    OnlyTestLane.ARCHITECTURE: Lane(
+        ("scripts/tests/test_dependency_audit_contract.py", "scripts/tests/test_test_topology_contract.py"),
+        "architecture",
+        "0",
+        "no",
+    ),
     OnlyTestLane.KERNEL: Lane(
         (
             "tests/kernel",
@@ -120,12 +125,12 @@ LANES = {
         (
             "tests/calculation",
             "tests/indicator",
-            "packages/onlyalpha-calculation-worker/tests",
+            "packages/backend/python/algorithms/tests/test_codec.py",
+            "packages/backend/python/algorithms/tests/test_type_declaration.py",
             "tests/plugin/test_calculation_plugin_discovery.py",
             "tests/plugin/test_entry_point_discovery.py",
             "tests/plugin/test_quant_asset_catalog.py",
             "tests/architecture/test_calculation_plugin_boundaries.py",
-            "packages/onlyalpha-operators/tests",
         ),
         "not external",
         "4",
@@ -155,7 +160,6 @@ LANES = {
         (
             "tests/research/factor",
             "tests/quant_assets/test_private_factor_native_execution.py",
-            "packages/onlyalpha-operators/tests",
             "tests/research/calculation/test_execution.py",
             (
                 "tests/research/calculation/test_execution_evidence.py"
@@ -334,8 +338,7 @@ LANES = {
     OnlyTestLane.PRIVATE_ASSET_CONTRACT: Lane(
         (
             "tests/quant_assets/test_private_asset_contract_conformance.py",
-            "packages/onlyalpha-authoring-execution-worker/tests",
-            "packages/onlyalpha-runtime-generation-manager/tests",
+            "packages/backend/python/algorithms/tests",
             "tests/quant_assets/test_private_factor_native_execution.py",
             "tests/quant_assets/test_private_asset_example_seed.py",
             "tests/architecture/test_private_asset_contract_parity.py",
@@ -620,12 +623,11 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             OnlyTestLane.RESEARCH_SWEEP: ("src/onlyalpha/research/sweep",),
             OnlyTestLane.RESEARCH_FACTOR: (
                 "onlyalpha.research.calculation.execution",
-                "onlyalpha_plugin_operators",
                 "onlyalpha_test_factor_provider",
             ),
             OnlyTestLane.RESEARCH_JOB: ("src/onlyalpha/research/job",),
             OnlyTestLane.RESEARCH_CALCULATION: ("src/onlyalpha/research/calculation",),
-            OnlyTestLane.CALCULATION: ("onlyalpha_calculation_worker", "onlyalpha_plugin_operators"),
+            OnlyTestLane.CALCULATION: ("onlyalpha.algorithm",),
             OnlyTestLane.RESEARCH_DATASET: ("src/onlyalpha/research/dataset",),
         }.get(name, ("src/onlyalpha",))
         coverage_output = (

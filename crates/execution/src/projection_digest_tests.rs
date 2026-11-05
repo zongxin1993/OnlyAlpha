@@ -177,6 +177,16 @@ fn reconciliation_captures_only_one_complete_current_and_genesis_owner_image() {
             expected
         );
         let captured = crate::components::PAYLOAD_CAPTURE_BYTES.with(std::cell::Cell::get);
+        assert_eq!(
+            captured, 0,
+            "warm reconciliation recaptured immutable owner data"
+        );
+        let mut cold = Components::new(config()).unwrap();
+        cold.restore(&before, &digest(before.to_string().as_bytes()))
+            .unwrap();
+        crate::components::PAYLOAD_CAPTURE_BYTES.with(|bytes| bytes.set(0));
+        assert_eq!(cold.reconcile(&history.store).unwrap().record(), expected);
+        let captured = crate::components::PAYLOAD_CAPTURE_BYTES.with(std::cell::Cell::get);
         assert!(
             captured > 0 && captured <= current + genesis,
             "reconciliation repeatedly encoded the same complete history: {captured} > {}",
@@ -688,4 +698,53 @@ fn a_caller_marker_in_transport_json_never_certifies_transition_data() {
         Prepared::decode(&serde_json::to_vec(&body).unwrap()).is_err(),
         "a resealed DTO cannot issue a pure validity marker or planner origin"
     );
+}
+
+#[test]
+fn local_prepared_constructor_hashes_complete_body_once_and_cold_decode_rechecks_it() {
+    let history = Harness::new(config()).unwrap();
+    let planned = history.prepare(&open(1, "BUY")).unwrap();
+    let mut body = planned.record();
+    body.as_object_mut().unwrap().remove("payload_hash");
+    let canonical = body.to_string();
+    crate::model::HASHED_CANONICAL_WATCH
+        .with(|watch| *watch.borrow_mut() = Some((canonical.clone(), 0)));
+    let local = Prepared::new(body).unwrap();
+    assert_eq!(crate::model::HASHED_CANONICAL_WATCH
+        .with(|watch| watch.borrow_mut().take().unwrap().1), 1,
+        "the same owned complete payload was hashed twice during local construction");
+    assert!(local.is_planned());
+    assert_eq!(local.encode().unwrap(), planned.encode().unwrap());
+    crate::model::HASHED_CANONICAL_WATCH
+        .with(|watch| *watch.borrow_mut() = Some((canonical, 0)));
+    let cold = Prepared::decode(&local.encode().unwrap()).unwrap();
+    assert_eq!(crate::model::HASHED_CANONICAL_WATCH
+        .with(|watch| watch.borrow_mut().take().unwrap().1), 1,
+        "cold bytes must still recompute the complete payload hash");
+    assert!(!cold.is_planned());
+    assert_eq!(cold, local);
+    assert_eq!(Prepared::new(local.record()).unwrap_err().0, "EXECUTION_PAYLOAD_HASH");
+    let mut corrupt = local.record();
+    corrupt["payload_hash"] = json!("f".repeat(64));
+    assert_eq!(Prepared::decode(&serde_json::to_vec(&corrupt).unwrap()).unwrap_err().0,
+        "EXECUTION_PAYLOAD_HASH");
+}
+
+#[test]
+fn locally_computed_payload_hash_does_not_skip_structure_projection_or_event_checks() {
+    let history = Harness::new(config()).unwrap();
+    let mut original = history.prepare(&open(1, "BUY")).unwrap().record();
+    original.as_object_mut().unwrap().remove("payload_hash");
+    for fault in 0..6 {
+        let mut body = original.clone();
+        match fault {
+            0 => { body["sequence"] = json!(0); }
+            1 => { body["config_hash"] = json!("bad"); }
+            2 => { body["projections"][0]["result_hash"] = json!("f".repeat(64)); }
+            3 => { body["projections"][0]["component"] = json!("UNKNOWN"); }
+            4 => { body["events"][0]["event_id"] = json!("foreign-event"); }
+            _ => { body["unexpected"] = Value::Null; }
+        }
+        assert!(Prepared::new(body).is_err(), "local payload shortcut accepted fault {fault}");
+    }
 }

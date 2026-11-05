@@ -200,12 +200,8 @@ fn prepare_installed(
     let core_version = installation
         .installed_distribution_version("onlyalpha")
         .map_err(|_| INVALID)?;
-    let provider_version = installation
-        .installed_distribution_version("onlyalpha-plugin-operators")
-        .map_err(|_| INVALID)?;
+    let provider_version = version;
     let (core_name, core_bytes) = release.wheel("onlyalpha", &core_version)?;
-    let (provider_name, provider_bytes) =
-        release.wheel("onlyalpha-plugin-operators", &provider_version)?;
     let target_wheel = if with_targets {
         let version = installation
             .installed_distribution_version("onlyalpha-backend-algorithms")
@@ -248,7 +244,7 @@ fn prepare_installed(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect::<serde_json::Map<_, _>>();
     let artifact = |name: &str, bytes: &[u8], version: &str| json!({"path":release_root.join("wheels").join(name),"sha256":sha(bytes),"size":bytes.len(),"distribution_version":version});
-    let mut request = json!({"schema_version":1,"source":source,"graph":factor.graph().to_record(),"core_artifact":artifact(&core_name,&core_bytes,&core_version),"operator_artifact":artifact(&provider_name,&provider_bytes,&provider_version)});
+    let mut request = json!({"schema_version":1,"source":source,"graph":factor.graph().to_record(),"core_artifact":artifact(&core_name,&core_bytes,&core_version),"operator_artifact":{"sha256":descriptor["artifact"],"distribution_version":version}});
     if let Some((version, name, bytes)) = &target_wheel {
         request["contract"] = json!("ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1");
         request["target_artifact"] = artifact(name, bytes, version);
@@ -285,7 +281,7 @@ fn prepare_installed(
         || observation["graph"] != request["graph"]
         || observation["factor_revision_fingerprint"] != revision["revision_fingerprint"]
         || observation["core_artifact_sha256"] != core["artifact_sha256"]
-        || observation["operator_artifact_sha256"] != sha(&provider_bytes)
+        || observation["operator_artifact_sha256"] != sha(&native)
         || observation["certification_policy"] != "ONLYALPHA_PRIVATE_FACTOR_ABI_VECTORS_V1"
     {
         return Err(INVALID.into());
@@ -373,7 +369,7 @@ fn prepare_installed(
         Value::Null,
     )?;
     if base["manifest"]["source"]
-        != json!({"kind":"DISTRIBUTION","distribution_name":"onlyalpha-plugin-operators","distribution_version":provider_version})
+        != json!({"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":provider_version})
     {
         return Err(INVALID.into());
     }
@@ -401,15 +397,6 @@ fn prepare_installed(
         Value::Null,
         None,
     )?;
-    let provider_artifact = distribution(
-        "QUANT_ASSET",
-        ("onlyalpha-plugin-operators", &provider_version),
-        &provider_name,
-        &provider_bytes,
-        &provenance,
-        core_pin.clone().into(),
-        Some(&base),
-    )?;
     let target = descriptor["target"].as_str().ok_or(INVALID)?;
     let mut native_implementations = native_descriptor["implementations"]
         .as_array()
@@ -425,19 +412,18 @@ fn prepare_installed(
         &native,
         &provenance,
         core_pin.clone().into(),
-        None,
+        Some(&base),
     )?;
     native_artifact
         .as_object_mut()
         .ok_or(INVALID)?
         .remove("manifest_fingerprint");
-    native_artifact["schema_version"] = json!(2);
+    native_artifact["schema_version"] = json!(3);
     native_artifact["execution_capabilities"] = native_descriptor["execution_capabilities"].clone();
     native_artifact["implementations"] = json!(native_implementations);
     native_artifact["manifest_fingerprint"] = hash(&native_artifact).map_err(|_| INVALID)?.into();
     let mut artifacts = vec![
         (core_artifact, core_bytes),
-        (provider_artifact, provider_bytes),
         (native_artifact, native),
     ];
     if let Some((version, name, bytes)) = target_wheel {
@@ -459,8 +445,7 @@ fn prepare_installed(
             hash(&target_artifact).map_err(|_| INVALID)?.into();
         artifacts.push((target_artifact, bytes));
     }
-    let mut all_implementations = implementations(&observation["operator_calculations"])?;
-    all_implementations.extend(implementations(&observation["private_calculations"])?);
+    let mut all_implementations = implementations(&observation["private_calculations"])?;
     all_implementations.extend(native_implementations);
     all_implementations.extend(target_implementations);
     sort_implementations(&mut all_implementations);

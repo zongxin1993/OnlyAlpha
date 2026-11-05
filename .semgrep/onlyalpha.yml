@@ -9,8 +9,9 @@ rules:
           - pattern: exec(...)
     paths:
       include:
-        - src/**
+        - plugs/**/src/**
         - packages/**/src/**
+        - packages/backend/python/algorithms/sdk/**
         - scripts/**
       exclude:
         - packages/**/tests/**
@@ -28,8 +29,9 @@ rules:
           - pattern: subprocess.check_output(..., shell=True, ...)
     paths:
       include:
-        - src/**
+        - plugs/**/src/**
         - packages/**/src/**
+        - packages/backend/python/algorithms/sdk/**
         - scripts/**
       exclude:
         - packages/**/tests/**

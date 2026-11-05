@@ -7,6 +7,14 @@ std::thread_local! {
     pub(crate) static STATE_CONSTRUCTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     pub(crate) static RECOVERY_COMMAND_APPLICATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
+// One immutable representation bundle for this exact accepted Ledger state.
+// It is data only and never establishes a Runtime source or Ready proof.
+pub(crate) struct CachedCheckpoint {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) fingerprint: String,
+    pub(crate) record: std::sync::Arc<Value>,
+}
+
 #[derive(Clone)]
 pub struct Manager {
     pub(crate) config: Value,
@@ -25,7 +33,7 @@ pub struct Manager {
     pub(crate) now: Option<num_bigint::BigInt>,
     pub(crate) trading_day: Option<String>,
     pub(crate) day_index: Option<u64>,
-    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<(Vec<u8>,String)>>,
+    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<CachedCheckpoint>>,
 }
 impl Manager {
     pub fn new(mut config: Value) -> Result<Self, Error> {

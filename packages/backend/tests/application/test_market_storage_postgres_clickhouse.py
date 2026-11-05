@@ -48,6 +48,9 @@ from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthor
 from scripts.native_http_contract import native_executable
 from scripts.native_web_e2e import clickhouse_namespace
 from packages.backend.tests.application.support.market_data_fixture import bar_update, reference_update, trade_update
+from packages.backend.tests.application.test_runtime_installation_postgres import (
+    native_environment_case as native_environment_case,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse, pytest.mark.timeout(120)]
 AT = datetime(2026, 10, 22, tzinfo=UTC)
@@ -1120,79 +1123,6 @@ def test_native_sealed_dataset_materialization_matches_sdk_and_survives_ack_loss
     assert reader.load_bars(expected) == (bar,)
 
 
-def test_native_executable_input_admission_retains_exact_runtime_and_sealed_dataset(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
-) -> None:
-    from onlyalpha_runtime_generation_manager.registry import OnlyRuntimeGenerationRegistry
-
-    from onlyalpha.core.ranges import OnlyTimeRange
-    from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
-    from packages.backend.tests.application.support.research_admission_reference import build
-
-    wal_root = tmp_path / "wal"
-    wal_root.mkdir()
-    refs = []
-    first = None
-    last = None
-    for i in range(2):
-        wal, segment = retained(wal_root, "BAR", index=i, segment_id=f"admission-{i}")
-        drained = drain(market_probe, database, wal, segment)
-        assert "error" not in drained, drained
-        refs.append((segment.segment_id, segment.content_hash))
-        if first is None:
-            first = segment.recovery_scope()
-        last = segment.recovery_scope()
-    assert first is not None and last is not None
-    scope = replace(first, end_ns=last.end_ns)
-    composed = probe(market_probe, database, "compose", scope=_scope_payload(scope), refs=refs)
-    assert composed["revision"] is not None, composed
-    first_update = bar_update(0).payload
-    assert isinstance(first_update, OnlyBarUpdate)
-    first_bar = first_update.bar
-    end = first_bar.ts_event + timedelta(minutes=2)
-    definition = OnlyResearchDatasetDefinition(
-        (first_bar.instrument_id,), first_bar.bar_type.semantic, OnlyTimeRange(first_bar.ts_event, end)
-    )
-    factor = build(tmp_path / "runtime", market_probe.parent.parent / "onlyalpha-backend")
-    dataset_root = tmp_path / "datasets"
-    dataset_root.mkdir()
-    args = dict(
-        id=composed["revision"]["revision_id"],
-        definition=definition.to_dict(),
-        scope=_scope_payload(scope),
-        dataset_root=str(dataset_root),
-        factor=factor,
-        observation_start_ns=str(scope.start_ns + 60_000_000_000),
-        observation_end_ns=str(scope.end_ns + 60_000_000_000),
-    )
-    prepared = probe(market_probe, database, "dataset-admit", **args)
-    assert "error" not in prepared, prepared
-    assert prepared["contract"] == "ONLYALPHA_RESEARCH_PREPARED_INPUTS_V1"
-    assert prepared["runtime_generation_fingerprint"] == factor["generation"]
-    assert prepared["factor_revision_fingerprint"] == factor["revision"]["revision_fingerprint"]
-    assert (
-        prepared["dataset_materialization"]["dataset_snapshot_fingerprint"] == prepared["dataset_snapshot_fingerprint"]
-    )
-    assert probe(market_probe, database, "dataset-admit", **args) == prepared
-    assert prepared["execution_binding"]["executor_artifact_sha256"] == factor["executor_sha256"]
-    assert prepared["execution_binding"]["core_execution_fingerprint"] == factor["core_execution_fingerprint"]
-    assert (
-        prepared["execution_binding"]["executor_version"]
-        == tomllib.loads((ROOT / "packages/backend/Cargo.toml").read_text())["package"]["version"]
-    )
-    # Exact native artifact corruption never becomes a different compatible executor.
-    sha = factor["executor_sha256"]
-    executable = Path(factor["runtime_root"]) / "artifacts" / sha[:2] / sha / "artifact.elf"
-    original = executable.read_bytes()
-    executable.write_bytes(original + b"tamper")
-    assert "error" in probe(market_probe, database, "dataset-admit", **args)
-    executable.write_bytes(original)
-    registry = OnlyRuntimeGenerationRegistry(Path(factor["runtime_root"]))
-    registry.release_work("research-input-fixture", actor="fixture", occurred_at=AT)
-    refused = probe(market_probe, database, "dataset-admit", **args)
-    assert "error" in refused
-
-
 @pytest.fixture(scope="session")
 def native_research_algorithm_bundle(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path, str]:
     from scripts.build_algorithm_sdk import install
@@ -1214,211 +1144,7 @@ def native_research_executor(market_probe: Path, tmp_path_factory: pytest.TempPa
     return executable
 
 
-@pytest.fixture(scope="module")
-def native_environment_case(tmp_path_factory: pytest.TempPathFactory, native_research_executor: Path) -> dict[str, Any]:
-    import hashlib
-
-    from scripts.build_algorithm_sdk import install
-    from scripts.dev_verification import source_inputs
-    from scripts.embed_build_provenance import resolve_build_provenance_bytes
-
-    tmp_path = tmp_path_factory.mktemp("native-environment")
-    root, runtime = tmp_path / "release", tmp_path / "runtime"
-    root.mkdir()
-    artifact = install(root / "wheels", root / "algorithms")
-    (root / "bin").mkdir()
-    executable = root / "bin/onlyalpha-backend"
-    shutil.copyfile(native_research_executor, executable)
-    executable.chmod(0o500)
-    (root / "source-provenance.json").write_bytes(resolve_build_provenance_bytes(ROOT))
-    files = {
-        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob("*") if p.is_file()
-    }
-    (root / "manifest.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "runtime_root": str(root),
-                "version": "0.11.1",
-                "algorithm_artifact": artifact,
-                "files": files,
-                "source_inputs": source_inputs(ROOT),
-            }
-        )
-    )
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-
-    return {
-        "root": root,
-        "runtime": runtime,
-        "executable": executable,
-        "artifact": artifact,
-        "vector": vector,
-        "next": 0,
-    }
-
-
-@pytest.mark.parametrize("stage", ["prepare", "inspect", "relocate"])
-def test_native_environment_publication_uses_installed_algorithms_and_original_metadata_contracts(
-    native_environment_case: dict[str, Any], stage: str
-) -> None:
-    """Real persistent stage boundaries; never execute a missing prerequisite."""
-    import hashlib
-
-    from onlyalpha.canonical import only_canonical_json
-    from onlyalpha.quant_assets.private_factor_provider_snapshot import OnlyPrivateFactorProviderSnapshotV1
-    from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
-        OnlyPrivateFactorAdapterV1,
-        OnlyPrivateFactorIsolatedProgramHost,
-        OnlyPrivateFactorSourceArtifactManifestV1,
-        only_private_factor_backend_registrations,
-    )
-    from onlyalpha_gateway_protocol.distribution import OnlyDistributionArtifactManifest
-    from onlyalpha_plugin_operators.provider import quant_asset_provider
-
-    from onlyalpha.generation_identity import OnlyRuntimeGenerationManifest, OnlyRuntimeGenerationValidationEvidence
-    from onlyalpha.quant_assets import (
-        OnlyPrivateFactorRevision,
-        OnlyPrivateFactorSnapshotProviderSource,
-        OnlyQuantAssetCatalogGeneration,
-        OnlyQuantAssetKind,
-        OnlyQuantAssetProvider,
-        OnlyQuantAssetProviderManifest,
-    )
-    from scripts.build_algorithm_sdk import install
-
-    case = native_environment_case
-    assert stage == ["prepare", "inspect", "relocate"][case["next"]]
-    root, runtime, executable, artifact, vector = (
-        case[k] for k in ["root", "runtime", "executable", "artifact", "vector"]
-    )
-
-    def run(fresh: bool) -> dict[str, Any]:
-        result = subprocess.run(
-            [str(executable)],
-            input=json.dumps(
-                {
-                    "op": "runtime-environment",
-                    "factor": vector,
-                    "release_root": str(root),
-                    "runtime_root": str(runtime),
-                    "algorithm_artifact": artifact,
-                    "fresh": fresh,
-                    "at": "2026-10-29T01:00:00.123400Z",
-                }
-            ),
-            text=True,
-            capture_output=True,
-            check=True,
-            timeout=30,
-        )
-        value = cast(dict[str, Any], json.loads(result.stdout))
-        assert "error" not in value, (value, result.stderr)
-        return value
-
-    if stage == "prepare":
-        first = run(True)
-        generation = OnlyRuntimeGenerationManifest.from_dict(first["manifest"]).runtime_generation_fingerprint
-        assert first["snapshot"] == {"active_for_new_work": None, "states": {generation: "READY"}}
-        case.update(first=first, before=(runtime / "generation-events.jsonl").read_bytes(), next=1)
-        return
-    first, before = case["first"], case["before"]
-    if stage == "relocate":
-        # A locator is not a Generation identity. A fresh physical installation can
-        # have a distinct installation proof while supplying the same exact bytes.
-        previous = root
-        root = root.parent / "relocated-release"
-        root.mkdir()
-        artifact = install(root / "wheels", root / "algorithms")
-        (root / "bin").mkdir()
-        shutil.copyfile(executable, root / "bin/onlyalpha-backend")
-        (root / "bin/onlyalpha-backend").chmod(0o500)
-        shutil.copyfile(previous / "source-provenance.json", root / "source-provenance.json")
-        relocated = json.loads((previous / "manifest.json").read_text())
-        relocated.update(
-            runtime_root=str(root),
-            algorithm_artifact=artifact,
-            files={
-                str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-                for p in root.rglob("*")
-                if p.is_file()
-            },
-        )
-        (root / "manifest.json").write_text(json.dumps(relocated))
-        rebuilt = run(False)
-        assert rebuilt["manifest"] == first["manifest"]
-        assert rebuilt["snapshot"] == first["snapshot"]
-        assert rebuilt["proof"]["installed_proof_fingerprint"] != first["proof"]["installed_proof_fingerprint"]
-        assert (runtime / "generation-events.jsonl").read_bytes() == before
-        for record in [first, rebuilt]:
-            proof = record["proof"]
-            path = (
-                runtime
-                / "runtime-generation-installed-proof"
-                / record["manifest"]["runtime_generation_fingerprint"]
-                / f"{proof['installed_proof_fingerprint']}.json"
-            )
-            assert json.loads(path.read_text()) == proof
-        case["next"] = 3
-        return
-    manifest = OnlyRuntimeGenerationManifest.from_dict(first["manifest"])
-    generation = manifest.runtime_generation_fingerprint
-    assert first["snapshot"] == {"active_for_new_work": None, "states": {generation: "READY"}}
-    assert run(False) == first
-    assert (runtime / "generation-events.jsonl").read_bytes() == before
-    for sha in manifest.artifact_sha256s:
-        artifact_manifest = json.loads((runtime / "artifacts" / sha[:2] / sha / "manifest.json").read_text())
-        assert OnlyDistributionArtifactManifest.from_dict(artifact_manifest).to_dict() == artifact_manifest
-    expected_validation = OnlyRuntimeGenerationValidationEvidence.from_manifest(manifest).to_dict()
-    assert (
-        json.loads((runtime / "runtime-generation-validation" / f"{generation}.json").read_text())
-        == expected_validation
-    )
-    binding = manifest.private_factor_bindings[0]
-    runtime_artifact = json.loads(
-        (
-            runtime
-            / "artifacts/private-factor-runtime"
-            / binding.runtime_artifact_fingerprint[:2]
-            / f"{binding.runtime_artifact_fingerprint}.json"
-        ).read_text()
-    )
-    source = OnlyPrivateFactorSourceArtifactManifestV1.from_dict(runtime_artifact["source_artifact"])
-    revision = OnlyPrivateFactorRevision.from_dict(vector["revision"])
-    snapshot = OnlyPrivateFactorProviderSnapshotV1.from_dict(runtime_artifact["provider_snapshot"])
-    entry = snapshot.entries[0]
-    registrations = only_private_factor_backend_registrations(
-        revision,
-        source,
-        revision.source_text.encode(),
-        OnlyPrivateFactorAdapterV1(
-            "RESEARCH", entry.research_adapter_fingerprint, OnlyPrivateFactorIsolatedProgramHost()
-        ),
-        OnlyPrivateFactorAdapterV1(
-            "TRADING", entry.trading_adapter_fingerprint, OnlyPrivateFactorIsolatedProgramHost()
-        ),
-    )
-    private = OnlyQuantAssetProvider(
-        OnlyQuantAssetProviderManifest(
-            runtime_artifact["provider"]["manifest"]["provider_id"],
-            revision.revision_fingerprint,
-            OnlyQuantAssetKind.FACTOR,
-            OnlyPrivateFactorSnapshotProviderSource(snapshot.snapshot_fingerprint),
-        ),
-        calculation_registrations=registrations,
-        private_factor_snapshot=snapshot,
-    )
-    catalog = OnlyQuantAssetCatalogGeneration((quant_asset_provider(), private))
-    assert first["proof"]["catalog"] == json.loads(only_canonical_json(catalog.descriptor(include_fingerprint=False)))
-    assert manifest.catalog_generation_fingerprint == catalog.generation_fingerprint
-    vectors = runtime_artifact["equivalence_evidence"]["test_vector_set_fingerprint"]
-    retained = json.loads(
-        (runtime / "artifacts/private-factor-equivalence" / vectors[:2] / f"{vectors}.json").read_text()
-    )
-    assert only_canonical_fingerprint(retained) == vectors
-    case["next"] = 2
-
-
+# 原生安装/发布/重定位专项已迁至独立模块；市场场景继续复用其受控安装前置条件。
 @pytest.fixture(
     scope="module",
     params=[
@@ -1714,7 +1440,7 @@ def test_native_one_run_research_uses_real_confirmation_and_immutable_evidence(
         "budget": "FAILED",
         "budget-with-result": "FAILED",
         "source-revoked": "DENIED",
-        "wrong-native-version": "FAILED",
+        "wrong-native-version": "QUEUED",
         "node-authority-loss": "RUNNING",
     }.get(mode, "COMPLETED")
     if stage == "submit":

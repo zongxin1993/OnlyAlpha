@@ -725,25 +725,27 @@ impl Store {
             return Err(INVALID);
         }
         let prepared = &v["prepared_inputs"];
-        exact(
-            prepared,
-            &[
-                "schema_version",
-                "contract",
-                "runtime_generation_fingerprint",
-                "execution_binding",
-                "factor_preparation_fingerprint",
-                "factor_revision_fingerprint",
-                "input_window",
-                "dataset_snapshot_fingerprint",
-                "dataset_materialization",
-                "dataset_construction_fingerprint",
-                "algorithm_resolution",
-            ],
-        )?;
+        let mut fields = Vec::from([
+            "schema_version",
+            "contract",
+            "runtime_generation_fingerprint",
+            "execution_binding",
+            "factor_preparation_fingerprint",
+            "factor_revision_fingerprint",
+            "input_window",
+            "dataset_snapshot_fingerprint",
+            "dataset_materialization",
+            "dataset_construction_fingerprint",
+            "algorithm_resolution",
+        ]);
+        if spec.authoring_generation_fingerprint.is_some() {
+            fields.push("authoring_generation_fingerprint");
+        }
+        exact(prepared, &fields)?;
+        if !spec.matches_prepared_authoring(prepared) {
+            return Err(INVALID);
+        }
         if v["prepared_inputs_fingerprint"] != hash(prepared)?
-            || prepared["schema_version"] != 1
-            || prepared["contract"] != "ONLYALPHA_RESEARCH_PREPARED_INPUTS_V1"
             || prepared["runtime_generation_fingerprint"] != spec.runtime_generation_fingerprint
             || prepared["execution_binding"] != spec.execution_binding
             || prepared["factor_revision_fingerprint"] != spec.revision["revision_fingerprint"]

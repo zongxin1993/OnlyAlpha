@@ -19,8 +19,8 @@ fn port(name: &str) -> Value {
 fn external(source: &str) -> Value {
     json!({"node_fingerprint":null,"output_name":"value","source":source})
 }
-fn definition(kind: &str, id: &str, inputs: Vec<Value>, bindings: Value) -> Value {
-    json!({"schema_version":2,"kind":kind,"type_id":id,"semantic_version":"1","parameters":{},
+fn definition(kind: &str, id: &str, semantic_version: &str, inputs: Vec<Value>, bindings: Value) -> Value {
+    json!({"schema_version":2,"kind":kind,"type_id":id,"semantic_version":semantic_version,"parameters":{},
         "inputs":inputs,"input_bindings":bindings,"outputs":[port("value")],
         "warmup":{"minimum_observations":1,"ready_condition":"declared inputs are available","pre_ready_output":"NULL","initialization":"UPSTREAM"},
         "missing_values":"PROPAGATE","timestamp":"EVENT_TIME",
@@ -183,7 +183,7 @@ pub fn compile_revision(published_revision: &Value, dependencies: &Value) -> Res
         if !["open","high","low","close","volume"].contains(&input) || dependency["closed_only"]!=true { return Err(INVALID); }
         columns.insert(input.to_owned());
         if let Some(operator) = dependency["operator"].as_str() {
-            if fields.len()!=5 || !["input","operator","semantic_version","period","closed_only"].iter().all(|key|fields.contains_key(*key)) || dependency["semantic_version"]!="1" { return Err(INVALID); }
+            if fields.len()!=5 || !["input","operator","semantic_version","period","closed_only"].iter().all(|key|fields.contains_key(*key)) || dependency["semantic_version"]!="2" { return Err(INVALID); }
             let period = dependency["period"].as_u64().filter(|period|(1..=10000).contains(period)).ok_or(INVALID)?;
             let delayed = operator == "onlyalpha.operator.delay";
             if !delayed && operator != "onlyalpha.operator.rolling_mean" {
@@ -194,6 +194,7 @@ pub fn compile_revision(published_revision: &Value, dependencies: &Value) -> Res
             let mut d = definition(
                 "INDICATOR",
                 operator,
+                "2",
                 vec![port("value")],
                 json!({"value":external(input)}),
             );
@@ -219,7 +220,7 @@ pub fn compile_revision(published_revision: &Value, dependencies: &Value) -> Res
         }
     }
     let inputs = bindings.keys().map(|name| port(name)).collect();
-    let mut root = definition("FACTOR", draft.factor_id(), inputs, json!(bindings));
+    let mut root = definition("FACTOR", draft.factor_id(), "1", inputs, json!(bindings));
     root["outputs"][0]["semantic_type"] = json!("FACTOR_VALUE");
     root["numeric"]["precision"] = json!(38);
     root["parameters"] = json!(

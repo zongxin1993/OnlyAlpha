@@ -1,6 +1,14 @@
 use crate::{Manager, model::*};
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
+
+// One immutable representation of the original canonical checkpoint.
+// This memo contains no Runtime/source or Ready authority.
+pub(crate) struct CachedCheckpoint {
+    bytes: Vec<u8>,
+    fingerprint: String,
+    record: Arc<Value>,
+}
 
 pub(crate) fn check_expanded_size(config: &Value, state: &Value, journal_bytes: usize) -> Result<(), Error> {
     // The empty array already contributes both brackets. journal_bytes adds
@@ -93,8 +101,10 @@ impl Manager {
         validate_dictionary(&value)?;
         Ok(value)
     }
-    pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
-        if let Some(bytes)=self.checkpoint_cache.get(){return Ok(bytes.as_ref().clone());}
+    fn cached_checkpoint(&self) -> Result<Arc<CachedCheckpoint>, Error> {
+        if let Some(checkpoint) = self.checkpoint_cache.get() {
+            return Ok(Arc::clone(checkpoint));
+        }
         #[cfg(test)] CHECKPOINT_ENCODINGS.with(|n|n.set(n.get()+1));
         let value = match self.checkpoint_version {
             4 => json!({"schema_version":4,"config":self.config,"journal":self.state.journal.iter().map(std::sync::Arc::as_ref).collect::<Vec<_>>(),"state":self.state()}),
@@ -102,10 +112,24 @@ impl Manager {
             _ => return Err(err("COMPONENT_CHECKPOINT_SCHEMA")),
         };
         let bytes = serde_json::to_vec(&value)?;
-        let hash = digest(&bytes);
-        let result=(bytes,hash);
-        let _=self.checkpoint_cache.set(std::sync::Arc::new(result.clone()));
-        Ok(result)
+        let fingerprint = digest(&bytes);
+        let checkpoint = Arc::new(CachedCheckpoint {
+            bytes,
+            fingerprint,
+            record: Arc::new(value),
+        });
+        let _ = self.checkpoint_cache.set(Arc::clone(&checkpoint));
+        Ok(checkpoint)
+    }
+    pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
+        let checkpoint = self.cached_checkpoint()?;
+        Ok((checkpoint.bytes.clone(), checkpoint.fingerprint.clone()))
+    }
+    /// The exact canonical JSON used by `checkpoint`, shared as immutable data.
+    /// This representation supplies no Runtime/source or Ready proof.
+    pub fn checkpoint_record(&self) -> Result<(Arc<Value>, String), Error> {
+        let checkpoint = self.cached_checkpoint()?;
+        Ok((Arc::clone(&checkpoint.record), checkpoint.fingerprint.clone()))
     }
     fn checked_checkpoint(&self, bytes: &[u8], expected: &str) -> Result<Value, Error> {
         fingerprint(&json!(expected))?;
@@ -195,6 +219,68 @@ mod dictionary_size_tests {
             let mut invalid=command(3);invalid["payload"]["amount"]=json!("-1.00");assert!(fork.apply(&invalid).is_err());assert_eq!(fork.checkpoint().unwrap(),changed);
             let mut corrupt=changed.0.clone();corrupt.push(b' ');assert!(fork.restore(&corrupt,&changed.1).is_err());assert_eq!(fork.checkpoint().unwrap(),changed);
             let mut detached=owner.checkpoint().unwrap();detached.0.clear();assert_eq!(owner.checkpoint().unwrap(),original);
+        }
+    }
+    fn exact_record(owner: &Manager) -> Arc<Value> {
+        let (record, fingerprint) = owner.checkpoint_record().unwrap();
+        let (bytes, original_fingerprint) = owner.checkpoint().unwrap();
+        assert_eq!(serde_json::to_vec(record.as_ref()).unwrap(), bytes);
+        assert_eq!(fingerprint, original_fingerprint);
+        assert_eq!(digest(&bytes), fingerprint);
+        record
+    }
+    #[test]
+    fn cached_checkpoint_record_is_the_original_canonical_bytes_and_hash() {
+        for version in [4, 5] {
+            let owner = if version == 4 { Manager::new(config()).unwrap() }
+                else { Manager::new_checkpoint5(config()).unwrap() };
+            CHECKPOINT_ENCODINGS.with(|n| n.set(0));
+            let record = exact_record(&owner);
+            assert!(Arc::ptr_eq(&record, &exact_record(&owner)));
+            assert_eq!(CHECKPOINT_ENCODINGS.with(std::cell::Cell::get), 1);
+            let mut detached = Arc::clone(&record);
+            Arc::make_mut(&mut detached)["state"] = Value::Null;
+            assert_ne!(*detached, *record);
+            assert!(Arc::ptr_eq(&record, &exact_record(&owner)));
+            assert_eq!(CHECKPOINT_ENCODINGS.with(std::cell::Cell::get), 1);
+        }
+    }
+    #[test]
+    fn checkpoint_record_follows_owner_mutation_clone_restore_and_refusal() {
+        for version in [4, 5] {
+            let fresh = || if version == 4 { Manager::new(config()).unwrap() }
+                else { Manager::new_checkpoint5(config()).unwrap() };
+            let mut owner = fresh();
+            let original = exact_record(&owner);
+            let mut fork = owner.clone();
+            assert!(Arc::ptr_eq(&original, &exact_record(&fork)));
+            fork.apply(&command(1)).unwrap();
+            let changed = exact_record(&fork);
+            assert!(!Arc::ptr_eq(&original, &changed));
+            assert!(Arc::ptr_eq(&original, &exact_record(&owner)));
+            owner.apply(&command(2)).unwrap();
+            assert!(!Arc::ptr_eq(&original, &exact_record(&owner)));
+            assert!(Arc::ptr_eq(&changed, &exact_record(&fork)));
+            let mut invalid = command(3);
+            invalid["payload"]["amount"] = json!("-1.00");
+            assert!(fork.apply(&invalid).is_err());
+            assert!(Arc::ptr_eq(&changed, &exact_record(&fork)));
+            assert_eq!(fork.apply(&command(1)).unwrap().status, crate::Status::Duplicate);
+            assert!(Arc::ptr_eq(&changed, &exact_record(&fork)));
+            let wire = fork.checkpoint().unwrap();
+            let mut restored = fresh();
+            restored.restore(&wire.0, &wire.1).unwrap();
+            assert_eq!(*exact_record(&restored), *changed);
+            let before_refusal = exact_record(&restored);
+            let mut corrupt = wire.0.clone();
+            corrupt.push(b' ');
+            assert!(restored.restore(&corrupt, &wire.1).is_err());
+            assert!(Arc::ptr_eq(&before_refusal, &exact_record(&restored)));
+            fork.apply(&command(3)).unwrap();
+            let extension = fork.checkpoint().unwrap();
+            restored.restore_exact_extension(&extension.0, &extension.1).unwrap();
+            assert_eq!(*exact_record(&restored), *exact_record(&fork));
+            assert!(!Arc::ptr_eq(&before_refusal, &exact_record(&restored)));
         }
     }
     #[test]

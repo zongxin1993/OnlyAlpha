@@ -1,25 +1,29 @@
 use crate::model::*;
 use onlyalpha_domain::{base::OnlyDomainModel, value::OnlyCurrency};
 use serde_json::{Value, json};
+use std::sync::Arc;
 #[cfg(test)]
 std::thread_local! {
     pub(crate) static PAYLOAD_CAPTURE_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     pub(crate) static FULL_STATE_CONSTRUCTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     pub(crate) static PROJECTION_RESTORES: std::cell::Cell<[u64;6]> = const { std::cell::Cell::new([0;6]) };
+    pub(crate) static METADATA_CHECKPOINT_DECODERS: std::cell::Cell<[u64; 3]> = const { std::cell::Cell::new([0; 3]) };
 }
 /// Technical component composition. Queries fail while a committed projection prefix is incomplete.
 pub struct Components {
     pub(crate) config: Value,
     pub(crate) precision: u8,
-    pub(crate) order: onlyalpha_order::Manager,
-    pub(crate) position: onlyalpha_position::Manager,
-    pub(crate) account: onlyalpha_account::Manager,
-    pub(crate) ledger: onlyalpha_strategy_ledger::Manager,
-    pub(crate) risk: onlyalpha_risk::Manager,
-    pub(crate) meta: Value,
+    pub(crate) order: Arc<onlyalpha_order::Manager>,
+    pub(crate) position: Arc<onlyalpha_position::Manager>,
+    pub(crate) account: Arc<onlyalpha_account::Manager>,
+    pub(crate) ledger: Arc<onlyalpha_strategy_ledger::Manager>,
+    pub(crate) risk: Arc<onlyalpha_risk::Manager>,
+    pub(crate) meta: Arc<Value>,
     pub(crate) sequence: u64,
     pub(crate) pending: Option<(String, usize)>,
     payload_cache: std::sync::OnceLock<(std::sync::Arc<Vec<Value>>, Vec<String>)>,
+    // Configuration-derived data only; never Store/source or Ready authority.
+    genesis_cache: std::sync::Arc<std::sync::OnceLock<(Value, Vec<String>)>>,
 }
 impl Components {
     pub fn new(config: Value) -> Result<Self, Error> {
@@ -137,22 +141,23 @@ impl Components {
         rc["admission_limits"] = json!({"schema_version":1,"commands":4096,"journal_bytes":8388608,"checkpoint_bytes":33554432,"reservations":1024});
         Ok(Self {
             precision: currency.precision(),
-            order: boundary(onlyalpha_order::Manager::new(
+            order: Arc::new(boundary(onlyalpha_order::Manager::new(
                 json!({"schema_version":1,"engine_id":config["engine"],"runtime_id":config["runtime"],"gateway_id":config["gateway"],"generation":config["generation"]}),
-            ))?,
-            position: boundary(onlyalpha_position::Manager::new(pc))?,
-            account: boundary(if account_version == 5 {
+            ))?),
+            position: Arc::new(boundary(onlyalpha_position::Manager::new(pc))?),
+            account: Arc::new(boundary(if account_version == 5 {
                 onlyalpha_account::Manager::new_checkpoint5(ac)
             } else {
                 onlyalpha_account::Manager::new(ac)
-            })?,
-            ledger: boundary(onlyalpha_strategy_ledger::Manager::new(lc))?,
-            risk: boundary(onlyalpha_risk::Manager::new(rc))?,
+            })?),
+            ledger: Arc::new(boundary(onlyalpha_strategy_ledger::Manager::new(lc))?),
+            risk: Arc::new(boundary(onlyalpha_risk::Manager::new(rc))?),
             config: config.clone(),
-            meta: json!({"schema_version":5,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(settlement_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{},"valuation_marks":{},"valuation_sources":{}}),
+            meta: Arc::new(json!({"schema_version":5,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(settlement_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{},"valuation_marks":{},"valuation_sources":{}})),
             sequence: 0,
             pending: None,
             payload_cache: std::sync::OnceLock::new(),
+            genesis_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
         })
     }
     /// Borrowed canonical configuration only; this supplies no source or Ready proof.
@@ -173,6 +178,7 @@ impl Components {
             sequence: self.sequence,
             pending: self.pending.clone(),
             payload_cache: self.payload_cache.clone(),
+            genesis_cache: std::sync::Arc::clone(&self.genesis_cache),
         }
     }
     /// Copy an actual reconciled Ready head without a checkpoint round trip.
@@ -186,8 +192,20 @@ impl Components {
     }
     pub(crate) fn ready_source<S: crate::Store>(&self, store: &S) -> Result<(), Error> {
         let _ = self.payload_hashes()?;
-        let genesis = Self::genesis_payload_hashes(&self.config)?;
+        let genesis = self.cached_genesis_payload_hashes()?;
         self.ready_source_with_genesis(store, &genesis)
+    }
+    pub(crate) fn cached_genesis_payload_hashes(&self) -> Result<Vec<String>, Error> {
+        if let Some((configuration, hashes)) = self.genesis_cache.get()
+            && configuration == &self.config
+        {
+            return Ok(hashes.clone());
+        }
+        let hashes = Self::genesis_payload_hashes(&self.config)?;
+        if self.genesis_cache.get().is_none() {
+            let _ = self.genesis_cache.set((self.config.clone(), hashes.clone()));
+        }
+        Ok(hashes)
     }
     pub(crate) fn genesis_payload_hashes(config: &Value) -> Result<Vec<String>, Error> {
         Ok(Self::new(config.clone())?.payload_hashes()?.to_vec())
@@ -425,7 +443,7 @@ impl Components {
         #[cfg(test)]
         FULL_STATE_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
         Ok(
-            json!({"schema_version":1,"execution_sequence":self.sequence,"account":self.account.state(),"position":self.position.state(),"ledger":self.ledger.state(),"risk":self.risk.state(),"execution":self.meta}),
+            json!({"schema_version":1,"execution_sequence":self.sequence,"account":self.account.state(),"position":self.position.state(),"ledger":self.ledger.state(),"risk":self.risk.state(),"execution":self.meta.as_ref()}),
         )
     }
     fn require_account_checkpoint_for_config(config: &Value, value: &Value) -> Result<(), Error> {
@@ -447,6 +465,38 @@ impl Components {
     pub(crate) fn invalidate_payloads(&mut self) {
         let _ = self.payload_cache.take();
     }
+    // Reuse only an exact six-owner codec image at the end of a typed install.
+    // Arc identity binds immutable local data; it never proves source or Ready.
+    fn reuse_typed_payloads(&mut self, prepared: &Prepared, after: &Self) -> bool {
+        if !Arc::ptr_eq(&self.order, &after.order)
+            || !Arc::ptr_eq(&self.position, &after.position)
+            || !Arc::ptr_eq(&self.account, &after.account)
+            || !Arc::ptr_eq(&self.ledger, &after.ledger)
+            || !Arc::ptr_eq(&self.risk, &after.risk)
+            || !Arc::ptr_eq(&self.meta, &after.meta)
+        {
+            return false;
+        }
+        let Some((values, hashes)) = after.payload_cache.get() else {
+            return false;
+        };
+        if values.len() != 6 || hashes.len() != 6 {
+            return false;
+        }
+        for index in 0..6 {
+            let projection = &prepared.value()["projections"][index];
+            if values[index] != projection["result"] || hashes[index] != projection["result_hash"] {
+                return false;
+            }
+        }
+        if self.require_account_checkpoint(&values[2]).is_err() {
+            return false;
+        }
+        let _ = self.payload_cache.take();
+        let _ = self.payload_cache.set((Arc::clone(values), hashes.clone()));
+        true
+    }
+
     pub(crate) fn payloads(&self) -> Result<std::sync::Arc<Vec<Value>>, Error> {
         if let Some(payloads) = self.payload_cache.get() {
             self.require_account_checkpoint(&payloads.0[2])?;
@@ -454,22 +504,19 @@ impl Components {
         }
         let mut ps = vec![];
         let mut fingerprints = Vec::with_capacity(6);
-        for (bytes, fingerprint) in [
-            boundary(self.order.checkpoint())?,
-            boundary(self.position.checkpoint())?,
-            boundary(self.account.checkpoint())?,
-            boundary(self.ledger.checkpoint())?,
-            boundary(self.risk.checkpoint())?,
-        ] {
+        for index in 0..5 {
+            let (record, fingerprint) = self.owner_checkpoint_record(index)?;
             #[cfg(test)]
-            PAYLOAD_CAPTURE_BYTES.with(|count| count.set(count.get() + bytes.len() as u64));
-            ps.push(serde_json::from_slice(&bytes)?);
+            PAYLOAD_CAPTURE_BYTES.with(|count| {
+                count.set(count.get() + record.to_string().len() as u64);
+            });
+            ps.push(record.as_ref().clone());
             fingerprints.push(fingerprint);
         }
         #[cfg(test)]
         PAYLOAD_CAPTURE_BYTES
             .with(|count| count.set(count.get() + self.meta.to_string().len() as u64));
-        ps.push(self.meta.clone());
+        ps.push(self.meta.as_ref().clone());
         self.require_account_checkpoint(&ps[2])?;
         // Each actual owner already hashed its exact canonical bytes above.
         // Metadata has no separate encoder and retains its complete value hash.
@@ -500,20 +547,28 @@ impl Components {
                 .with(|count| count.set(count.get() + self.meta.to_string().len() as u64));
             return Ok(hash(&self.meta));
         }
-        let (bytes, fingerprint) = match index {
-            0 => boundary(self.order.checkpoint())?,
-            1 => boundary(self.position.checkpoint())?,
-            2 => boundary(self.account.checkpoint())?,
-            3 => boundary(self.ledger.checkpoint())?,
-            4 => boundary(self.risk.checkpoint())?,
-            _ => return Err(err("EXECUTION_PROJECTION_INDEX")),
-        };
+        let (record, fingerprint) = self.owner_checkpoint_record(index)?;
         #[cfg(test)]
-        PAYLOAD_CAPTURE_BYTES.with(|count| count.set(count.get() + bytes.len() as u64));
+        PAYLOAD_CAPTURE_BYTES.with(|count| {
+            count.set(count.get() + record.to_string().len() as u64);
+        });
         if index == 2 {
-            self.require_account_checkpoint(&serde_json::from_slice(&bytes)?)?;
+            self.require_account_checkpoint(record.as_ref())?;
         }
         Ok(fingerprint)
+    }
+    fn owner_checkpoint_record(
+        &self,
+        index: usize,
+    ) -> Result<(std::sync::Arc<Value>, String), Error> {
+        match index {
+            0 => boundary(self.order.checkpoint_record()),
+            1 => boundary(self.position.checkpoint_record()),
+            2 => boundary(self.account.checkpoint_record()),
+            3 => boundary(self.ledger.checkpoint_record()),
+            4 => boundary(self.risk.checkpoint_record()),
+            _ => Err(err("EXECUTION_PROJECTION_INDEX")),
+        }
     }
     pub fn checkpoint(&self) -> Result<Value, Error> {
         let mut checkpoint = json!({"schema_version":1,"config":self.config,"sequence":self.sequence,"pending":self.pending.as_ref().map(|(id,i)|json!([id,i]))});
@@ -583,14 +638,14 @@ impl Components {
         let b = serde_json::to_vec(p)?;
         let h = digest(&b);
         match i {
-            0 => boundary(self.order.restore(&b, &h))?,
-            1 => boundary(self.position.restore(&b, &h))?,
+            0 => boundary(Arc::make_mut(&mut self.order).restore(&b, &h))?,
+            1 => boundary(Arc::make_mut(&mut self.position).restore(&b, &h))?,
             2 => {
                 self.require_account_checkpoint(p)?;
-                boundary(self.account.restore(&b, &h))?;
+                boundary(Arc::make_mut(&mut self.account).restore(&b, &h))?;
             }
-            3 => boundary(self.ledger.restore(&b, &h))?,
-            4 => boundary(self.risk.restore(&b, &h))?,
+            3 => boundary(Arc::make_mut(&mut self.ledger).restore(&b, &h))?,
+            4 => boundary(Arc::make_mut(&mut self.risk).restore(&b, &h))?,
             5 => {
                 if p["schema_version"] != 5 {
                     return Err(err("EXECUTION_ECONOMIC_METADATA_SCHEMA"));
@@ -620,31 +675,55 @@ impl Components {
                         return Err(err("EXECUTION_METADATA"));
                     }
                 }
-                let mut fee = boundary(onlyalpha_fee::Manager::new(
-                    json!({"engine":self.config["engine"],"runtime":self.config["runtime"],"account":self.config["account"],"gateway":self.config["gateway"],"runtime_kind":self.config["runtime_kind"],"generation":self.config["generation"]}),
-                    4096,
-                ))?;
-                boundary(fee.restore(
-                    &p["fee_authority"],
-                    &onlyalpha_fee::digest(&p["fee_authority"]),
-                ))?;
-                let mut settlement = boundary(onlyalpha_settlement::Authority::new(
-                    settlement_config(&self.config),
-                    512,
-                ))?;
-                boundary(settlement.restore(
-                    &p["settlement_authority"],
-                    &onlyalpha_settlement::digest(&p["settlement_authority"]),
-                ))?;
-                let mut margin = boundary(onlyalpha_margin::Manager::new(
-                    settlement_config(&self.config),
-                    512,
-                ))?;
-                boundary(margin.restore(
-                    &p["margin_authority"],
-                    &onlyalpha_margin::digest(&p["margin_authority"]),
-                ))?;
-                self.meta = p.clone();
+                if p["fee_authority"] != self.meta["fee_authority"] {
+                    #[cfg(test)]
+                    METADATA_CHECKPOINT_DECODERS.with(|counts| {
+                        let mut observed = counts.get();
+                        observed[0] += 1;
+                        counts.set(observed);
+                    });
+                    let mut fee = boundary(onlyalpha_fee::Manager::new(
+                        json!({"engine":self.config["engine"],"runtime":self.config["runtime"],"account":self.config["account"],"gateway":self.config["gateway"],"runtime_kind":self.config["runtime_kind"],"generation":self.config["generation"]}),
+                        4096,
+                    ))?;
+                    boundary(fee.restore(
+                        &p["fee_authority"],
+                        &onlyalpha_fee::digest(&p["fee_authority"]),
+                    ))?;
+                }
+                if p["settlement_authority"] != self.meta["settlement_authority"] {
+                    #[cfg(test)]
+                    METADATA_CHECKPOINT_DECODERS.with(|counts| {
+                        let mut observed = counts.get();
+                        observed[1] += 1;
+                        counts.set(observed);
+                    });
+                    let mut settlement = boundary(onlyalpha_settlement::Authority::new(
+                        settlement_config(&self.config),
+                        512,
+                    ))?;
+                    boundary(settlement.restore(
+                        &p["settlement_authority"],
+                        &onlyalpha_settlement::digest(&p["settlement_authority"]),
+                    ))?;
+                }
+                if p["margin_authority"] != self.meta["margin_authority"] {
+                    #[cfg(test)]
+                    METADATA_CHECKPOINT_DECODERS.with(|counts| {
+                        let mut observed = counts.get();
+                        observed[2] += 1;
+                        counts.set(observed);
+                    });
+                    let mut margin = boundary(onlyalpha_margin::Manager::new(
+                        settlement_config(&self.config),
+                        512,
+                    ))?;
+                    boundary(margin.restore(
+                        &p["margin_authority"],
+                        &onlyalpha_margin::digest(&p["margin_authority"]),
+                    ))?;
+                }
+                self.meta = Arc::new(p.clone());
             }
             _ => return Err(err("EXECUTION_PROJECTION_INDEX")),
         }
@@ -664,22 +743,14 @@ impl Components {
                 return Err(err("EXECUTION_TYPED_AFTER_CONFLICT"));
             }
             let (actual, actual_hash) = if i == 5 {
-                (after.meta.clone(), hash(&after.meta))
+                (Arc::clone(&after.meta), hash(&after.meta))
             } else {
-                let (bytes, hash) = match i {
-                    0 => boundary(after.order.checkpoint())?,
-                    1 => boundary(after.position.checkpoint())?,
-                    2 => boundary(after.account.checkpoint())?,
-                    3 => boundary(after.ledger.checkpoint())?,
-                    4 => boundary(after.risk.checkpoint())?,
-                    _ => return Err(err("EXECUTION_PROJECTION_INDEX")),
-                };
-                (serde_json::from_slice::<Value>(&bytes)?, hash)
+                after.owner_checkpoint_record(i)?
             };
             if i == 2 {
-                after.require_account_checkpoint(&actual)?;
+                after.require_account_checkpoint(actual.as_ref())?;
             }
-            if actual != projection["result"] || actual_hash != projection["result_hash"] {
+            if actual.as_ref() != &projection["result"] || actual_hash != projection["result_hash"] {
                 return Err(err("EXECUTION_TYPED_AFTER_CONFLICT"));
             }
         }
@@ -759,16 +830,30 @@ impl Components {
                     count.set(counts);
                 });
                 if i == 2 {
-                    boundary(self.account.restore_exact_extension(&bytes, fingerprint))?;
+                    boundary(Arc::make_mut(&mut self.account).restore_exact_extension(&bytes, fingerprint))?;
                 } else {
-                    boundary(self.ledger.restore_exact_extension(&bytes, fingerprint))?;
+                    boundary(Arc::make_mut(&mut self.ledger).restore_exact_extension(&bytes, fingerprint))?;
                 }
+            } else if i == 5 && p.has_validated_transition_data() {
+                // The same immutable metadata already passed every owner
+                // checkpoint decoder in a completed canonical transition.
+                // Current source, before/result and valuation checks still run.
+                self.invalidate_payloads();
+                self.meta = Arc::new(projection["result"].clone());
             } else {
                 self.install_payload(i, &projection["result"])?;
             }
         }
         if i == 5 {
             self.validate_valuation_metadata(&self.meta)?;
+            if let Some(after) = typed_after {
+                // The original metadata decoder and valuation checks above
+                // still run. Share only their now-identical immutable value.
+                if self.meta.as_ref() == after.meta.as_ref() {
+                    self.meta = Arc::clone(&after.meta);
+                }
+                let _ = self.reuse_typed_payloads(p, after);
+            }
         }
         self.pending = Some((p.id().into(), i + 1));
         Ok(())
@@ -824,3 +909,7 @@ mod position_order_view_tests;
 #[cfg(test)]
 #[path = "prefix_read_tests.rs"]
 mod prefix_read_tests;
+
+#[cfg(test)]
+#[path = "components_cow_tests.rs"]
+mod components_cow_tests;

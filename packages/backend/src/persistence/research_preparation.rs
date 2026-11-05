@@ -858,23 +858,27 @@ fn validate_ready(o: &Operation, outputs: &Value) -> Result<()> {
     let future = CommandId::new(&o.request.research_command()).map_err(db)?;
     let environment = &outputs["environment"];
     let r = &ready["prepared_inputs"];
-    exact_fields(
-        r,
-        &[
-            "schema_version",
-            "contract",
-            "runtime_generation_fingerprint",
-            "execution_binding",
-            "runtime_work_binding",
-            "factor_preparation_fingerprint",
-            "factor_revision_fingerprint",
-            "input_window",
-            "dataset_snapshot_fingerprint",
-            "dataset_materialization",
-            "dataset_construction_fingerprint",
-            "algorithm_resolution",
-        ],
-    )?;
+    let mut fields = Vec::from([
+        "schema_version",
+        "contract",
+        "runtime_generation_fingerprint",
+        "execution_binding",
+        "runtime_work_binding",
+        "factor_preparation_fingerprint",
+        "factor_revision_fingerprint",
+        "input_window",
+        "dataset_snapshot_fingerprint",
+        "dataset_materialization",
+        "dataset_construction_fingerprint",
+        "algorithm_resolution",
+    ]);
+    if spec.authoring_generation_fingerprint.is_some() {
+        fields.push("authoring_generation_fingerprint");
+    }
+    exact_fields(r, &fields)?;
+    if !spec.matches_prepared_authoring(r) {
+        return Err(CORRUPT);
+    }
     if record["schema_version"] != 1
         || record["command_id"] != future.value()
         || record["owner"] != o.owner
@@ -896,8 +900,6 @@ fn validate_ready(o: &Operation, outputs: &Value) -> Result<()> {
             != json!({"hypothesis":preview["hypothesis"],"expression":preview["expression"]})
         || spec.record()?["study"] != o.accepted["study"]["study"]
         || ready["revision_fingerprint"] != spec.revision["revision_fingerprint"]
-        || r["schema_version"] != 1
-        || r["contract"] != "ONLYALPHA_RESEARCH_PREPARED_INPUTS_V1"
         || r["runtime_work_binding"] != environment["binding"]
         || r["runtime_work_binding"]["work_id"]
             != crate::persistence::research_submission::run_id(&future)
@@ -1088,7 +1090,7 @@ pub(crate) fn validate_activation(o: &Operation, e: &Value) -> Result<()> {
 
 /// Original durable facts in this semantic namespace forbid treating a lost Registry as fresh.
 pub(crate) async fn runtime_history_exists(tx: &Transaction<'_>) -> Result<bool> {
-    let row=tx.query_one("SELECT EXISTS(SELECT 1 FROM research_preparation WHERE outputs_payload::jsonb ? 'environment') OR EXISTS(SELECT 1 FROM research_factor_study_authorization) OR EXISTS(SELECT 1 FROM research_run WHERE specification_schema_version IN (4,5)) OR EXISTS(SELECT 1 FROM research_strategy_study_authorization) OR EXISTS(SELECT 1 FROM backtest_run)",&[]).await.map_err(db)?;
+    let row=tx.query_one("SELECT EXISTS(SELECT 1 FROM research_preparation WHERE outputs_payload::jsonb ? 'environment') OR EXISTS(SELECT 1 FROM research_factor_study_authorization) OR EXISTS(SELECT 1 FROM research_run WHERE specification_schema_version IN (4,5,6)) OR EXISTS(SELECT 1 FROM research_strategy_study_authorization) OR EXISTS(SELECT 1 FROM backtest_run)",&[]).await.map_err(db)?;
     row.try_get(0).map_err(db)
 }
 pub(crate) fn guard_fresh_runtime(has_history: bool) -> Result<()> {

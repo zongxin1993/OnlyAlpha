@@ -89,7 +89,8 @@ pub(crate) fn inspect(raw: &str, physical: &str, sequence: u64) -> Result<Frame,
     if digest(raw.as_bytes())!=physical { return Err(bad()); }
     let value:Value=serde_json::from_str(raw)?;
     exact(&value,&["schema_version","codec","logical_sha256","logical_size","summary","basis","data"])?;
-    if value.to_string()!=raw || value["schema_version"]!=1 || value["codec"]!=NAME { return Err(bad()); }
+    let canonical = value.to_string();
+ if canonical.as_str()!=raw || value["schema_version"]!=1 || value["codec"]!=NAME { return Err(bad()); }
     let logical=pin(&value["logical_sha256"])?;
     let size=usize::try_from(value["logical_size"].as_u64().ok_or_else(bad)?).map_err(|_|bad())?;
     if size>LIMIT { return Err(bad()); }

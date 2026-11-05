@@ -174,7 +174,7 @@ impl RuntimeEvidenceHold {
         let core = self.retained.core_artifact()?.clone();
         let operator = self
             .retained
-            .distribution_artifact("onlyalpha-plugin-operators")?;
+            .operator_artifact()?;
         let target = self.retained.target_artifact()?;
         let bindings = self.retained.manifest["private_factor_bindings"]
             .as_array()
@@ -249,7 +249,7 @@ impl RuntimeEvidenceHold {
     /// A composing caller must retain its own complete actual pre/post cuts.
     pub(crate) fn backtest_binding_data(&self) -> Result<Value> {
         let executor = self.retained.executor.as_ref().ok_or(INVALID)?;
-        if executor["schema_version"]!=2||executor["role"]!="BACKEND_RUNTIME"
+        if !matches!(executor["schema_version"].as_u64(),Some(2|3))||executor["role"]!="BACKEND_RUNTIME"
             ||executor["execution_capabilities"].as_array().is_none_or(|caps|caps.iter().filter(|c|**c==serde_json::json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"})).count()!=1){return Err("BACKTEST_EXECUTOR_UNAVAILABLE");}
         let mut binding = self.retained.execution_binding()?;
         binding["protocol"] = serde_json::json!("onlyalpha.backtest.executor/1");
@@ -668,7 +668,7 @@ impl RuntimeInputHold {
                 .filter(|n| *n > 0)
                 .ok_or(INVALID)?;
             remaining = remaining.checked_sub(size).ok_or(UNAVAILABLE)?;
-            if m["role"] == "QUANT_ASSET" {
+            if m["role"] == "QUANT_ASSET" || m["role"] == "BACKEND_RUNTIME" && m["schema_version"] == 3 {
                 providers.push(json!({"provider_id":m["provider_id"],"provider_version":m["provider_version"],"provider_content_fingerprint":m["provider_content_fingerprint"],"artifact_sha256":m["artifact_sha256"]}));
             }
             for i in m["implementations"].as_array().ok_or(INVALID)? {
@@ -772,6 +772,20 @@ impl RuntimeInputHold {
         }
         self.core.as_ref().ok_or(INVALID)
     }
+    /// Select the exact archived Operator implementation artifact of this Generation.
+    pub(crate) fn operator_artifact(&mut self) -> Result<Value> {
+        self.verify_artifacts()?;
+        let selected = self.executor.as_ref().ok_or("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
+        if selected["schema_version"] != 3 {
+            // Read only the exact distribution already archived by this original
+            // Generation. This preserves historical references without executing
+            // or rebuilding a retired Python implementation.
+            return self.distribution_artifact("onlyalpha-plugin-operators");
+        }
+        if selected["role"] != "BACKEND_RUNTIME" {return Err(INVALID);}
+        let (path, digest, size) = self.artifacts.iter().find(|(_, digest, _)| selected["artifact_sha256"] == *digest).ok_or(INVALID)?;
+        Ok(json!({"path":self.root_path.join(path),"sha256":digest,"size":size,"distribution_version":selected["distribution_version"]}))
+    }
     /// Select only an already physically verified wheel of this held Generation.
     /// This does not discover an installed/current distribution or grant work.
     pub(crate) fn distribution_artifact(&mut self, distribution: &str) -> Result<Value> {
@@ -853,7 +867,7 @@ impl RuntimeInputHold {
             .executor
             .as_ref()
             .ok_or("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
-        if selected["schema_version"] != 2 || selected["role"] != "BACKEND_RUNTIME" {
+        if !matches!(selected["schema_version"].as_u64(), Some(2 | 3)) || selected["role"] != "BACKEND_RUNTIME" {
             return Err("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE");
         }
         let native = crate::workers::algorithm::describe_native_runtime(env!("CARGO_PKG_VERSION"))

@@ -12,7 +12,8 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from packages.backend.tests.application.test_schema_postgres import DEFAULT_MIGRATION_ROOT, migrate
+from scripts.native_http_contract import native_executable
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 AT = "2026-10-28T00:00:00Z"
@@ -45,7 +46,8 @@ def call(
 
 
 def grant(probe: Path, dsn: str, *, owner: str = "owner") -> tuple[str, str]:
-    OnlyPostgresMigrationAuthority(dsn).migrate()
+    migration = migrate(native_executable(), dsn, DEFAULT_MIGRATION_ROOT)
+    assert migration.returncode == 0, migration.stderr
     gid = str(uuid4())
     token = "oa-proposal-v1." + gid + "." + "a" * 64
     body = {

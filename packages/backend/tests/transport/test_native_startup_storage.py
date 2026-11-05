@@ -10,7 +10,9 @@ from typing import Any, cast
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres.migration import DEFAULT_MIGRATION_ROOT, OnlyPostgresMigrationAuthority
+from packages.backend.tests.application.test_schema_postgres import DEFAULT_MIGRATION_ROOT
+from packages.backend.tests.application.test_schema_postgres import migration_backend as migration_backend
+from packages.backend.tests.application.test_schema_postgres import schema_db as schema_db
 from packages.backend.tests.postgres_link import CommitAckCut
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
@@ -37,14 +39,13 @@ def files(root: Path, namespace: str = NAMESPACE) -> Path:
 
 
 @pytest.fixture
-def startup_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    with psycopg.connect(postgres_dsn) as connection:
+def startup_db(schema_db: str) -> str:
+    with psycopg.connect(schema_db) as connection:
         connection.execute(
             "INSERT INTO public.research_deployment_semantic_store_binding(singleton,semantic_store_id) VALUES(TRUE,%s)",
             (NAMESPACE,),
         )
-    return postgres_dsn
+    return schema_db
 
 
 def call(probe: Path, data: Path, **changes: object) -> dict[str, Any]:

@@ -9,6 +9,10 @@ fn btc_defaults_write_actual_fixed_bindings_and_exact_factor_dependency() {
     assert_eq!(nodes.len(),3);
     assert!(nodes.iter().any(|node|node["type_reference"]["type_id"]=="onlyalpha.operator.delay" && node["parameters"]["period"]["value"]["value"]==20));
     assert!(nodes.iter().any(|node|node["type_reference"]["type_id"]=="onlyalpha.operator.rolling_mean" && node["parameters"]["period"]["value"]["value"]==20));
+    for node in nodes {
+        let reference=&node["type_reference"];
+        assert_eq!(reference["semantic_version"],if reference["kind"]=="INDICATOR" {"2"} else {"1"});
+    }
     assert_eq!(value["signals"]["entry"]["right"]["value"]["value"],"0.001");
     assert_eq!(value["signals"]["exit"]["right"]["value"]["value"],"0");
     assert_eq!(value["universe"]["instruments"],json!(["BTCUSDT.BINANCE"]));

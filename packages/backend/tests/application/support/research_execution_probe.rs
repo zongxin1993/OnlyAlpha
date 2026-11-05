@@ -14,7 +14,7 @@ use onlyalpha_backend::{
     persistence::{
         research_dataset::Store as Datasets,
         research_evidence::Store as Evidence,
-        research_execution::{ResearchExecution, RunState},
+        research_execution::{AuthoringClaim, ResearchExecution, RunState},
         research_novelty::Authority as Novelty,
         research_runtime::RuntimeInputHold,
         research_submission::{self, Context, Request, SubmissionOutcome},
@@ -40,7 +40,7 @@ pub async fn run(
     if phase == "inspect" {
         return inspect_completed(client, v).await;
     }
-    if !matches!(phase, "submit" | "execute") {
+    if !matches!(phase, "submit" | "execute" | "crash-after-claim") {
         return Err("phase".into());
     }
     if v["initialize_evidence"] == true {
@@ -80,7 +80,7 @@ pub async fn run(
         "research",
         f["generation"].as_str().ok_or("generation")?,
     )?;
-    let inputs = if phase == "execute" {
+    let mut inputs = if phase != "submit" {
         let accepted = research_submission::load(client, &work_id, None).await?;
         research_admission::restore(&accepted, hold, &installation, &datasets)
     } else {
@@ -95,8 +95,9 @@ pub async fn run(
         )
     }
     .map_err(|e| format!("input-preparation: {e}"))?;
+    inputs.bind_factor_authoring_generation()?;
     let spec = Specification {
-        schema_version: 4,
+        schema_version: 6,
         kind: "TIME_SERIES_FACTOR_RESEARCH".into(),
         candidate: json!({"hypothesis":f["candidate"]["hypothesis"],"expression":f["candidate"]["expression"]}),
         draft: f["draft"].clone(),
@@ -112,6 +113,7 @@ pub async fn run(
             .ok_or("catalog")?
             .into(),
         algorithm_artifact_fingerprint: f["algorithm_artifact"].as_str().ok_or("artifact")?.into(),
+        authoring_generation_fingerprint: Some(inputs.factor_authoring_generation_fingerprint()?.into()),
         execution_binding: inputs.record()["execution_binding"].clone(),
     };
     let human = Access::new(&"a".repeat(64))?;
@@ -179,7 +181,7 @@ pub async fn run(
                 .ok_or("proposal")?
                 .into(),
             parent_run_id: None,
-            policy_id: "native".into(),
+            policy_id: v["policy_id"].as_str().unwrap_or("native").into(),
             policy_version: "1".into(),
             specification: spec,
         };
@@ -361,12 +363,38 @@ pub async fn run(
     );
     let root = Path::new(v["research_root"].as_str().ok_or("research root")?).to_path_buf();
     let worker = "00000000-0000-4000-8000-000000000902";
+    let proof = AuthoringClaim::verify(&run, &inputs, &installation, "0.11.1")?;
+    if phase == "crash-after-claim" {
+        let claim = ResearchExecution::new(client)
+            .claim_authoring(
+                &run, &proof, worker,
+                "00000000-0000-4000-8000-000000000920", at,
+            )
+            .await?.ok_or("original authoring claim")?;
+        assert!(claim.ownership_certain());
+        std::process::exit(73);
+    }
+    let before = ResearchExecution::new(client).observe(&run).await?;
+    let attempts: i64 = client.query_one(
+        "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
+        &[&run.run_id()],
+    ).await?.get(0);
+    assert!(ResearchExecution::new(client)
+        .claim(&run, worker, "00000000-0000-4000-8000-000000000919", at)
+        .await.is_err());
+    let after = ResearchExecution::new(client).observe(&run).await?;
+    assert_eq!((before.state, before.revision), (after.state, after.revision));
+    assert_eq!(attempts, client.query_one(
+        "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
+        &[&run.run_id()],
+    ).await?.get::<_, i64>(0));
+
     let mut first = None;
     if mode == "budget" || mode == "budget-with-result" {
         for i in 0..if mode == "budget" { 3 } else { 2 } {
             let attempt = format!("00000000-0000-4000-8000-{:012}", 910 + i);
             let mut claim = ResearchExecution::new(client)
-                .claim(&run, worker, &attempt, at)
+                .claim_authoring(&run, &proof, worker, &attempt, at)
                 .await?
                 .ok_or("claim")?;
             if mode == "budget" && i == 2 {
@@ -395,7 +423,7 @@ pub async fn run(
     if !matches!(mode, "normal" | "wrong-native-version") && first.is_none() {
         first = Some(
             ResearchExecution::new(client)
-                .claim(&run, worker, "00000000-0000-4000-8000-000000000913", at)
+                .claim_authoring(&run, &proof, worker, "00000000-0000-4000-8000-000000000913", at)
                 .await?
                 .ok_or("claim")?,
         );
@@ -533,7 +561,7 @@ pub async fn run(
         if first.is_none() {
             first = Some(
                 ResearchExecution::new(client)
-                    .claim(&run, worker, "00000000-0000-4000-8000-000000000915", at)
+                    .claim_authoring(&run, &proof, worker, "00000000-0000-4000-8000-000000000915", at)
                     .await?
                     .ok_or("claim")?,
             );
@@ -551,7 +579,7 @@ pub async fn run(
         );
         assert!(
             ResearchExecution::new(client)
-                .claim(&run, worker, "00000000-0000-4000-8000-000000000916", at)
+                .claim_authoring(&run, &proof, worker, "00000000-0000-4000-8000-000000000916", at)
                 .await?
                 .is_none()
         );
@@ -584,17 +612,19 @@ pub async fn run(
             },
             || at,
         )
-        .await?;
+        .await;
         if mode == "wrong-native-version" {
-            assert_eq!(status.state, RunState::Failed);
-            let row = client.query_one("SELECT failure_code,research_result_fingerprint,artifact_content_fingerprint FROM research_run WHERE run_id=$1::text::uuid",&[&run.run_id()]).await?;
-            assert_eq!(row.get::<_, String>(0), "RESEARCH_EXECUTOR_IMAGE_MISMATCH");
-            assert!(
-                row.get::<_, Option<String>>(1).is_none()
-                    && row.get::<_, Option<String>>(2).is_none()
-            );
-            return Ok(json!({"run_id":run.run_id(),"state":"FAILED"}));
+            assert_eq!(status.err().ok_or("wrong executor claimed")?.code(), "RESEARCH_EXECUTOR_IMAGE_MISMATCH");
+            let status = ResearchExecution::new(client).observe(&run).await?;
+            assert_eq!((status.state, status.revision), (RunState::Queued, 0));
+            let attempts: i64 = client.query_one(
+                "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
+                &[&run.run_id()],
+            ).await?.get(0);
+            assert_eq!(attempts, 0);
+            return Ok(json!({"run_id":run.run_id(),"state":"QUEUED"}));
         }
+        let status = status?;
         assert_eq!(status.state, RunState::Completed);
         if let Some(mut stale) = first {
             let complete = store.load_verified(&run)?.unwrap();

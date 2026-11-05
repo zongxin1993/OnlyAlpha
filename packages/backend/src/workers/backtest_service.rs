@@ -197,7 +197,7 @@ pub(crate) fn produce(work:Work,mode:StartMode,control:&Control)->std::result::R
             else if restored["state"]["input_finished"]==true {run.deliver(|event|accept(&selected,event)).map_err(|_|UNAVAILABLE)?;run.finish_input().map_err(|_|UNAVAILABLE)?;}
             else {
                 if restored["state"]["status"]=="PAUSED" && control.requested()!=1 {run.resume().map_err(|_|UNAVAILABLE)?;}
-                let mut step_time=Duration::ZERO;let mut delivery_time=Duration::ZERO;let mut step_count=0_u64;
+                let mut processing_time=Duration::ZERO;let mut step_count=0_u64;
                 loop {
                     match control.requested() {
                         1=>{if run.progress().map_err(|_|UNAVAILABLE)?["status"]!="PAUSED"{run.pause().map_err(|_|UNAVAILABLE)?;}paused=true;break;},
@@ -205,12 +205,17 @@ pub(crate) fn produce(work:Work,mode:StartMode,control:&Control)->std::result::R
                         _=>{},
                     }
                     let started=std::time::Instant::now();
-                    #[cfg(test)] let advanced=run.step_observed(&mut |phase,index,_|{test_after_step(phase,index,control);Ok(())}).map_err(|_|UNKNOWN)?;
-                    #[cfg(not(test))] let advanced=run.step().map_err(|_|UNKNOWN)?;
-                    step_time+=started.elapsed();let started=std::time::Instant::now();
-                    run.deliver(|event|accept(&selected,event)).map_err(|_|UNAVAILABLE)?;
-                    delivery_time+=started.elapsed();step_count+=1;
-                    if step_count%128==0 || !advanced {eprintln!("BACKTEST_NATIVE_PROGRESS steps={step_count} step_ms={} delivery_ms={}",step_time.as_millis(),delivery_time.as_millis());}
+                    #[cfg(test)] let advanced={
+                        let advanced=run.step_observed(&mut |phase,index,_|{test_after_step(phase,index,control);Ok(())}).map_err(|_|UNKNOWN)?;
+                        run.deliver(|event|accept(&selected,event)).map_err(|_|UNAVAILABLE)?;
+                        advanced
+                    };
+                    #[cfg(not(test))] let (advanced,_)=run.step_and_deliver(|event|accept(&selected,event)).map_err(|error|match error {
+                        onlyalpha_backtest::StepAndDeliverError::Step(_)=>UNKNOWN,
+                        onlyalpha_backtest::StepAndDeliverError::Delivery(_)=>UNAVAILABLE,
+                    })?;
+                    processing_time+=started.elapsed();step_count+=1;
+                    if step_count%128==0 || !advanced {eprintln!("BACKTEST_NATIVE_PROGRESS steps={step_count} processing_ms={}",processing_time.as_millis());}
                     if !advanced {run.close_input().map_err(|_|UNAVAILABLE)?;run.deliver(|event|accept(&selected,event)).map_err(|_|UNAVAILABLE)?;run.finish_input().map_err(|_|UNAVAILABLE)?;break;}
                 }
             }

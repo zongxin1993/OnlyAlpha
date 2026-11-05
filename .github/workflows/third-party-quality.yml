@@ -43,7 +43,7 @@ jobs:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -o pipefail
-          uv run ruff check src tests packages scripts --output-format=concise 2>&1 \
+          uv run ruff check crates packages plugs scripts --output-format=concise 2>&1 \
             | reviewdog \
                 -efm='%f:%l:%c: %m' \
                 -name='ruff' \
@@ -65,7 +65,7 @@ jobs:
           --config .semgrep/onlyalpha.yml
           --error
           --metrics=off
-          src packages scripts
+          packages plugs scripts
 
   diff-coverage:
     if: github.event_name == 'pull_request'
@@ -101,6 +101,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
       - name: Validate the canonical Compose model
         run: docker compose -f deploy/docker-compose.dev.yml config --quiet
       - name: Prepare fixed native validation tools

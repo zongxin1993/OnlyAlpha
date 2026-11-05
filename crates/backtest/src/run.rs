@@ -5,6 +5,21 @@ use onlyalpha_execution::{CommitIntent, Components, Prepared, Record, Store, coo
 use onlyalpha_runtime::{ReplayEntryRef, Runtime};
 use serde_json::{Value, json};
 use std::path::Path;
+// Local data only; no observation is retained in a Runtime or RunLoop field.
+type PendingDelivery = Option<Result<Vec<Value>, Error>>;
+
+/// Preserve whether the original step or delivery boundary failed.
+#[derive(Debug)]
+pub enum StepAndDeliverError {
+    Step(Error),
+    Delivery(Error),
+}
+impl std::fmt::Display for StepAndDeliverError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self { Self::Step(error) | Self::Delivery(error) => std::fmt::Display::fmt(error, f) }
+    }
+}
+impl std::error::Error for StepAndDeliverError {}
 /// Application participant boundary: owning readers validate state; candidate effects have no external venue access.
 pub trait Participants {
     fn binding(&self) -> Value;
@@ -493,7 +508,8 @@ impl<P: Participants> RunLoop<P> {
         mut derived: DerivedStep,
         original: &ReplayEntryRef,
         mut observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
-    ) -> Result<(), Error> {
+        observe_delivery: bool,
+    ) -> Result<PendingDelivery, Error> {
         derived.verify_plans()?;
         let step = &derived.record;
         let inputs = step["inputs"].as_array().ok_or_else(|| err("INPUTS"))?;
@@ -541,7 +557,12 @@ impl<P: Participants> RunLoop<P> {
         if self.binding["schema_version"] != 2 || force || start / 64 < end / 64 {
             self.runtime.save_checkpoint()?;
         }
-        let completed = self.runtime.complete_replay_ref(&self.steps, original)?;
+        let (completed, events) = if observe_delivery && observer.is_none() {
+            let completed = self.runtime.complete_replay_ref_and_pending(&self.steps, original)?;
+            (completed.references, Some(completed.pending_events))
+        } else {
+            (self.runtime.complete_replay_ref(&self.steps, original)?, None)
+        };
         if completed.last().is_none_or(|row| {
             !row.ready()
                 || row.index() != original.index()
@@ -564,11 +585,11 @@ impl<P: Participants> RunLoop<P> {
         if observer.is_some() {
             self.runtime.verify_replay_refs(&self.steps)?;
         }
-        Ok(())
+        Ok(events)
     }
     fn transition(&mut self, kind: &str, outcome: Value) -> Result<(), Error> {
         self.check()?;
-        self.transition_after_check(kind, outcome, None, None)
+        self.transition_after_check(kind, outcome, None, None, false).map(|_| ())
     }
     fn transition_observed(
         &mut self,
@@ -577,7 +598,7 @@ impl<P: Participants> RunLoop<P> {
         observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
     ) -> Result<(), Error> {
         self.check()?;
-        self.transition_after_check(kind, outcome, Some(observer), None)
+        self.transition_after_check(kind, outcome, Some(observer), None, false).map(|_| ())
     }
     // The entry point has just verified the actual prefix. No observer or
     // public call runs between that verification and this continuation.
@@ -587,7 +608,8 @@ impl<P: Participants> RunLoop<P> {
         outcome: Value,
         mut observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
         head: Option<(Components, Vec<Record>)>,
-    ) -> Result<(), Error> {
+        observe_delivery: bool,
+    ) -> Result<PendingDelivery, Error> {
         if kind == "TERMINATE"
             && outcome["status"] == "COMPLETED"
             && !self.runtime.pending_events()?.is_empty()
@@ -612,29 +634,30 @@ impl<P: Participants> RunLoop<P> {
                 self.runtime.records()?.len() as u64,
             )?;
         }
-        self.install_observed(derived, &original, observer)?;
+        let events = self.install_observed(derived, &original, observer, observe_delivery)?;
         self.healthy = true;
-        Ok(())
+        Ok(events)
     }
     pub fn step(&mut self) -> Result<bool, Error> {
-        self.step_inner(None)
+        self.step_inner(None, false).map(|value| value.0)
     }
     /// Immutable progress receipts also support deterministic crash barriers; errors require recovery.
     pub fn step_observed(
         &mut self,
         observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
     ) -> Result<bool, Error> {
-        self.step_inner(Some(observer))
+        self.step_inner(Some(observer), false).map(|value| value.0)
     }
     fn step_inner(
         &mut self,
         observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
-    ) -> Result<bool, Error> {
+        observe_delivery: bool,
+    ) -> Result<(bool, PendingDelivery), Error> {
         if self.state["input_cancelled"] == true
             || self.state["cursor"] == self.inputs.records().len() as u64
         {
             self.check()?;
-            return Ok(false);
+            return Ok((false, None));
         }
         if !self.healthy {
             return Err(err("RECOVERY_REQUIRED"));
@@ -645,8 +668,26 @@ impl<P: Participants> RunLoop<P> {
         } else {
             "BAR"
         };
-        self.transition_after_check(kind, Value::Null, observer, Some(head))?;
-        Ok(true)
+        let events = self.transition_after_check(kind, Value::Null, observer, Some(head), observe_delivery)?;
+        Ok((true, events))
+    }
+    /// One synchronous owning step and Event drain. Its final complete source
+    /// cut supplies the original pending Event data, never retained across a
+    /// public call. Consumer acceptance, acknowledgements and final source
+    /// verification use the same delivery implementation as `deliver`.
+    pub fn step_and_deliver(
+        &mut self,
+        consumer: impl FnMut(&Value) -> Result<(), Error>,
+    ) -> Result<(bool, usize), StepAndDeliverError> {
+        let (advanced, events) = self.step_inner(None, true).map_err(StepAndDeliverError::Step)?;
+        let delivered = if let Some(events) = events {
+            let events = events.map_err(StepAndDeliverError::Delivery)?;
+            self.deliver_observed_events(events, consumer)
+        } else {
+            // Exhausted/cancelled input retains the original independent drain.
+            self.deliver(consumer)
+        }.map_err(StepAndDeliverError::Delivery)?;
+        Ok((advanced, delivered))
     }
     pub fn run(&mut self) -> Result<(), Error> {
         while self.step()? {}
@@ -719,12 +760,22 @@ impl<P: Participants> RunLoop<P> {
     /// Consumer acceptance must be real; uncertain/rejected delivery leaves the stable Event pending.
     pub fn deliver(
         &mut self,
-        mut consumer: impl FnMut(&Value) -> Result<(), Error>,
+        consumer: impl FnMut(&Value) -> Result<(), Error>,
     ) -> Result<usize, Error> {
         if !self.healthy {
             return Err(err("RECOVERY_REQUIRED"));
         }
         let events = self.runtime.pending_events_at_replay_refs(&self.steps)?;
+        self.deliver_observed_events(events, consumer)
+    }
+    // Only deliver() or the immediate no-observer completion continuation can
+    // supply this local Event snapshot. Every callback retains the original
+    // acknowledgement and final full-source checks below.
+    fn deliver_observed_events(
+        &mut self,
+        events: Vec<Value>,
+        mut consumer: impl FnMut(&Value) -> Result<(), Error>,
+    ) -> Result<usize, Error> {
         // No callback or write runs for an empty observation. Its one complete
         // current cut is sufficient; the next public call reads its own source.
         if events.is_empty() {
@@ -778,7 +829,7 @@ impl<P: Participants> RunLoop<P> {
                 // Only the original final pending proposal can be completed;
                 // the full ready prefix and its original body are re-read by
                 // the owner before and after Ready is changed.
-                self.install_observed(actual, &original, None)?;
+                let _ = self.install_observed(actual, &original, None, false)?;
             }
         }
         self.healthy = true;

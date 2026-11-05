@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -60,6 +61,32 @@ def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
     )
     base["bar_type"]["instrument_id"]["symbol"]["value"] = "BTCUSDT"
     base["bar_type"]["instrument_id"]["venue"]["value"] = "BINANCE"
+    # These are reusable authoring inputs, not upgraded immutable Definitions.
+    # The current graph/identities are rebuilt in the actually tested Rust ELF.
+    historical = json.loads(
+        (root / "packages/backend/tests/application/fixtures/strategy_calculations.json").read_text()
+    )
+    instances = historical["instances"]
+    for instance in instances:
+        reference = instance["type_reference"]
+        if reference["type_id"].startswith("onlyalpha.operator."):
+            reference["semantic_version"] = "2"
+    core = next((output / "wheels").glob("onlyalpha-*.whl"))
+    core_artifact = {
+        "path": str(core),
+        "sha256": hashlib.sha256(core.read_bytes()).hexdigest(),
+        "size": core.stat().st_size,
+        "distribution_version": core.name.split("-")[1],
+    }
+    resolution = {
+        "schema_version": 1,
+        "contract": "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1",
+        "sources": sources,
+        "instances": instances,
+        "core_artifact": core_artifact,
+        "operator_artifact": None,
+        "target_artifact": None,
+    }
     request = output / "inputs.json"
     request.write_text(
         json.dumps(
@@ -70,9 +97,11 @@ def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
                 "strategy": json.loads(
                     (root / "examples/private-assets/strategy/simple_momentum/strategy.json").read_text()
                 )["strategy"]["definition"],
-                "calculations": json.loads(
-                    (root / "packages/backend/tests/application/fixtures/strategy_calculations.json").read_text()
-                ),
+                "calculations": {
+                    "instances": instances,
+                    "factor_revision_dependencies": historical["factor_revision_dependencies"],
+                },
+                "resolution_request": resolution,
             }
         )
     )
@@ -84,7 +113,7 @@ def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
 
 
 def installed_trading_case(
-    tmp_path: Path, selector: str, *, release: bool = False, build_timeout: int | None = 120
+    tmp_path: Path, selector: str, *, release: bool = True, build_timeout: int | None = 120
 ) -> str:
     from scripts.build_algorithm_sdk import ROOT
     from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
@@ -134,8 +163,9 @@ def installed_trading_case(
     # Debug-only sections are removed from this isolated test copy.
     executable = tmp_path / "installed-trading-tests"
     shutil.copyfile(executables[0], executable)
-    subprocess.run(["strip", "--strip-debug", str(executable)], check=True, timeout=30)
+    subprocess.run(["strip", "--strip-all", str(executable)], check=True, timeout=30)
     executable.chmod(0o500)
+    assert executable.stat().st_size <= 128 * 1024 * 1024
     result = subprocess.run(
         [str(executable), selector, "--nocapture", "--test-threads=1"],
         cwd=ROOT,

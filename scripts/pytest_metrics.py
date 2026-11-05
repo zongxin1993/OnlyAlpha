@@ -187,16 +187,6 @@ def _git_value(*args: str) -> str:
 
 
 def _instrument_test_costs() -> None:
-    from onlyalpha.engine.engine import OnlyEngine
-
-    original_run = OnlyEngine.run
-
-    def counted_engine_run(self: OnlyEngine):  # type: ignore[no-untyped-def]
-        record_metric_counter("engine_run_count")
-        return original_run(self)
-
-    OnlyEngine.run = counted_engine_run  # type: ignore[method-assign]
-
     original_connect = sqlite3.connect
 
     def counted_connect(database: str | bytes | PathLike[str] | PathLike[bytes], *args: object, **kwargs: object):  # type: ignore[no-untyped-def]

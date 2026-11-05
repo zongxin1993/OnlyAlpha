@@ -9,6 +9,7 @@ path = "src/lib.rs"
 [lints]
 workspace = true
 [dependencies]
+onlyalpha-operators = { path = "../operators" }
 onlyalpha-predicates = { path = "../predicates" }
 onlyalpha-strategy = { path = "../strategy" }
 onlyalpha-market-data = { path = "../market-data" }

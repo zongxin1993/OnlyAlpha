@@ -68,3 +68,40 @@ fn batch_data_errors_or_invalid_prefixes_never_fall_back_to_point_reads(){
   else{assert!(actual.is_err(),"{kind} batch data cannot certify a Ready prefix");}
  }
 }
+
+#[test]
+fn execution_genesis_memo_is_exact_and_shared_only_as_configuration_data() {
+    let components = Components::new(support::config()).unwrap();
+    let expected = Components::genesis_payload_hashes(&support::config()).unwrap();
+    assert_eq!(components.cached_genesis_payload_hashes().unwrap(), expected);
+    let fork = components.clone_data();
+    let mut detached = fork.cached_genesis_payload_hashes().unwrap();
+    detached[0] = "f".repeat(64);
+    assert_eq!(components.cached_genesis_payload_hashes().unwrap(), expected);
+    assert_eq!(fork.cached_genesis_payload_hashes().unwrap(), expected);
+    // A warm pure genesis memo must not hide an absent actual Ready source.
+    let mut history = support::Harness::new(support::config()).unwrap();
+    let prepared = history.prepare(&support::open(1, "BUY")).unwrap();
+    crate::coordinate(&mut history.store, &mut history.components, &prepared).unwrap();
+    history.components.cached_genesis_payload_hashes().unwrap();
+    history.store.rows.clear();
+    assert!(history.components.reconcile(&history.store).is_err());
+    assert!(history.components.ready_source(&history.store).is_err());
+}
+
+#[test]
+fn execution_genesis_memo_recomputes_changed_config_and_rejects_invalid_config() {
+    let mut components = Components::new(support::config()).unwrap();
+    let original = components.cached_genesis_payload_hashes().unwrap();
+    let mut configuration = support::config();
+    configuration["initial_cash"] = json!("2000.00");
+    configuration["capitals"]["cluster"] = json!("2000.00");
+    let expected = Components::genesis_payload_hashes(&configuration).unwrap();
+    assert_ne!(expected, original);
+    components.config = configuration;
+    assert_eq!(components.cached_genesis_payload_hashes().unwrap(), expected);
+    components.config = Value::Null;
+    assert!(components.cached_genesis_payload_hashes().is_err());
+    components.config = support::config();
+    assert_eq!(components.cached_genesis_payload_hashes().unwrap(), original);
+}

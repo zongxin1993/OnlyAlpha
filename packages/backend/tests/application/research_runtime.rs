@@ -1,25 +1,13 @@
 use onlyalpha_backend::persistence::research_runtime::RuntimeInputHold;
 use serde_json::Value;
-use std::{fs, process::Command};
+use std::fs;
+#[path = "support/research_runtime_fixture.rs"]
+mod research_runtime_fixture;
 fn fixture(root: &std::path::Path) -> String {
-    let out = Command::new("python")
-        .arg(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/application/support/research_runtime_reference.py"),
-        )
-        .arg(root)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
-    v["generation"].as_str().unwrap().into()
+    research_runtime_fixture::fixture(root, false).0
 }
 #[test]
-fn existing_writer_binding_is_exact_and_lock_is_retained() {
+fn native_owner_binding_is_exact_and_lock_is_retained() {
     let root = std::env::temp_dir().join(format!("research-runtime-{}", {
         let mut bytes = [0_u8; 16];
         getrandom::fill(&mut bytes).unwrap();
@@ -212,22 +200,70 @@ fn draining_work_survives_other_closed_retired_and_rejected_histories() {
     let mut bytes = [0; 16];
     getrandom::fill(&mut bytes).unwrap();
     let root = std::env::temp_dir().join(format!("runtime-history-{bytes:?}"));
-    let out = Command::new("python")
-        .arg(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/application/support/research_runtime_reference.py"),
+    use onlyalpha_backend::{
+        application::command::CommandId, persistence::research_runtime::Registry,
+    };
+    let (g, second) = research_runtime_fixture::fixture(&root, true);
+    let mut registry = Registry::open_existing(&root).unwrap();
+    let at = "2026-10-29T01:00:00Z".parse().unwrap();
+    registry
+        .activate(
+            &CommandId::new("00000000-0000-4000-8000-000000000102").unwrap(),
+            &second,
+            Some(&g),
+            "fixture",
+            at,
         )
-        .arg(&root)
-        .arg("histories")
-        .output()
         .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+    registry
+        .bind_new_work_exact("other", &second, "research", "fixture", at)
+        .unwrap();
+    registry
+        .release_work_exact("other", &second, "research", "fixture", at)
+        .unwrap();
+    registry
+        .close_new_work_exact("other", &second, "research", "fixture", "fixture", at)
+        .unwrap();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(root.join(format!("runtime-generations/{g}.json"))).unwrap(),
+    )
+    .unwrap();
+    let third = research_runtime_fixture::variant(&manifest, '6');
+    registry.prepare_candidate(&third, "fixture", at).unwrap();
+    registry
+        .reject(
+            third["runtime_generation_fingerprint"].as_str().unwrap(),
+            "fixture",
+            "fixture",
+            at,
+        )
+        .unwrap();
+    let fourth = research_runtime_fixture::variant(&manifest, '7');
+    registry.prepare_generation(&fourth, "fixture", at).unwrap();
+    registry
+        .activate(
+            &CommandId::new("00000000-0000-4000-8000-000000000103").unwrap(),
+            fourth["runtime_generation_fingerprint"].as_str().unwrap(),
+            Some(&second),
+            "fixture",
+            at,
+        )
+        .unwrap();
+    registry.retire(&second, "fixture", at).unwrap();
+    assert_eq!(registry.snapshot()["states"][&g], "DRAINING");
+    assert_eq!(registry.snapshot()["states"][&second], "RETIRED");
+    assert_eq!(
+        registry
+            .bind_new_work_exact("other", &second, "research", "fixture", at)
+            .unwrap_err(),
+        "RUNTIME_WORK_ADMISSION_CLOSED"
     );
-    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
-    let g = v["generation"].as_str().unwrap();
+    assert_eq!(
+        registry.snapshot()["states"][third["runtime_generation_fingerprint"].as_str().unwrap()],
+        "REJECTED"
+    );
+    drop(registry);
+    let g = g.as_str();
     let h = RuntimeInputHold::open(&root, "work", "research", g).unwrap();
     h.verify().unwrap();
     assert_eq!(h.manifest()["runtime_generation_fingerprint"], g);

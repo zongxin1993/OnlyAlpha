@@ -2,7 +2,7 @@
 //! Python owns only numerical factory instances; native Predicates stay in Rust.
 use super::algorithm::{AlgorithmProcess, describe_research_runtime};
 use onlyalpha_calculation::{CalculationState, Definition, ExecutionBinding, normalize_result_outputs, product::Definition as ProductDefinition};
-use onlyalpha_calculation_bridge::{Cancellation, ChartInstallation, Worker, WorkerError, native_predicates::PredicateCalculation};
+use onlyalpha_calculation_bridge::{Cancellation, ChartInstallation, Worker, WorkerError, native_predicates::PredicateCalculation, native_operators::{OperatorCalculation,OperatorStream}};
 use onlyalpha_domain::{base::OnlyDomainModel, time::OnlyTimestamp};
 use onlyalpha_strategy::{NodeDescriptor, NodeFailure, NodePort, NodeRequest, Program, record_fingerprint};
 use serde_json::{Value,json};
@@ -37,6 +37,7 @@ struct Node {
     descriptor:NodeDescriptor,
     state:CalculationState,
     predicate:Option<PredicateCalculation>,
+    operator:Option<OperatorStream>,
     handle:Option<String>,
     plugin:Value,
 }
@@ -49,6 +50,31 @@ impl Node {
             || value["checkpoint_schema_version"]!=json!(self.descriptor.checkpoint_schema)
             || self.descriptor.state_capability=="STATELESS" && !value["state"].is_null()
         {return Err(NodeFailure::Known);}
+        Ok(())
+    }
+    /// The typed stream is only an in-memory execution projection. Its complete
+    /// checkpoint must match the original plugin fact before outward capture.
+    fn actual_operator_state(&self) -> Result<()> {
+        if let Some(stream) = &self.operator {
+            if self.descriptor.state_capability == "CHECKPOINTABLE" {
+                let checkpoint = stream.checkpoint().map_err(known)?;
+                if self.state.cursor().samples() == 0 {
+                    if !self.plugin["state"].is_null()
+                        || checkpoint["windows"]
+                            .as_object()
+                            .ok_or(NodeFailure::Known)?
+                            .values()
+                            .any(|values| values.as_array().is_none_or(|v| !v.is_empty()))
+                    {
+                        return Err(NodeFailure::Known);
+                    }
+                } else if checkpoint != self.plugin["state"] {
+                    return Err(NodeFailure::Known);
+                }
+            } else if !self.plugin["state"].is_null() {
+                return Err(NodeFailure::Known);
+            }
+        }
         Ok(())
     }
     fn checkpoint(&self)->Value {
@@ -99,18 +125,24 @@ impl InstalledTradingNodes {
                 Some(predicate)
             } else if record["kind"]=="FACTOR" || record["kind"]=="INDICATOR" && record["type_id"].as_str().is_some_and(|t|t.starts_with("onlyalpha.operator.")) {None}
             else {return Err(NodeFailure::Known);};
-            blueprints.insert(key.clone(),(definition.clone(),descriptor.clone(),predicate));
+            let operator=if record["kind"]=="INDICATOR" {
+                let operator=OperatorCalculation::from_record(&record).map_err(known)?;
+                if descriptor.state_capability!=operator.state_capability() || descriptor.checkpoint_schema!=operator.checkpoint_schema_version()
+                    || operator.implementation_manifest("TRADING",image).map_err(known)?["implementation_fingerprint"]!=descriptor.implementation {return Err(NodeFailure::Known);}
+                Some(operator)
+            }else{None};
+            blueprints.insert(key.clone(),(definition.clone(),descriptor.clone(),predicate,operator));
         }
         let mut math=serde_json::Map::new();
         let mut nodes=BTreeMap::new();
         for (scope,binding) in program.bindings() {
-            let (definition,descriptor,predicate)=blueprints.get(&binding.digests()[2]).ok_or(NodeFailure::Known)?;
-            let handle=if predicate.is_none() {
+            let (definition,descriptor,predicate,operator)=blueprints.get(&binding.digests()[2]).ok_or(NodeFailure::Known)?;
+            let handle=if predicate.is_none() && operator.is_none() {
                 if math.len()>=128 {return Err(NodeFailure::Known);}
                 let handle=format!("node_{}",math.len());math.insert(handle.clone(),definition.to_record());Some(handle)
             } else {None};
             let plugin=json!({"definition":definition.to_record(),"implementation_fingerprint":descriptor.implementation,"state_capability":descriptor.state_capability,"checkpoint_schema_version":descriptor.checkpoint_schema,"state":null});
-            nodes.insert(scope.clone(),Node{definition:definition.clone(),descriptor:descriptor.clone(),state:CalculationState::new(binding.clone()),predicate:predicate.clone(),handle,plugin});
+            nodes.insert(scope.clone(),Node{definition:definition.clone(),descriptor:descriptor.clone(),state:CalculationState::new(binding.clone()),predicate:predicate.clone(),operator:operator.as_ref().map(|operator|operator.stream().map_err(known)).transpose()?,handle,plugin});
         }
         let worker=if math.is_empty(){None}else{
             let mut worker=AlgorithmProcess::trading(&installation,program.generation(),Box::new(completion.clone())).map_err(failure)?;
@@ -140,6 +172,7 @@ impl InstalledTradingNodes {
         NodeFailure::Unknown
     }
     fn actual_states(&mut self)->Result<()> {
+        for node in self.nodes.values() { node.actual_operator_state()?; }
         if let Some(worker)=&mut self.worker {
             let checkpoint=worker.exchange_trading_numerics(json!({"schema_version":1,"op":"CHECKPOINT"}),self.deadline).map_err(failure)?;
             let observed=math_states(&checkpoint,&self.nodes)?;
@@ -185,20 +218,30 @@ impl NodePort for InstalledTradingNodes {
         cursor["revision"]=json!(request.revision.checked_add(1).ok_or(NodeFailure::Known)?);
         cursor["samples"]=json!(samples);cursor["last_event_ns"]=json!(time);
         let handle=node.handle.clone();
-        let result=(||->Result<(Value,Value)>{
+        let result=(||->Result<(Value,Value,Option<OperatorStream>)>{
             if let Some(predicate)=&node.predicate {
                 let values=request.inputs.as_object().ok_or(NodeFailure::Known)?.iter().map(|(key,value)|(key.clone(),if value["type"]=="NULL"{Value::Null}else{value["value"].clone()})).collect::<serde_json::Map<_,_>>();
                 let raw=predicate.evaluate(&Value::Object(values)).map_err(known)?;
                 let output=if raw["value"].is_null(){json!({"type":"NULL","value":null})}else{json!({"type":"BOOLEAN","value":raw["value"].as_bool().ok_or(NodeFailure::Known)?})};
-                Ok((json!({"value":output}),node.plugin.clone()))
+                Ok((json!({"value":output}),node.plugin.clone(),None))
+            } else if let Some(operator)=&node.operator {
+                // Preserve candidate/commit atomicity without decoding and
+                // re-evaluating the previous JSON window on every observation.
+                let mut stream=operator.clone();
+                let values=request.inputs.as_object().ok_or(NodeFailure::Known)?.iter().map(|(key,value)|(key.clone(),if value["type"]=="NULL"{Value::Null}else{value["value"].clone()})).collect::<serde_json::Map<_,_>>();
+                let raw=stream.push(&Value::Object(values)).map_err(known)?;
+                let outputs=Value::Object(raw.as_object().ok_or(NodeFailure::Known)?.iter().map(|(key,value)|(key.clone(),if value.is_null(){json!({"type":"NULL","value":null})}else{json!({"type":"DECIMAL","value":value})})).collect());
+                let mut plugin=node.plugin.clone();
+                if node.descriptor.state_capability=="CHECKPOINTABLE" {plugin["state"]=stream.checkpoint().map_err(known)?;}
+                Ok((outputs,plugin,Some(stream)))
             } else {
                 let response=self.worker.as_mut().ok_or(NodeFailure::Unknown)?.exchange_trading_numerics(json!({"schema_version":1,"op":"UPDATE","node":handle.ok_or(NodeFailure::Known)?,"inputs":request.inputs}),self.deadline).map_err(failure)?;
                 exact(&response,&["outputs","state"])?;
                 node.plugin(&response["state"])?;
-                Ok((response["outputs"].clone(),response["state"].clone()))
+                Ok((response["outputs"].clone(),response["state"].clone(),None))
             }
         })();
-        let (outputs,plugin)=match result {Ok(value)=>value,Err(_)=>return Err(self.abandon())};
+        let (outputs,plugin,operator)=match result {Ok(value)=>value,Err(_)=>return Err(self.abandon())};
         // The private SDK scalar codec preserves Decimal output scale. Bind the
         // mathematical value to the existing native scalar representation before
         // constructing a canonical receipt; plugin state remains byte-exact.
@@ -214,6 +257,7 @@ impl NodePort for InstalledTradingNodes {
         let node=self.nodes.get_mut(&request.scope).ok_or(NodeFailure::Known)?;
         if node.state.commit(&prepared,&receipt).is_err(){return Err(self.abandon());}
         node.plugin=plugin;
+        if let Some(operator)=operator {node.operator=Some(operator);}
         Ok(json!({"receipt":receipt,"state_fingerprint":record_fingerprint(&node.plugin)}))
     }
     fn capture(&mut self)->Result<Value> {
@@ -263,7 +307,25 @@ impl NodePort for InstalledTradingNodes {
                 let actual=worker.exchange_trading_numerics(json!({"schema_version":1,"op":"RESTORE","checkpoint":expected}),self.deadline).map_err(failure)?;
                 if actual!=expected {return Err(NodeFailure::Known);}
             }
-            for (scope,(state,plugin)) in checked {let node=candidate.nodes.get_mut(&scope).ok_or(NodeFailure::Known)?;node.state=state;node.plugin=plugin;}
+            for (scope,(state,plugin)) in checked {
+                let node=candidate.nodes.get_mut(&scope).ok_or(NodeFailure::Known)?;
+                if let Some(operator)=&node.operator {
+                    if node.descriptor.state_capability=="CHECKPOINTABLE" {
+                        let samples=state.cursor().samples();
+                        if (samples==0)!=plugin["state"].is_null(){return Err(NodeFailure::Known);}
+                        if samples>0 {
+                            let restored=operator.restored_candidate(&plugin["state"]).map_err(known)?;
+                            node.operator=Some(restored);
+                            let definition=node.definition.to_record();
+                            let period=definition["parameters"]["period"]["value"].as_u64().ok_or(NodeFailure::Known)?;
+                            let limit=period+u64::from(matches!(definition["type_id"].as_str(),Some("onlyalpha.operator.delay"|"onlyalpha.operator.delta")));
+                            let expected=samples.min(limit);
+                            if plugin["state"]["windows"].as_object().ok_or(NodeFailure::Known)?.values().any(|w|w.as_array().is_none_or(|w|w.len() as u64!=expected)){return Err(NodeFailure::Known);}
+                        }
+                    }
+                }
+                node.state=state;node.plugin=plugin;
+            }
             if candidate.capture()!=Ok(checkpoint.clone()){return Err(NodeFailure::Known);}
             Ok(())
         })();
@@ -272,5 +334,129 @@ impl NodePort for InstalledTradingNodes {
             return Err(error);
         }
         Ok(candidate)
+    }
+}
+
+#[cfg(test)]
+mod native_stream_tests {
+    use super::*;
+
+    fn node(stateful: bool) -> Node {
+        let type_id = if stateful {
+            "onlyalpha.operator.rolling_mean"
+        } else {
+            "onlyalpha.operator.scale"
+        };
+        let parameters = if stateful {
+            json!({"period": {"type": "INTEGER", "value": 2}})
+        } else {
+            json!({})
+        };
+        let bindings = json!({
+            "value": {"node_fingerprint": null, "output_name": "value", "source": "close"}
+        });
+        let calculation = OperatorCalculation::resolve(type_id, "2", &parameters, &bindings)
+            .unwrap();
+        let definition = calculation.definition().clone();
+        let mut component = definition.to_record();
+        component["schema_version"] = json!(3);
+        let manifest = calculation
+            .implementation_manifest("TRADING", &"a".repeat(64))
+            .unwrap();
+        let implementation = manifest["implementation_fingerprint"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let descriptor = NodeDescriptor {
+            definition: Definition::from_record(&component).unwrap(),
+            native_definition: definition.fingerprint(),
+            implementation: implementation.clone(),
+            state_capability: calculation.state_capability().into(),
+            checkpoint_schema: calculation.checkpoint_schema_version(),
+        };
+        let plugin = json!({
+            "definition": definition.to_record(),
+            "implementation_fingerprint": implementation,
+            "state_capability": descriptor.state_capability,
+            "checkpoint_schema_version": descriptor.checkpoint_schema,
+            "state": null
+        });
+        let binding = ExecutionBinding::new(
+            std::array::from_fn(|_| "a".repeat(64)),
+            "native-stream",
+        )
+        .unwrap();
+        Node {
+            definition,
+            descriptor,
+            state: CalculationState::new(binding),
+            predicate: None,
+            operator: Some(calculation.stream().unwrap()),
+            handle: None,
+            plugin,
+        }
+    }
+
+    #[test]
+    fn typed_operator_candidate_does_not_mutate_committed_state_and_capture_detects_divergence() {
+        let mut node = node(true);
+        assert!(node.actual_operator_state().is_ok());
+        let original = node.checkpoint();
+        let mut candidate = node.operator.as_ref().unwrap().clone();
+        let raw = candidate.push(&json!({"value": "1"})).unwrap();
+
+        // Advancing a candidate cannot change the old outward plugin/cursor.
+        assert_eq!(node.checkpoint(), original);
+        assert!(node.actual_operator_state().is_ok());
+        let prepared = node.state.prepare(&["1"], &"b".repeat(64)).unwrap();
+        let mut cursor = node.state.cursor().capture();
+        cursor["revision"] = json!(1);
+        cursor["samples"] = json!(1);
+        cursor["last_event_ns"] = json!("1");
+        let receipt = json!({
+            "cursor": cursor,
+            "input_digest": "b".repeat(64),
+            "outputs": {"value": {"type": "NULL", "value": raw["value"]}},
+            "ready": false,
+            "quality_flags": []
+        });
+
+        // A rejected formal commit still leaves the original typed stream intact.
+        let mut invalid = receipt.clone();
+        invalid["input_digest"] = json!("c".repeat(64));
+        assert!(node.state.commit(&prepared, &invalid).is_err());
+        assert_eq!(node.checkpoint(), original);
+
+        node.state.commit(&prepared, &receipt).unwrap();
+        node.plugin["state"] = candidate.checkpoint().unwrap();
+        node.operator = Some(candidate);
+        assert!(node.actual_operator_state().is_ok());
+        let checkpoint = node.checkpoint();
+        node.operator
+            .as_mut()
+            .unwrap()
+            .push(&json!({"value": "2"}))
+            .unwrap();
+        assert!(node.actual_operator_state().is_err());
+        assert_eq!(
+            node.checkpoint(),
+            checkpoint,
+            "typed projection cannot silently replace the committed plugin"
+        );
+    }
+
+    #[test]
+    fn typed_stateless_operator_keeps_null_plugin_state_without_checkpoint_contract() {
+        let mut node = node(false);
+        assert!(node.actual_operator_state().is_ok());
+        node.operator
+            .as_mut()
+            .unwrap()
+            .push(&json!({"value": "2"}))
+            .unwrap();
+        assert!(node.operator.as_ref().unwrap().checkpoint().is_err());
+        assert!(node.actual_operator_state().is_ok());
+        assert!(node.plugin["state"].is_null());
+        assert!(node.checkpoint()["plugin_state"]["state"].is_null());
     }
 }

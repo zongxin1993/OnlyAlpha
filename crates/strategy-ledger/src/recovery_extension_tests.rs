@@ -116,3 +116,70 @@ fn cloned_owner_shares_immutable_journal_commands_without_changing_history(){
  fork.apply(&command(2,false)).unwrap();assert_eq!(owner.journal.len(),1);assert_eq!(fork.journal.len(),2);assert_eq!(owner.checkpoint().unwrap(),original);
  let changed=fork.checkpoint().unwrap();let mut cold=Manager::new(configuration()).unwrap();cold.restore(&changed.0,&changed.1).unwrap();assert_eq!(cold.checkpoint().unwrap(),changed);
 }
+
+#[test]
+fn checkpoint_record_preserves_exact_bytes_fingerprint_and_detaches_caller_mutation() {
+    let mut owner = Manager::new(configuration()).unwrap();
+    owner.apply(&command(1, false)).unwrap();
+    let (bytes, fingerprint) = owner.checkpoint().unwrap();
+    let (record, observed) = owner.checkpoint_record().unwrap();
+    assert_eq!(observed, fingerprint);
+    assert_eq!(serde_json::to_vec(record.as_ref()).unwrap(), bytes);
+    assert_eq!(digest(&bytes), observed);
+    assert_eq!(*record, serde_json::from_slice::<Value>(&bytes).unwrap());
+
+    CHECKPOINT_ENCODINGS.with(|count| count.set(0));
+    for _ in 0..4 {
+        let (same, hash) = owner.checkpoint_record().unwrap();
+        assert!(std::sync::Arc::ptr_eq(&record, &same));
+        assert_eq!(hash, fingerprint);
+        assert_eq!(owner.checkpoint().unwrap(), (bytes.clone(), fingerprint.clone()));
+    }
+    assert_eq!(CHECKPOINT_ENCODINGS.with(std::cell::Cell::get), 0);
+
+    let mut detached = std::sync::Arc::clone(&record);
+    std::sync::Arc::make_mut(&mut detached)["state"] = Value::Null;
+    assert_ne!(detached, record);
+    let (retained, hash) = owner.checkpoint_record().unwrap();
+    assert!(std::sync::Arc::ptr_eq(&record, &retained));
+    assert_eq!(hash, fingerprint);
+    assert_eq!(owner.checkpoint().unwrap(), (bytes, fingerprint));
+}
+
+#[test]
+fn checkpoint_record_clone_mutation_and_failed_transitions_preserve_original_representation() {
+    let mut owner = Manager::new(configuration()).unwrap();
+    owner.apply(&command(1, false)).unwrap();
+    let original = owner.checkpoint_record().unwrap();
+    let mut fork = owner.clone();
+    assert!(std::sync::Arc::ptr_eq(&original.0, &fork.checkpoint_record().unwrap().0));
+
+    fork.apply(&command(2, false)).unwrap();
+    let changed = fork.checkpoint_record().unwrap();
+    assert_ne!(changed.1, original.1);
+    assert!(!std::sync::Arc::ptr_eq(&original.0, &changed.0));
+    let retained = owner.checkpoint_record().unwrap();
+    assert!(std::sync::Arc::ptr_eq(&original.0, &retained.0));
+    assert_eq!(retained.1, original.1);
+
+    let mut invalid = command(3, false);
+    invalid["op"] = json!("INVALID");
+    assert!(fork.apply(&invalid).is_err());
+    let mut conflict = command(2, false);
+    conflict["payload"]["amount"] = json!("1.00");
+    assert_eq!(fork.apply(&conflict).unwrap().status, Status::Conflict);
+    let mut bytes = fork.checkpoint().unwrap().0;
+    bytes.push(b' ');
+    assert!(fork.restore(&bytes, &changed.1).is_err());
+    assert!(fork.restore_exact_extension(&bytes, &changed.1).is_err());
+    let unchanged = fork.checkpoint_record().unwrap();
+    assert!(std::sync::Arc::ptr_eq(&changed.0, &unchanged.0));
+    assert_eq!(unchanged.1, changed.1);
+
+    let mut cold = Manager::new(configuration()).unwrap();
+    let bytes = serde_json::to_vec(changed.0.as_ref()).unwrap();
+    cold.restore(&bytes, &changed.1).unwrap();
+    assert_eq!(cold.checkpoint_record().unwrap(), changed);
+    owner.restore_exact_extension(&bytes, &changed.1).unwrap();
+    assert_eq!(owner.checkpoint_record().unwrap(), changed);
+}

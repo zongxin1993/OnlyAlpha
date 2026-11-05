@@ -123,27 +123,6 @@ fn errors_are_distinct_from_nullable_scalars() {
 }
 
 #[test]
-fn sealed_python_generation_compares_the_actual_native_executable() {
-    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/predicate_comparison_acceptance.py");
-    let output = Command::new("python")
-        .arg(script)
-        .arg(env!("CARGO_BIN_EXE_predicate-diagnostic"))
-        .output()
-        .expect("canonical Linux dev Python must be present");
-    assert!(
-        output.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stdout)
-            .contains("SEALED_PYTHON_NATIVE_PREDICATE_COMPARISON: PASS")
-    );
-}
-
-#[test]
 fn actual_integer_process_preserves_all_recorded_exact_values() {
     let rows: Vec<_> = include_str!("../../../test-data/predicate/integer-refs-v1.tsv")
         .lines()

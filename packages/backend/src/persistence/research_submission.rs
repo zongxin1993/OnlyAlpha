@@ -155,8 +155,10 @@ fn check_inputs(request: &Request, command: &CommandId, inputs: &PreparedInputs)
         horizon_bars: spec.study.horizon_bars,
     })?;
     inputs.verify_runtime()?;
+    inputs.verify_factor_authoring_generation(spec)?;
     let p = inputs.record();
-    if p["runtime_work_binding"]["work_id"] != run_id(command)
+    if !spec.matches_prepared_authoring(p)
+        || p["runtime_work_binding"]["work_id"] != run_id(command)
         || p["dataset_snapshot_fingerprint"] != spec.dataset_snapshot_fingerprint
         || p["runtime_generation_fingerprint"] != spec.runtime_generation_fingerprint
         || p["execution_binding"] != spec.execution_binding
@@ -467,7 +469,7 @@ async fn submit_checked(
     Commands::admit_exact_in_transaction(&tx, &admission)
         .await
         .map_err(db)?;
-    tx.execute("INSERT INTO research_run(run_id,revision,state,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,queued_at,calculation_execution_evidence_fingerprints,origin_kind) VALUES($1::text::uuid,0,'QUEUED',4,$2,$3,$4,$5,ARRAY[]::text[],'GENERAL')",&[&expected_run,&spec_fp,&payload,&text(&parent,"admission_fingerprint")?,&accepted_at]).await.map_err(db)?;
+    tx.execute("INSERT INTO research_run(run_id,revision,state,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,queued_at,calculation_execution_evidence_fingerprints,origin_kind) VALUES($1::text::uuid,0,'QUEUED',$6,$2,$3,$4,$5,ARRAY[]::text[],'GENERAL')",&[&expected_run,&spec_fp,&payload,&text(&parent,"admission_fingerprint")?,&accepted_at,&(request.specification.schema_version as i32)]).await.map_err(db)?;
     insert_action(&tx, &parent, &action).await?;
     tx.execute("INSERT INTO research_factor_study_authorization VALUES($1::text::uuid,$2::text::uuid,$3,$4)",&[&expected_run,&command.value(),&auth_fp,&raw_auth]).await.map_err(db)?;
     let receipt = Receipt::new(
@@ -679,8 +681,7 @@ async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Resul
             horizon_bars: req.specification.study.horizon_bars,
         })?
         .to_record();
-    if prepared["schema_version"] != 1
-        || prepared["contract"] != "ONLYALPHA_RESEARCH_PREPARED_INPUTS_V1"
+    if !req.specification.matches_prepared_authoring(prepared)
         || prepared["runtime_work_binding"]["work_id"] != id
         || prepared["input_window"] != window
         || prepared["factor_preparation_fingerprint"] != factor.fingerprint()
@@ -1036,7 +1037,7 @@ pub async fn pending_native_run_ids(client:&mut Client)->Result<Vec<String>> {
     let tx=client.transaction().await.map_err(db)?;
     bounds(&tx).await.map_err(db)?;
     tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp").await.map_err(db)?;
-    let rows=tx.query("SELECT r.run_id::text FROM research_run r WHERE ((r.specification_schema_version=4 AND r.origin_kind='GENERAL' AND r.strategy_research_composition_fingerprint IS NULL) OR (r.specification_schema_version=5 AND r.origin_kind='PRIVATE_STRATEGY' AND r.strategy_research_composition_fingerprint IS NOT NULL)) AND r.authoring_provenance IS NULL AND r.state IN ('QUEUED','RUNNING','CANCEL_REQUESTED') AND NOT EXISTS(SELECT 1 FROM research_run_attempt a WHERE a.run_id=r.run_id AND a.state='ACTIVE' AND a.lease_expires_at>clock_timestamp()) ORDER BY r.queued_at,r.run_id LIMIT 10001",&[]).await.map_err(db)?;
+    let rows=tx.query("SELECT r.run_id::text FROM research_run r WHERE ((r.specification_schema_version IN (4,6) AND r.origin_kind='GENERAL' AND r.strategy_research_composition_fingerprint IS NULL) OR (r.specification_schema_version=5 AND r.origin_kind='PRIVATE_STRATEGY' AND r.strategy_research_composition_fingerprint IS NOT NULL)) AND r.authoring_provenance IS NULL AND r.state IN ('QUEUED','RUNNING','CANCEL_REQUESTED') AND NOT EXISTS(SELECT 1 FROM research_run_attempt a WHERE a.run_id=r.run_id AND a.state='ACTIVE' AND a.lease_expires_at>clock_timestamp()) ORDER BY r.queued_at,r.run_id LIMIT 10001",&[]).await.map_err(db)?;
     if rows.len()>10000 {return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED");}
     let ids=rows.iter().map(|r|r.try_get(0).map_err(db)).collect::<Result<Vec<String>>>()?;
     tx.commit().await.map_err(db)?;

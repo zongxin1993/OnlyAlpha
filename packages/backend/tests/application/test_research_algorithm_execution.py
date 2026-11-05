@@ -1,36 +1,60 @@
-"""Pure algorithm conformance only; these checks grant no Research permission."""
+"""Native graph and restricted private SDK conformance; no Research permission."""
+
+from __future__ import annotations
 
 import json
 import subprocess
 import sys
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
+from onlyalpha.calculation.definition import OnlyCalculationReference
+from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha_backend_algorithms.sdk import private_factor_execution as execution
 from onlyalpha_backend_algorithms.sdk.private_factor_source import OnlyPrivateFactorExecutableSourceRecordV1
 
-from onlyalpha.quant_assets import OnlyPrivateFactorRevision
+from packages.backend.tests.application.test_research_preparation_installation import (
+    exchange,
+    feature_instances,
+    resolution,
+    target_instance,
+)
+from packages.backend.tests.application.test_research_preparation_installation import (
+    prepared_runtime as prepared_runtime,
+)
+from packages.backend.tests.application.test_schema_postgres import migration_backend as migration_backend
+from packages.backend.tests.application.test_schema_postgres import schema_db as schema_db
+
+
+def private_source() -> OnlyPrivateFactorExecutableSourceRecordV1:
+    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
+    return OnlyPrivateFactorExecutableSourceRecordV1.from_dict(
+        {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
+    )
 
 
 def test_native_preparation_observes_both_actual_backends_and_retains_exact_vectors() -> None:
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
+    source = private_source()
+    definition = execution.OnlyPrivateFactorDefinitionResolverV1(
+        execution.only_private_factor_type_definition(source)
+    ).resolve({}, {name: OnlyCalculationReference(None, "value", name) for name in source.input_contract})
     result = subprocess.run(
         [
             sys.executable,
             "-B",
             "-c",
-            "import json,sys;from onlyalpha.canonical import only_canonical_json;"
-            "from onlyalpha_backend_algorithms.research_preparation import certify;"
-            "print(only_canonical_json(certify(json.load(sys.stdin))))",
+            "import json,sys;from onlyalpha.canonical import only_canonical_json;from onlyalpha_backend_algorithms.research_preparation import certify;print(only_canonical_json(certify(json.load(sys.stdin))))",
         ],
         input=json.dumps(
             {
-                "source": {
-                    key: vector["revision"][key]
-                    for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__
+                "source": {key: getattr(source, key) for key in source.__dataclass_fields__}
+                | {
+                    key: dict(getattr(source, key))
+                    for key in ("input_contract", "parameter_contract", "output_contract")
                 },
-                "graph": vector["graph"],
+                "graph": {"schema_version": 1, "nodes": [{"alias": None, "definition": dict(definition.to_dict())}]},
             }
         ),
         text=True,
@@ -41,27 +65,21 @@ def test_native_preparation_observes_both_actual_backends_and_retains_exact_vect
     assert result.returncode == 0, result.stderr
     actual = json.loads(result.stdout)
     evidence = actual["equivalence_evidence"]
-    from onlyalpha.canonical import only_canonical_fingerprint
-
     assert actual["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
     assert evidence["disposition"] == "PASS"
     assert evidence["research_output_fingerprint"] == evidence["trading_output_fingerprint"]
     assert evidence["test_vector_set_fingerprint"] == only_canonical_fingerprint(actual["certification_vectors"])
     assert actual["certification_vectors"]["parameters"] == {"literal_1": "1"}
     assert len(actual["certification_vectors"]["vectors"]) == 8
-    assert (
-        actual["provider_snapshot"]["entries"][0]["revision_fingerprint"] == vector["revision"]["revision_fingerprint"]
-    )
+    assert actual["provider_snapshot"]["entries"][0]["revision_fingerprint"] == source.revision_fingerprint
     assert "research_result" not in actual
 
 
 def test_managed_observation_reuses_the_admitted_api_math_and_checks_source_bytes() -> None:
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-    revision = OnlyPrivateFactorRevision.from_dict(vector["revision"])
+    revision = private_source()
     validation = execution.only_validate_private_factor_revision(revision)
     manifest, source = execution.OnlyPrivateFactorSourceArtifactManifestV1.materialize(revision, validation)
-    evaluate = getattr(execution, "only_execute_private_factor_program", None)
-    assert callable(evaluate), "managed sandbox needs the same pure API evaluator as the isolated host"
+    evaluate = execution.only_execute_private_factor_program
     value = evaluate(
         manifest,
         source,
@@ -78,239 +96,240 @@ def test_managed_observation_reuses_the_admitted_api_math_and_checks_source_byte
         evaluate(manifest, source + b"\n", {}, {})
 
 
-def test_actual_graph_batch_keeps_warmup_gaps_and_exact_parameter_values() -> None:
-    import importlib
-
-    assert importlib.util.find_spec("onlyalpha_backend_algorithms.research_evaluation") is not None, (
-        "missing managed graph evaluator"
+def observe(
+    selected: dict[str, Any], rows: list[dict[str, Any]], request: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    resolved = request or resolution(selected, feature_instances(selected), private=True)
+    return exchange(
+        selected,
+        {"contract": "ONLYALPHA_CALCULATION_PLANES_OBSERVATION_V1", "resolution": resolved, "rows": rows},
+        "evaluate",
     )
-    from onlyalpha_backend_algorithms.research_evaluation import evaluate_graph
 
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-    revision = vector["revision"]
-    source = {
-        k: revision[k]
-        for k in (
-            "factor_id",
-            "semantic_version",
-            "revision_fingerprint",
-            "source_text",
-            "source_sha256",
-            "factor_api_version",
-            "factor_api_contract_fingerprint",
-            "input_contract",
-            "parameter_contract",
-            "output_contract",
-        )
-    }
+
+def factor_values(observed: dict[str, Any]) -> list[str | None]:
+    assert "error" not in observed, observed
+    factor = next(row for row in observed["nodes"] if row["definition"]["kind"] == "FACTOR")
+    return next(
+        row["values"]["value"]
+        for row in observed["evaluation"]["feature"]["outputs"]
+        if row["node_fingerprint"] == factor["definition_fingerprint"]
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+def test_actual_graph_batch_keeps_warmup_gaps_and_exact_parameter_values(prepared_runtime: dict[str, Any]) -> None:
     rows = [{"at_ns": i * 60_000_000_000, "values": {"close": str(100 + i), "volume": "200"}} for i in range(23)]
-    result = evaluate_graph(source, vector["graph"], rows, vector["root_fingerprint"])
-    assert result["feature"][:20] == [None] * 20
-    assert Decimal(result["feature"][20]) == Decimal("0.2")
+    result = observe(prepared_runtime, rows)
+    values = factor_values(result)
+    assert values[:20] == [None] * 20 and Decimal(values[20]) == Decimal("0.2")
     rows[1]["values"]["close"] = None
-    gapped = evaluate_graph(source, vector["graph"], rows, vector["root_fingerprint"])
-    assert gapped["feature"][21] is None
-    assert gapped["feature"][20] == result["feature"][20]
-    with pytest.raises(ValueError):
-        evaluate_graph(source, vector["graph"], rows, "0" * 64)
+    gapped = factor_values(observe(prepared_runtime, rows))
+    assert gapped[21] is None and gapped[20] == values[20]
+    factor = next(row for row in result["nodes"] if row["definition"]["kind"] == "FACTOR")
+    assert factor["definition"]["parameters"]["literal_1"] == {"type": "DECIMAL", "value": "1"}
+    foreign = json.loads(json.dumps(resolution(prepared_runtime, feature_instances(prepared_runtime), private=True)))
+    root = next(row for row in foreign["instances"] if row["type_reference"]["kind"] == "FACTOR")
+    root["input_bindings"][0]["source"] = {"kind": "VARIABLE", "instance_key": "missing", "output_name": "value"}
+    assert observe(prepared_runtime, rows, foreign) == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}
+    # The classic source-bound root must belong to the actual producer graph.
+    classic = {
+        "schema_version": 1,
+        "source": {
+            key: prepared_runtime["revision"][key]
+            for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__
+        },
+        "graph": prepared_runtime["proof"]["algorithm_observation"]["graph"],
+        "core_artifact": foreign["core_artifact"],
+    }
+    assert exchange(
+        prepared_runtime, {"resolution": classic, "rows": rows, "root_fingerprint": "0" * 64}, "evaluate"
+    ) == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}
 
 
 @pytest.mark.parametrize("bad", ["1e2", "NaN", "Infinity", "01", "+1"])
-def test_managed_graph_rejects_noncanonical_external_decimal_values(bad: str) -> None:
-    from onlyalpha_backend_algorithms.research_evaluation import evaluate_graph
-
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-    revision = vector["revision"]
-    source = {
-        k: revision[k]
-        for k in (
-            "factor_id",
-            "semantic_version",
-            "revision_fingerprint",
-            "source_text",
-            "source_sha256",
-            "factor_api_version",
-            "factor_api_contract_fingerprint",
-            "input_contract",
-            "parameter_contract",
-            "output_contract",
-        )
-    }
+@pytest.mark.integration
+@pytest.mark.postgres
+def test_managed_graph_rejects_noncanonical_external_decimal_values(prepared_runtime: dict[str, Any], bad: str) -> None:
     rows = [{"at_ns": i * 60_000_000_000, "values": {"close": bad, "volume": "200"}} for i in range(23)]
-    with pytest.raises(ValueError, match="RESEARCH_EVALUATION_DECIMAL_INVALID"):
-        evaluate_graph(source, vector["graph"], rows, vector["root_fingerprint"])
+    assert observe(prepared_runtime, rows) == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}
 
 
-def test_calculation_resolution_reuses_actual_factor_and_operator_definitions() -> None:
-    from onlyalpha_backend_algorithms.research_resolution import resolve_instances
-
-    from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
-
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-    graph = OnlyCalculationGraphDefinition.from_dict(vector["graph"])
-    keys = {node.fingerprint: f"node_{i}" for i, node in enumerate(graph.ordered_nodes)}
-    instances = []
-    for node in reversed(graph.ordered_nodes):
-        definition = node.definition.to_dict()
-        bindings = []
-        for name, reference in definition["input_bindings"].items():
-            source = (
-                reference["source"]
-                if reference["node_fingerprint"] is None
+@pytest.mark.integration
+@pytest.mark.postgres
+def test_calculation_resolution_reuses_actual_factor_and_operator_definitions(prepared_runtime: dict[str, Any]) -> None:
+    request = resolution(prepared_runtime, feature_instances(prepared_runtime), private=True)
+    first = exchange(prepared_runtime, request)
+    assert "error" not in first, first
+    request["instances"].reverse()
+    second = exchange(prepared_runtime, request)
+    assert second == first
+    actual = {row["instance_key"]: row for row in first["nodes"]}
+    assert len(actual) == 3
+    for instance in request["instances"]:
+        row = actual[instance["instance_key"]]
+        definition = row["definition"]
+        assert {key: definition[key] for key in ("kind", "type_id", "semantic_version")} == instance["type_reference"]
+        assert definition["parameters"] == {
+            name: parameter["value"] for name, parameter in instance["parameters"].items()
+        }
+        expected_bindings = {}
+        for binding in instance["input_bindings"]:
+            source = binding["source"]
+            expected_bindings[binding["input_name"]] = (
+                {"node_fingerprint": None, "output_name": "value", "source": source}
+                if isinstance(source, str)
                 else {
-                    "kind": "VARIABLE",
-                    "instance_key": keys[reference["node_fingerprint"]],
-                    "output_name": reference["output_name"],
+                    "node_fingerprint": actual[source["instance_key"]]["definition_fingerprint"],
+                    "output_name": source["output_name"],
+                    "source": None,
                 }
             )
-            bindings.append({"input_name": name, "source": source})
-        instances.append(
-            {
-                "instance_key": keys[node.fingerprint],
-                "type_reference": {key: definition[key] for key in ("kind", "type_id", "semantic_version")},
-                "parameters": {
-                    key: {"kind": "FIXED", "value": value} for key, value in definition["parameters"].items()
-                },
-                "published_outputs": [port["name"] for port in definition["outputs"]],
-                "primary_output": "value",
-                "input_bindings": bindings,
-            }
-        )
-    source = {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
-    result = resolve_instances([source], instances)
-    actual = {row["instance_key"]: row for row in result["nodes"]}
-    assert len(actual) == len(graph.nodes)
-    for node in graph.nodes:
-        row = actual[keys[node.fingerprint]]
-        assert row["definition"] == node.definition.to_dict()
-        assert row["definition_fingerprint"] == node.fingerprint
+        assert definition["input_bindings"] == expected_bindings
+    for row in actual.values():
         assert {value["backend_kind"] for value in row["implementations"]} == {"RESEARCH", "TRADING"}
-    assert len(result["source_artifacts"]) == 1
-    private = result["source_artifacts"][0]["private_calculations"]
+        definition = row["definition"]
+        assert definition["semantic_version"] == ("1" if definition["kind"] == "FACTOR" else "2")
+        assert len(row["definition_fingerprint"]) == 64
+    assert len(first["source_artifacts"]) == 1
+    private = first["source_artifacts"][0]["private_calculations"]
     assert {row["backend"] for row in private} == {"RESEARCH", "TRADING"}
-    assert all(row["type"]["type_id"] == source["factor_id"] for row in private)
+    assert all(row["type"]["type_id"] == prepared_runtime["revision"]["factor_id"] for row in private)
     assert next(row for row in private if row["backend"] == "TRADING")["state_capability"] == "STATELESS"
 
 
-def test_public_only_resolution_needs_no_fake_factor_and_rejects_unclosed_inputs() -> None:
-    from onlyalpha_backend_algorithms.research_resolution import resolve_instances
-
-    delay = {
-        "instance_key": "delay",
-        "type_reference": {"kind": "INDICATOR", "type_id": "onlyalpha.operator.delay", "semantic_version": "1"},
-        "parameters": {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}},
-        "published_outputs": ["value"],
-        "primary_output": "value",
-        "input_bindings": [{"input_name": "value", "source": "bar.close"}],
-    }
-    target = {
-        "instance_key": "target",
-        "type_reference": {"kind": "TARGET", "type_id": "onlyalpha.target.forward_return", "semantic_version": "1"},
-        "parameters": {"exit_offset": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 5}}},
-        "published_outputs": ["target_value"],
-        "primary_output": None,
-        "input_bindings": [
-            {"input_name": "entry_price", "source": "bar.close"},
-            {"input_name": "exit_price", "source": "bar.close"},
-        ],
-    }
-    result = resolve_instances([], [target, delay])
+@pytest.mark.integration
+@pytest.mark.postgres
+def test_public_only_resolution_needs_no_fake_factor_and_rejects_unclosed_inputs(
+    prepared_runtime: dict[str, Any],
+) -> None:
+    delay = feature_instances(prepared_runtime)[0]
+    request = resolution(prepared_runtime, [target_instance(), delay])
+    result = exchange(prepared_runtime, request)
+    assert "error" not in result, result
     assert result["source_artifacts"] == []
-    target_result = next(row for row in result["nodes"] if row["instance_key"] == "target")
-    assert target_result["definition"]["parameters"]["entry_offset"] == {"type": "INTEGER", "value": 0}
-    assert len(target_result["implementations"]) == 1
-    changed = json.loads(json.dumps(delay))
-    changed["input_bindings"][0]["source"] = {"kind": "VARIABLE", "instance_key": "missing", "output_name": "value"}
-    with pytest.raises(ValueError):
-        resolve_instances([], [changed])
-
-    changed["input_bindings"][0]["source"]["instance_key"] = "delay"
-    with pytest.raises(ValueError):
-        resolve_instances([], [changed])
+    target = next(row for row in result["nodes"] if row["instance_key"] == "target")
+    assert target["definition"]["parameters"]["entry_offset"] == {"type": "INTEGER", "value": 0}
+    assert len(target["implementations"]) == 1
+    for parent in ("missing", "delay"):
+        changed = json.loads(json.dumps(delay))
+        changed["input_bindings"][0]["source"] = {"kind": "VARIABLE", "instance_key": parent, "output_name": "value"}
+        assert exchange(prepared_runtime, resolution(prepared_runtime, [changed])) == {
+            "error": "RESEARCH_ALGORITHM_UNAVAILABLE"
+        }
 
 
-def test_full_numeric_graph_observes_actual_vector_and_streaming_backends() -> None:
-    from onlyalpha_backend_algorithms.research_evaluation import CalculationGraphEvaluator
-
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-    source = {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
-    program = CalculationGraphEvaluator([source], vector["graph"])
-    rows = [{"at_ns": i * 60_000_000_000, "values": {"close": str(100 + i), "volume": "200"}} for i in range(720)]
-    result = program.evaluate(rows, include_trading=True)
-    research = {row["node_fingerprint"]: row["values"] for row in result["outputs"]}
-    trading = {row["node_fingerprint"]: row["values"] for row in result["trading_outputs"]}
-    assert research == trading
-    values = research[vector["root_fingerprint"]]["value"]
-    assert values[:20] == [None] * 20
-    assert Decimal(values[20]) == Decimal("0.2")
-    assert Decimal(values[40]) == Decimal("0.166666666667")
-    assert len(values) == 720
-    rows[1]["values"]["close"] = None
-    gapped = program.evaluate(rows, include_trading=True)
-    assert [row["values"] for row in gapped["outputs"]] == [row["values"] for row in gapped["trading_outputs"]]
-    assert "equivalence_evidence" not in result and "strategy_fingerprint" not in result
-
-
-def test_zero_volume_graph_preserves_actual_math_and_forward_return_rejects_zero_price() -> None:
-    from onlyalpha_backend_algorithms.research_evaluation import CalculationGraphEvaluator
-    from onlyalpha_backend_algorithms.targets.registration import resolve_forward_return
-
-    from onlyalpha.calculation.definition import OnlyCalculationReference
-
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-    source = {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
-    program = CalculationGraphEvaluator([source], vector["graph"])
-    rows = [{"at_ns": i * 60_000_000_000, "values": {"close": "100", "volume": "0"}} for i in range(42)]
-    result = program.evaluate(rows, include_trading=True)
-    research = {row["node_fingerprint"]: row["values"] for row in result["outputs"]}
-    trading = {row["node_fingerprint"]: row["values"] for row in result["trading_outputs"]}
-    assert research == trading
-    assert research[vector["root_fingerprint"]]["value"] == [None] * len(rows)
-    mean = next(node for node in program.graph.nodes if node.definition.type_id == "onlyalpha.operator.rolling_mean")
-    assert Decimal(research[mean.fingerprint]["value"][-1]) == 0
-
-    definition = resolve_forward_return(
-        {"entry_offset": 0, "exit_offset": 5},
-        OnlyCalculationReference(None, "entry_price", "bar.close"),
-        OnlyCalculationReference(None, "exit_price", "bar.close"),
-    )
-    target = CalculationGraphEvaluator(
-        [], {"schema_version": 1, "nodes": [{"alias": None, "definition": dict(definition.to_dict())}]}
-    )
-    observed = target.evaluate(rows)["outputs"][0]["values"]["target_value"]
-    assert [Decimal(value) for value in observed[:-5]] == [Decimal(0)] * (len(rows) - 5)
-    assert observed[-5:] == [None] * 5
-    rows[0]["values"]["close"] = "0"
-    with pytest.raises(ValueError, match="finite and positive"):
-        target.evaluate(rows)
-
-
-def test_direct_zero_profiles_keep_actual_private_factor_division_null() -> None:
-    from onlyalpha_backend_algorithms.research_evaluation import NodeProfileEvaluator
-
-    from onlyalpha.calculation.definition import OnlyCalculationDefinition
-
-    vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
-    source = {key: vector["revision"][key] for key in OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__}
-    planned, resolved = [], []
-    for raw in vector["graph"]["nodes"]:
-        definition = OnlyCalculationDefinition.from_dict(raw["definition"])
-        operands = {port.name: {"type": "DECIMAL", "value": "0"} for port in definition.inputs}
-        count = definition.warmup.minimum_observations + 22
-        planned.append(
+def streaming_profiles(selected: dict[str, Any], *, count: int = 42) -> dict[str, Any]:
+    request = resolution(selected, feature_instances(selected), private=True)
+    result = exchange(selected, request)
+    assert "error" not in result, result
+    nodes = []
+    for row in result["nodes"]:
+        definition = row["definition"]
+        operands = {port["name"]: {"type": "DECIMAL", "value": "0"} for port in definition["inputs"]}
+        nodes.append(
             {
-                "definition": raw["definition"],
+                "definition": definition,
                 "cases": [{"case_id": "ZERO_BOUNDARY", "inputs": [operands for _ in range(count)]}],
             }
         )
-        resolved.append({"definition_fingerprint": definition.fingerprint, "definition": raw["definition"]})
-    observed = NodeProfileEvaluator([source], planned, resolved).evaluate()["nodes"]
-    assert len(observed) == len(planned)
+    return {
+        "schema_version": 1,
+        "contract": "ONLYALPHA_CALCULATION_NODE_PROFILE_OBSERVATION_V1",
+        "resolution": request,
+        "nodes": nodes,
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+def test_full_numeric_graph_observes_actual_vector_and_streaming_backends(prepared_runtime: dict[str, Any]) -> None:
+    rows = [{"at_ns": i * 60_000_000_000, "values": {"close": str(100 + i), "volume": "200"}} for i in range(720)]
+    result = observe(prepared_runtime, rows)
+    values = factor_values(result)
+    assert values[:20] == [None] * 20
+    assert Decimal(values[20]) == Decimal("0.2") and Decimal(values[40]) == Decimal("0.166666666667")
+    assert len(values) == 720
+    rows[1]["values"]["close"] = None
+    gapped = factor_values(observe(prepared_runtime, rows))
+    assert gapped[21] is None and gapped[20] == values[20]
+    # Independent actual stream factories are observed through native profiles.
+    # Whole-graph Trading order/receipts/restart belong to workers_trading tests.
+    profiles = exchange(prepared_runtime, streaming_profiles(prepared_runtime), "evaluate")
+    assert "error" not in profiles, profiles
+    for node in profiles["evaluation"]["nodes"]:
+        for case in node["cases"]:
+            assert case["research_outputs"] == case["trading_outputs"]
+    assert "equivalence_evidence" not in result and "strategy_fingerprint" not in result
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+def test_zero_volume_graph_preserves_actual_math_and_forward_return_rejects_zero_price(
+    prepared_runtime: dict[str, Any],
+) -> None:
+    rows = [{"at_ns": i * 60_000_000_000, "values": {"close": "100", "volume": "0"}} for i in range(42)]
+    result = observe(prepared_runtime, rows)
+    assert factor_values(result) == [None] * len(rows)
+    mean = next(row for row in result["nodes"] if row["definition"]["type_id"] == "onlyalpha.operator.rolling_mean")
+    values = next(
+        row["values"]["value"]
+        for row in result["evaluation"]["feature"]["outputs"]
+        if row["node_fingerprint"] == mean["definition_fingerprint"]
+    )
+    assert Decimal(values[-1]) == 0
+    target = resolution(prepared_runtime, [target_instance()])
+    observed = observe(prepared_runtime, rows, target)
+    assert "error" not in observed, observed
+    values = observed["evaluation"]["targets"]["outputs"][0]["values"]["target_value"]
+    assert [Decimal(value) for value in values[:-5]] == [Decimal(0)] * (len(rows) - 5)
+    assert values[-5:] == [None] * 5
+    rows[0]["values"]["close"] = "0"
+    assert observe(prepared_runtime, rows, target) == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+def test_direct_zero_profiles_keep_actual_private_factor_division_null(prepared_runtime: dict[str, Any]) -> None:
+    request = streaming_profiles(prepared_runtime)
+    result = exchange(prepared_runtime, request, "evaluate")
+    assert "error" not in result, result
+    observed = result["evaluation"]["nodes"]
+    assert len(observed) == len(request["nodes"]) == 3
     for node in observed:
         case = node["cases"][0]
-        assert case["case_id"] == "ZERO_BOUNDARY"
-        assert case["research_outputs"] == case["trading_outputs"]
+        assert case["case_id"] == "ZERO_BOUNDARY" and case["research_outputs"] == case["trading_outputs"]
         assert all(value == {"type": "DECIMAL", "value": "0"} for row in case["inputs"] for value in row.values())
-    factor = next(node for node in observed if node["node_fingerprint"] == vector["root_fingerprint"])
-    case = factor["cases"][0]
-    assert case["research_outputs"] == [{"value": {"type": "NULL", "value": None}}] * len(case["inputs"])
+    factor = next(row for row in result["nodes"] if row["definition"]["kind"] == "FACTOR")
+    outputs = next(
+        row["cases"][0]["research_outputs"]
+        for row in observed
+        if row["node_fingerprint"] == factor["definition_fingerprint"]
+    )
+    assert outputs == [{"value": {"type": "NULL", "value": None}}] * len(outputs)
+    # Exact per-case and package limits reach the native profile owner unchanged.
+    bounded = json.loads(json.dumps(request))
+    bounded["nodes"] = [
+        next(node for node in bounded["nodes"] if node["definition"]["type_id"] == "onlyalpha.operator.delay")
+    ]
+    case = bounded["nodes"][0]["cases"][0]
+    zero = case["inputs"][:1]
+    case["inputs"] = zero * 8192
+    accepted = exchange(prepared_runtime, bounded, "evaluate")
+    assert "error" not in accepted, accepted
+    assert len(accepted["evaluation"]["nodes"][0]["cases"][0]["research_outputs"]) == 8192
+    outputs = accepted["evaluation"]["nodes"][0]["cases"][0]["research_outputs"]
+    assert outputs[:20] == [{"value": {"type": "NULL", "value": None}}] * 20
+    assert all(row["value"]["type"] == "DECIMAL" and Decimal(row["value"]["value"]) == 0 for row in outputs[20:])
+    case["inputs"] = zero * 8193
+    assert exchange(prepared_runtime, bounded, "evaluate") == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}
+    bounded["nodes"][0]["cases"] = [{"case_id": f"CASE_{i}", "inputs": zero} for i in range(32)]
+    accepted = exchange(prepared_runtime, bounded, "evaluate")
+    assert "error" not in accepted and len(accepted["evaluation"]["nodes"][0]["cases"]) == 32
+    assert all(
+        case["research_outputs"] == [{"value": {"type": "NULL", "value": None}}]
+        for case in accepted["evaluation"]["nodes"][0]["cases"]
+    )
+    bounded["nodes"][0]["cases"].append({"case_id": "CASE_32", "inputs": zero})
+    assert exchange(prepared_runtime, bounded, "evaluate") == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}

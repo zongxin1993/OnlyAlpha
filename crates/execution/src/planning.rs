@@ -2,6 +2,7 @@ use crate::{Components, Prepared, model::*};
 use bigdecimal::{BigDecimal, Zero};
 use onlyalpha_domain::{base::OnlyDomainModel, execution::OnlyOrderRequest, value::OnlyPrice};
 use serde_json::{Value, json};
+use std::sync::Arc;
 impl Components {
     pub fn prepare<S: crate::Store>(&self, store: &S, input: &Value) -> Result<Prepared, Error> {
         self.ready_source(store)?;
@@ -81,10 +82,10 @@ impl Components {
             "TERMINAL" => candidate.terminal(input)?,
             _ => return Err(err("EXECUTION_OPERATION")),
         };
-        candidate.meta["inputs"][text(&input["input_id"])?] = json!(hash(input));
-        candidate.meta["sources"][text(&input["source_ref"])?] = json!(hash(input));
-        candidate.meta["last_runtime_sequence"] = json!(n);
-        candidate.meta["transactions"][self
+        Arc::make_mut(&mut candidate.meta)["inputs"][text(&input["input_id"])?] = json!(hash(input));
+        Arc::make_mut(&mut candidate.meta)["sources"][text(&input["source_ref"])?] = json!(hash(input));
+        Arc::make_mut(&mut candidate.meta)["last_runtime_sequence"] = json!(n);
+        Arc::make_mut(&mut candidate.meta)["transactions"][self
             .sequence
             .checked_add(1)
             .ok_or_else(|| err("EXECUTION_SEQUENCE_OVERFLOW"))?
@@ -97,9 +98,11 @@ impl Components {
             .sequence
             .checked_add(1)
             .ok_or_else(|| err("EXECUTION_SEQUENCE_OVERFLOW"))?;
-        Prepared::new(
-            json!({"schema_version":1,"transaction_id":tx,"config_hash":hash(&self.config),"sequence":sequence,"predecessor":self.sequence,"input":input,"projections":projections,"events":[{"schema_version":1,"event_id":format!("{tx}-EVENT-1"),"transaction_id":tx,"sequence":sequence,"input":input}]}),
-        ).map(|prepared|prepared.with_typed_after(candidate))
+        let mut body = json!({"schema_version":1,"transaction_id":tx,"config_hash":hash(&self.config),"sequence":sequence,"predecessor":self.sequence,"input":input,"projections":null,"events":[{"schema_version":1,"event_id":format!("{tx}-EVENT-1"),"transaction_id":tx,"sequence":sequence,"input":input}]});
+        // Retain the original key position while moving the already constructed
+        // Values, rather than serializing and copying every projection again.
+        body["projections"] = Value::Array(projections);
+        Prepared::new_with_typed_after(body, candidate)
     }
     pub(crate) fn command(&self, input: &Value, op: &str, payload: Value, suffix: u64) -> Value {
         json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"command_id":format!("{}-{suffix}",input["input_id"].as_str().expect("validated")),"cause":hash(input),"time":input["time"],"op":op,"payload":payload})
@@ -148,33 +151,33 @@ impl Components {
         c
     }
     fn order_apply(&mut self, c: &Value) -> Result<Value, Error> {
-        let o = boundary(self.order.apply(c))?;
+        let o = boundary(Arc::make_mut(&mut self.order).apply(c))?;
         if o.result != onlyalpha_order::ApplyResult::Applied {
             return Err(err("EXECUTION_ORDER_NOT_APPLIED"));
         }
         Ok(o.snapshot.map(|s| s.to_record()).unwrap_or(Value::Null))
     }
     pub(crate) fn account_apply(&mut self, c: &Value) -> Result<(), Error> {
-        if boundary(self.account.apply(c))?.status != onlyalpha_account::Status::Applied {
+        if boundary(Arc::make_mut(&mut self.account).apply(c))?.status != onlyalpha_account::Status::Applied {
             return Err(err("EXECUTION_ACCOUNT_NOT_APPLIED"));
         }
         Ok(())
     }
     pub(crate) fn ledger_apply(&mut self, c: &Value) -> Result<(), Error> {
-        if boundary(self.ledger.apply(c))?.status != onlyalpha_strategy_ledger::Status::Applied {
+        if boundary(Arc::make_mut(&mut self.ledger).apply(c))?.status != onlyalpha_strategy_ledger::Status::Applied {
             return Err(err("EXECUTION_LEDGER_NOT_APPLIED"));
         }
         Ok(())
     }
     fn position_apply(&mut self, c: &Value) -> Result<Value, Error> {
-        let o = boundary(self.position.apply(c))?;
+        let o = boundary(Arc::make_mut(&mut self.position).apply(c))?;
         if o.status != onlyalpha_position::Status::Applied {
             return Err(err("EXECUTION_POSITION_NOT_APPLIED"));
         }
         Ok(o.fact.unwrap_or(Value::Null))
     }
     fn risk_apply(&mut self, c: &Value) -> Result<Option<Value>, Error> {
-        let o = boundary(self.risk.apply(c))?;
+        let o = boundary(Arc::make_mut(&mut self.risk).apply(c))?;
         if o.status != onlyalpha_risk::Status::Applied {
             return Err(err("EXECUTION_RISK_NOT_APPLIED"));
         }
@@ -210,7 +213,7 @@ impl Components {
         if self.meta[family].get(source).is_some() {
             return Err(err("EXECUTION_ECONOMIC_SOURCE_ALIAS"));
         }
-        self.meta[family][source] = json!(hash(proof));
+        Arc::make_mut(&mut self.meta)[family][source] = json!(hash(proof));
         Ok(())
     }
     /// Reuse the exact canonical admission against an original retained
@@ -370,7 +373,7 @@ impl Components {
         } else {
             boundary(settlement_owner.admit_order(settlement_scope,order,side,text(&r["quantity"]["value"])?,quantity_precision))?;
         }
-        self.meta["settlement_authority"] = settlement_owner.checkpoint();
+        Arc::make_mut(&mut self.meta)["settlement_authority"] = settlement_owner.checkpoint();
         self.economic_source("markets", &p["market"])?;
         if boundary(self.ledger.snapshot(cluster))?["status"] == "CREATED" {
             self.ledger_apply(&self.ledger_command(
@@ -462,7 +465,7 @@ impl Components {
         ))?;
         let mut relation = json!({"cluster":cluster,"revision":input["revision"],"instrument":inst,"side":side,"request":r,"fee_contract":p["fee_contract"]});
         if whole_fill { relation["settlement_fill_contract"] = p["settlement_fill_contract"].clone(); }
-        self.meta["orders"][order] = relation;
+        Arc::make_mut(&mut self.meta)["orders"][order] = relation;
         self.admit_collateral(input)?;
         Ok(())
     }
@@ -718,7 +721,7 @@ impl Components {
         let application = boundary(fee_owner.apply_admitted_target(fee))?.record();
         let charges = money(&nonnegative(&application["charges"])?, self.precision)?;
         let rebates = money(&nonnegative(&application["rebates"])?, self.precision)?;
-        self.meta["fee_authority"] = fee_owner.checkpoint();
+        Arc::make_mut(&mut self.meta)["fee_authority"] = fee_owner.checkpoint();
         let before_order = boundary(self.order.get(cluster, order))?.to_record();
         let qp = before_order["quantity"]["precision"].clone();
         let pp = if is_market {
@@ -765,9 +768,9 @@ impl Components {
         let pos = boundary(self.position.account(inst))?;
         let rd = exact(&fact["realized_pnl"])?;
         if self.meta["marks"][cluster].is_null() {
-            self.meta["marks"][cluster] = json!({});
+            Arc::make_mut(&mut self.meta)["marks"][cluster] = json!({});
         }
-        self.meta["marks"][cluster][inst] = json!(mark.normalized().to_plain_string());
+        Arc::make_mut(&mut self.meta)["marks"][cluster][inst] = json!(mark.normalized().to_plain_string());
         let position_state = self.position.state();
         let mut new_market = BigDecimal::zero();
         let mut total_cost = BigDecimal::zero();
@@ -810,7 +813,7 @@ impl Components {
         ))?;
         let mut owner = self.settlement_owner()?;
         boundary(owner.register(&instruction))?;
-        self.meta["settlement_authority"] = owner.checkpoint();
+        Arc::make_mut(&mut self.meta)["settlement_authority"] = owner.checkpoint();
         self.risk_apply(&self.risk_command(input,"FILL",json!({"schema_version":1,"order":order,"trade":p["trade"],"source_ref":input["source_ref"],"quantity":p["quantity"],"notional":notional_s,"final_fill":terminal}),0))?;
         self.fill_collateral(input)?;
         Ok(())
@@ -898,7 +901,7 @@ impl Components {
         if !nonnegative(&effect["cash_amount"])?.is_zero() {
             self.account_apply(&self.command(input,"SETTLE",json!({"schema_version":1,"instruction":effect["id"],"source_trade":effect["trade"],"amount":effect["cash_amount"]}),0))?;
         }
-        self.meta["settlement_authority"] = owner.checkpoint();
+        Arc::make_mut(&mut self.meta)["settlement_authority"] = owner.checkpoint();
         Ok(())
     }
 }

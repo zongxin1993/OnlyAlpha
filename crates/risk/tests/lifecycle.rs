@@ -729,3 +729,48 @@ fn normalized_financial_boundary_remains_readable_in_fresh_recovery() {
         "canonical coefficient exceeds its own reader bound"
     );
 }
+
+#[test]
+fn checkpoint_records_follow_every_risk_transition_and_reject_atomically() {
+    use std::sync::Arc;
+
+    let mut manager = Manager::new(cfg()).unwrap();
+    let commands = [
+        eval(1, "c1", "r1"),
+        reserve(2, "c1", "r1", "o1"),
+        staged(3, "STAGE", "UNKNOWN"),
+        fill(4, "t1", "4", "36", false),
+        terminal(5, "CANCELLED"),
+        cmd(6, "c1", "KILL", json!({"schema_version":1,"scope":"CLUSTER","active":true})),
+    ];
+    for command in commands {
+        let before = manager.checkpoint_record().unwrap().0;
+        manager.apply(&command).unwrap();
+        let (after, fingerprint) = manager.checkpoint_record().unwrap();
+        assert!(!Arc::ptr_eq(&before, &after));
+        let bytes = serde_json::to_vec(after.as_ref()).unwrap();
+        assert_eq!(fingerprint, digest(&bytes));
+        assert_eq!(manager.checkpoint().unwrap(), (bytes.clone(), fingerprint.clone()));
+        let mut fresh = Manager::new(cfg()).unwrap();
+        fresh.restore(&bytes, &fingerprint).unwrap();
+        assert_eq!(fresh.state(), manager.state());
+        assert_eq!(fresh.checkpoint_record().unwrap().0, after);
+    }
+
+    let stable = manager.checkpoint_record().unwrap().0;
+    assert!(manager.apply(&fill(7, "late", "1", "10", false)).is_err());
+    assert!(Arc::ptr_eq(&stable, &manager.checkpoint_record().unwrap().0));
+
+    let mut limited_config = cfg();
+    limited_config["admission_limits"]["commands"] = json!(1);
+    let mut limited = Manager::new(limited_config).unwrap();
+    limited.apply(&eval(1, "c1", "r1")).unwrap();
+    let (before, fingerprint) = limited.checkpoint_record().unwrap();
+    let error = limited.apply(&reserve(2, "c1", "r1", "o1")).unwrap_err();
+    assert_eq!(error.to_string(), "RISK_CAPACITY_NEW_RISK_BLOCKED");
+    assert!(Arc::ptr_eq(&before, &limited.checkpoint_record().unwrap().0));
+    assert_eq!(limited.checkpoint_record().unwrap().1, fingerprint);
+    // A failed admission must not consume the sequence or poison a later safety command.
+    limited.apply(&cmd(2, "c1", "KILL", json!({"schema_version":1,"scope":"RUNTIME","active":true}))).unwrap();
+    assert_eq!(limited.state()["sequence"], 2);
+}

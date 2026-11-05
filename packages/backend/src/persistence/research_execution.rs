@@ -15,6 +15,44 @@ const UNCERTAIN: &str = "RESEARCH_EXECUTION_OWNERSHIP_UNCERTAIN";
 const INVALID: &str = "RESEARCH_EXECUTION_INPUT_INVALID";
 const MISMATCH: &str = "RESEARCH_EXECUTION_PROOF_MISMATCH";
 
+/// The original prepared input hold stays live while the claim is attempted.
+pub struct AuthoringClaim {
+    run_id: String,
+    specification: String,
+    generation: String,
+    runtime: std::sync::Arc<super::research_runtime::RuntimeInputHold>,
+    installation: onlyalpha_calculation_bridge::ChartInstallation,
+}
+impl AuthoringClaim {
+    pub fn verify(
+        run: &VerifiedRun,
+        inputs: &crate::application::research_admission::PreparedInputs,
+        installation: &onlyalpha_calculation_bridge::ChartInstallation,
+        native_version: &str,
+    ) -> Result<Self> {
+        crate::application::research_run_execution::verify_inputs(run, inputs)?;
+        let spec = run.factor_specification()?;
+        let generation = spec.authoring_generation_fingerprint.as_deref().ok_or(MISMATCH)?;
+        let image = crate::workers::algorithm::describe_research_runtime(native_version)
+            .map_err(|_| "RESEARCH_EXECUTOR_IMAGE_UNAVAILABLE")?;
+        crate::application::research_run_execution::verify_executor_image(&image, &spec.execution_binding)?;
+        installation.verify().map_err(|_| MISMATCH)?;
+        if installation.artifact_fingerprint() != spec.algorithm_artifact_fingerprint {
+            return Err(MISMATCH);
+        }
+        Ok(Self {
+            run_id: run.run_id().into(),
+            specification: run.specification_fingerprint().into(),
+            generation: generation.into(),
+            runtime: inputs.runtime_hold(),
+            installation: onlyalpha_calculation_bridge::ChartInstallation::open(
+                installation.root(),
+                installation.artifact_fingerprint(),
+            ).map_err(|_| MISMATCH)?,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunState {
     Queued,
@@ -231,6 +269,30 @@ impl<'a> ResearchExecution<'a> {
         attempt_id: &str,
         at: OnlyUtcDateTime,
     ) -> Result<Option<Claim>> {
+        self.claim_bound(run, worker_id, attempt_id, at, None).await
+    }
+
+    pub async fn claim_authoring(
+        &mut self,
+        run: &VerifiedRun,
+        proof: &AuthoringClaim,
+        worker_id: &str,
+        attempt_id: &str,
+        at: OnlyUtcDateTime,
+    ) -> Result<Option<Claim>> {
+        proof.runtime.verify()?;
+        proof.installation.verify().map_err(|_| MISMATCH)?;
+        self.claim_bound(run, worker_id, attempt_id, at, Some(proof)).await
+    }
+
+    async fn claim_bound(
+        &mut self,
+        run: &VerifiedRun,
+        worker_id: &str,
+        attempt_id: &str,
+        at: OnlyUtcDateTime,
+        authoring: Option<&AuthoringClaim>,
+    ) -> Result<Option<Claim>> {
         if !crate::application::command::uuid4(worker_id)
             || !crate::application::command::uuid4(attempt_id)
         {
@@ -255,6 +317,19 @@ impl<'a> ResearchExecution<'a> {
             tx.commit().await.map_err(|_| UNAVAILABLE)?;
             return Ok(None);
         };
+        let generation = match run.specification() {
+            crate::application::research_run::NativeSpecification::Factor(spec) =>
+                spec.authoring_generation_fingerprint.as_deref(),
+            crate::application::research_run::NativeSpecification::Strategy(_) => None,
+        };
+        match (generation, authoring) {
+            (None, None) => {}
+            (Some(expected), Some(proof))
+                if proof.generation == expected
+                    && proof.run_id == run.run_id()
+                    && proof.specification == run.specification_fingerprint() => {}
+            _ => return Err(MISMATCH),
+        }
         if !matches!(current.status.state, RunState::Queued | RunState::Running) {
             return Ok(None);
         }
@@ -622,7 +697,7 @@ async fn bounds(tx: &Transaction<'_>) -> Result<()> {
 }
 fn run_lineage(run:&VerifiedRun)->Result<(i32,Option<&str>)> {
     match run.specification() {
-        crate::application::research_run::NativeSpecification::Factor(_)=>Ok((4,None)),
+        crate::application::research_run::NativeSpecification::Factor(spec)=>Ok((spec.schema_version as i32,None)),
         crate::application::research_run::NativeSpecification::Strategy(_)=> {
             let composition=run.prepared_inputs["composition"]["composition_fingerprint"].as_str()
                 .filter(|p|crate::is_sha256_hex(p)).ok_or(MISMATCH)?;
@@ -674,7 +749,7 @@ async fn lock_run(
     let actual_payload: String = row.try_get("specification_payload").map_err(|_| MISMATCH)?;
     let native_authoring: bool = row.try_get("native_authoring").map_err(|_| MISMATCH)?;
     if schema != lineage.0
-        || !matches!((schema,origin.as_str()),(4,"GENERAL")|(5,"PRIVATE_STRATEGY"))
+        || !matches!((schema,origin.as_str()),(4 | 6,"GENERAL")|(5,"PRIVATE_STRATEGY"))
         || composition.as_deref()!=lineage.1
         || (schema==5)!=composition.is_some()
         || !native_authoring

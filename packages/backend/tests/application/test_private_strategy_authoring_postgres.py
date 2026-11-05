@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -10,15 +11,16 @@ from uuid import uuid4
 
 import pytest
 
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from packages.backend.tests.application.support.research_admission_reference import build
+from packages.backend.tests.application.test_schema_postgres import migration_backend as migration_backend
+from packages.backend.tests.application.test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 
 
 @pytest.fixture
-def database(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def database(schema_db: str) -> str:
+    return schema_db
 
 
 def draft(strategy_id: str) -> dict[str, Any]:
@@ -439,80 +441,88 @@ def research_context() -> dict[str, Any]:
 
 
 def test_native_strategy_context_matches_the_public_authoring_contract(native_probe: Path, database: str) -> None:
-    from onlyalpha.quant_assets.private_strategy import (
-        OnlyPrivateStrategyDefinitionV1,
-        OnlyPrivateStrategyResearchContextV1,
-    )
-    from onlyalpha.research.definition.model import (
-        OnlyResearchDatasetSelection,
-        OnlyResearchDefinition,
-        OnlyResearchUniverseKind,
-        OnlyResearchUniverseSelection,
-    )
-
+    # Compare the current Rust owner's exact public wire shape and semantic
+    # identity behavior, rather than importing the retired Python authority.
+    # Independent contract vectors are covered by strategy_research Rust tests.
     strategy_id = "private.strategy.s" + uuid4().hex
     value = draft(strategy_id)["definition"]
+    exit_condition = value["signals"]["exit"]
+    entry_condition = value["signals"]["entry"]
+    eligibility = value["eligibility"]
     value["eligibility"] = {
         "kind": "AND",
-        "operands": [
-            value["signals"]["exit"],
-            {"kind": "AND", "operands": [value["signals"]["entry"], value["eligibility"]]},
-        ],
+        "operands": [exit_condition, {"kind": "AND", "operands": [entry_condition, eligibility]}],
     }
     context = research_context()
     result = call(native_probe, strategy_id, "context", definition=value, context=context)
-    strategy = OnlyPrivateStrategyDefinitionV1.from_dict(value)
-    reference_context = OnlyPrivateStrategyResearchContextV1.from_dict(context)
-    reference = OnlyResearchDefinition(
-        OnlyResearchDatasetSelection(
-            OnlyResearchUniverseSelection(
-                OnlyResearchUniverseKind.SINGLE_INSTRUMENT, tuple(value["universe"]["instruments"])
-            ),
-            strategy.market_input.bar_semantic,
-            reference_context.start,
-            reference_context.end,
-        ),
-        strategy.calculations,
-        strategy.eligibility,
-        strategy.signals,
-        reference_context.targets,
-        reference_context.statistics,
-        display_metadata=reference_context.display_metadata,
+    assert "error" not in result, result
+    assert result["context"] == context
+    context_identity = {"contract": "ONLYALPHA_PRIVATE_STRATEGY_RESEARCH_CONTEXT_V1", **context}
+    assert (
+        result["context_fingerprint"]
+        == hashlib.sha256(
+            json.dumps(context_identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
     )
-    assert result["context"] == reference_context.to_dict()
-    assert result["context_fingerprint"] == reference_context.research_context_fingerprint
-    assert result["definition"] == reference.to_dict()
-    assert result["definition_fingerprint"] == reference.definition_fingerprint
+    assert result["definition"] == {
+        "schema_version": 1,
+        "dataset": {
+            "universe": {
+                "kind": value["universe"]["kind"],
+                "instrument_ids": value["universe"]["instruments"],
+                "registered_id": None,
+            },
+            "bar_semantic": value["market_input"]["bar_semantic"],
+            "start": context["start"],
+            "end": context["end"],
+        },
+        "calculations": value["calculations"],
+        "eligibility": value["eligibility"],
+        "signals": value["signals"],
+        "targets": context["targets"],
+        "statistics": context["statistics"],
+        "display_metadata": context["display_metadata"],
+    }
+    assert len(result["definition_fingerprint"]) == 64
+    assert call(native_probe, strategy_id, "context", definition=value, context=context) == result
+    flattened = json.loads(json.dumps(value))
+    flattened["eligibility"] = {"kind": "AND", "operands": [eligibility, exit_condition, entry_condition]}
+    reordered = call(native_probe, strategy_id, "context", definition=flattened, context=context)
+    assert reordered["definition_fingerprint"] == result["definition_fingerprint"]
+    presentation = {**context, "display_metadata": {"title": "Changed presentation"}}
+    renamed = call(native_probe, strategy_id, "context", definition=value, context=presentation)
+    assert renamed["context_fingerprint"] != result["context_fingerprint"]
+    assert renamed["definition_fingerprint"] == result["definition_fingerprint"]
+    changed = json.loads(json.dumps(value))
+    changed["signals"]["entry"]["right"]["value"]["value"] = "0.001"
+    assert (
+        call(native_probe, strategy_id, "context", definition=changed, context=context)["definition_fingerprint"]
+        != result["definition_fingerprint"]
+    )
 
 
 def test_strategy_composition_reanchors_exact_revision_and_retains_public_context(
-    native_probe: Path, database: str, tmp_path: Path
+    native_release_probe: Path, database: str, tmp_path: Path
 ) -> None:
     import psycopg
 
-    root = Path(__file__).resolve().parents[4]
     runtime = tmp_path / "runtime"
-    result = subprocess.run(
-        [
-            "python",
-            str(root / "packages/backend/tests/application/support/research_runtime_reference.py"),
-            str(runtime),
-            "ready",
-            "--strategy-targets",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    generation = json.loads(result.stdout)["generation"]
+    selected = build(runtime, native_release_probe, preparation_kind="STRATEGY", work_id="work")
+    executable = runtime / "native-executor"
+    assert hashlib.sha256(executable.read_bytes()).hexdigest() == selected["executor_sha256"]
+    generation = selected["generation"]
     strategy_id = "private.strategy.s" + uuid4().hex
     value = draft(strategy_id)
     calculation = value["definition"]["calculations"][0]
-    calculation["type_reference"]["type_id"] = "onlyalpha.operator.delay"
+    calculation["type_reference"] = {
+        "kind": "INDICATOR",
+        "type_id": "onlyalpha.operator.delay",
+        "semantic_version": "2",
+    }
     calculation["parameters"] = {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}}
     calculation["input_bindings"] = [{"input_name": "value", "source": "bar.close"}]
-    saved = call(native_probe, strategy_id, "save", draft=value, expected=None)
-    revision = call(native_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
+    saved = call(executable, strategy_id, "save", draft=value, expected=None)
+    revision = call(executable, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
         "revision"
     ]
     arguments = {
@@ -521,7 +531,7 @@ def test_strategy_composition_reanchors_exact_revision_and_retains_public_contex
         "runtime_generation": generation,
         "revision_fingerprint": revision["revision_fingerprint"],
     }
-    composition = call(native_probe, strategy_id, "composition", **arguments)
+    composition = call(executable, strategy_id, "composition", **arguments)
     assert composition["private_strategy_revision_fingerprint"] == revision["revision_fingerprint"]
     assert composition["factor_revision_bindings"] == []
     assert "strategy_fingerprint" not in composition and "runtime_generation_fingerprint" not in composition
@@ -531,9 +541,9 @@ def test_strategy_composition_reanchors_exact_revision_and_retains_public_contex
         "description": "second",
         "base_revision_fingerprint": revision["revision_fingerprint"],
     }
-    saved = call(native_probe, strategy_id, "save", draft=changed, expected=saved["result"]["draft_fingerprint"])
-    call(native_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])
-    assert call(native_probe, strategy_id, "composition", **arguments) == composition
+    saved = call(executable, strategy_id, "save", draft=changed, expected=saved["result"]["draft_fingerprint"])
+    call(executable, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])
+    assert call(executable, strategy_id, "composition", **arguments) == composition
     with psycopg.connect(database) as connection:
         row = connection.execute(
             "SELECT count(*),min(research_context_payload::text) FROM private_strategy_research_composition WHERE private_strategy_id=%s",
@@ -580,28 +590,21 @@ def test_strategy_composition_reanchors_exact_revision_and_retains_public_contex
             ),
         )
     assert (
-        call(native_probe, strategy_id, "composition", **{**arguments, "context": changed_context})["error"]
+        call(executable, strategy_id, "composition", **{**arguments, "context": changed_context})["error"]
         == "PRIVATE_STRATEGY_COMPOSITION_CORRUPT"
     )
 
     # A public-only Generation with no Target capability cannot substitute for
     # the originally selected generation, even with the same public Operator.
     other_root = tmp_path / "public-only"
-    other = subprocess.run(
-        [
-            "python",
-            str(root / "packages/backend/tests/application/support/research_runtime_reference.py"),
-            str(other_root),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    other = build(other_root, native_release_probe, preparation_kind="FACTOR", work_id="work")
+    other_executable = other_root / "native-executor"
+    assert hashlib.sha256(other_executable.read_bytes()).hexdigest() == other["executor_sha256"]
     denied = call(
-        native_probe,
+        other_executable,
         strategy_id,
         "composition",
-        **{**arguments, "runtime_root": str(other_root), "runtime_generation": json.loads(other.stdout)["generation"]},
+        **{**arguments, "runtime_root": str(other_root), "runtime_generation": other["generation"]},
     )
     assert denied["error"] == "PRIVATE_STRATEGY_CALCULATION_UNAVAILABLE"
 
@@ -613,38 +616,29 @@ def test_strategy_composition_reanchors_exact_revision_and_retains_public_contex
     )
     target_manifest.with_name("artifact.whl").unlink()
     assert (
-        call(native_probe, strategy_id, "composition", **arguments)["error"]
-        == "PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE"
+        call(executable, strategy_id, "composition", **arguments)["error"] == "PRIVATE_STRATEGY_COMPOSITION_UNAVAILABLE"
     )
 
 
 def test_strategy_calculation_resolution_uses_held_generation_and_actual_installed_math(
-    native_probe: Path, database: str, tmp_path: Path
+    native_release_probe: Path, database: str, tmp_path: Path
 ) -> None:
-    root = Path(__file__).resolve().parents[4]
     runtime = tmp_path / "runtime"
-    prepared = subprocess.run(
-        [
-            "python",
-            str(root / "packages/backend/tests/application/support/research_runtime_reference.py"),
-            str(runtime),
-            "ready",
-            "--strategy-targets",
-            "--actual-algorithms",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    selected = json.loads(prepared.stdout)
+    selected = build(runtime, native_release_probe, preparation_kind="STRATEGY", work_id="work")
+    executable = runtime / "native-executor"
+    assert hashlib.sha256(executable.read_bytes()).hexdigest() == selected["executor_sha256"]
     strategy_id = "private.strategy.s" + uuid4().hex
     value = draft(strategy_id)
     calculation = value["definition"]["calculations"][0]
-    calculation["type_reference"]["type_id"] = "onlyalpha.operator.delay"
+    calculation["type_reference"] = {
+        "kind": "INDICATOR",
+        "type_id": "onlyalpha.operator.delay",
+        "semantic_version": "2",
+    }
     calculation["parameters"] = {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}}
     calculation["input_bindings"] = [{"input_name": "value", "source": "bar.close"}]
-    saved = call(native_probe, strategy_id, "save", draft=value, expected=None)
-    revision = call(native_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
+    saved = call(executable, strategy_id, "save", draft=value, expected=None)
+    revision = call(executable, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
         "revision"
     ]
     arguments = {
@@ -652,19 +646,18 @@ def test_strategy_calculation_resolution_uses_held_generation_and_actual_install
         "runtime_root": str(runtime),
         "runtime_generation": selected["generation"],
         "revision_fingerprint": revision["revision_fingerprint"],
-        "algorithm_root": selected["algorithm_root"],
+        "algorithm_root": selected["installation"],
         "algorithm_artifact": selected["algorithm_artifact"],
     }
-    actual = call(native_probe, strategy_id, "resolution", **arguments)
+    actual = call(executable, strategy_id, "resolution", **arguments)
     assert "error" not in actual, actual
     assert actual["runtime_generation_fingerprint"] == selected["generation"]
-    assert actual["runtime_generation_fingerprint"] != selected["ready"]
     assert actual["composition"]["private_strategy_revision_fingerprint"] == revision["revision_fingerprint"]
     assert actual["algorithm_resolution"]["source_artifacts"] == []
     assert len(actual["decision"]["decision_graph"]["nodes"]) == 7
     assert len(actual["target_graph"]["nodes"]) == 1
     assert "run_id" not in actual and "strategy_fingerprint" not in actual and "equivalence_evidence" not in actual
-    assert call(native_probe, strategy_id, "resolution", **arguments) == actual
+    assert call(executable, strategy_id, "resolution", **arguments) == actual
     # Controlled physical loss: an installed package cannot replace changed
     # original Generation bytes. No Run/Freeze is created by this technical test.
     artifacts = list((runtime / "artifacts").glob("*/*/artifact.whl"))
@@ -672,4 +665,4 @@ def test_strategy_calculation_resolution_uses_held_generation_and_actual_install
     original = artifacts[0]
     original.chmod(0o644)
     original.write_bytes(original.read_bytes() + b"changed")
-    assert "error" in call(native_probe, strategy_id, "resolution", **arguments)
+    assert "error" in call(executable, strategy_id, "resolution", **arguments)

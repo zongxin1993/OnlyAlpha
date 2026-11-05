@@ -1,12 +1,38 @@
-use crate::{Manager, Status, model::*};
+use crate::{Manager, Status, manager::CachedCheckpoint, model::*};
 use serde_json::{Value, json};
+use std::sync::Arc;
+
+#[cfg(test)]
+std::thread_local! {
+    static CHECKPOINT_ENCODINGS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 impl Manager {
+    fn cached_checkpoint(&self) -> Result<&CachedCheckpoint, Error> {
+        if let Some(checkpoint) = self.checkpoint_cache.get() {
+            return Ok(checkpoint.as_ref());
+        }
+        #[cfg(test)]
+        CHECKPOINT_ENCODINGS.with(|count| count.set(count.get() + 1));
+        let record = Arc::new(json!({
+            "schema_version":2,"config":self.config,
+            "journal":self.state.journal,"state":self.state()
+        }));
+        let bytes = serde_json::to_vec(record.as_ref())?;
+        let fingerprint = digest(&bytes);
+        let checkpoint = CachedCheckpoint { bytes, fingerprint, record };
+        let _ = self.checkpoint_cache.set(Arc::new(checkpoint));
+        // Shared readers observe the same immutable accepted owner state.
+        Ok(self.checkpoint_cache.get().expect("checkpoint initialized").as_ref())
+    }
     pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
-        let bytes = serde_json::to_vec(
-            &json!({"schema_version":2,"config":self.config,"journal":self.state.journal,"state":self.state()}),
-        )?;
-        let hash = digest(&bytes);
-        Ok((bytes, hash))
+        let checkpoint = self.cached_checkpoint()?;
+        Ok((checkpoint.bytes.clone(), checkpoint.fingerprint.clone()))
+    }
+    /// Borrow the original complete canonical checkpoint as immutable data.
+    /// This representation grants no execution, source, Ready or restore proof.
+    pub fn checkpoint_record(&self) -> Result<(Arc<Value>, String), Error> {
+        let checkpoint = self.cached_checkpoint()?;
+        Ok((Arc::clone(&checkpoint.record), checkpoint.fingerprint.clone()))
     }
     pub fn restore(&mut self, bytes: &[u8], expected: &str) -> Result<(), Error> {
         fingerprint(&json!(expected))?;
@@ -39,3 +65,7 @@ impl Manager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "checkpoint_cache_tests.rs"]
+mod checkpoint_cache_tests;

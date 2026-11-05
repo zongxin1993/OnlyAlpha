@@ -24,6 +24,8 @@ pub struct Specification {
     pub dataset_snapshot_fingerprint: String,
     pub runtime_generation_fingerprint: String,
     pub catalog_generation_fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authoring_generation_fingerprint: Option<String>,
     pub algorithm_artifact_fingerprint: String,
     pub execution_binding: Value,
 }
@@ -40,7 +42,13 @@ impl Specification {
         research_factor::compile(&candidate, &self.draft, &self.revision)
     }
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != 4 || self.kind != "TIME_SERIES_FACTOR_RESEARCH" {
+        if self.kind != "TIME_SERIES_FACTOR_RESEARCH"
+            || !match (self.schema_version, self.authoring_generation_fingerprint.as_deref()) {
+                (4, None) => true,
+                (6, Some(pin)) => crate::is_sha256_hex(pin),
+                _ => false,
+            }
+        {
             return Err(INVALID);
         }
         if self.candidate.as_object().is_none_or(|o| {
@@ -87,6 +95,20 @@ impl Specification {
             }
         }
         Ok(())
+    }
+    pub(crate) fn matches_prepared_authoring(&self, prepared: &Value) -> bool {
+        match self.authoring_generation_fingerprint.as_deref() {
+            Some(pin) => {
+                prepared["schema_version"] == 2
+                    && prepared["contract"] == "ONLYALPHA_RESEARCH_PREPARED_INPUTS_V2"
+                    && prepared["authoring_generation_fingerprint"] == pin
+            }
+            None => {
+                prepared["schema_version"] == 1
+                    && prepared["contract"] == "ONLYALPHA_RESEARCH_PREPARED_INPUTS_V1"
+                    && prepared.get("authoring_generation_fingerprint").is_none()
+            }
+        }
     }
     pub fn calculation_fingerprint(&self) -> Result<String> {
         let window = self
@@ -148,7 +170,7 @@ impl Specification {
             "specification_fingerprint":specification,"result_plan_fingerprint":hash(&plan)?,
             "statistics_fingerprints":plan["statistics_fingerprints"],
             "catalog_generation_fingerprint":self.catalog_generation_fingerprint,
-            "runtime_generation_fingerprint":self.runtime_generation_fingerprint,"authoring_generation_fingerprint":null}),
+            "runtime_generation_fingerprint":self.runtime_generation_fingerprint,"authoring_generation_fingerprint":self.authoring_generation_fingerprint}),
         )
     }
 }
@@ -164,10 +186,13 @@ impl NativeSpecification {
             return Err(INVALID);
         }
         match record["schema_version"].as_u64() {
-            Some(4) => {
+            Some(4 | 6) => {
                 let spec: Specification =
                     serde_json::from_value(record.clone()).map_err(|_| INVALID)?;
                 spec.validate()?;
+                if spec.record()? != *record {
+                    return Err(INVALID);
+                }
                 Ok(Self::Factor(Box::new(spec)))
             }
             Some(5) => Ok(Self::Strategy(Box::new(
@@ -564,7 +589,7 @@ mod native_specification_tests {
             "../../tests/application/fixtures/research_factor.json"
         ))
         .unwrap();
-        let spec=Specification{schema_version:4,kind:"TIME_SERIES_FACTOR_RESEARCH".into(),candidate:json!({"hypothesis":fixture["candidate"]["hypothesis"],"expression":fixture["candidate"]["expression"]}),draft:fixture["draft"].clone(),revision:fixture["revision"].clone(),study:serde_json::from_value(json!({"schema_version":1,"bar_ns":60000000000u64,"horizon_bars":5,"samples":[{"role":"DEVELOPMENT","start_ns":1200000000000u64,"end_ns":2400000000000u64},{"role":"OUT_OF_SAMPLE","start_ns":2400000000000u64,"end_ns":3600000000000u64}],"protected_start_ns":6000000000000u64,"protected_end_ns":7200000000000u64,"expected_block_length":20,"replicates":400,"confidence_bps":9500,"seed":"a".repeat(64)})).unwrap(),dataset_snapshot_fingerprint:"b".repeat(64),runtime_generation_fingerprint:"c".repeat(64),catalog_generation_fingerprint:"d".repeat(64),algorithm_artifact_fingerprint:"e".repeat(64),execution_binding:json!({"protocol":"onlyalpha.research.executor/1","executor_version":"0.11.1","executor_manifest_fingerprint":"e".repeat(64),"executor_artifact_sha256":"f".repeat(64),"core_execution_fingerprint":"a".repeat(64)})};
+        let spec=Specification{schema_version:4,kind:"TIME_SERIES_FACTOR_RESEARCH".into(),candidate:json!({"hypothesis":fixture["candidate"]["hypothesis"],"expression":fixture["candidate"]["expression"]}),draft:fixture["draft"].clone(),revision:fixture["revision"].clone(),study:serde_json::from_value(json!({"schema_version":1,"bar_ns":60000000000u64,"horizon_bars":5,"samples":[{"role":"DEVELOPMENT","start_ns":1200000000000u64,"end_ns":2400000000000u64},{"role":"OUT_OF_SAMPLE","start_ns":2400000000000u64,"end_ns":3600000000000u64}],"protected_start_ns":6000000000000u64,"protected_end_ns":7200000000000u64,"expected_block_length":20,"replicates":400,"confidence_bps":9500,"seed":"a".repeat(64)})).unwrap(),dataset_snapshot_fingerprint:"b".repeat(64),runtime_generation_fingerprint:"c".repeat(64),catalog_generation_fingerprint:"d".repeat(64),authoring_generation_fingerprint:None,algorithm_artifact_fingerprint:"e".repeat(64),execution_binding:json!({"protocol":"onlyalpha.research.executor/1","executor_version":"0.11.1","executor_manifest_fingerprint":"e".repeat(64),"executor_artifact_sha256":"f".repeat(64),"core_execution_fingerprint":"a".repeat(64)})};
         spec.validate().unwrap();
         let record = spec.record().unwrap();
         let executable = NativeSpecification::from_record(&record).unwrap();
@@ -579,5 +604,16 @@ mod native_specification_tests {
         );
         assert!(executable.as_strategy().is_err());
         assert_eq!(executable.as_factor().unwrap().record().unwrap(), record);
+        let mut alias = record.clone();
+        alias["authoring_generation_fingerprint"] = Value::Null;
+        assert!(NativeSpecification::from_record(&alias).is_err());
+        let mut authoring = record;
+        authoring["schema_version"] = json!(6);
+        assert!(NativeSpecification::from_record(&authoring).is_err());
+        let pin = json!("f".repeat(64));
+        authoring["authoring_generation_fingerprint"] = pin.clone();
+        let bound = NativeSpecification::from_record(&authoring).unwrap();
+        assert_eq!(bound.subject().unwrap().record()["authoring_generation_fingerprint"], pin);
+        assert_ne!(bound.fingerprint().unwrap(), spec.fingerprint().unwrap());
     }
 }
