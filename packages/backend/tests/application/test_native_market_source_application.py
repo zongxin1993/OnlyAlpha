@@ -106,17 +106,14 @@ def _native_command(
 
 @pytest.fixture
 def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
-    from onlyalpha.persistence.clickhouse import (
-        OnlyClickHouseClient,
-        OnlyClickHouseConfig,
-        OnlyClickHouseMigrationAuthority,
-        only_assert_clickhouse_test_database,
-    )
-    from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-
+    from packages.backend.tests.application.test_schema_postgres import DEFAULT_MIGRATION_ROOT, migrate
+    from scripts.native_http_contract import native_executable
+    from scripts.native_web_e2e import clickhouse_namespace
     from scripts.rust_kernel_check import compiler_environment, isolated_backend, module_path, prepare_cargo_home
 
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    backend = native_executable(release=True)
+    migrated = migrate(backend, postgres_dsn, DEFAULT_MIGRATION_ROOT)
+    assert migrated.returncode == 0, migrated.stderr
     # Read-only preconditions now use the native owning authoring implementation.
     from scripts.native_web_e2e import seed_private_metadata
 
@@ -126,17 +123,10 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
     evidence.mkdir(parents=True)
     (evidence / "factor-precondition.json").write_text(json.dumps(factor_revision))
     database = "onlyalpha_test_native_market_source"
-    only_assert_clickhouse_test_database(database)
-    config = OnlyClickHouseConfig(
-        os.environ["ONLYALPHA_TEST_CLICKHOUSE_URL"],
-        database=database,
-        user=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_USER", "default"),
-        password=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_PASSWORD", ""),
-        storage_policy=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY", "hot_cold"),
-    )
-    ch = OnlyClickHouseClient(config)
-    ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
-    OnlyClickHouseMigrationAuthority(ch).migrate()
+    # Preserve the exact controlled namespace consumed by the native fixture.
+    # The current owning CLI verifies test scope and the configured storage policy.
+    clickhouse_namespace(backend, database, initialize=False)
+    clickhouse_namespace(backend, database, initialize=True)
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
     output = ROOT / "test-results/rust-kernel/target"
     environment = compiler_environment(os.environ, output)
@@ -171,9 +161,7 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
                         }
                         value["features"] = sorted(set(prior.get("features", [])) | set(value.get("features", [])))
                     deps[key] = value
-                deps[data["package"]["name"]] = {
-                    "path": os.path.relpath(root / module_path(module), consumer)
-                }
+                deps[data["package"]["name"]] = {"path": os.path.relpath(root / module_path(module), consumer)}
             (consumer / "Cargo.toml").write_text(
                 '[package]\nname="onlyalpha-native-market-consumer"\nversion.workspace=true\nedition.workspace=true\nrust-version.workspace=true\npublish=false\nbuild=false\n[lib]\npath="lib.rs"\ndoctest=false\n[lints]\nworkspace=true\n[dependencies]\n'
                 + "\n".join(k + " = " + _inline(v) for k, v in sorted(deps.items()))
@@ -255,8 +243,6 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
             (evidence / "algorithm-artifact.json").write_text(
                 json.dumps({"artifact_fingerprint": artifact, "root": str(installation)})
             )
-            from scripts.native_http_contract import native_executable
-
             environment["ONLYALPHA_NATIVE_CHART_WORKER"] = str(native_executable(release=False))
             environment["ONLYALPHA_NATIVE_CHART_INSTALLATION"] = str(installation)
             environment["ONLYALPHA_NATIVE_CHART_ARTIFACT"] = artifact
@@ -315,20 +301,12 @@ def native_source_programs(postgres_dsn: str) -> Iterator[_NativePrograms]:
                 _preserve_native_failure(Path(temporary))
                 raise
     finally:
-        ch.execute(f"DROP DATABASE IF EXISTS {database} SYNC", database="default")
+        clickhouse_namespace(backend, database, initialize=False)
 
 
 def _validate_native_payloads(frames: Path) -> None:
-    # The Product probe result retains its independent canonical restore proof.
-    # Every other ORIGINAL emitted frame is consumed by Shipping Web's actual
-    # Zod schemas, rather than keeping a retired Python HTTP DTO authority.
-    from onlyalpha.canonical import only_canonical_fingerprint
-    from onlyalpha.plugin.integration_probe import OnlyIntegrationProbeResult
-
-    for line in frames.read_text().splitlines():
-        emitted = json.loads(line)
-        if emitted["kind"] == "probe_result":
-            OnlyIntegrationProbeResult.restore(emitted["value"], only_canonical_fingerprint(emitted["value"]))
+    # The native consumer proves the Probe document through its owning persisted
+    # readback. All original frames also use Shipping Web's actual Zod schemas.
 
     web = ROOT / "packages/frontend"
     bundle = frames.parent / "native-payload-validator.mjs"

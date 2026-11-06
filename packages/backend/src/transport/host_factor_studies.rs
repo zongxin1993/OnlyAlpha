@@ -1,9 +1,6 @@
 //! Human access to retained factor studies and shared Research command parsing.
 use crate::{
-    application::{
-        command::CommandId,
-        factor_studies::SelectionInput,
-    },
+    application::{command::CommandId, factor_studies::SelectionInput},
     persistence::factor_studies::Studies,
     security::{
         human_access,
@@ -87,7 +84,9 @@ impl Host {
         let at = now()?.to_string();
         let owner = human.subject_id()?;
         let mut store = Studies::new(client);
-        let value = if method == Method::GET && path.starts_with("/api/v2/factor-study-continuations/") {
+        let value = if method == Method::GET
+            && path.starts_with("/api/v2/factor-study-continuations/")
+        {
             let c = CommandId::new(path.trim_start_matches("/api/v2/factor-study-continuations/"))
                 .map_err(|_| invalid())?;
             store.read_continuation(&c, owner, None).await

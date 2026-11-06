@@ -1,6 +1,6 @@
 /** Technical wire conformance only: no server, fixture responses or UI state. */
 import { readFileSync } from "node:fs";
-import type { z } from "zod";
+import { z } from "zod";
 import {
     ChartStudyCapabilitiesSchema,
     ChartStudyEvaluateSchema
@@ -15,8 +15,28 @@ import { searchSchema, quotesSchema } from "../src/api/marketData/discovery";
 import { marketDataStreamEventSchema } from "../src/api/marketData/stream.generated";
 import { registry, revision } from "../src/api/privateAssets/client";
 import { researchCalculationCatalogSchema } from "../src/api/research/schemas";
+import { probeAttemptSchema } from "../src/api/integrations/model";
+
+// The source owner emits the original document before Product enrichment.
+// Reuse the actual Shipping wire schema for its original fields.
+const probeResultSchema = probeAttemptSchema
+    .pick({
+        probe_attempt_id: true,
+        integration_id: true,
+        revision_fingerprint: true,
+        overall_status: true,
+        started_at: true,
+        completed_at: true,
+        probe_instrument: true,
+        checks: true
+    })
+    .extend({
+        started_at: z.iso.datetime({ offset: true }),
+        completed_at: z.iso.datetime({ offset: true })
+    });
 
 const schemas: Readonly<Partial<Record<string, z.ZodType>>> = {
+    probe_result: probeResultSchema,
     private_registry: registry,
     private_factor: revision,
     chart_capabilities: ChartStudyCapabilitiesSchema,
@@ -48,14 +68,23 @@ for (const [index, line] of lines.entries()) {
         !("value" in frame)
     )
         throw new Error(`NATIVE_PAYLOAD_ENVELOPE_INVALID:${String(index + 1)}`);
-    // Python's independent canonical probe restore checks this exact frame.
-    if (frame.kind === "probe_result") continue;
     if (!Object.hasOwn(schemas, frame.kind))
         throw new Error(`NATIVE_PAYLOAD_KIND_UNKNOWN:${frame.kind}`);
     const schema = schemas[frame.kind];
     if (schema === undefined) throw new Error(`NATIVE_PAYLOAD_SCHEMA_MISSING:${frame.kind}`);
     try {
         schema.parse(frame.value);
+        if (frame.kind === "probe_result") {
+            for (const field of ["started_at", "completed_at"] as const) {
+                for (const invalidDate of ["not-a-date", "2026-02-30T00:00:00Z"]) {
+                    if (
+                        schema.safeParse({ ...(frame.value as object), [field]: invalidDate })
+                            .success
+                    )
+                        throw new Error("NATIVE_PROBE_DATETIME_VALIDATION_LOST");
+                }
+            }
+        }
         for (const invalid of [
             null,
             [frame.value],

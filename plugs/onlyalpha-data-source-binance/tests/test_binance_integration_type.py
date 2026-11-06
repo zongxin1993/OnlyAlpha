@@ -1,15 +1,14 @@
 from datetime import UTC, date, datetime
 
 import pytest
+from onlyalpha.domain.time import OnlyTradingDay
+from onlyalpha.plugin.integration import OnlyIntegrationCategory, OnlyIntegrationProbeCheck, OnlyIntegrationValueKind
 from onlyalpha_broker_binance.spot.factory import OnlyBinanceSpotBrokerFactory
 from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
 from onlyalpha_plugin_binance.usdm.data_source import (
     OnlyBinanceUsdmDataSourceConfig,
     OnlyBinanceUsdmDataSourceFactory,
 )
-
-from onlyalpha.domain.time import OnlyTradingDay
-from onlyalpha.plugin.integration import OnlyIntegrationCategory, OnlyIntegrationProbeCheck, OnlyIntegrationValueKind
 
 
 def test_spot_data_source_declares_configuration_without_runtime_instruments() -> None:

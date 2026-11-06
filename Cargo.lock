@@ -1580,6 +1580,7 @@ dependencies = [
  "onlyalpha-risk",
  "onlyalpha-settlement",
  "onlyalpha-strategy-ledger",
+ "serde",
  "serde_json",
  "sha2",
 ]
@@ -1622,6 +1623,18 @@ dependencies = [
  "bigdecimal",
  "num-bigint 0.4.8",
  "onlyalpha-domain",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "onlyalpha-market-cn-ashare"
+version = "0.11.1"
+dependencies = [
+ "bigdecimal",
+ "onlyalpha-domain",
+ "onlyalpha-fee",
+ "onlyalpha-settlement",
  "serde_json",
  "sha2",
 ]

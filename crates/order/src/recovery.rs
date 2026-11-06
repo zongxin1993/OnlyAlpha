@@ -23,7 +23,11 @@ impl Manager {
         let record = json!({"schema_version":1,"config":self.config,"journal":self.journal,"state":self.state_record()});
         let bytes = serde_json::to_vec(&record)?;
         let fingerprint = digest(&bytes);
-        let checkpoint = Arc::new(CachedCheckpoint { bytes, fingerprint, record: Arc::new(record) });
+        let checkpoint = Arc::new(CachedCheckpoint {
+            bytes,
+            fingerprint,
+            record: Arc::new(record),
+        });
         let _ = self.checkpoint_cache.set(Arc::clone(&checkpoint));
         Ok(checkpoint)
     }
@@ -35,7 +39,10 @@ impl Manager {
     /// This representation grants no Store, source, Ready or execution authority.
     pub fn checkpoint_record(&self) -> Result<(Arc<Value>, String), Error> {
         let checkpoint = self.cached_checkpoint()?;
-        Ok((Arc::clone(&checkpoint.record), checkpoint.fingerprint.clone()))
+        Ok((
+            Arc::clone(&checkpoint.record),
+            checkpoint.fingerprint.clone(),
+        ))
     }
     pub fn restore(&mut self, bytes: &[u8], expected_digest: &str) -> Result<(), Error> {
         fingerprint(expected_digest)?;
@@ -63,7 +70,6 @@ impl Manager {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod checkpoint_cache_tests {
@@ -104,19 +110,32 @@ mod checkpoint_cache_tests {
         let mut owner = Manager::new(config()).unwrap();
         CHECKPOINT_ENCODINGS.with(|count| count.set(0));
         let empty = exact_original(&owner);
-        for _ in 0..3 { assert!(Arc::ptr_eq(&empty, &exact_original(&owner))); }
+        for _ in 0..3 {
+            assert!(Arc::ptr_eq(&empty, &exact_original(&owner)));
+        }
         assert_eq!(CHECKPOINT_ENCODINGS.with(std::cell::Cell::get), 1);
-        let mut invalid = create(); invalid["cause"] = json!("bad");
+        let mut invalid = create();
+        invalid["cause"] = json!("bad");
         assert!(owner.apply(&invalid).is_err());
         assert!(Arc::ptr_eq(&empty, &exact_original(&owner)));
         assert_eq!(owner.apply(&create()).unwrap().result, ApplyResult::Applied);
         let created = exact_original(&owner);
         assert!(!Arc::ptr_eq(&empty, &created));
         assert_eq!(CHECKPOINT_ENCODINGS.with(std::cell::Cell::get), 2);
-        assert_eq!(owner.apply(&local("BEGIN_SUBMIT", 2)).unwrap().result, ApplyResult::Invalid);
-        assert_eq!(owner.apply(&create()).unwrap().result, ApplyResult::Duplicate);
-        let mut conflict = create(); conflict["cause"] = json!("c".repeat(64));
-        assert_eq!(owner.apply(&conflict).unwrap().result, ApplyResult::Conflict);
+        assert_eq!(
+            owner.apply(&local("BEGIN_SUBMIT", 2)).unwrap().result,
+            ApplyResult::Invalid
+        );
+        assert_eq!(
+            owner.apply(&create()).unwrap().result,
+            ApplyResult::Duplicate
+        );
+        let mut conflict = create();
+        conflict["cause"] = json!("c".repeat(64));
+        assert_eq!(
+            owner.apply(&conflict).unwrap().result,
+            ApplyResult::Conflict
+        );
         assert!(Arc::ptr_eq(&created, &exact_original(&owner)));
         assert_eq!(CHECKPOINT_ENCODINGS.with(std::cell::Cell::get), 2);
         owner.apply(&fee()).unwrap();
@@ -128,7 +147,8 @@ mod checkpoint_cache_tests {
         assert_ne!(detached, funded);
         assert!(Arc::ptr_eq(&funded, &exact_original(&owner)));
         let inventory = owner.snapshots().collect::<Vec<_>>();
-        assert_eq!(inventory.len(), 1); drop(inventory);
+        assert_eq!(inventory.len(), 1);
+        drop(inventory);
         owner.get("cluster", "runtime-ORDER-000001").unwrap();
         owner.submission("cluster", "runtime-ORDER-000001").unwrap();
         assert!(Arc::ptr_eq(&funded, &exact_original(&owner)));
@@ -151,14 +171,18 @@ mod checkpoint_cache_tests {
         let submitted = exact_original(&fork);
         assert_ne!(submitted, exact_original(&owner));
         assert_eq!(owner.apply(&fee()).unwrap().result, ApplyResult::Duplicate);
-        assert_eq!(fork.apply(&local("BEGIN_SUBMIT", 3)).unwrap().result, ApplyResult::Invalid);
+        assert_eq!(
+            fork.apply(&local("BEGIN_SUBMIT", 3)).unwrap().result,
+            ApplyResult::Invalid
+        );
         assert!(Arc::ptr_eq(&submitted, &exact_original(&fork)));
         let wire = fork.checkpoint().unwrap();
         let mut restored = Manager::new(config()).unwrap();
         restored.restore(&wire.0, &wire.1).unwrap();
         assert_eq!(exact_original(&restored), submitted);
         let before_failure = exact_original(&restored);
-        let mut corrupt = wire.0.clone(); corrupt.push(b' ');
+        let mut corrupt = wire.0.clone();
+        corrupt.push(b' ');
         assert!(restored.restore(&corrupt, &wire.1).is_err());
         let mut corrupt: Value = serde_json::from_slice(&wire.0).unwrap();
         corrupt["state"]["sequence"] = json!(999);

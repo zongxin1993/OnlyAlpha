@@ -2894,12 +2894,11 @@ async fn native_source_application() {
         .await
         .unwrap();
     emit("probe_result", probe.document());
-    assert_eq!(
-        latest_probe(business.client_mut().await.unwrap(), &resolved)
-            .await
-            .unwrap()["status"],
-        "READY"
-    );
+    let stored_probe = latest_probe(business.client_mut().await.unwrap(), &resolved)
+        .await
+        .unwrap();
+    assert_eq!(stored_probe["status"], "READY");
+    assert_eq!(&stored_probe["latest_attempt"], probe.document());
     let withdrawn = app
         .execute_probe(resolved.clone(), human.clone(), &uid(201), deadline())
         .await

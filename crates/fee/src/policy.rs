@@ -20,8 +20,12 @@ pub struct FeeQuote {
     value: Value,
 }
 impl FeeQuote {
-    pub fn record(&self) -> Value { self.value.clone() }
-    pub fn fingerprint(&self) -> String { digest(&self.value) }
+    pub fn record(&self) -> Value {
+        self.value.clone()
+    }
+    pub fn fingerprint(&self) -> String {
+        digest(&self.value)
+    }
 }
 impl Binding {
     pub fn record(&self) -> Value {
@@ -339,17 +343,32 @@ impl Catalog {
         analytical_subject(&subject)?;
         if subject["account"] != self.value["broker_contract"]["account"]
             || subject["broker"] != self.value["broker_contract"]["broker"]
-        { return Err(err("FEE_BROKER_ACCOUNT_SCOPE")); }
+        {
+            return Err(err("FEE_BROKER_ACCOUNT_SCOPE"));
+        }
         let time = instant_record(time.into())?;
         let precision = validate_basis(&subject, &basis, &basis, liquidity)?;
-        let components = assess_components(&subject, &self.selected(&subject, day)?, &basis, &basis, liquidity, precision)?;
+        let components = assess_components(
+            &subject,
+            &self.selected(&subject, day)?,
+            &basis,
+            &basis,
+            liquidity,
+            precision,
+        )?;
         let mut charges = BigDecimal::zero();
         let mut rebates = BigDecimal::zero();
         for component in &components {
             let target = num(&component["target"])?;
-            if component["identity"]["direction"] == "CHARGE" { charges += target; } else { rebates += target; }
+            if component["identity"]["direction"] == "CHARGE" {
+                charges += target;
+            } else {
+                rebates += target;
+            }
         }
-        Ok(FeeQuote { value: json!({"schema_version":1,"kind":"ANALYTICAL_ESTIMATE","catalog":self.value,"subject":subject,"day":day,"time":time,"basis":basis,"liquidity":liquidity,"components":components,"charges":amount(&charges,precision)?,"rebates":amount(&rebates,precision)?}) })
+        Ok(FeeQuote {
+            value: json!({"schema_version":1,"kind":"ANALYTICAL_ESTIMATE","catalog":self.value,"subject":subject,"day":day,"time":time,"basis":basis,"liquidity":liquidity,"components":components,"charges":amount(&charges,precision)?,"rebates":amount(&rebates,precision)?}),
+        })
     }
     pub(crate) fn read_binding(v: &Value) -> Result<Binding, Error> {
         fields(v, &["schema_version", "catalog", "subject", "day"])?;
@@ -417,7 +436,14 @@ impl Catalog {
         let time = instant_record(time.into())?;
         text(&json!(trade))?;
         let precision = validate_basis(&b.value["subject"], &fill, &cumulative, liquidity)?;
-        let components = assess_components(&b.value["subject"], &self.resolved(b, day)?, &fill, &cumulative, liquidity, precision)?;
+        let components = assess_components(
+            &b.value["subject"],
+            &self.resolved(b, day)?,
+            &fill,
+            &cumulative,
+            liquidity,
+            precision,
+        )?;
         Ok(Assessment {
             value: json!({"schema_version":1,"catalog":self.value,"binding":b.value,"day":day,"trade":trade,"time":time,"fill":fill,"cumulative":cumulative,"liquidity":liquidity,"components":components}),
         })
@@ -553,7 +579,12 @@ fn applies_to_subject(r: &Value, subject: &Value) -> bool {
 }
 
 /// Validate the same basis and liquidity language before any schedule selection.
-fn validate_basis(subject: &Value, fill: &Value, cumulative: &Value, liquidity: Option<&str>) -> Result<u8, Error> {
+fn validate_basis(
+    subject: &Value,
+    fill: &Value,
+    cumulative: &Value,
+    liquidity: Option<&str>,
+) -> Result<u8, Error> {
     if let Some(l) = liquidity {
         one(&json!(l), &["MAKER", "TAKER"])?;
     }
@@ -574,7 +605,14 @@ fn validate_basis(subject: &Value, fill: &Value, cumulative: &Value, liquidity: 
 }
 
 /// Shared formula/bounds/rounding for real assessments and explicit one-fill analysis.
-fn assess_components(subject: &Value, schedules: &[Value], fill: &Value, cumulative: &Value, liquidity: Option<&str>, precision: u8) -> Result<Vec<Value>, Error> {
+fn assess_components(
+    subject: &Value,
+    schedules: &[Value],
+    fill: &Value,
+    cumulative: &Value,
+    liquidity: Option<&str>,
+    precision: u8,
+) -> Result<Vec<Value>, Error> {
     let mut components = Vec::new();
     for s in schedules {
         for r in array(&s["rules"])? {
@@ -629,9 +667,8 @@ fn assess_components(subject: &Value, schedules: &[Value], fill: &Value, cumulat
                 return Err(err("FEE_MONEY_PRECISION"));
             }
             let identity = json!({"namespace":s["namespace"],"family":s["family"],"version":s["version"],"schedule":digest(s),"rule":r["id"],"rule_fingerprint":digest(r),"scope":r["scope"],"resolution":r["resolution"],"direction":r["direction"],"type":r["type"],"authority":r["authority"]});
-            components.push(
-                json!({"identity":identity,"raw":amount(&raw,precision)?,"target":monetary}),
-            );
+            components
+                .push(json!({"identity":identity,"raw":amount(&raw,precision)?,"target":monetary}));
         }
     }
     if components.is_empty() {

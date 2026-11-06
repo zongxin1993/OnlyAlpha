@@ -196,3 +196,9 @@ path = "tests/application/research_runtime.rs"
 [[test]]
 name = "application_research_runtime_lifecycle"
 path = "tests/application/research_runtime_lifecycle.rs"
+
+[[test]]
+name = "backtest_owner_probe"
+path = "tests/application/support/backtest_owner_probe.rs"
+harness = false
+test = false

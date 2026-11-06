@@ -217,10 +217,12 @@ pub(crate) async fn read_context(
         namespace,
         frozen,
         decision,
-        text(admission, "strategy_fingerprint")?,
-        text(admission, "freeze_relation_fingerprint")?,
-        text(admission, "promotion_fingerprint")?,
-        WORK,
+        strategy_promotion::BacktestAdmissionSelection {
+            strategy: text(admission, "strategy_fingerprint")?,
+            relation: text(admission, "freeze_relation_fingerprint")?,
+            promotion: text(admission, "promotion_fingerprint")?,
+            max_work: WORK,
+        },
     )
     .await?;
     let datasets = Datasets::open(&research_root.join("datasets"), 8192, 8 * 1024 * 1024)?;

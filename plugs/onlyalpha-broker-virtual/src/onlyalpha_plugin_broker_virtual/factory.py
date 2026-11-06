@@ -10,6 +10,7 @@ from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
 from onlyalpha.plugin.broker import OnlyBrokerComponent, OnlyBrokerCreateRequest
 from onlyalpha.plugin.capabilities import OnlyBrokerPluginCapabilities, OnlyPluginValidationIssue
 from onlyalpha.plugin.descriptor import OnlyPluginDescriptor
+
 from onlyalpha_plugin_broker_virtual.config import OnlyVirtualBrokerConfig
 from onlyalpha_plugin_broker_virtual.descriptor import ONLY_VIRTUAL_PLUGIN_DESCRIPTOR
 from onlyalpha_plugin_broker_virtual.fill_plan import (

@@ -3,7 +3,10 @@
 use crate::{
     application::{factor_content::hash, qualification_policy, research_novelty as contract},
     bootstrap::deployment::{self, SemanticStoreId},
-    persistence::{authority_session::AuthoritySession, research_dataset, research_evidence, research_novelty::Authority},
+    persistence::{
+        authority_session::AuthoritySession, research_dataset, research_evidence,
+        research_novelty::Authority,
+    },
     security::{
         immutable_json::{Directory, SourceLock, inspect_source_layout, put, read_path},
         protected_files::{self, FilePolicy},
@@ -331,48 +334,59 @@ pub fn open_existing(user_data: &Path) -> Result<SemanticStoreId> {
 }
 
 /// Experimental evidence-completeness gate. It makes no profitability claim.
-pub(crate) fn experimental_backtest_policy() -> std::result::Result<qualification_policy::Policy, qualification_policy::Error> {
-    let mut record=serde_json::json!({"schema_version":1,"policy_id":"experimental-backtest","policy_version":"1","gate":"RESEARCH_TO_BACKTEST",
+pub(crate) fn experimental_backtest_policy()
+-> std::result::Result<qualification_policy::Policy, qualification_policy::Error> {
+    let mut record = serde_json::json!({"schema_version":1,"policy_id":"experimental-backtest","policy_version":"1","gate":"RESEARCH_TO_BACKTEST",
         "missing_evidence_behavior":"FAIL","aggregation":"ALL","criteria":[
         {"criterion_id":"calculation-count","evidence_kind":"RESEARCH_RESULT","metric":"research.calculation_result_count","comparison":"GE","threshold":"1"},
         {"criterion_id":"statistics-count","evidence_kind":"RESEARCH_RESULT","metric":"research.statistics_result_count","comparison":"GE","threshold":"2"}]});
-    let mut identity=record.clone();identity["domain"]=serde_json::json!("onlyalpha.strategy.qualification-policy");
-    record["policy_fingerprint"]=serde_json::json!(hash(&identity).map_err(|_|qualification_policy::Error::Conflict)?);
-    qualification_policy::Policy::from_json(&record.to_string(),STRATEGY_WORK)
+    let mut identity = record.clone();
+    identity["domain"] = serde_json::json!("onlyalpha.strategy.qualification-policy");
+    record["policy_fingerprint"] =
+        serde_json::json!(hash(&identity).map_err(|_| qualification_policy::Error::Conflict)?);
+    qualification_policy::Policy::from_json(&record.to_string(), STRATEGY_WORK)
 }
 fn strategy_extension(id: &SemanticStoreId) -> Result<Value> {
-    let mut value=json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_RESEARCH_OWNER_EXTENSION_V1",
+    let mut value = json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_RESEARCH_OWNER_EXTENSION_V1",
         "semantic_store_id":id.value(),"base_profile_fingerprint":PROFILE_FP,
         "file_source_extensions":[{"family":"QUALIFICATION_DECISION","owner":"strategy/qualification-decisions","source_schema_version":1,"enumeration_contract_version":2}]});
-    value["extension_fingerprint"]=json!(hash(&value)?);
+    value["extension_fingerprint"] = json!(hash(&value)?);
     Ok(value)
 }
 fn strategy_extension_present(research: &Directory) -> Result<bool> {
-    match fs::statat(&research.fd, STRATEGY_EXTENSION_FILE, fs::AtFlags::SYMLINK_NOFOLLOW) {
+    match fs::statat(
+        &research.fd,
+        STRATEGY_EXTENSION_FILE,
+        fs::AtFlags::SYMLINK_NOFOLLOW,
+    ) {
         Ok(_) => Ok(true),
         Err(rustix::io::Errno::NOENT) => Ok(false),
         Err(_) => Err(UNAVAILABLE),
     }
 }
 fn legacy_qualification_empty(research: &Directory) -> Result<()> {
-    let legacy=research.child("qualification-decisions",false)?;
+    let legacy = research.child("qualification-decisions", false)?;
     inspect_source_layout(&legacy.path)?;
-    if !legacy.child("sha256",false)?.names()?.is_empty() {
+    if !legacy.child("sha256", false)?.names()?.is_empty() {
         return Err("RESEARCH_LEGACY_QUALIFICATION_SOURCE_UNAVAILABLE");
     }
     Ok(())
 }
 fn strategy_owners_existing(research: &Directory) -> Result<()> {
-    let equivalence=research.child("calculation-equivalence",false)?;
+    let equivalence = research.child("calculation-equivalence", false)?;
     inspect_source_layout(&equivalence.path)?;
-    equivalence.path(&["evidence-v2","sha256"],false)?;
-    let canonical=research.path(&["strategy","qualification-decisions"],false)?;
+    equivalence.path(&["evidence-v2", "sha256"], false)?;
+    let canonical = research.path(&["strategy", "qualification-decisions"], false)?;
     inspect_source_layout(&canonical.path)?;
-    canonical.child("sha256",false)?;
-    research.path(&["artifacts","research-strategy-v1","runs"],false)?;
-    let policies=qualification_policy::Store::open(research.fd.as_fd()).map_err(|e|e.code())?;
-    let expected=experimental_backtest_policy().map_err(|e|e.code())?;
-    if policies.load_exact("experimental-backtest","1",STRATEGY_WORK).map_err(|e|e.code())?!=expected {
+    canonical.child("sha256", false)?;
+    research.path(&["artifacts", "research-strategy-v1", "runs"], false)?;
+    let policies = qualification_policy::Store::open(research.fd.as_fd()).map_err(|e| e.code())?;
+    let expected = experimental_backtest_policy().map_err(|e| e.code())?;
+    if policies
+        .load_exact("experimental-backtest", "1", STRATEGY_WORK)
+        .map_err(|e| e.code())?
+        != expected
+    {
         return Err("RESEARCH_STRATEGY_EXTENSION_INVALID");
     }
     research.verify()
@@ -380,12 +394,12 @@ fn strategy_owners_existing(research: &Directory) -> Result<()> {
 /// Read a committed explicit extension only. Missing owners or metadata are not
 /// permission to initialize or repair an existing deployment.
 pub fn open_strategy_existing(user_data: &Path) -> Result<SemanticStoreId> {
-    let id=open_existing(user_data)?;
-    let research=Directory::open(&user_data.join("research"))?;
+    let id = open_existing(user_data)?;
+    let research = Directory::open(&user_data.join("research"))?;
     if !strategy_extension_present(&research)? {
         return Err("RESEARCH_STRATEGY_EXTENSION_REQUIRED");
     }
-    if research.read(STRATEGY_EXTENSION_FILE)?!=strategy_extension(&id)? {
+    if research.read(STRATEGY_EXTENSION_FILE)? != strategy_extension(&id)? {
         return Err("RESEARCH_STRATEGY_EXTENSION_INVALID");
     }
     legacy_qualification_empty(&research)?;
@@ -394,116 +408,186 @@ pub fn open_strategy_existing(user_data: &Path) -> Result<SemanticStoreId> {
 }
 /// V1 source_roots remains the exact historical profile mapping. New captures
 /// use only this verified extension and change Qualification enumeration alone.
-pub fn current_source_roots(user_data: &Path) -> Result<BTreeMap<String,PathBuf>> {
+pub fn current_source_roots(user_data: &Path) -> Result<BTreeMap<String, PathBuf>> {
     open_strategy_existing(user_data)?;
-    let mut roots=source_roots(user_data);
-    roots.insert("QUALIFICATION_DECISION".into(),user_data.join("research/strategy/qualification-decisions"));
+    let mut roots = source_roots(user_data);
+    roots.insert(
+        "QUALIFICATION_DECISION".into(),
+        user_data.join("research/strategy/qualification-decisions"),
+    );
     Ok(roots)
 }
 /// Explicit operator lifecycle only. This borrows the original physical Node
 /// writer for the complete extension; neither a new namespace nor a new binding
 /// is created. Cancellation/error revokes this original session.
-pub async fn extend_strategy(user_data: &Path, session: &mut AuthoritySession) -> Result<SemanticStoreId> {
-    let mut owned=session.take_ownership();
-    let result=extend_strategy_owned(user_data,&mut owned).await;
+pub async fn extend_strategy(
+    user_data: &Path,
+    session: &mut AuthoritySession,
+) -> Result<SemanticStoreId> {
+    let mut owned = session.take_ownership();
+    let result = extend_strategy_owned(user_data, &mut owned).await;
     match result {
-        Ok(id)=>{session.restore_ownership(owned);Ok(id)},
-        Err(code)=>{let _=owned.close().await;Err(code)},
+        Ok(id) => {
+            session.restore_ownership(owned);
+            Ok(id)
+        }
+        Err(code) => {
+            let _ = owned.close().await;
+            Err(code)
+        }
     }
 }
-async fn extend_strategy_owned(user_data: &Path, session: &mut AuthoritySession) -> Result<SemanticStoreId> {
-    session.verify().await.map_err(|e|e.code())?;
-    let id=open_existing(user_data)?;
-    deployment::verify_binding(session.client_mut().await.map_err(|e|e.code())?,&id).await.map_err(|e|e.code())?;
-    let research=Directory::open(&user_data.join("research"))?;
+async fn extend_strategy_owned(
+    user_data: &Path,
+    session: &mut AuthoritySession,
+) -> Result<SemanticStoreId> {
+    session.verify().await.map_err(|e| e.code())?;
+    let id = open_existing(user_data)?;
+    deployment::verify_binding(session.client_mut().await.map_err(|e| e.code())?, &id)
+        .await
+        .map_err(|e| e.code())?;
+    let research = Directory::open(&user_data.join("research"))?;
     if strategy_extension_present(&research)? {
         // Once committed, this is strictly verification, including Policy. An
         // absent formerly provisioned owner is lost history, never a fresh token.
-        let observed=open_strategy_existing(user_data)?;
-        if observed!=id {return Err(INVALID);}
-        deployment::verify_binding(session.client_mut().await.map_err(|e|e.code())?,&id).await.map_err(|e|e.code())?;
-        session.verify().await.map_err(|e|e.code())?;
+        let observed = open_strategy_existing(user_data)?;
+        if observed != id {
+            return Err(INVALID);
+        }
+        deployment::verify_binding(session.client_mut().await.map_err(|e| e.code())?, &id)
+            .await
+            .map_err(|e| e.code())?;
+        session.verify().await.map_err(|e| e.code())?;
         return Ok(id);
     }
-    let legacy=SourceLock::acquire(&research.path.join("qualification-decisions"))?;
+    let legacy = SourceLock::acquire(&research.path.join("qualification-decisions"))?;
     legacy_qualification_empty(&research)?;
     // Interrupted explicit provisioning may leave healthy empty new topology.
     // Positive unprofiled Qualification history is not silently adopted.
-    let canonical_path=research.path.join("strategy/qualification-decisions");
-    match fs::statat(&research.fd,"strategy",fs::AtFlags::SYMLINK_NOFOLLOW) {
+    let canonical_path = research.path.join("strategy/qualification-decisions");
+    match fs::statat(&research.fd, "strategy", fs::AtFlags::SYMLINK_NOFOLLOW) {
         Ok(_) => {
-            let strategy=research.child("strategy",false)?;
-            match fs::statat(&strategy.fd,"qualification-decisions",fs::AtFlags::SYMLINK_NOFOLLOW) {
+            let strategy = research.child("strategy", false)?;
+            match fs::statat(
+                &strategy.fd,
+                "qualification-decisions",
+                fs::AtFlags::SYMLINK_NOFOLLOW,
+            ) {
                 Ok(_) => {
-                    let canonical=Directory::open(&canonical_path)?;
+                    let canonical = Directory::open(&canonical_path)?;
                     inspect_source_layout(&canonical.path)?;
-                    if !canonical.child("sha256",false)?.names()?.is_empty() {
+                    if !canonical.child("sha256", false)?.names()?.is_empty() {
                         return Err("RESEARCH_STRATEGY_EXTENSION_UNPROFILED_HISTORY");
                     }
-                },
-                Err(rustix::io::Errno::NOENT) => {},
+                }
+                Err(rustix::io::Errno::NOENT) => {}
                 Err(_) => return Err(UNAVAILABLE),
             }
-        },
-        Err(rustix::io::Errno::NOENT) => {},
+        }
+        Err(rustix::io::Errno::NOENT) => {}
         Err(_) => return Err(UNAVAILABLE),
     }
-    session.verify().await.map_err(|e|e.code())?;
+    session.verify().await.map_err(|e| e.code())?;
     research_evidence::initialize_strategy_owners(&research.path)?;
-    let canonical=SourceLock::acquire(&canonical_path)?;
-    if !canonical.directory.child("sha256",false)?.names()?.is_empty() {
+    let canonical = SourceLock::acquire(&canonical_path)?;
+    if !canonical
+        .directory
+        .child("sha256", false)?
+        .names()?
+        .is_empty()
+    {
         return Err("RESEARCH_STRATEGY_EXTENSION_UNPROFILED_HISTORY");
     }
-    let policies=qualification_policy::Store::open(research.fd.as_fd()).map_err(|e|e.code())?;
-    policies.admit(session,&id,&[experimental_backtest_policy().map_err(|e|e.code())?],STRATEGY_WORK).await.map_err(|e|e.code())?;
+    let policies = qualification_policy::Store::open(research.fd.as_fd()).map_err(|e| e.code())?;
+    policies
+        .admit(
+            session,
+            &id,
+            &[experimental_backtest_policy().map_err(|e| e.code())?],
+            STRATEGY_WORK,
+        )
+        .await
+        .map_err(|e| e.code())?;
     strategy_owners_existing(&research)?;
     // Publish the metadata file atomically from the existing auxiliary staging
     // namespace. A crash cannot leave a visible half-written extension marker.
-    let auxiliary=research.child(".immutable-json-staging",true)?;
-    if fs::fstat(&auxiliary.fd).map_err(|_|UNAVAILABLE)?.st_dev!=fs::fstat(&research.fd).map_err(|_|UNAVAILABLE)?.st_dev {
+    let auxiliary = research.child(".immutable-json-staging", true)?;
+    if fs::fstat(&auxiliary.fd).map_err(|_| UNAVAILABLE)?.st_dev
+        != fs::fstat(&research.fd).map_err(|_| UNAVAILABLE)?.st_dev
+    {
         return Err(INVALID);
     }
-    let stage_name=format!(".stage-{}",uuid4()?);
-    fs::mkdirat(&auxiliary.fd,stage_name.as_str(),fs::Mode::from_raw_mode(0o700)).map_err(|_|UNAVAILABLE)?;
-    let stage=auxiliary.child(&stage_name,false)?;
-    write_new(&stage,"manifest.json",&strategy_extension(&id)?)?;
-    fs::fsync(&stage.fd).map_err(|_|UNAVAILABLE)?;
-    fs::fsync(&auxiliary.fd).map_err(|_|UNAVAILABLE)?;
-    if open_existing(user_data)?!=id {return Err(INVALID);}
-    legacy.verify()?;canonical.verify()?;legacy_qualification_empty(&research)?;strategy_owners_existing(&research)?;
-    if !canonical.directory.child("sha256",false)?.names()?.is_empty() {
+    let stage_name = format!(".stage-{}", uuid4()?);
+    fs::mkdirat(
+        &auxiliary.fd,
+        stage_name.as_str(),
+        fs::Mode::from_raw_mode(0o700),
+    )
+    .map_err(|_| UNAVAILABLE)?;
+    let stage = auxiliary.child(&stage_name, false)?;
+    write_new(&stage, "manifest.json", &strategy_extension(&id)?)?;
+    fs::fsync(&stage.fd).map_err(|_| UNAVAILABLE)?;
+    fs::fsync(&auxiliary.fd).map_err(|_| UNAVAILABLE)?;
+    if open_existing(user_data)? != id {
+        return Err(INVALID);
+    }
+    legacy.verify()?;
+    canonical.verify()?;
+    legacy_qualification_empty(&research)?;
+    strategy_owners_existing(&research)?;
+    if !canonical
+        .directory
+        .child("sha256", false)?
+        .names()?
+        .is_empty()
+    {
         return Err("RESEARCH_STRATEGY_EXTENSION_UNPROFILED_HISTORY");
     }
-    deployment::verify_binding(session.client_mut().await.map_err(|e|e.code())?,&id).await.map_err(|e|e.code())?;
-    session.verify().await.map_err(|e|e.code())?;
-    fs::renameat_with(&stage.fd,"manifest.json",&research.fd,STRATEGY_EXTENSION_FILE,fs::RenameFlags::NOREPLACE)
-        .map_err(|_|"RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN")?;
-    fs::fsync(&stage.fd).map_err(|_|"RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN")?;
-    fs::fsync(&research.fd).map_err(|_|"RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN")?;
-    let observed=open_strategy_existing(user_data).map_err(|_|"RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN")?;
-    if observed!=id {return Err("RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN");}
-    legacy.verify()?;canonical.verify()?;
-    deployment::verify_binding(session.client_mut().await.map_err(|e|e.code())?,&id).await.map_err(|e|e.code())?;
-    session.verify().await.map_err(|e|e.code())?;
+    deployment::verify_binding(session.client_mut().await.map_err(|e| e.code())?, &id)
+        .await
+        .map_err(|e| e.code())?;
+    session.verify().await.map_err(|e| e.code())?;
+    fs::renameat_with(
+        &stage.fd,
+        "manifest.json",
+        &research.fd,
+        STRATEGY_EXTENSION_FILE,
+        fs::RenameFlags::NOREPLACE,
+    )
+    .map_err(|_| "RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN")?;
+    fs::fsync(&stage.fd).map_err(|_| "RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN")?;
+    fs::fsync(&research.fd).map_err(|_| "RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN")?;
+    let observed = open_strategy_existing(user_data)
+        .map_err(|_| "RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN")?;
+    if observed != id {
+        return Err("RESEARCH_STRATEGY_EXTENSION_OUTCOME_UNKNOWN");
+    }
+    legacy.verify()?;
+    canonical.verify()?;
+    deployment::verify_binding(session.client_mut().await.map_err(|e| e.code())?, &id)
+        .await
+        .map_err(|e| e.code())?;
+    session.verify().await.map_err(|e| e.code())?;
     Ok(id)
 }
 
 /// Controller composition only. Every source owner and the exact shipped Policy must exist.
 pub fn novelty(user_data: &Path) -> Result<Authority> {
-    let sources=current_source_roots(user_data)?;
+    let sources = current_source_roots(user_data)?;
     Authority::new(
         user_data,
         &user_data.join("research/experiment-memory"),
         sources,
-    )?.with_runtime_root(&user_data.join("runtime"))
+    )?
+    .with_runtime_root(&user_data.join("runtime"))
 }
 
 mod manual_backtest;
-pub use manual_backtest::{extend_manual_backtest,open_manual_backtest_existing};
 pub(crate) use manual_backtest::manual_backtest_policy;
+pub use manual_backtest::{extend_manual_backtest, open_manual_backtest_existing};
 
 mod runtime;
-pub use runtime::{initialize_runtime_registry,initialize_backtest_evidence};
+pub use runtime::{initialize_backtest_evidence, initialize_runtime_registry};
 
 #[cfg(test)]
-pub(crate) use runtime::{InitializationFault, fail_initialization_for_test};
+pub use runtime::{InitializationFault, fail_initialization_for_test};

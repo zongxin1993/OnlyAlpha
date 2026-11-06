@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { requiredValue } from "../../test/requiredValue";
 import { openTemporaryMarketDataStream } from "../../api/marketData/temporaryStream";
 import { act, render, screen, waitFor } from "@testing-library/react";
@@ -93,14 +94,16 @@ it("restores saved selection, saves only after an explicit click, and reloads co
         )
     );
     render(
-        <AppProviders
-            integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({
-                listInstruments: () => Promise.resolve([marketDataInstrument()])
-            })}
-        >
-            <WorkspacePage />
-        </AppProviders>
+        <MemoryRouter>
+            <AppProviders
+                integrationClient={integrationClient()}
+                marketDataClient={marketDataClient({
+                    listInstruments: () => Promise.resolve([marketDataInstrument()])
+                })}
+            >
+                <WorkspacePage />
+            </AppProviders>
+        </MemoryRouter>
     );
     await waitFor(() => {
         expect(readTemporaryMarketData).toHaveBeenCalled();

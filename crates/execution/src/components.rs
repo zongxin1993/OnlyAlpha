@@ -21,6 +21,9 @@ pub struct Components {
     pub(crate) meta: Arc<Value>,
     pub(crate) sequence: u64,
     pub(crate) pending: Option<(String, usize)>,
+    // One optional pure-data result, never a source/Ready/reconciliation proof.
+    pub(crate) reconciliation_data:
+        Arc<std::sync::Mutex<Option<Arc<crate::reconciliation::ReconciliationData>>>>,
     payload_cache: std::sync::OnceLock<(std::sync::Arc<Vec<Value>>, Vec<String>)>,
     // Configuration-derived data only; never Store/source or Ready authority.
     genesis_cache: std::sync::Arc<std::sync::OnceLock<(Value, Vec<String>)>>,
@@ -153,9 +156,12 @@ impl Components {
             ledger: Arc::new(boundary(onlyalpha_strategy_ledger::Manager::new(lc))?),
             risk: Arc::new(boundary(onlyalpha_risk::Manager::new(rc))?),
             config: config.clone(),
-            meta: Arc::new(json!({"schema_version":5,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(settlement_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{},"valuation_marks":{},"valuation_sources":{}})),
+            meta: Arc::new(
+                json!({"schema_version":5,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(settlement_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{},"valuation_marks":{},"valuation_sources":{}}),
+            ),
             sequence: 0,
             pending: None,
+            reconciliation_data: Arc::new(std::sync::Mutex::new(None)),
             payload_cache: std::sync::OnceLock::new(),
             genesis_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
         })
@@ -177,6 +183,7 @@ impl Components {
             meta: self.meta.clone(),
             sequence: self.sequence,
             pending: self.pending.clone(),
+            reconciliation_data: Arc::clone(&self.reconciliation_data),
             payload_cache: self.payload_cache.clone(),
             genesis_cache: std::sync::Arc::clone(&self.genesis_cache),
         }
@@ -203,7 +210,9 @@ impl Components {
         }
         let hashes = Self::genesis_payload_hashes(&self.config)?;
         if self.genesis_cache.get().is_none() {
-            let _ = self.genesis_cache.set((self.config.clone(), hashes.clone()));
+            let _ = self
+                .genesis_cache
+                .set((self.config.clone(), hashes.clone()));
         }
         Ok(hashes)
     }
@@ -750,7 +759,8 @@ impl Components {
             if i == 2 {
                 after.require_account_checkpoint(actual.as_ref())?;
             }
-            if actual.as_ref() != &projection["result"] || actual_hash != projection["result_hash"] {
+            if actual.as_ref() != &projection["result"] || actual_hash != projection["result_hash"]
+            {
                 return Err(err("EXECUTION_TYPED_AFTER_CONFLICT"));
             }
         }
@@ -830,9 +840,15 @@ impl Components {
                     count.set(counts);
                 });
                 if i == 2 {
-                    boundary(Arc::make_mut(&mut self.account).restore_exact_extension(&bytes, fingerprint))?;
+                    boundary(
+                        Arc::make_mut(&mut self.account)
+                            .restore_exact_extension(&bytes, fingerprint),
+                    )?;
                 } else {
-                    boundary(Arc::make_mut(&mut self.ledger).restore_exact_extension(&bytes, fingerprint))?;
+                    boundary(
+                        Arc::make_mut(&mut self.ledger)
+                            .restore_exact_extension(&bytes, fingerprint),
+                    )?;
                 }
             } else if i == 5 && p.has_validated_transition_data() {
                 // The same immutable metadata already passed every owner

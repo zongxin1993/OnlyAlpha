@@ -9,7 +9,7 @@ use crate::application::{
         pin, signed, text, verify_signed,
     },
 };
-use crate::persistence::research_evidence::{SourceVerification,StrategyReadCut};
+use crate::persistence::research_evidence::{SourceVerification, StrategyReadCut};
 use crate::security::immutable_json::{Directory, SourceLock, parsed, put, read_path};
 use crate::security::protected_files::{self as files, ReadError};
 use rustix::fs;
@@ -50,9 +50,9 @@ fn identifier(value: &str, version: bool) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn validate_policy_reference(id:&str,version:&str)->Result<()> {
-    identifier(id,false)?;
-    identifier(version,true)
+pub(crate) fn validate_policy_reference(id: &str, version: &str) -> Result<()> {
+    identifier(id, false)?;
+    identifier(version, true)
 }
 
 #[derive(Clone)]
@@ -64,14 +64,14 @@ struct Snapshot {
     projection: Value,
     frontier: i64,
     locks: Vec<Arc<SourceLock>>,
-    strategy_cuts:Vec<Arc<StrategyReadCut>>,
-    qualification_cuts:Vec<Arc<super::qualification_decision::VerifiedDecision>>,
+    strategy_cuts: Vec<Arc<StrategyReadCut>>,
+    qualification_cuts: Vec<Arc<super::qualification_decision::VerifiedDecision>>,
 }
 pub struct Authority {
     semantic_root: Directory,
     projection_root: Directory,
     source_roots: BTreeMap<String, PathBuf>,
-    runtime_root:Option<PathBuf>,
+    runtime_root: Option<PathBuf>,
 }
 impl Authority {
     /// Paths are supplied only by the backend's owning deployment composition.
@@ -97,50 +97,83 @@ impl Authority {
             semantic_root,
             projection_root: Directory::open(projection_root)?,
             source_roots,
-            runtime_root:None,
+            runtime_root: None,
         })
     }
-    pub fn with_runtime_root(mut self,root:&Path)->Result<Self>{
-        if !root.is_absolute()||root.as_os_str().to_str().is_none_or(|s|s.split('/').any(|p|matches!(p,"."|".."))){return Err(UNAVAILABLE);}
-        self.runtime_root=Some(root.into());Ok(self)
+    pub fn with_runtime_root(mut self, root: &Path) -> Result<Self> {
+        if !root.is_absolute()
+            || root
+                .as_os_str()
+                .to_str()
+                .is_none_or(|s| s.split('/').any(|p| matches!(p, "." | "..")))
+        {
+            return Err(UNAVAILABLE);
+        }
+        self.runtime_root = Some(root.into());
+        Ok(self)
     }
-    fn locks(&self,references:Option<&[Value]>,current:bool) -> Result<CapturedLocks> {
-        let mut selected=self.source_roots.clone();
-        let legacy=self.semantic_root.path.join("research/qualification-decisions");
-        let canonical=self.semantic_root.path.join("research/strategy/qualification-decisions");
-        if let Some(references)=references {
-            let reference=references.iter().find(|cut|cut["source_family"]=="QUALIFICATION_DECISION").ok_or(INVALID)?;
-            let owner=match reference["enumeration_contract_version"].as_u64() {
-                Some(1)=>{
+    fn locks(&self, references: Option<&[Value]>, current: bool) -> Result<CapturedLocks> {
+        let mut selected = self.source_roots.clone();
+        let legacy = self
+            .semantic_root
+            .path
+            .join("research/qualification-decisions");
+        let canonical = self
+            .semantic_root
+            .path
+            .join("research/strategy/qualification-decisions");
+        if let Some(references) = references {
+            let reference = references
+                .iter()
+                .find(|cut| cut["source_family"] == "QUALIFICATION_DECISION")
+                .ok_or(INVALID)?;
+            let owner = match reference["enumeration_contract_version"].as_u64() {
+                Some(1) => {
                     crate::bootstrap::research_namespace::open_existing(&self.semantic_root.path)?;
                     legacy.clone()
-                },
-                Some(2)=>{
-                    crate::bootstrap::research_namespace::open_strategy_existing(&self.semantic_root.path)?;
+                }
+                Some(2) => {
+                    crate::bootstrap::research_namespace::open_strategy_existing(
+                        &self.semantic_root.path,
+                    )?;
                     canonical.clone()
-                },
-                _=>return Err(INVALID),
+                }
+                _ => return Err(INVALID),
             };
-            selected.insert("QUALIFICATION_DECISION".into(),owner);
+            selected.insert("QUALIFICATION_DECISION".into(), owner);
         }
         if current {
-            let expected=crate::bootstrap::research_namespace::current_source_roots(&self.semantic_root.path)?;
-            if self.source_roots!=expected{return Err(INVALID);}
+            let expected = crate::bootstrap::research_namespace::current_source_roots(
+                &self.semantic_root.path,
+            )?;
+            if self.source_roots != expected {
+                return Err(INVALID);
+            }
         }
-        let mut paths=selected.values().cloned().collect::<BTreeSet<_>>();
-        if current {paths.insert(legacy.clone());paths.insert(canonical);}
-        let mut by_path=BTreeMap::new();
-        for path in paths {by_path.insert(path.clone(),Arc::new(SourceLock::acquire(&path)?));}
-        if current && !inventory(&by_path.get(&legacy).ok_or(INVALID)?.directory)?.is_empty(){return Err(UNAVAILABLE);}
-        let mut by_family=BTreeMap::new();
-        for (family,path) in &selected {by_family.insert(family.clone(),by_path.get(path).ok_or(INVALID)?.clone());}
-        Ok((by_family,by_path.into_values().collect()))
+        let mut paths = selected.values().cloned().collect::<BTreeSet<_>>();
+        if current {
+            paths.insert(legacy.clone());
+            paths.insert(canonical);
+        }
+        let mut by_path = BTreeMap::new();
+        for path in paths {
+            by_path.insert(path.clone(), Arc::new(SourceLock::acquire(&path)?));
+        }
+        if current && !inventory(&by_path.get(&legacy).ok_or(INVALID)?.directory)?.is_empty() {
+            return Err(UNAVAILABLE);
+        }
+        let mut by_family = BTreeMap::new();
+        for (family, path) in &selected {
+            by_family.insert(family.clone(), by_path.get(path).ok_or(INVALID)?.clone());
+        }
+        Ok((by_family, by_path.into_values().collect()))
     }
     /// Native owner capture, exact source-cut publication and immutable projection.
     /// It has no model call, scientific calculation or Research execution effect.
     pub async fn refresh_projection(&self, client: &mut Client) -> Result<String> {
-        let (by_family, locks) = self.locks(None,true)?;
-        let mut verified = SourceVerification::new(&locks).with_runtime_root(self.runtime_root.clone());
+        let (by_family, locks) = self.locks(None, true)?;
+        let mut verified =
+            SourceVerification::new(&locks).with_runtime_root(self.runtime_root.clone());
         let tx = client.transaction().await.map_err(io)?;
         crate::persistence::postgres::bounds(&tx)
             .await
@@ -158,7 +191,7 @@ impl Authority {
                 (cut, members)
             } else {
                 let source = by_family.get(family).ok_or(INVALID)?;
-                let (cut, members) = self.file_cut(family, source, &mut verified,&tx).await?;
+                let (cut, members) = self.file_cut(family, source, &mut verified, &tx).await?;
                 let fingerprint = text(&cut, "cut_fingerprint")?;
                 put(
                     &source.directory,
@@ -177,7 +210,8 @@ impl Authority {
             "manifest_fingerprint",
             None,
         )?;
-        let projection = build_projection_verified(manifest, &observations,verified.strategy_runs())?;
+        let projection =
+            build_projection_verified(manifest, &observations, verified.strategy_runs())?;
         let fingerprint = text(&projection, "revision_fingerprint")?.to_owned();
         put(
             &self.projection_root,
@@ -204,7 +238,7 @@ impl Authority {
         projection_fp: &str,
     ) -> Result<Value> {
         n::subject_set(subjects)?;
-        validate_policy_reference(policy_id,policy_version)?;
+        validate_policy_reference(policy_id, policy_version)?;
         let lock_root = self
             .semantic_root
             .path(&["research", "novelty-decision-authority-locks"], true)?;
@@ -359,12 +393,12 @@ impl Authority {
             members,
             frontier: snapshot.frontier,
             locks: snapshot.locks,
-            strategy_cuts:snapshot.strategy_cuts,
-            qualification_cuts:snapshot.qualification_cuts,
+            strategy_cuts: snapshot.strategy_cuts,
+            qualification_cuts: snapshot.qualification_cuts,
         })
     }
     fn load_policy(&self, id: &str, version: &str) -> Result<Value> {
-        validate_policy_reference(id,version)?;
+        validate_policy_reference(id, version)?;
         let p = read_path(
             &self.semantic_root,
             &["research", "novelty-policies", id, version],
@@ -419,7 +453,7 @@ impl Authority {
         family: &str,
         source: &SourceLock,
         verified: &mut SourceVerification<'_>,
-        tx:&Transaction<'_>,
+        tx: &Transaction<'_>,
     ) -> Result<(Value, Vec<Observation>)> {
         source.verify()?;
         let entries = inventory(&source.directory)?;
@@ -427,8 +461,9 @@ impl Authority {
         let mut cut_entries = Vec::new();
         let mut remaining = LIMIT;
         for locator in entries {
-            if let Some((identity, payload)) =
-                self.file_observation(family, &source.directory, &locator, verified,tx).await?
+            if let Some((identity, payload)) = self
+                .file_observation(family, &source.directory, &locator, verified, tx)
+                .await?
             {
                 cut_entries.push(json!({"locator":locator,"identity":identity,"content_fingerprint":fp(&payload)?}));
                 spend(&mut remaining, &payload)?;
@@ -458,16 +493,27 @@ impl Authority {
         root: &Directory,
         locator: &str,
         verified: &mut SourceVerification<'_>,
-        tx:&Transaction<'_>,
+        tx: &Transaction<'_>,
     ) -> Result<Option<(String, Value)>> {
         if !crate::is_sha256_hex(locator) {
             return Err(UNAVAILABLE);
         }
         match family {
-            "QUALIFICATION_DECISION"=>{
-                if root.path==self.semantic_root.path.join("research/qualification-decisions"){return Err(UNAVAILABLE);}
-                Ok(Some(verified.verify_qualification_in_transaction(&root.path,locator,tx).await?))
-            },
+            "QUALIFICATION_DECISION" => {
+                if root.path
+                    == self
+                        .semantic_root
+                        .path
+                        .join("research/qualification-decisions")
+                {
+                    return Err(UNAVAILABLE);
+                }
+                Ok(Some(
+                    verified
+                        .verify_qualification_in_transaction(&root.path, locator, tx)
+                        .await?,
+                ))
+            }
             "RESEARCH_RESULT"
             | "RESEARCH_STATISTICS"
             | "RESEARCH_FACTOR_PAIR_STATISTICS"
@@ -477,7 +523,9 @@ impl Authority {
                 } else {
                     "RESEARCH_STATISTICS"
                 };
-                let (identity, value) = verified.verify_in_transaction(&root.path, actual_family, locator,tx).await?;
+                let (identity, value) = verified
+                    .verify_in_transaction(&root.path, actual_family, locator, tx)
+                    .await?;
                 // All three statistics families share the canonical owner root.
                 // A verified native TS fact is a complete non-member of the
                 // other two families, never an unknown/partial non-match.
@@ -510,8 +558,9 @@ impl Authority {
         let cuts = projection["source_manifest"]["cuts"]
             .as_array()
             .ok_or(INVALID)?;
-        let (by_family, locks) = self.locks(Some(cuts),current)?;
-        let mut verified = SourceVerification::new(&locks).with_runtime_root(self.runtime_root.clone());
+        let (by_family, locks) = self.locks(Some(cuts), current)?;
+        let mut verified =
+            SourceVerification::new(&locks).with_runtime_root(self.runtime_root.clone());
         let tx = client.transaction().await.map_err(io)?;
         crate::persistence::postgres::bounds(&tx)
             .await
@@ -560,16 +609,33 @@ impl Authority {
                     return Err(INVALID);
                 }
                 if current {
-                    let current_source=if family=="QUALIFICATION_DECISION" {
-                        let root=self.semantic_root.path.join("research/strategy/qualification-decisions");
-                        locks.iter().find(|cut|cut.directory.path==root).ok_or(INVALID)?.as_ref()
-                    }else{source.as_ref()};
-                    if self.file_cut(family,current_source,&mut verified,&tx).await?.0 != cut{return Err("NOVELTY_DECISION_STALE");}
+                    let current_source = if family == "QUALIFICATION_DECISION" {
+                        let root = self
+                            .semantic_root
+                            .path
+                            .join("research/strategy/qualification-decisions");
+                        locks
+                            .iter()
+                            .find(|cut| cut.directory.path == root)
+                            .ok_or(INVALID)?
+                            .as_ref()
+                    } else {
+                        source.as_ref()
+                    };
+                    if self
+                        .file_cut(family, current_source, &mut verified, &tx)
+                        .await?
+                        .0
+                        != cut
+                    {
+                        return Err("NOVELTY_DECISION_STALE");
+                    }
                 }
                 for entry in cut["entries"].as_array().ok_or(INVALID)? {
                     let locator = text(entry, "locator")?;
                     let (identity, payload) = self
-                        .file_observation(family, &source.directory, locator, &mut verified,&tx).await?
+                        .file_observation(family, &source.directory, locator, &mut verified, &tx)
+                        .await?
                         .ok_or(INVALID)?;
                     if entry["identity"] != identity
                         || fp(&payload)? != entry["content_fingerprint"]
@@ -584,13 +650,17 @@ impl Authority {
                 }
             }
         }
-        let rebuilt = build_projection_verified(projection["source_manifest"].clone(), &observations,verified.strategy_runs())?;
+        let rebuilt = build_projection_verified(
+            projection["source_manifest"].clone(),
+            &observations,
+            verified.strategy_runs(),
+        )?;
         if rebuilt != projection {
             return Err(INVALID);
         }
         verified.verify_cut()?;
-        let strategy_cuts=verified.strategy_cuts();
-        let qualification_cuts=verified.qualification_cuts();
+        let strategy_cuts = verified.strategy_cuts();
+        let qualification_cuts = verified.qualification_cuts();
         drop(verified);
         tx.commit().await.map_err(io)?;
         Ok(Snapshot {
@@ -612,8 +682,8 @@ pub struct ActionProof {
     members: Vec<Value>,
     frontier: i64,
     locks: Vec<Arc<SourceLock>>,
-    strategy_cuts:Vec<Arc<StrategyReadCut>>,
-    qualification_cuts:Vec<Arc<super::qualification_decision::VerifiedDecision>>,
+    strategy_cuts: Vec<Arc<StrategyReadCut>>,
+    qualification_cuts: Vec<Arc<super::qualification_decision::VerifiedDecision>>,
 }
 impl ActionProof {
     pub fn group_fingerprint(&self) -> &str {
@@ -657,10 +727,18 @@ impl ActionProof {
     /// Re-prove retained source barriers immediately before commit. The original
     /// action frontier was checked before this transaction's own journal writes.
     pub(crate) fn verify_cut(&self) -> Result<()> {
-        if self.locks.is_empty() { return Err(UNAVAILABLE); }
-        for lock in &self.locks { lock.verify()?; }
-        for cut in &self.strategy_cuts{cut.verify()?;}
-        for decision in &self.qualification_cuts{decision.verify_cut()?;}
+        if self.locks.is_empty() {
+            return Err(UNAVAILABLE);
+        }
+        for lock in &self.locks {
+            lock.verify()?;
+        }
+        for cut in &self.strategy_cuts {
+            cut.verify()?;
+        }
+        for decision in &self.qualification_cuts {
+            decision.verify_cut()?;
+        }
         Ok(())
     }
     /// Must run inside the same short transaction that writes Run+Admission+Receipt.
@@ -881,8 +959,14 @@ fn validate_cut(cut: &Value) -> Result<()> {
     )?;
     verify_signed(cut, "cut_fingerprint", None)?;
     if cut["schema_version"].as_u64() != Some(1)
-        || !matches!((cut["source_family"].as_str(),cut["source_schema_version"].as_u64(),cut["enumeration_contract_version"].as_u64()),
-            (_,Some(_),Some(1))|(Some("QUALIFICATION_DECISION"),Some(1),Some(2)))
+        || !matches!(
+            (
+                cut["source_family"].as_str(),
+                cut["source_schema_version"].as_u64(),
+                cut["enumeration_contract_version"].as_u64()
+            ),
+            (_, Some(_), Some(1)) | (Some("QUALIFICATION_DECISION"), Some(1), Some(2))
+        )
         || cut["source_schema_version"].as_u64().is_none_or(|n| n < 1)
     {
         return Err(INVALID);
@@ -939,8 +1023,8 @@ fn source_ref(cut: &Value, entry: &Value) -> Result<Value> {
 fn inventory(root: &Directory) -> Result<Vec<String>> {
     let mut result = Vec::new();
     for name in root.names()? {
-        if name==".immutable-json-staging" {
-            root.child(&name,false)?.verify()?;
+        if name == ".immutable-json-staging" {
+            root.child(&name, false)?.verify()?;
             continue;
         }
         if name == ".source-cut.lock" || name == "closed-cuts" {
@@ -1189,9 +1273,13 @@ fn verify_projection_envelope(projection: &Value, expected: &str) -> Result<()> 
 
 #[cfg(test)]
 fn build_projection(manifest: Value, observations: &[Observation]) -> Result<Value> {
-    build_projection_verified(manifest,observations,&BTreeMap::new())
+    build_projection_verified(manifest, observations, &BTreeMap::new())
 }
-fn build_projection_verified(manifest:Value,observations:&[Observation],strategy_runs:&BTreeMap<String,Value>)->Result<Value>{
+fn build_projection_verified(
+    manifest: Value,
+    observations: &[Observation],
+    strategy_runs: &BTreeMap<String, Value>,
+) -> Result<Value> {
     let mut records = Vec::new();
     let results = observations
         .iter()
@@ -1205,13 +1293,18 @@ fn build_projection_verified(manifest:Value,observations:&[Observation],strategy
         .iter()
         .filter(|o| o.source_ref["source_family"] == "RESEARCH_STATISTICS")
         .collect::<Vec<_>>();
-    verify_result_references_verified(&runs, &results,strategy_runs)?;
+    verify_result_references_verified(&runs, &results, strategy_runs)?;
     // Every returned native owner manifest has already passed its physical,
     // semantic and upstream reads. Rebuild all derived evaluation membership.
     for result in &results {
         let v = &result.payload;
-        if v["schema_version"]==2{
-            records.extend(strategy_evaluation_records(result,&runs,&statistics,strategy_runs)?);
+        if v["schema_version"] == 2 {
+            records.extend(strategy_evaluation_records(
+                result,
+                &runs,
+                &statistics,
+                strategy_runs,
+            )?);
             continue;
         }
         let subject = Subject::new(v["evaluation_subject"].clone())?;
@@ -1315,19 +1408,49 @@ fn build_projection_verified(manifest:Value,observations:&[Observation],strategy
             return Err(INVALID);
         }
     }
-    for observation in observations.iter().filter(|o|o.source_ref["source_family"]=="QUALIFICATION_DECISION") {
-        let value=&observation.payload;
-        if value["outcome"]!="REJECTED"{continue;}
-        let evidence=value["evidence"].as_array().filter(|rows|rows.len()==1).ok_or(INVALID)?;
-        let selected=&evidence[0];
+    for observation in observations
+        .iter()
+        .filter(|o| o.source_ref["source_family"] == "QUALIFICATION_DECISION")
+    {
+        let value = &observation.payload;
+        if value["outcome"] != "REJECTED" {
+            continue;
+        }
+        let evidence = value["evidence"]
+            .as_array()
+            .filter(|rows| rows.len() == 1)
+            .ok_or(INVALID)?;
+        let selected = &evidence[0];
         // SourceVerification has already authenticated every owning input. A
         // manual validation rejection is not a Research failure observation.
-        if value["gate"]=="MANUAL_STRATEGY_TO_BACKTEST" && selected["kind"]=="STRATEGY_VALIDATION" {continue;}
-        let matching=results.iter().filter(|result|result.source_ref["locator"]==selected["locator_fingerprint"]
-            &&result.source_ref["identity"]==selected["evidence_fingerprint"]).collect::<Vec<_>>();
-        if matching.len()!=1{return Err(INVALID);}
-        let mut refs=vec![observation.source_ref.clone(),matching[0].source_ref.clone()];
-        refs.sort_by_cached_key(|reference|(reference["source_family"].as_str().unwrap_or_default().to_owned(),reference["locator"].as_str().unwrap_or_default().to_owned()));
+        if value["gate"] == "MANUAL_STRATEGY_TO_BACKTEST"
+            && selected["kind"] == "STRATEGY_VALIDATION"
+        {
+            continue;
+        }
+        let matching = results
+            .iter()
+            .filter(|result| {
+                result.source_ref["locator"] == selected["locator_fingerprint"]
+                    && result.source_ref["identity"] == selected["evidence_fingerprint"]
+            })
+            .collect::<Vec<_>>();
+        if matching.len() != 1 {
+            return Err(INVALID);
+        }
+        let mut refs = vec![
+            observation.source_ref.clone(),
+            matching[0].source_ref.clone(),
+        ];
+        refs.sort_by_cached_key(|reference| {
+            (
+                reference["source_family"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+                reference["locator"].as_str().unwrap_or_default().to_owned(),
+            )
+        });
         records.push(json!({"kind":"FailureEvidenceProjectionRecord","facets":{"owner_kind":"QUALIFICATION_DECISION",
             "classification":"QUALIFICATION_REJECT","subject_strategy_fingerprint":value["subject_strategy_fingerprint"],
             "policy_id":value["policy_id"],"policy_version":value["policy_version"],"policy_fingerprint":value["policy_fingerprint"],
@@ -1357,9 +1480,13 @@ fn build_projection_verified(manifest:Value,observations:&[Observation],strategy
 }
 #[cfg(test)]
 fn verify_result_references(runs: &[&Observation], results: &[&Observation]) -> Result<()> {
-    verify_result_references_verified(runs,results,&BTreeMap::new())
+    verify_result_references_verified(runs, results, &BTreeMap::new())
 }
-fn verify_result_references_verified(runs: &[&Observation], results: &[&Observation],strategy_runs:&BTreeMap<String,Value>) -> Result<()> {
+fn verify_result_references_verified(
+    runs: &[&Observation],
+    results: &[&Observation],
+    strategy_runs: &BTreeMap<String, Value>,
+) -> Result<()> {
     for observation in runs {
         let row = &observation.payload["source_row"];
         let evidence = if row["calculation_execution_evidence_fingerprints"].is_null() {
@@ -1387,13 +1514,19 @@ fn verify_result_references_verified(runs: &[&Observation], results: &[&Observat
         if matching.len() != 1 {
             return Err(UNAVAILABLE);
         }
-        let owner=if matching[0].payload["schema_version"]==2{
-            let context=strategy_runs.get(text(row,"run_id")?).ok_or(UNAVAILABLE)?;
-            if row["origin_kind"]!="PRIVATE_STRATEGY"||row["specification_schema_version"]!=5
-                ||context["specification_fingerprint"]!=row["specification_fingerprint"]
-                ||context["artifact_content_fingerprint"]!=row["artifact_content_fingerprint"]{return Err(INVALID);}
+        let owner = if matching[0].payload["schema_version"] == 2 {
+            let context = strategy_runs.get(text(row, "run_id")?).ok_or(UNAVAILABLE)?;
+            if row["origin_kind"] != "PRIVATE_STRATEGY"
+                || row["specification_schema_version"] != 5
+                || context["specification_fingerprint"] != row["specification_fingerprint"]
+                || context["artifact_content_fingerprint"] != row["artifact_content_fingerprint"]
+            {
+                return Err(INVALID);
+            }
             &context["calculation_execution_evidence_fingerprints"]
-        }else{&matching[0].payload["calculation_execution_evidence_fingerprints"]};
+        } else {
+            &matching[0].payload["calculation_execution_evidence_fingerprints"]
+        };
         if row["state"] == "COMPLETED" || !evidence.is_empty() {
             let owner = owner.as_array().ok_or(INVALID)?;
             if owner.is_empty() || owner.as_slice() != evidence {
@@ -1530,18 +1663,32 @@ mod tests {
     #[test]
     fn qualification_enumeration_two_does_not_reinterpret_other_source_versions() {
         // Parser values only: this does not capture a cut or grant any ActionProof.
-        let cut = |family:&str, schema:u64, enumeration:u64| signed(
+        let cut = |family: &str, schema: u64, enumeration: u64| {
+            signed(
             json!({"schema_version":1,"source_family":family,"source_schema_version":schema,
                 "enumeration_contract_version":enumeration,"cut_boundary":"FILE_PUBLICATION_BARRIER_V1",
                 "completeness_proof":"SOURCE_OWNED_EXCLUSIVE_INVENTORY_V1","entries":[]}),
-            "cut_fingerprint", None).unwrap();
-        assert!(validate_cut(&cut("QUALIFICATION_DECISION",1,1)).is_ok(),"retained enum1 remains readable");
-        assert!(validate_cut(&cut("QUALIFICATION_DECISION",1,2)).is_ok(),"the explicit new Q enumeration is supported");
-        for family in FAMILIES.into_iter().filter(|family| *family!="QUALIFICATION_DECISION") {
-            assert!(validate_cut(&cut(family,source_version(family).unwrap(),2)).is_err(),"unsupported enum2 for {family}");
+            "cut_fingerprint", None).unwrap()
+        };
+        assert!(
+            validate_cut(&cut("QUALIFICATION_DECISION", 1, 1)).is_ok(),
+            "retained enum1 remains readable"
+        );
+        assert!(
+            validate_cut(&cut("QUALIFICATION_DECISION", 1, 2)).is_ok(),
+            "the explicit new Q enumeration is supported"
+        );
+        for family in FAMILIES
+            .into_iter()
+            .filter(|family| *family != "QUALIFICATION_DECISION")
+        {
+            assert!(
+                validate_cut(&cut(family, source_version(family).unwrap(), 2)).is_err(),
+                "unsupported enum2 for {family}"
+            );
         }
-        assert!(validate_cut(&cut("QUALIFICATION_DECISION",1,3)).is_err());
-        assert!(validate_cut(&cut("QUALIFICATION_DECISION",2,2)).is_err());
+        assert!(validate_cut(&cut("QUALIFICATION_DECISION", 1, 3)).is_err());
+        assert!(validate_cut(&cut("QUALIFICATION_DECISION", 2, 2)).is_err());
     }
     #[test]
     fn retained_group_missing_or_rebound_command_is_never_original_prepared_fact() {
@@ -1554,7 +1701,7 @@ mod tests {
             semantic_root: semantic,
             projection_root: Directory::open(&root).unwrap(),
             source_roots: BTreeMap::new(),
-            runtime_root:None,
+            runtime_root: None,
         };
         let fixture: Value = serde_json::from_str(include_str!(
             "../../tests/application/fixtures/research_novelty.json"
@@ -1570,8 +1717,8 @@ mod tests {
             projection: fixture["projection"].clone(),
             frontier: 0,
             locks: vec![],
-            strategy_cuts:vec![],
-            qualification_cuts:vec![],
+            strategy_cuts: vec![],
+            qualification_cuts: vec![],
         };
         let original = make_group(&command, &[subject], &fixture["policy"], &snapshot).unwrap();
         put(
@@ -1687,8 +1834,8 @@ mod tests {
             projection,
             frontier: 0,
             locks: vec![],
-            strategy_cuts:vec![],
-            qualification_cuts:vec![],
+            strategy_cuts: vec![],
+            qualification_cuts: vec![],
         };
         let (_, proof) = query(&subject, &snapshot).unwrap();
         assert_eq!(proof["proof_status"], "PROOF_INCOMPLETE");
@@ -1764,68 +1911,144 @@ mod strategy_run_context_tests {
     use super::*;
     #[test]
     fn strategy_closure_uses_science2_and_retains_the_full5_source_occurrence() {
-        let record=crate::application::strategy_research::test_run_record();
-        let spec=crate::application::strategy_research::RunSpecification::from_record(&record).unwrap();
-        let native=spec.fingerprint().unwrap();
-        let science=spec.scientific_specification_fingerprint().unwrap();
-        assert_ne!(native,science);
-        let source_ref=json!({"source_family":"RESEARCH_RUN","locator":"use_test_original_run:2","identity":"use_test_original_run:2"});
-        let row=json!({"run_id":"00000000-0000-4000-8000-000000000931","revision":2,"state":"COMPLETED",
+        let record = crate::application::strategy_research::test_run_record();
+        let spec =
+            crate::application::strategy_research::RunSpecification::from_record(&record).unwrap();
+        let native = spec.fingerprint().unwrap();
+        let science = spec.scientific_specification_fingerprint().unwrap();
+        assert_ne!(native, science);
+        let source_ref = json!({"source_family":"RESEARCH_RUN","locator":"use_test_original_run:2","identity":"use_test_original_run:2"});
+        let row = json!({"run_id":"00000000-0000-4000-8000-000000000931","revision":2,"state":"COMPLETED",
             "specification_fingerprint":native,"research_result_fingerprint":"a".repeat(64),"artifact_content_fingerprint":"b".repeat(64),
             "calculation_execution_evidence_fingerprints":["c".repeat(64)]});
-        let occurrence=Observation{source_ref:source_ref.clone(),payload:json!({"source_row":row})};
-        let closure=run_context(&occurrence,&spec.subject().unwrap());
-        assert_eq!(closure["specification_fingerprint"],science);
-        assert_eq!(closure["run_source_ref"],source_ref);
-        assert_eq!(occurrence.payload["source_row"]["specification_fingerprint"],native);
+        let occurrence = Observation {
+            source_ref: source_ref.clone(),
+            payload: json!({"source_row":row}),
+        };
+        let closure = run_context(&occurrence, &spec.subject().unwrap());
+        assert_eq!(closure["specification_fingerprint"], science);
+        assert_eq!(closure["run_source_ref"], source_ref);
+        assert_eq!(
+            occurrence.payload["source_row"]["specification_fingerprint"],
+            native
+        );
     }
 }
 
 fn strategy_evaluation_records(
-    result:&Observation,runs:&[&Observation],statistics:&[&Observation],closures:&BTreeMap<String,Value>,
-)->Result<Vec<Value>>{
-    let value=&result.payload;
-    if value["schema_version"]!=2||value["research_result_plan_fingerprint"]!=result.source_ref["locator"]
-        ||value["research_result_fingerprint"]!=result.source_ref["identity"]{return Err(INVALID);}
-    let references=value["statistics_results"].as_array().ok_or(INVALID)?;
-    let mut verified_refs=vec![result.source_ref.clone()];let mut logical=Vec::new();
-    for reference in references{
-        exact(reference,&["statistics_fingerprint","statistics_result_fingerprint"])?;
-        let mut found=statistics.iter().filter(|s|s.source_ref["locator"]==reference["statistics_fingerprint"]&&s.source_ref["identity"]==reference["statistics_result_fingerprint"]);
-        let statistic=found.next().ok_or(INVALID)?;if found.next().is_some()||statistic.payload["schema_version"]!=1{return Err(INVALID);}
-        verified_refs.push(statistic.source_ref.clone());logical.push(reference["statistics_fingerprint"].clone());
+    result: &Observation,
+    runs: &[&Observation],
+    statistics: &[&Observation],
+    closures: &BTreeMap<String, Value>,
+) -> Result<Vec<Value>> {
+    let value = &result.payload;
+    if value["schema_version"] != 2
+        || value["research_result_plan_fingerprint"] != result.source_ref["locator"]
+        || value["research_result_fingerprint"] != result.source_ref["identity"]
+    {
+        return Err(INVALID);
+    }
+    let references = value["statistics_results"].as_array().ok_or(INVALID)?;
+    let mut verified_refs = vec![result.source_ref.clone()];
+    let mut logical = Vec::new();
+    for reference in references {
+        exact(
+            reference,
+            &["statistics_fingerprint", "statistics_result_fingerprint"],
+        )?;
+        let mut found = statistics.iter().filter(|s| {
+            s.source_ref["locator"] == reference["statistics_fingerprint"]
+                && s.source_ref["identity"] == reference["statistics_result_fingerprint"]
+        });
+        let statistic = found.next().ok_or(INVALID)?;
+        if found.next().is_some() || statistic.payload["schema_version"] != 1 {
+            return Err(INVALID);
+        }
+        verified_refs.push(statistic.source_ref.clone());
+        logical.push(reference["statistics_fingerprint"].clone());
     }
     // A public result may have several independently pinned Runtime producers.
     // They keep distinct exact Subjects and original Run5 occurrences while
     // sharing the same public scientific Result2 and upstream identities.
-    let mut subjects:BTreeMap<String,(Subject,Vec<Value>,BTreeSet<String>,Vec<Value>)>=BTreeMap::new();
-    for observation in runs{
-        let row=&observation.payload["source_row"];
-        if row["research_result_fingerprint"]!=result.source_ref["identity"]{continue;}
-        let id=text(row,"run_id")?;let closure=closures.get(id).ok_or(UNAVAILABLE)?;
-        let subject=crate::application::research_run::source_subject(row)?;let record=subject.record();
-        if row["state"]!="COMPLETED"||row["origin_kind"]!="PRIVATE_STRATEGY"||row["specification_schema_version"]!=5
-            ||closure["specification_fingerprint"]!=row["specification_fingerprint"]||closure["artifact_content_fingerprint"]!=row["artifact_content_fingerprint"]
-            ||closure["research_result_fingerprint"]!=row["research_result_fingerprint"]||closure["candidate_fingerprint"]!=record["candidate_fingerprint"]
-            ||closure["scientific_specification_fingerprint"]!=record["specification_fingerprint"]
-            ||closure["research_result_plan_fingerprint"]!=record["result_plan_fingerprint"]
-            ||value["dataset_snapshot_fingerprint"]!=record["dataset_snapshot_fingerprint"]||json!(logical)!=record["statistics_fingerprints"]
-            ||value["research_result_plan_fingerprint"]!=record["result_plan_fingerprint"] {return Err(INVALID);}
-        let key=subject.fingerprint()?;
-        let (_,contexts,ids,source_refs)=subjects.entry(key).or_insert_with(||(subject.clone(),Vec::new(),BTreeSet::new(),verified_refs.clone()));
-        contexts.push(run_context(observation,&subject));ids.insert(id.into());source_refs.push(observation.source_ref.clone());
+    type SubjectRunObservations = (Subject, Vec<Value>, BTreeSet<String>, Vec<Value>);
+    let mut subjects: BTreeMap<String, SubjectRunObservations> = BTreeMap::new();
+    for observation in runs {
+        let row = &observation.payload["source_row"];
+        if row["research_result_fingerprint"] != result.source_ref["identity"] {
+            continue;
+        }
+        let id = text(row, "run_id")?;
+        let closure = closures.get(id).ok_or(UNAVAILABLE)?;
+        let subject = crate::application::research_run::source_subject(row)?;
+        let record = subject.record();
+        if row["state"] != "COMPLETED"
+            || row["origin_kind"] != "PRIVATE_STRATEGY"
+            || row["specification_schema_version"] != 5
+            || closure["specification_fingerprint"] != row["specification_fingerprint"]
+            || closure["artifact_content_fingerprint"] != row["artifact_content_fingerprint"]
+            || closure["research_result_fingerprint"] != row["research_result_fingerprint"]
+            || closure["candidate_fingerprint"] != record["candidate_fingerprint"]
+            || closure["scientific_specification_fingerprint"]
+                != record["specification_fingerprint"]
+            || closure["research_result_plan_fingerprint"] != record["result_plan_fingerprint"]
+            || value["dataset_snapshot_fingerprint"] != record["dataset_snapshot_fingerprint"]
+            || json!(logical) != record["statistics_fingerprints"]
+            || value["research_result_plan_fingerprint"] != record["result_plan_fingerprint"]
+        {
+            return Err(INVALID);
+        }
+        let key = subject.fingerprint()?;
+        let (_, contexts, ids, source_refs) = subjects.entry(key).or_insert_with(|| {
+            (
+                subject.clone(),
+                Vec::new(),
+                BTreeSet::new(),
+                verified_refs.clone(),
+            )
+        });
+        contexts.push(run_context(observation, &subject));
+        ids.insert(id.into());
+        source_refs.push(observation.source_ref.clone());
     }
-    if subjects.is_empty(){return Err(UNAVAILABLE);}
-    let mut result_records=Vec::new();
-    for (_, (subject,mut contexts,ids,mut source_refs)) in subjects{
-        contexts.sort_by(|a,b|(a["run_id"].as_str(),a["run_revision"].as_i64(),a["run_source_ref"]["locator"].as_str()).cmp(&(b["run_id"].as_str(),b["run_revision"].as_i64(),b["run_source_ref"]["locator"].as_str())));
-        source_refs.sort_by(|a,b|(a["source_family"].as_str(),a["locator"].as_str()).cmp(&(b["source_family"].as_str(),b["locator"].as_str())));source_refs.dedup();
-        let record=subject.record();let mut facets=serde_json::Map::new();
-        for key in ["graph_fingerprint","candidate_node_fingerprint","output_name","candidate_fingerprint","dataset_snapshot_fingerprint"]{facets.insert(key.into(),record[key].clone());}
+    if subjects.is_empty() {
+        return Err(UNAVAILABLE);
+    }
+    let mut result_records = Vec::new();
+    for (_, (subject, mut contexts, ids, mut source_refs)) in subjects {
+        contexts.sort_by(|a, b| {
+            (
+                a["run_id"].as_str(),
+                a["run_revision"].as_i64(),
+                a["run_source_ref"]["locator"].as_str(),
+            )
+                .cmp(&(
+                    b["run_id"].as_str(),
+                    b["run_revision"].as_i64(),
+                    b["run_source_ref"]["locator"].as_str(),
+                ))
+        });
+        source_refs.sort_by(|a, b| {
+            (a["source_family"].as_str(), a["locator"].as_str())
+                .cmp(&(b["source_family"].as_str(), b["locator"].as_str()))
+        });
+        source_refs.dedup();
+        let record = subject.record();
+        let mut facets = serde_json::Map::new();
+        for key in [
+            "graph_fingerprint",
+            "candidate_node_fingerprint",
+            "output_name",
+            "candidate_fingerprint",
+            "dataset_snapshot_fingerprint",
+        ] {
+            facets.insert(key.into(), record[key].clone());
+        }
         facets.extend(json!({"research_run_refs":ids,"run_evaluation_closures":contexts,"specification_refs":[record["specification_fingerprint"]],"search_experiment_refs":[],
             "catalog_generation_refs":[record["catalog_generation_fingerprint"]],"authoring_generation_refs":if record["authoring_generation_fingerprint"].is_null(){json!([])}else{json!([record["authoring_generation_fingerprint"]])},
             "runtime_generation_refs":[record["runtime_generation_fingerprint"]],"research_result_locator":result.source_ref["locator"],"research_result_fingerprint":result.source_ref["identity"],"statistics_references":references}).as_object().ok_or(INVALID)?.clone());
-        result_records.push(json!({"kind":"EvaluationProjectionRecord","facets":facets,"source_refs":source_refs}));
+        result_records.push(
+            json!({"kind":"EvaluationProjectionRecord","facets":facets,"source_refs":source_refs}),
+        );
     }
     Ok(result_records)
 }

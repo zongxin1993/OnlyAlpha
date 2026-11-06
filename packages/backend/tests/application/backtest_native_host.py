@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import queue
+import shutil
 import socket
 import subprocess
 import threading
@@ -26,7 +27,7 @@ from uuid import uuid4
 
 import psycopg
 
-from packages.backend.tests.application.test_market_storage_postgres_clickhouse import ROOT, probe
+from packages.backend.tests.application.support.native_research_market_fixture import ROOT, probe
 
 
 @contextmanager
@@ -156,6 +157,78 @@ def qualification(
     return records[0]
 
 
+def owner_scenario(
+    binary: Path,
+    dsn: str,
+    root: Path,
+    configuration: dict[str, Any],
+    preparation: str,
+    fresh: str | None,
+    scenario: str,
+    external_files: list[Path],
+    output: Path,
+) -> None:
+    import re
+
+    from packages.backend.tests.postgres_link import wait_no_advisory_locks
+
+    # The immutable Artifact keeps its original formal locator/inode. Execute
+    # byte-identical code from another inode so Linux permits the later retained
+    # Artifact corruption test after every mathematical child positively joined.
+    original = binary.read_bytes()
+    digest = hashlib.sha256(original).hexdigest()
+    selected = binary.stat()
+    runner = output / "actual-owner-runner"
+    shutil.copyfile(binary, runner)
+    runner.chmod(0o500)
+    copied = runner.stat()
+    assert (copied.st_dev, copied.st_ino) != (selected.st_dev, selected.st_ino)
+    assert copied.st_size == selected.st_size == len(original)
+    assert runner.read_bytes() == original
+    assert hashlib.sha256(runner.read_bytes()).hexdigest() == digest
+    path = output / "actual-owner-locators.json"
+    path.write_text(
+        json.dumps(
+            {
+                "configuration": configuration,
+                "preparation": preparation,
+                "fresh": fresh,
+                "external_files": [str(p) for p in external_files],
+            }
+        )
+    )
+    phases = ["crash-after-publication", "recover-published"] if scenario == "crash-recover" else [scenario]
+    for phase in phases:
+        result = subprocess.run(
+            [str(runner), "--exact", "actual_command_boundary", "--nocapture"],
+            env={
+                **os.environ,
+                "ONLYALPHA_POSTGRES_DSN": dsn,
+                "ONLYALPHA_FREEZE_TEST_ROOT": str(root),
+                "ONLYALPHA_FREEZE_TEST_PHASE": "backtest-owner:" + phase,
+                "ONLYALPHA_BACKTEST_OWNER_REQUEST": str(path),
+            },
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+        (output / ("owner-" + phase + ".log")).write_text(result.stdout + result.stderr)
+        assert result.returncode == (86 if phase == "crash-after-publication" else 0), result.stdout + result.stderr
+        pids = re.findall(r"BACKTEST_OWNER_PID ([0-9]+)", result.stdout)
+        assert len(pids) == 1, result.stdout + result.stderr
+        wait_no_advisory_locks(dsn, int(pids[0]))
+        if phase != "crash-after-publication":
+            assert result.stdout.count("BACKTEST_OWNER_SCENARIO_CONFIRMED " + phase) == 1, result.stdout
+        retained = binary.stat()
+        assert (retained.st_dev, retained.st_ino, retained.st_size) == (
+            selected.st_dev,
+            selected.st_ino,
+            selected.st_size,
+        )
+        assert binary.read_bytes() == original
+        assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest
+
+
 def exercise_native_backtest_host(
     binary: Path,
     dsn: str,
@@ -166,6 +239,7 @@ def exercise_native_backtest_host(
     market_probe: Path,
     database: Any,
     output: Path,
+    owner_fault: str | None = None,
 ) -> None:
     from scripts.native_web_e2e import controlled_source_https
 
@@ -264,136 +338,173 @@ def exercise_native_backtest_host(
                 assert db.execute(
                     "SELECT count(*) FROM product_command_admission WHERE command_id=%s", (future,)
                 ).fetchone() == (0,)
-            submitted = request(
-                http,
-                f"/api/v2/backtest/preparations/{preparation}/submit",
-                {
-                    "schema_version": 1,
-                    "preparation_command_id": preparation,
-                    "preparation_fingerprint": ready["preparation_fingerprint"],
-                },
-                future,
-            )
-            assert submitted["state"] == "ACCEPTED" and submitted["backtest_command_id"] == future
-            run = submitted["run_id"]
-            completed = observe_until(http, f"/api/v2/backtest/runs/{run}", {"COMPLETED"}, {"QUEUED", "RUNNING"})
-            assert completed["preparation_command_id"] == preparation
-            result = request(http, f"/api/v2/backtest/runs/{run}/result")
-            assert result["run_id"] == run and result["strategy_fingerprint"] == pins["strategy_fingerprint"]
-            assert result["state"] == "COMPLETED" and len(result["curve"]) == 720
-            assert (
-                result["sample"]["start_at"] == "2025-01-03T00:00:00Z"
-                and result["sample"]["end_at"] == "2025-01-03T12:00:00Z"
-            )
-            assert Decimal(result["sample"]["quantity"]) == Decimal(".01")
-            metrics = result["metrics"]
-            assert (metrics["fill_count"], metrics["roundtrip_count"]) == (2, 1)
-            for key, expected in [
-                ("initial_equity", "10000"),
-                ("final_equity", "9994.60119940"),
-                ("fees", "1.99900060"),
-                ("unrealized_pnl", "0"),
-            ]:
-                assert Decimal(metrics[key]) == Decimal(expected)
-            assert [Decimal(t["price"]) for t in result["trades"]] == [
-                Decimal("100120.020000"),
-                Decimal("99780.040000"),
-            ]
-            assert result["trades"][0]["time_ns"] == "1735862460000000000"  # 00:01 next open
-            assert result["trades"][1]["time_ns"] == "1735862520000000000"  # 00:02 next open
-            assert Decimal(result["baseline"]["final_equity"]) == Decimal("9998.7998")
-            trace = request(http, f"/api/v2/backtest/runs/{run}/evidence/artifacts/replay-trace.json")
-            assert trace["schema_version"] == 2 and trace["kind"] == "RUNTIME_ENCODED_REPLAY_TRACE"
-            assert trace["binding"]["schema_version"] == 2 and trace["binding"]["work_id"] == run
-            bars = [value["bar"] for value in trace["inputs"]["records"]]
-            assert len(bars) == 740
-
-            def instant(value: str) -> datetime:
-                return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
-
-            assert instant(bars[0]["bar_start"]) == datetime(2025, 1, 2, 23, 40, tzinfo=UTC)
-            assert instant(bars[-1]["bar_start"]) == datetime(2025, 1, 3, 11, 59, tzinfo=UTC)
-            assert instant(bars[-1]["ts_event"]) == datetime(2025, 1, 3, 12, tzinfo=UTC)
-            assert all(instant(bar["bar_start"]) < datetime(2025, 1, 3, 12, tzinfo=UTC) for bar in bars)
-            assert all(instant(bar["ts_event"]) < datetime(2025, 1, 5, tzinfo=UTC) for bar in bars)
-            evidence = request(http, f"/api/v2/backtest/runs/{run}/evidence")
-            assert evidence["manifest"]["schema_version"] == 3
-            assert evidence["manifest"]["backtest_run_id"] == run
-            runtime = request(http, f"/api/v2/backtest/runs/{run}/evidence/artifacts/runtime.json")
-            assert runtime["schema_version"] == 2 and runtime["contract"] == "ONLYALPHA_NATIVE_BACKTEST_PRODUCER_V2"
-            assert runtime["executor_manifest"]["artifact_sha256"] == selected_sha
-            journal = data / "backtest/runtime" / run / "runtime.sqlite3"
-            before = (journal.stat().st_ino, hashlib.sha256(journal.read_bytes()).hexdigest())
-            original = runtime["ready"]["preparation"]
-            scope = {
-                "schema_version": 1,
-                "contract": "ONLYALPHA_BACKTEST_TERMINAL_READ_V1",
-                "journal_root": str(journal.parent),
-                "specification": {
-                    "work_id": run,
-                    "configuration": original["settings"]["execution"],
-                    "kernel_artifact": selected_sha,
-                    "driver_artifact": selected_sha,
-                    "initial_ns": original["initial_ns"],
-                },
-                "inputs": runtime["ready"]["input_sources"],
-            }
-            # Actual original ELF, empty operational environment: the private
-            # read mode cannot bootstrap a Node/SDK or recover/ack its source.
-            reread = subprocess.run(
-                [str(executable), "--read-native-backtest-terminal"],
-                input=json.dumps(scope, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
-                text=True,
-                capture_output=True,
-                env={},
-                timeout=120,
-            )
-            assert reread.returncode == 0, reread.stderr
-            historical = json.loads(reread.stdout)
-            assert historical["reader_artifact"] == selected_sha and historical["trace"] == trace
-            assert historical["result"]["result_fingerprint"] == result["result_fingerprint"]
-            assert (journal.stat().st_ino, hashlib.sha256(journal.read_bytes()).hexdigest()) == before
-            assert all(not journal.with_name(journal.name + suffix).exists() for suffix in ("-wal", "-shm", "-journal"))
-            observed = request(http, f"/api/v2/backtest/runs/{run}/evidence/artifacts/observation.json")
-            assert observed["sample_bar_count"] == 720
-            with psycopg.connect(dsn) as db:
-                rows = db.execute(
-                    "SELECT state,specification_schema_version,admission_resolution_schema_version,result_fingerprint,determinism_fingerprint FROM backtest_run WHERE run_id=%s",
-                    (run,),
-                ).fetchall()
-                assert rows == [("COMPLETED", 3, 2, result["result_fingerprint"], result["determinism_fingerprint"])]
-                assert db.execute("SELECT state FROM backtest_run_attempt WHERE run_id=%s", (run,)).fetchall() == [
-                    ("SUCCEEDED",)
+            if owner_fault is not None:
+                fresh = None
+                if owner_fault == "windows":
+                    fresh, fresh_future = str(uuid4()), str(uuid4())
+                    other = {**payload, "backtest_command_id": fresh_future}
+                    request(http, "/api/v2/backtest/preparations", other, fresh)
+                    unsubmitted = observe_until(
+                        http,
+                        f"/api/v2/backtest/preparations/commands/{fresh}",
+                        {"READY"},
+                        {"ACCEPTED", "RUNNING", "INPUT_PENDING"},
+                    )
+                    assert unsubmitted["run_id"] is None and unsubmitted["backtest_outcome"] == "NOT_SUBMITTED"
+                with psycopg.connect(dsn) as db:
+                    retained = json.loads(
+                        db.execute(
+                            "SELECT outputs_payload FROM research_preparation WHERE command_id=%s", (preparation,)
+                        ).fetchone()[0]
+                    )["ready"]
+                snapshot = retained["input_sources"]["sources"][0]["snapshot"]
+                relation = pins["freeze_relation_fingerprint"]
+                external_files = [
+                    executable,
+                    Path(common["algorithm_root"]) / "lib/python3.12/site-packages/onlyalpha/__init__.py",
+                    root / "datasets/sha256" / snapshot[:2] / snapshot / "manifest.json",
+                    root / "strategy/freeze-relations/sha256" / relation[:2] / relation / "manifest.json",
                 ]
-                outputs = json.loads(
-                    db.execute(
-                        "SELECT outputs_payload FROM research_preparation WHERE command_id=%s", (preparation,)
-                    ).fetchone()[0]
+                assert len(external_files) == 4 and all(path.is_file() for path in external_files)
+            else:
+                submitted = request(
+                    http,
+                    f"/api/v2/backtest/preparations/{preparation}/submit",
+                    {
+                        "schema_version": 1,
+                        "preparation_command_id": preparation,
+                        "preparation_fingerprint": ready["preparation_fingerprint"],
+                    },
+                    future,
                 )
-                actual = outputs["ready"]["rules_response"]
-                assert hashlib.sha256(actual["body"].encode()).hexdigest() == actual["body_sha256"]
+                assert submitted["state"] == "ACCEPTED" and submitted["backtest_command_id"] == future
+                run = submitted["run_id"]
+                completed = observe_until(http, f"/api/v2/backtest/runs/{run}", {"COMPLETED"}, {"QUEUED", "RUNNING"})
+                assert completed["preparation_command_id"] == preparation
+                result = request(http, f"/api/v2/backtest/runs/{run}/result")
+                assert result["run_id"] == run and result["strategy_fingerprint"] == pins["strategy_fingerprint"]
+                assert result["state"] == "COMPLETED" and len(result["curve"]) == 720
                 assert (
-                    json.loads(actual["body"])["symbols"][0]
-                    == actual["snapshot"]["raw_symbol"]
-                    == external["exchange_info"]["symbols"][0]
+                    result["sample"]["start_at"] == "2025-01-03T00:00:00Z"
+                    and result["sample"]["end_at"] == "2025-01-03T12:00:00Z"
                 )
-                assert outputs["ready"]["backtest_binding"]["executor_artifact_sha256"] == selected_sha
-            # Current eligibility may be withdrawn after original acceptance.
-            # Only the ordinary Integration lifecycle command does that here.
-            request(
-                http,
-                f"/api/v2/integrations/{source['source']['integration_id']}/lifecycle",
-                {"schema_version": 1, "expected_lifecycle_state": "ACTIVE", "lifecycle_state": "DISABLED"},
-                str(uuid4()),
-                method="PUT",
-            )
-            history = request(http, f"/api/v2/backtest/preparations/commands/{preparation}")
-            assert history["backtest_outcome"] == "ACCEPTED" and history["run_id"] == run
-            assert history["command_id"] == preparation and history["backtest_command_id"] == future
-            again = request(http, f"/api/v2/backtest/runs/{run}")
-            assert again["state"] == "COMPLETED" and again["report_status"]["state"] == "VERIFIED"
-            assert request(http, f"/api/v2/backtest/runs/{run}/result") == result
-            (output / "actual-native-result.json").write_text(json.dumps(result))
+                assert Decimal(result["sample"]["quantity"]) == Decimal(".01")
+                metrics = result["metrics"]
+                assert (metrics["fill_count"], metrics["roundtrip_count"]) == (2, 1)
+                for key, expected in [
+                    ("initial_equity", "10000"),
+                    ("final_equity", "9994.60119940"),
+                    ("fees", "1.99900060"),
+                    ("unrealized_pnl", "0"),
+                ]:
+                    assert Decimal(metrics[key]) == Decimal(expected)
+                assert [Decimal(t["price"]) for t in result["trades"]] == [
+                    Decimal("100120.020000"),
+                    Decimal("99780.040000"),
+                ]
+                assert result["trades"][0]["time_ns"] == "1735862460000000000"  # 00:01 next open
+                assert result["trades"][1]["time_ns"] == "1735862520000000000"  # 00:02 next open
+                assert Decimal(result["baseline"]["final_equity"]) == Decimal("9998.7998")
+                trace = request(http, f"/api/v2/backtest/runs/{run}/evidence/artifacts/replay-trace.json")
+                assert trace["schema_version"] == 2 and trace["kind"] == "RUNTIME_ENCODED_REPLAY_TRACE"
+                assert trace["binding"]["schema_version"] == 2 and trace["binding"]["work_id"] == run
+                bars = [value["bar"] for value in trace["inputs"]["records"]]
+                assert len(bars) == 740
+
+                def instant(value: str) -> datetime:
+                    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+                assert instant(bars[0]["bar_start"]) == datetime(2025, 1, 2, 23, 40, tzinfo=UTC)
+                assert instant(bars[-1]["bar_start"]) == datetime(2025, 1, 3, 11, 59, tzinfo=UTC)
+                assert instant(bars[-1]["ts_event"]) == datetime(2025, 1, 3, 12, tzinfo=UTC)
+                assert all(instant(bar["bar_start"]) < datetime(2025, 1, 3, 12, tzinfo=UTC) for bar in bars)
+                assert all(instant(bar["ts_event"]) < datetime(2025, 1, 5, tzinfo=UTC) for bar in bars)
+                evidence = request(http, f"/api/v2/backtest/runs/{run}/evidence")
+                assert evidence["manifest"]["schema_version"] == 3
+                assert evidence["manifest"]["backtest_run_id"] == run
+                runtime = request(http, f"/api/v2/backtest/runs/{run}/evidence/artifacts/runtime.json")
+                assert runtime["schema_version"] == 2 and runtime["contract"] == "ONLYALPHA_NATIVE_BACKTEST_PRODUCER_V2"
+                assert runtime["executor_manifest"]["artifact_sha256"] == selected_sha
+                journal = data / "backtest/runtime" / run / "runtime.sqlite3"
+                before = (journal.stat().st_ino, hashlib.sha256(journal.read_bytes()).hexdigest())
+                original = runtime["ready"]["preparation"]
+                scope = {
+                    "schema_version": 1,
+                    "contract": "ONLYALPHA_BACKTEST_TERMINAL_READ_V1",
+                    "journal_root": str(journal.parent),
+                    "specification": {
+                        "work_id": run,
+                        "configuration": original["settings"]["execution"],
+                        "kernel_artifact": selected_sha,
+                        "driver_artifact": selected_sha,
+                        "initial_ns": original["initial_ns"],
+                    },
+                    "inputs": runtime["ready"]["input_sources"],
+                }
+                # Actual original ELF, empty operational environment: the private
+                # read mode cannot bootstrap a Node/SDK or recover/ack its source.
+                reread = subprocess.run(
+                    [str(executable), "--read-native-backtest-terminal"],
+                    input=json.dumps(scope, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                    text=True,
+                    capture_output=True,
+                    env={},
+                    timeout=120,
+                )
+                assert reread.returncode == 0, reread.stderr
+                historical = json.loads(reread.stdout)
+                assert historical["reader_artifact"] == selected_sha and historical["trace"] == trace
+                assert historical["result"]["result_fingerprint"] == result["result_fingerprint"]
+                assert (journal.stat().st_ino, hashlib.sha256(journal.read_bytes()).hexdigest()) == before
+                assert all(
+                    not journal.with_name(journal.name + suffix).exists() for suffix in ("-wal", "-shm", "-journal")
+                )
+                observed = request(http, f"/api/v2/backtest/runs/{run}/evidence/artifacts/observation.json")
+                assert observed["sample_bar_count"] == 720
+                with psycopg.connect(dsn) as db:
+                    rows = db.execute(
+                        "SELECT state,specification_schema_version,admission_resolution_schema_version,result_fingerprint,determinism_fingerprint FROM backtest_run WHERE run_id=%s",
+                        (run,),
+                    ).fetchall()
+                    assert rows == [
+                        ("COMPLETED", 3, 2, result["result_fingerprint"], result["determinism_fingerprint"])
+                    ]
+                    assert db.execute("SELECT state FROM backtest_run_attempt WHERE run_id=%s", (run,)).fetchall() == [
+                        ("SUCCEEDED",)
+                    ]
+                    outputs = json.loads(
+                        db.execute(
+                            "SELECT outputs_payload FROM research_preparation WHERE command_id=%s", (preparation,)
+                        ).fetchone()[0]
+                    )
+                    actual = outputs["ready"]["rules_response"]
+                    assert hashlib.sha256(actual["body"].encode()).hexdigest() == actual["body_sha256"]
+                    assert (
+                        json.loads(actual["body"])["symbols"][0]
+                        == actual["snapshot"]["raw_symbol"]
+                        == external["exchange_info"]["symbols"][0]
+                    )
+                    assert outputs["ready"]["backtest_binding"]["executor_artifact_sha256"] == selected_sha
+                # Current eligibility may be withdrawn after original acceptance.
+                # Only the ordinary Integration lifecycle command does that here.
+                request(
+                    http,
+                    f"/api/v2/integrations/{source['source']['integration_id']}/lifecycle",
+                    {"schema_version": 1, "expected_lifecycle_state": "ACTIVE", "lifecycle_state": "DISABLED"},
+                    str(uuid4()),
+                    method="PUT",
+                )
+                history = request(http, f"/api/v2/backtest/preparations/commands/{preparation}")
+                assert history["backtest_outcome"] == "ACCEPTED" and history["run_id"] == run
+                assert history["command_id"] == preparation and history["backtest_command_id"] == future
+                again = request(http, f"/api/v2/backtest/runs/{run}")
+                assert again["state"] == "COMPLETED" and again["report_status"]["state"] == "VERIFIED"
+                assert request(http, f"/api/v2/backtest/runs/{run}/result") == result
+                (output / "actual-native-result.json").write_text(json.dumps(result))
+        if owner_fault is not None:
+            # original_host has positively drained its own Running/Authority
+            # before the next process opens the same physical owning resource.
+            owner_scenario(binary, dsn, root, configuration, preparation, fresh, owner_fault, external_files, output)
         occurrences = [json.loads(line) for line in (output / "controlled-source-https.jsonl").read_text().splitlines()]
         assert any(row.get("path") == "/api/v3/exchangeInfo" and row.get("status") == 200 for row in occurrences), (
             occurrences

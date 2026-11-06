@@ -2,6 +2,7 @@
 
 from onlyalpha.domain.enums import OnlyPriceType
 from onlyalpha.domain.market import OnlyBarSemantic
+
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 
 NATIVE_INTERVALS: dict[int, str] = {

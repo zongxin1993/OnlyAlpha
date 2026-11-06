@@ -54,6 +54,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.market_data.durable.performance import only_market_data_timed
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 from onlyalpha.plugin.lifecycle import OnlyPluginHealth, OnlyPluginHealthStatus, OnlyPluginLifecycleState
+
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 

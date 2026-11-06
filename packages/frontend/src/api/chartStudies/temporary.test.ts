@@ -438,3 +438,149 @@ it("refuses mixed windows before issuing batch work", async () => {
     await expect(v.query()).rejects.toMatchObject({ code: "INVALID" });
     expect(fetch).not.toHaveBeenCalled();
 });
+
+it("temporary read preserves HTTP status without trusting a non-contract error object", async () => {
+    const v = vector();
+    const body = JSON.stringify({
+        schema_version: 1,
+        error: { phase: "QUERY", code: 17, detail: "Unavailable" }
+    });
+    const transport = vi.fn<typeof fetch>(() =>
+        Promise.resolve(new Response(body, { status: 503 }))
+    );
+    vi.stubGlobal("fetch", transport);
+    await expect(
+        readTemporaryChartStudyEvaluation(v.credentials, v.request, v.capability, v.window)
+    ).rejects.toMatchObject({ code: "INVALID", status: 503, retryAfterSeconds: null });
+    expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it("temporary display queries refuse bearer sessions before transport even when a local cookie session exists", async () => {
+    const v = vector();
+    const transport = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", transport);
+    for (const credentials of [new LocalReadCredentials(), new LocalReadCredentials(true)]) {
+        credentials.replace("ee".repeat(32));
+        await expect(
+            readTemporaryChartStudyEvaluation(credentials, v.request, v.capability, v.window)
+        ).rejects.toMatchObject({ code: "UNAUTHORIZED", status: 401 });
+    }
+    expect(transport).not.toHaveBeenCalled();
+});
+
+it("temporary successful DTO without no-store cannot admit display evidence", async () => {
+    const v = vector();
+    const transport = vi.fn<typeof fetch>(() =>
+        Promise.resolve(new Response(JSON.stringify(v.result)))
+    );
+    vi.stubGlobal("fetch", transport);
+    await expect(
+        readTemporaryChartStudyEvaluation(v.credentials, v.request, v.capability, v.window)
+    ).rejects.toMatchObject({ code: "INVALID" });
+    expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it("credential withdrawal while decoding a temporary reply takes priority over its malformed payload", async () => {
+    const v = vector();
+    const response = new Response("{}", { headers: { "cache-control": "no-store" } });
+    vi.spyOn(response, "json").mockImplementation(() => {
+        v.credentials.replace(null);
+        return Promise.resolve({ schema_version: 999 });
+    });
+    const transport = vi.fn<typeof fetch>(() => Promise.resolve(response));
+    vi.stubGlobal("fetch", transport);
+    await expect(
+        readTemporaryChartStudyEvaluation(v.credentials, v.request, v.capability, v.window)
+    ).rejects.toMatchObject({ code: "STALE" });
+    expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it("a temporary batch refuses a period30 display binding for its original period20 request before transport", async () => {
+    const v = batchVector();
+    const first = requiredValue(v.items[0]);
+    v.items[0] = {
+        ...first,
+        binding: {
+            ...first.binding,
+            configurationKey: JSON.stringify({
+                parameters: {
+                    ...v.request.calculation.typed_parameters,
+                    period: { type: "INTEGER", value: 30 }
+                },
+                outputNames: v.request.calculation.output_members
+            })
+        }
+    };
+    v.respond(v.payload);
+    await expect(v.query()).rejects.toMatchObject({ code: "INVALID" });
+    expect(fetch).not.toHaveBeenCalled();
+});
+
+it("a partial temporary batch retains the full original window and isolates its typed rejected index", async () => {
+    const v = batchVector();
+    const last = requiredValue(v.window.bars.pop());
+    v.window.coverage = {
+        status: "PARTIAL",
+        expected_bar_count: 2000,
+        actual_bar_count: 1999,
+        gaps: [{ start_ns: last.bar_start_ns, end_ns: last.bar_end_ns }]
+    };
+    v.result.coverage = v.window.coverage;
+    v.result.query_status = "INPUT_INCOMPLETE";
+    v.result.series = [];
+    v.respond({
+        ...v.payload,
+        results: v.payload.results.map((row, index) =>
+            index === 1
+                ? { status: "REJECTED", request_index: 1, error: "CHART_STUDY_REQUEST_INVALID" }
+                : { ...row, evaluation: structuredClone(v.result) }
+        )
+    });
+    const results = await v.query();
+    expect(
+        results.map((row) => (row.status === "EVALUATED" ? row.evidence : row.error.code))
+    ).toEqual([null, "CHART_STUDY_REQUEST_INVALID", null, null]);
+    const rejected = requiredValue(results[1]);
+    expect(rejected).toMatchObject({ status: "REJECTED", error: { status: 400 } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const call = requiredValue(vi.mocked(fetch).mock.calls[0]);
+    const body = JSON.parse(call[1]?.body as string) as Record<string, unknown>;
+    expect(body).toMatchObject({
+        window: { target_bar_count: 2000 },
+        expected_window_fingerprint: v.window.window_fingerprint
+    });
+    expect(body.calculations).toHaveLength(4);
+});
+
+it("retiring one occurrence while its batch is in flight refuses the entire new evidence set", async () => {
+    const v = batchVector();
+    let active = true;
+    v.items[2] = { ...requiredValue(v.items[2]), admissionCurrent: () => active };
+    const transport = vi.fn<typeof fetch>(() => {
+        active = false;
+        return Promise.resolve(
+            new Response(JSON.stringify(v.payload), { headers: { "cache-control": "no-store" } })
+        );
+    });
+    vi.stubGlobal("fetch", transport);
+    await expect(v.query()).rejects.toMatchObject({ code: "STALE" });
+    expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+    { reason: "overflow", value: `1${"0".repeat(309)}` },
+    { reason: "unsafe integer", value: "9007199254740992" },
+    { reason: "nonzero underflow", value: `0.${"0".repeat(323)}1` }
+])(
+    "temporary study rejects a transport-valid $reason value instead of plotting a false point",
+    async ({ value }) => {
+        const v = vector();
+        requiredValue(requiredValue(v.result.series[0]).points[0]).value = value;
+        expect(TemporaryChartStudyEvaluateSchema.safeParse(v.result).success).toBe(true);
+        v.respond();
+        await expect(
+            readTemporaryChartStudyEvaluation(v.credentials, v.request, v.capability, v.window)
+        ).rejects.toMatchObject({ code: "INVALID" });
+        expect(fetch).toHaveBeenCalledTimes(1);
+    }
+);

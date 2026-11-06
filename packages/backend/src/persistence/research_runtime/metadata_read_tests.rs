@@ -10,20 +10,19 @@ fn backtest_binding_scan_distinguishes_lock_contention_from_unavailable_storage(
     let fixture = Fixture::new();
     let root = fixture.root.join("scan");
     let writer = Registry::initialize_fresh(&root).unwrap();
-    assert_eq!(
-        Registry::try_unreleased_work_bindings(&root),
-        Ok(None)
-    );
-    assert_eq!(
-        Registry::unreleased_work_bindings(&root),
-        Err(UNAVAILABLE)
-    );
+    assert_eq!(Registry::try_unreleased_work_bindings(&root), Ok(None));
+    assert_eq!(Registry::unreleased_work_bindings(&root), Err(UNAVAILABLE));
     assert_eq!(
         Registry::try_unreleased_work_bindings(&root.join("missing")),
         Err(UNAVAILABLE)
     );
     drop(writer);
-    assert!(Registry::try_unreleased_work_bindings(&root).unwrap().unwrap().is_empty());
+    assert!(
+        Registry::try_unreleased_work_bindings(&root)
+            .unwrap()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 type BeforeFinalRead = Box<dyn FnOnce()>;
@@ -270,7 +269,8 @@ fn target_selection_uses_the_held_generation_wheel_across_distribution_names() {
             }))
             .unwrap(),
         );
-        fixture.hold.retained.artifacts = vec![(relative.into(), digest.clone(), bytes.len() as u64)];
+        fixture.hold.retained.artifacts =
+            vec![(relative.into(), digest.clone(), bytes.len() as u64)];
 
         let selected = fixture.hold.retained.target_artifact().unwrap();
         assert_eq!(selected["sha256"], digest);

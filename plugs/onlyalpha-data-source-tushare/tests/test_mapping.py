@@ -1,14 +1,13 @@
 from decimal import Decimal
 
 import pytest
+from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlySymbol, OnlyVenueId
 from onlyalpha_plugin_tushare.data_source.mapping import (
     only_ashare_reference,
     only_to_tushare_asset,
     only_to_tushare_symbol,
 )
 from onlyalpha_plugin_tushare.errors import OnlyTushareError
-
-from onlyalpha.domain.identifiers import OnlyInstrumentId, OnlySymbol, OnlyVenueId
 
 
 def test_symbol_and_equity_mapping(instrument) -> None:

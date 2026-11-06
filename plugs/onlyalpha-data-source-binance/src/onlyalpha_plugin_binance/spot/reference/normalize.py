@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from onlyalpha.plugin.api import OnlyInstrumentId
 from onlyalpha_market_crypto.spot.capability import (
     OnlyBinanceSpotCompatibilityStatus,
     OnlyBinanceSpotOrderGroupCapability,
@@ -18,7 +19,6 @@ from onlyalpha_market_crypto.spot.reference import (
     OnlyBinanceSpotRule,
 )
 
-from onlyalpha.plugin.api import OnlyInstrumentId
 from onlyalpha_plugin_binance.errors import OnlyBinanceSchemaError
 from onlyalpha_plugin_binance.spot.reference.dto import OnlyBinanceSpotExchangeInfo, OnlyBinanceSpotExecutionRules
 

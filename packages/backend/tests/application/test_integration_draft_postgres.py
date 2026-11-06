@@ -8,19 +8,17 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from onlyalpha.application.integration_configuration import OnlyIntegrationId, only_integration_json_document
-from onlyalpha.persistence.postgres.integration_store import OnlyPostgresIntegrationStore
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-
 from .support.integration import call, create_request, edit, lifecycle_request, replay_request, reset
+from .support.integration_rows import draft_bindings, draft_row, integration_row
+from .test_schema_postgres import migration_backend as migration_backend
+from .test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 
 
 @pytest.fixture
-def integration_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def integration_db(schema_db: str) -> str:
+    return schema_db
 
 
 def test_update_then_reset_and_old_replay_preserve_exact_identity(native_probe: Path, integration_db: str) -> None:
@@ -29,24 +27,24 @@ def test_update_then_reset_and_old_replay_preserve_exact_identity(native_probe: 
     update = edit(request, probe='{"instrument":"ETHUSDT"}')
     accepted = call(native_probe, update)
     assert accepted["replayed"] is False
-    assert accepted["result"]["admission"]["command_fingerprint"] == replay_request(update)["fingerprint"]
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    id = OnlyIntegrationId(request["integration_id"])
-    draft = owner.load_draft(id)
-    assert draft.draft_version == 2 and dict(draft.public_configuration_document) == {"count": 7, "ratio": 0}
-    assert dict(draft.probe_configuration_document or {}) == {"instrument": "ETHUSDT"}
-    assert draft.base_revision_fingerprint is None
+    assert accepted["result"]["admission"]["command_fingerprint"] == replay_request(update, native_probe)["fingerprint"]
+
+    id = request["integration_id"]
+    draft = draft_row(integration_db, id)
+    assert draft["draft_version"] == 2 and dict(draft["public_configuration_document"]) == {"count": 7, "ratio": 0}
+    assert dict(draft["probe_configuration_document"] or {}) == {"instrument": "ETHUSDT"}
+    assert draft["base_revision_fingerprint"] is None
     assert call(native_probe, update) == dict(accepted, replayed=True)
     reset_command = reset(request, 2)
     reset_result = call(native_probe, reset_command)
     assert reset_result["replayed"] is False
-    draft = owner.load_draft(id)
+    draft = draft_row(integration_db, id)
     assert (
-        draft.draft_version == 3
-        and dict(draft.public_configuration_document) == {}
-        and draft.probe_configuration_document is None
+        draft["draft_version"] == 3
+        and dict(draft["public_configuration_document"]) == {}
+        and (draft["probe_configuration_document"] is None)
     )
-    assert call(native_probe, replay_request(update)) == dict(accepted, replayed=True)
+    assert call(native_probe, replay_request(update, native_probe)) == dict(accepted, replayed=True)
     assert call(native_probe, reset_command) == dict(reset_result, replayed=True)
     assert call(native_probe, dict(update, expected_version=3)) == {"error": "PRODUCT_COMMAND_CONFLICT"}
 
@@ -80,12 +78,12 @@ def test_invalid_update_keeps_previous_draft_and_has_no_admission(
     else:
         command["rows"] = 1
         expected = "INTEGRATION_PERSISTENCE_UNAVAILABLE"
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    id = OnlyIntegrationId(request["integration_id"])
-    before = owner.load_draft(id)
+
+    id = request["integration_id"]
+    before = draft_row(integration_db, id)
     assert call(native_probe, command) == {"error": expected}
-    assert owner.load_draft(id) == before
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert draft_row(integration_db, id) == before
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
 
 
 @pytest.mark.parametrize("action", ["update", "reset"])
@@ -94,18 +92,14 @@ def test_existing_bindings_and_history_survive_update_or_only_draft_bindings_cle
 ) -> None:
     from .test_integration_postgres import descriptor, populate
 
-    ident = populate(integration_db)
+    ident = populate(integration_db, native_probe)
     desc = descriptor()
     request = create_request()
-    request.update(
-        integration_id=ident,
-        type_id=desc.type_id.value,
-        descriptor=json.dumps(only_integration_json_document(desc.to_dict(include_fingerprint=False))),
-    )
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    id = OnlyIntegrationId(ident)
-    before = owner.load_draft(id)
-    bindings = owner.load_draft_secret_bindings(id)
+    request.update(integration_id=ident, type_id=desc["type_id"], descriptor=json.dumps(desc))
+
+    id = ident
+    before = draft_row(integration_db, id)
+    bindings = draft_bindings(integration_db, id)
     with psycopg.connect(integration_db) as connection:
         # Preserve original bindings across current credential rotation.
         connection.execute("UPDATE product_credential SET generation=2")
@@ -117,28 +111,28 @@ def test_existing_bindings_and_history_survive_update_or_only_draft_bindings_cle
     if action == "update":
         command = edit(
             request,
-            version=before.draft_version,
+            version=before["draft_version"],
             public='{"ratio":1.2500,"weights":{"$serde_json::private::Number":1}}',
         )
     else:
-        command = reset(request, before.draft_version)
+        command = reset(request, before["draft_version"])
         changed = json.loads(command["descriptor"])
         changed["implementation_version"] = "2.0.0"
         command["descriptor"] = json.dumps(changed)
     result = call(native_probe, command)
     assert result["replayed"] is False
-    after = owner.load_draft(id)
-    assert after.draft_version == before.draft_version + 1 and after.created_at == before.created_at
+    after = draft_row(integration_db, id)
+    assert after["draft_version"] == before["draft_version"] + 1 and after["created_at"] == before["created_at"]
     if action == "update":
-        assert after.base_revision_fingerprint == before.base_revision_fingerprint
-        assert owner.load_draft_secret_bindings(id) == bindings
-        assert dict(after.public_configuration_document)["ratio"] == 1.25
-        assert after.type_descriptor_fingerprint == before.type_descriptor_fingerprint
+        assert after["base_revision_fingerprint"] == before["base_revision_fingerprint"]
+        assert draft_bindings(integration_db, id) == bindings
+        assert dict(after["public_configuration_document"])["ratio"] == 1.25
+        assert after["type_descriptor_fingerprint"] == before["type_descriptor_fingerprint"]
     else:
-        assert after.base_revision_fingerprint == owner.load_integration(id).current_revision_fingerprint
-        assert owner.load_draft_secret_bindings(id) == ()
-        assert dict(after.public_configuration_document) == {} and after.probe_configuration_document is None
-        assert after.type_descriptor_fingerprint != before.type_descriptor_fingerprint
+        assert after["base_revision_fingerprint"] == integration_row(integration_db, id)["current_revision_fingerprint"]
+        assert draft_bindings(integration_db, id) == ()
+        assert dict(after["public_configuration_document"]) == {} and after["probe_configuration_document"] is None
+        assert after["type_descriptor_fingerprint"] != before["type_descriptor_fingerprint"]
     with psycopg.connect(integration_db) as connection:
         assert connection.execute("SELECT * FROM integration_revision ORDER BY revision_sequence").fetchall() == history
         assert connection.execute("SELECT * FROM product_credential ORDER BY credential_id").fetchall() == credentials
@@ -156,14 +150,10 @@ def test_receipt_failure_rolls_back_draft_bindings_and_source_frontier(
 ) -> None:
     from .test_integration_postgres import descriptor, populate
 
-    ident = populate(integration_db)
+    ident = populate(integration_db, native_probe)
     desc = descriptor()
     request = create_request()
-    request.update(
-        integration_id=ident,
-        type_id=desc.type_id.value,
-        descriptor=json.dumps(only_integration_json_document(desc.to_dict(include_fingerprint=False))),
-    )
+    request.update(integration_id=ident, type_id=desc["type_id"], descriptor=json.dumps(desc))
     command = edit(request, version=2, public='{"ratio":2.0}') if action == "update" else reset(request, 2)
     tables = [
         "integration",
@@ -209,7 +199,7 @@ def test_invalid_version_time_and_corrupt_draft_never_get_repaired_or_leave_admi
     if fault == "old_time":
         command["accepted_at"] = "2026-09-19T00:00:00Z"
     assert call(native_probe, command) == {"error": expected}
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
     with psycopg.connect(integration_db) as connection:
         assert connection.execute("SELECT * FROM integration_draft").fetchall() == before
 
@@ -221,13 +211,11 @@ def test_admission_only_draft_command_is_unknown_and_does_not_repeat_work(
     request = create_request()
     assert "error" not in call(native_probe, request)
     command = edit(request) if action == "update" else reset(request, 1)
-    assert call(native_probe, dict(replay_request(command), op="admit")) == {"result": "CREATED"}
-    before = OnlyPostgresIntegrationStore(integration_db).load_draft(OnlyIntegrationId(request["integration_id"]))
+    assert call(native_probe, dict(replay_request(command, native_probe), op="admit")) == {"result": "CREATED"}
+    before = draft_row(integration_db, request["integration_id"])
     assert call(native_probe, command) == {"error": "PRODUCT_COMMAND_OUTCOME_UNKNOWN"}
-    assert call(native_probe, replay_request(command)) == {"error": "PRODUCT_COMMAND_OUTCOME_UNKNOWN"}
-    assert (
-        OnlyPostgresIntegrationStore(integration_db).load_draft(OnlyIntegrationId(request["integration_id"])) == before
-    )
+    assert call(native_probe, replay_request(command, native_probe)) == {"error": "PRODUCT_COMMAND_OUTCOME_UNKNOWN"}
+    assert draft_row(integration_db, request["integration_id"]) == before
 
 
 @pytest.mark.parametrize("action", ["update", "reset"])
@@ -244,15 +232,10 @@ def test_actual_draft_commit_ack_loss_recovers_original_command_once(
             config.setenv("ONLYALPHA_POSTGRES_DSN", fault.dsn)
             assert call(native_probe, command) == {"error": "INTEGRATION_PERSISTENCE_UNAVAILABLE"}
         assert fault.done.is_set(), "actual COMMIT must precede the cut acknowledgement"
-    recovered = call(native_probe, replay_request(command))
+    recovered = call(native_probe, replay_request(command, native_probe))
     assert recovered["replayed"] is True
     assert call(native_probe, command) == recovered
-    assert (
-        OnlyPostgresIntegrationStore(integration_db)
-        .load_draft(OnlyIntegrationId(request["integration_id"]))
-        .draft_version
-        == 2
-    )
+    assert draft_row(integration_db, request["integration_id"])["draft_version"] == 2
 
 
 @pytest.mark.parametrize("second_action", ["update", "reset"])
@@ -303,12 +286,7 @@ def test_same_version_writers_at_actual_frontier_lock_have_one_success(
             results.append(json.loads(stdout))
         assert sum("result" in result for result in results) == 1
         assert {"error": "INTEGRATION_DRAFT_VERSION_CONFLICT"} in results
-        assert (
-            OnlyPostgresIntegrationStore(integration_db)
-            .load_draft(OnlyIntegrationId(request["integration_id"]))
-            .draft_version
-            == 2
-        )
+        assert draft_row(integration_db, request["integration_id"])["draft_version"] == 2
         with psycopg.connect(integration_db) as connection:
             assert connection.execute("SELECT count(*) FROM product_command_admission").fetchone() == (2,)
             assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (2,)
@@ -335,5 +313,5 @@ def test_unrelated_installed_type_cannot_replace_the_owning_integration_type(
 
     before = owning_facts(integration_db)
     assert call(native_probe, command) == {"error": "INTEGRATION_TYPE_UNAVAILABLE"}
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
     assert owning_facts(integration_db) == before

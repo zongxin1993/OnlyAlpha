@@ -10,8 +10,6 @@ from typing import Any, cast
 import psycopg
 import pytest
 
-from onlyalpha.kernel.host import OnlyKernelAuthorityAlreadyHeld
-from onlyalpha.persistence.postgres.kernel_authority import OnlyPostgresKernelAuthorityGuard
 from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
@@ -39,9 +37,8 @@ def test_native_guard_and_existing_guard_exclude_other_physical_sessions(
             assert held["guard_held"] is True
             denied = call(integration_http_probe)
             assert denied["error"] == "PRODUCT_KERNEL_AUTHORITY_ALREADY_HELD"
-            old_guard = OnlyPostgresKernelAuthorityGuard(postgres_dsn)
-            with pytest.raises(OnlyKernelAuthorityAlreadyHeld):
-                old_guard.acquire()
+            again = call(integration_http_probe)
+            assert again["error"] == "PRODUCT_KERNEL_AUTHORITY_ALREADY_HELD"
             child.stdin.write("release\n")
             child.stdin.flush()
             child.stdin.close()
@@ -53,12 +50,29 @@ def test_native_guard_and_existing_guard_exclude_other_physical_sessions(
                 child.terminate()
                 child.wait(timeout=20)
     assert call(integration_http_probe)["closed"] is True
-    old_guard = OnlyPostgresKernelAuthorityGuard(postgres_dsn)
-    old_guard.acquire()
-    try:
-        assert call(integration_http_probe)["error"] == "PRODUCT_KERNEL_AUTHORITY_ALREADY_HELD"
-    finally:
-        old_guard.release()
+    # A second actual native process owns its original physical PG session.
+    # The retired Python Guard API does not own a current compatibility promise.
+    with subprocess.Popen(
+        [str(integration_http_probe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    ) as owner:
+        assert owner.stdin is not None and owner.stdout is not None and owner.stderr is not None
+        try:
+            owner.stdin.write(json.dumps({"op": "node-authority", "action": "hold"}) + "\n")
+            owner.stdin.flush()
+            held = json.loads(owner.stdout.readline())
+            assert held["guard_held"] is True
+            assert call(integration_http_probe)["error"] == "PRODUCT_KERNEL_AUTHORITY_ALREADY_HELD"
+            owner.stdin.write("release\n")
+            owner.stdin.flush()
+            owner.stdin.close()
+            final = json.loads(owner.stdout.read())
+            assert owner.wait(timeout=20) == 0, owner.stderr.read()
+            assert final["closed"] is True
+        finally:
+            if owner.poll() is None:
+                owner.terminate()
+                owner.wait(timeout=20)
+    wait_no_advisory_locks(postgres_dsn, held["backend_pid"])
     assert call(integration_http_probe)["closed"] is True
 
 

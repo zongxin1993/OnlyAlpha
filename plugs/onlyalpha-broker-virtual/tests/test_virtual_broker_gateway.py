@@ -4,8 +4,6 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
-from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
-
 from onlyalpha.broker import (
     OnlyBrokerCancelRequest,
     OnlyBrokerGatewayId,
@@ -19,6 +17,7 @@ from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyMoney, OnlyQuantity
 from onlyalpha.plugin.lifecycle import OnlyPluginHealthStatus
+from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
 from tests.support.virtual_broker import ACCOUNT, CNY, START, bar, order
 
 

@@ -9,6 +9,21 @@ type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "NOVELTY_SOURCE_PROOF_INVALID";
 const UNAVAILABLE: &str = "NOVELTY_PROOF_UNAVAILABLE";
 
+/// Exact current Run occurrence, not a new producer/completion or mutation grant.
+/// Both documents come from the same SQL snapshot (or an already locked writer).
+pub(crate) fn verify_run_source_history(current: &Value, history: Option<&str>) -> Result<()> {
+    validate_source_history_event("RESEARCH_RUN", current)?;
+    let raw = history.ok_or(UNAVAILABLE)?;
+    if raw.len() > 8 * 1024 * 1024 {
+        return Err(UNAVAILABLE);
+    }
+    let original: Value = serde_json::from_str(raw).map_err(|_| INVALID)?;
+    validate_source_history_event("RESEARCH_RUN", &original)?;
+    if &original != current {
+        return Err("RESEARCH_EXECUTION_PROOF_MISMATCH");
+    }
+    Ok(())
+}
 pub fn validate_source_history_event(family: &str, event: &Value) -> Result<()> {
     match family {
         "RESEARCH_RUN" => run(event),
@@ -226,11 +241,12 @@ fn run(v: &Value) -> Result<()> {
         return Err(UNAVAILABLE);
     }
     match schema {
-        4 | 6 if text(v, "origin_kind")? == "GENERAL"
-            && v["strategy_research_composition_fingerprint"].is_null() => {},
+        4 | 6
+            if text(v, "origin_kind")? == "GENERAL"
+                && v["strategy_research_composition_fingerprint"].is_null() => {}
         5 if text(v, "origin_kind")? == "PRIVATE_STRATEGY" => {
-            sha(v,"strategy_research_composition_fingerprint")?;
-        },
+            sha(v, "strategy_research_composition_fingerprint")?;
+        }
         _ => return Err(INVALID),
     }
     let payload = text(v, "specification_payload")?;
@@ -240,7 +256,9 @@ fn run(v: &Value) -> Result<()> {
         return Err(INVALID);
     }
     let spec: Value = serde_json::from_str(payload).map_err(|_| INVALID)?;
-    if spec["schema_version"].as_u64()!=Some(schema) { return Err(INVALID); }
+    if spec["schema_version"].as_u64() != Some(schema) {
+        return Err(INVALID);
+    }
     crate::application::research_run::verify_native_spec_record(&spec).map_err(|_| INVALID)?;
     if crate::application::factor_content::hash(&spec).map_err(|_| INVALID)?
         != text(v, "specification_fingerprint")?
@@ -325,13 +343,24 @@ mod strategy_origin_tests {
     fn native_strategy_source_has_explicit_origin_and_composition() {
         let value = row();
         validate_source_history_event("RESEARCH_RUN", &value).unwrap();
-        for change in ["general", "composition", "schema", "payload-schema", "authoring", "unknown"] {
+        for change in [
+            "general",
+            "composition",
+            "schema",
+            "payload-schema",
+            "authoring",
+            "unknown",
+        ] {
             let mut changed = value.clone();
             match change {
                 "general" => changed["origin_kind"] = json!("GENERAL"),
                 "composition" => changed["strategy_research_composition_fingerprint"] = Value::Null,
                 "schema" => changed["specification_schema_version"] = json!(4),
-                "payload-schema" => { changed["origin_kind"]=json!("GENERAL");changed["strategy_research_composition_fingerprint"]=Value::Null;changed["specification_schema_version"]=json!(4); },
+                "payload-schema" => {
+                    changed["origin_kind"] = json!("GENERAL");
+                    changed["strategy_research_composition_fingerprint"] = Value::Null;
+                    changed["specification_schema_version"] = json!(4);
+                }
                 "authoring" => changed["authoring_provenance"] = json!({}),
                 "unknown" => changed["browser_grant"] = json!(true),
                 _ => unreachable!(),
@@ -341,5 +370,92 @@ mod strategy_origin_tests {
                 "{change}"
             );
         }
+    }
+    fn completed_row() -> Value {
+        let mut value = row();
+        value["state"] = json!("COMPLETED");
+        value["revision"] = json!(2);
+        value["started_at"] = json!("2026-11-01T00:00:01Z");
+        value["finished_at"] = json!("2026-11-01T00:00:02Z");
+        value["research_result_fingerprint"] = json!("a".repeat(64));
+        value["artifact_content_fingerprint"] = json!("b".repeat(64));
+        value["calculation_execution_evidence_fingerprints"] = json!(["c".repeat(64)]);
+        value
+    }
+    #[test]
+    fn exact_run_source_history_supports_matching_terminal_and_nonterminal_states() {
+        let queued = row();
+        let mut running = row();
+        running["state"] = json!("RUNNING");
+        running["revision"] = json!(1);
+        running["started_at"] = json!("2026-11-01T00:00:01Z");
+        let mut cancel_requested = running.clone();
+        cancel_requested["state"] = json!("CANCEL_REQUESTED");
+        cancel_requested["revision"] = json!(2);
+        cancel_requested["cancel_requested_at"] = json!("2026-11-01T00:00:02Z");
+        let mut cancelled = queued.clone();
+        cancelled["state"] = json!("CANCELLED");
+        cancelled["revision"] = json!(1);
+        cancelled["finished_at"] = json!("2026-11-01T00:00:01Z");
+        let mut failed = running.clone();
+        failed["state"] = json!("FAILED");
+        failed["revision"] = json!(2);
+        failed["finished_at"] = json!("2026-11-01T00:00:02Z");
+        failed["failure_phase"] = json!("EXECUTION");
+        failed["failure_code"] = json!("TEST_FAILURE");
+        failed["failure_detail"] = json!("controlled owner failure");
+        for value in [
+            queued,
+            running,
+            cancel_requested,
+            cancelled,
+            failed,
+            completed_row(),
+        ] {
+            verify_run_source_history(&value, Some(&value.to_string())).unwrap();
+        }
+    }
+    #[test]
+    fn complete_but_rebound_run_pins_cannot_replace_the_original_occurrence() {
+        let original = completed_row();
+        for field in [
+            "artifact_content_fingerprint",
+            "research_result_fingerprint",
+            "calculation_execution_evidence_fingerprints",
+            "run_id",
+        ] {
+            let mut mutable = original.clone();
+            mutable[field] = match field {
+                "calculation_execution_evidence_fingerprints" => json!(["e".repeat(64)]),
+                "run_id" => json!("00000000-0000-4000-8000-000000000882"),
+                _ => json!("e".repeat(64)),
+            };
+            validate_source_history_event("RESEARCH_RUN", &mutable).unwrap();
+            assert_eq!(
+                verify_run_source_history(&mutable, Some(&original.to_string())),
+                Err("RESEARCH_EXECUTION_PROOF_MISMATCH"),
+                "{field}"
+            );
+        }
+    }
+    #[test]
+    fn missing_or_unreadable_budget_is_not_a_proved_mismatch_or_match() {
+        let value = completed_row();
+        assert_eq!(verify_run_source_history(&value, None), Err(UNAVAILABLE));
+        assert_eq!(
+            verify_run_source_history(&value, Some(&"x".repeat(8 * 1024 * 1024 + 1))),
+            Err(UNAVAILABLE)
+        );
+        assert_eq!(verify_run_source_history(&value, Some("{}")), Err(INVALID));
+        assert_eq!(
+            verify_run_source_history(&value, Some("not JSON")),
+            Err(INVALID)
+        );
+        let mut unknown = value.clone();
+        unknown["state"] = json!("UNKNOWN");
+        assert_eq!(
+            verify_run_source_history(&unknown, Some(&unknown.to_string())),
+            Err(INVALID)
+        );
     }
 }

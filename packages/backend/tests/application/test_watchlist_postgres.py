@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -14,34 +13,28 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from onlyalpha.application.market_data_product import OnlyMarketDataSourceReferenceV1
-from onlyalpha.application.product_command_receipt import (
-    OnlyProductCommandAdmissionV1,
-    OnlyProductCommandId,
-    OnlyProductCommandKind,
-    OnlyProductCommandOutcomeKind,
-    OnlyProductCommandOutcomeRef,
-    OnlyProductCommandReceipt,
-)
-from onlyalpha.application.watchlists import OnlyWatchlist, OnlyWatchlistBook, OnlyWatchlistMember
-from onlyalpha.canonical import only_canonical_fingerprint
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority as Commands
-from onlyalpha.persistence.postgres.watchlist_store import OnlyPostgresWatchlistStore
-from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreId
+from packages.backend.tests.application.test_schema_postgres import migration_backend, schema_db
 from packages.backend.tests.postgres_link import CommitAckCut, wait_for_database_lock_barrier
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 NOW = datetime(2026, 8, 27, tzinfo=UTC)
-NS = OnlyResearchSemanticStoreId("b52eb762-34cf-47d4-8cca-56ef93f0d2ac")
-SOURCE = OnlyMarketDataSourceReferenceV1("source", "a" * 64, "test.market_data")
-LIST = OnlyWatchlist("0926c6a2-0cb8-47a5-8d94-cdb89b336182", "日常", (OnlyWatchlistMember(SOURCE, "BTCUSDT.BINANCE"),))
+NS = "b52eb762-34cf-47d4-8cca-56ef93f0d2ac"
+SOURCE = {
+    "integration_id": "source",
+    "integration_revision_fingerprint": "a" * 64,
+    "expected_type_id": "test.market_data",
+}
+LIST = {
+    "list_id": "0926c6a2-0cb8-47a5-8d94-cdb89b336182",
+    "name": "日常",
+    "members": [{"source": dict(SOURCE), "instrument_id": "BTCUSDT.BINANCE"}],
+}
+__all__ = ["migration_backend", "schema_db"]
 
 
 @pytest.fixture
-def watchlist_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def watchlist_db(schema_db: str) -> str:
+    return schema_db
 
 
 def run(
@@ -50,93 +43,136 @@ def run(
     *,
     command_id: str | None = None,
     expected_version: int = 0,
-    lists: tuple[OnlyWatchlist, ...] = (LIST,),
-    namespace: str = NS.value,
+    lists: tuple[dict[str, Any], ...] = (LIST,),
+    namespace: str = NS,
 ) -> dict[str, Any]:
     payload = {
         "op": operation,
         "command_id": command_id or str(uuid4()),
         "namespace_id": namespace,
         "expected_version": expected_version,
-        "lists": [asdict(item) for item in lists],
+        "lists": list(lists),
         "accepted_at": NOW.isoformat(),
     }
-    result = subprocess.run([str(probe)], input=json.dumps(payload), text=True, capture_output=True, timeout=20)
+    result = subprocess.run(
+        [str(probe)], input=json.dumps(payload), text=True, capture_output=True, timeout=20, check=False
+    )
     assert result.returncode == 0, result.stderr
     return cast(dict[str, Any], json.loads(result.stdout))
 
 
-def expected(version: int, lists: tuple[OnlyWatchlist, ...] = (LIST,)) -> dict[str, object]:
-    return {"book": json.loads(json.dumps(asdict(OnlyWatchlistBook(version, lists))))}
+def expected(version: int, lists: tuple[dict[str, Any], ...] = (LIST,)) -> dict[str, object]:
+    return {"book": {"version": version, "lists": list(lists)}}
 
 
-def test_python_history_native_reader_and_native_current_writer_exact_replay(
+def test_native_history_reader_and_current_writer_exact_cross_process_replay(
     native_probe: Path, watchlist_db: str
 ) -> None:
-    owner = OnlyPostgresWatchlistStore(watchlist_db, NS)
     assert run(native_probe, "watchlist-read") == expected(0, ())
     original = str(uuid4())
-    first = owner.save(original, 0, (LIST,))
+    first = run(native_probe, "watchlist-save", command_id=original)
+    assert first == expected(1)
     assert run(native_probe, "watchlist-read") == expected(1)
     assert run(native_probe, "watchlist-command", command_id=original) == expected(1)
     assert run(native_probe, "watchlist-save", command_id=original) == expected(1)
-    changed = replace(LIST, name="趋势")
+    changed = {**LIST, "name": "趋势"}
     second = str(uuid4())
     assert run(native_probe, "watchlist-save", command_id=second, expected_version=1, lists=(changed,)) == expected(
         2, (changed,)
     )
-    fresh = OnlyPostgresWatchlistStore(watchlist_db, NS)
-    assert fresh.read() == OnlyWatchlistBook(2, (changed,))
-    assert fresh.command(second) == fresh.read()
-    assert fresh.save(second, 1, (changed,)) == fresh.read()
+    assert run(native_probe, "watchlist-read") == expected(2, (changed,))
+    assert run(native_probe, "watchlist-command", command_id=second) == expected(2, (changed,))
+    assert run(native_probe, "watchlist-save", command_id=second, expected_version=1, lists=(changed,)) == expected(
+        2, (changed,)
+    )
     assert run(native_probe, "watchlist-command", command_id=original) == expected(1)
     assert run(native_probe, "watchlist-save", command_id=original) == expected(1)
-    assert owner.command(original) == first
+    assert run(native_probe, "watchlist-command", command_id=original) == first
     assert run(native_probe, "watchlist-save", command_id=original, lists=(changed,)) == {
         "error": "WATCHLIST_COMMAND_CONFLICT"
     }
     losing = str(uuid4())
     assert run(native_probe, "watchlist-save", command_id=losing) == {"error": "WATCHLIST_VERSION_CONFLICT"}
-    assert Commands(watchlist_db).load_admission(OnlyProductCommandId(losing)) is None
+    assert run(native_probe, "load-admission", command_id=losing)["admission"] is None
     assert run(native_probe, "watchlist-read", namespace=str(uuid4())) == expected(0, ())
     assert run(native_probe, "watchlist-command", command_id=original, namespace=str(uuid4())) == {
         "error": "WATCHLIST_HISTORY_CORRUPT"
     }
 
 
-def insert_original(dsn: str, *, empty: bool) -> tuple[str, dict[str, Any]]:
+def fixture_record(
+    probe: Path, cid: str, payload: dict[str, Any], *, representation: int = 2, kind: str = "SAVE_WATCHLISTS"
+) -> dict[str, Any]:
+    request = {
+        "op": "watchlist-fixture-record",
+        "command_id": cid,
+        "namespace_id": NS,
+        "book": payload,
+        "representation": representation,
+        "expected_version": 0,
+        "kind": kind,
+        "accepted_at": NOW.isoformat(),
+    }
+    result = subprocess.run(
+        [str(probe)], input=json.dumps(request), text=True, capture_output=True, timeout=20, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    return cast(dict[str, Any], json.loads(result.stdout))
+
+
+def insert_admission(connection: Any, records: dict[str, Any]) -> None:
+    # Values originate from current Rust constructors; real SQL triggers publish source history.
+    a = records["admission"]
+    connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (a["command_id"],))
+    connection.execute(
+        "INSERT INTO product_command_admission(command_id,command_kind,command_fingerprint,schema_version) VALUES(%s,%s,%s,%s)",
+        (a["command_id"], a["command_kind"], a["command_fingerprint"], a["schema_version"]),
+    )
+
+
+def insert_receipt(connection: Any, records: dict[str, Any]) -> None:
+    r = records["receipt"]
+    columns = [
+        "command_id",
+        "command_kind",
+        "command_fingerprint",
+        "outcome_kind",
+        "outcome_id",
+        "accepted_at",
+        "schema_version",
+    ]
+    connection.execute(
+        "INSERT INTO product_command_receipt("
+        + ",".join(columns)
+        + ") VALUES("
+        + ",".join(["%s"] * len(columns))
+        + ")",
+        [r[key] for key in columns],
+    )
+
+
+def insert_original(probe: Path, dsn: str, *, empty: bool) -> tuple[str, dict[str, Any]]:
     payload: dict[str, Any] = {
         "version": 1,
         "lists": [
             {
-                "list_id": LIST.list_id,
-                "name": LIST.name,
-                "source": asdict(SOURCE),
-                "instrument_ids": [] if empty else [LIST.members[0].instrument_id],
+                "list_id": LIST["list_id"],
+                "name": LIST["name"],
+                "source": dict(SOURCE),
+                "instrument_ids": [] if empty else [LIST["members"][0]["instrument_id"]],
             }
         ],
     }
     cid = str(uuid4())
-    fingerprint = only_canonical_fingerprint({"namespace_id": NS.value, "book": payload})
-    intent = only_canonical_fingerprint({"namespace_id": NS.value, "expected_version": 0, "lists": payload["lists"]})
-    admission = OnlyProductCommandAdmissionV1(OnlyProductCommandId(cid), OnlyProductCommandKind.SAVE_WATCHLISTS, intent)
+    records = fixture_record(probe, cid, payload, representation=1)
     with psycopg.connect(dsn) as connection:
-        Commands.insert_or_verify_admission(connection, admission)
+        insert_admission(connection, records)
         connection.execute(
             "INSERT INTO watchlist_revision(namespace_id,version,fingerprint,book_json,command_id,representation_version) VALUES(%s,1,%s,%s,%s,1)",
-            (NS.value, fingerprint, Jsonb(payload), cid),
+            (NS, records["fingerprint"], Jsonb(payload), cid),
         )
-        connection.execute("INSERT INTO watchlist_head(namespace_id,version) VALUES(%s,1)", (NS.value,))
-        Commands.insert_verified_receipt(
-            connection,
-            OnlyProductCommandReceipt(
-                admission.command_id,
-                admission.command_kind,
-                intent,
-                OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.WATCHLIST_REVISION, fingerprint),
-                NOW,
-            ),
-        )
+        connection.execute("INSERT INTO watchlist_head(namespace_id,version) VALUES(%s,1)", (NS,))
+        insert_receipt(connection, records)
     return cid, payload
 
 
@@ -144,8 +180,8 @@ def insert_original(dsn: str, *, empty: bool) -> tuple[str, dict[str, Any]]:
 def test_original_immutable_history_is_verified_before_projection_and_never_rewritten(
     native_probe: Path, watchlist_db: str, empty: bool
 ) -> None:
-    cid, _payload = insert_original(watchlist_db, empty=empty)
-    lists = (replace(LIST, members=()) if empty else LIST,)
+    cid, _payload = insert_original(native_probe, watchlist_db, empty=empty)
+    lists = ({**LIST, "members": []} if empty else LIST,)
     with psycopg.connect(watchlist_db) as connection:
         before = connection.execute("SELECT * FROM watchlist_revision WHERE command_id=%s", (cid,)).fetchone()
         receipt = connection.execute("SELECT * FROM product_command_receipt WHERE command_id=%s", (cid,)).fetchone()
@@ -160,27 +196,21 @@ def test_original_immutable_history_is_verified_before_projection_and_never_rewr
             connection.execute("SELECT * FROM product_command_receipt WHERE command_id=%s", (cid,)).fetchone()
             == receipt
         )
-    assert OnlyPostgresWatchlistStore(watchlist_db, NS).read() == OnlyWatchlistBook(2, (LIST,))
+    assert run(native_probe, "watchlist-read") == expected(2)
 
 
 def test_admission_only_is_unknown_and_changed_or_foreign_intent_never_executes(
     native_probe: Path, watchlist_db: str
 ) -> None:
-    owner = Commands(watchlist_db)
-    for family in [OnlyProductCommandKind.CREATE_INTEGRATION, OnlyProductCommandKind.SAVE_WATCHLISTS]:
-        cid = OnlyProductCommandId(str(uuid4()))
-        intent = only_canonical_fingerprint({"namespace_id": NS.value, "expected_version": 0, "lists": (LIST,)})
-        owner.admit_exact(OnlyProductCommandAdmissionV1(cid, family, intent))
-        error = (
-            "WATCHLIST_COMMAND_UNKNOWN"
-            if family is OnlyProductCommandKind.SAVE_WATCHLISTS
-            else "WATCHLIST_COMMAND_CONFLICT"
-        )
-        assert run(native_probe, "watchlist-command", command_id=cid.value) == {"error": error}
-        assert run(native_probe, "watchlist-save", command_id=cid.value) == {"error": error}
-        assert run(native_probe, "watchlist-save", command_id=cid.value, lists=()) == {
-            "error": "WATCHLIST_COMMAND_CONFLICT"
-        }
+    for family in ["CREATE_INTEGRATION", "SAVE_WATCHLISTS"]:
+        cid = str(uuid4())
+        records = fixture_record(native_probe, cid, {"version": 0, "lists": [LIST]}, kind=family)
+        with psycopg.connect(watchlist_db) as connection:
+            insert_admission(connection, records)
+        error = "WATCHLIST_COMMAND_UNKNOWN" if family == "SAVE_WATCHLISTS" else "WATCHLIST_COMMAND_CONFLICT"
+        assert run(native_probe, "watchlist-command", command_id=cid) == {"error": error}
+        assert run(native_probe, "watchlist-save", command_id=cid) == {"error": error}
+        assert run(native_probe, "watchlist-save", command_id=cid, lists=()) == {"error": "WATCHLIST_COMMAND_CONFLICT"}
     assert run(native_probe, "watchlist-read") == expected(0, ())
 
 
@@ -198,18 +228,19 @@ def test_admission_only_is_unknown_and_changed_or_foreign_intent_never_executes(
     ],
 )
 def test_current_and_exact_history_proofs_fail_closed(native_probe: Path, watchlist_db: str, mutation: str) -> None:
-    owner = OnlyPostgresWatchlistStore(watchlist_db, NS)
     first, second = str(uuid4()), str(uuid4())
-    owner.save(first, 0, (LIST,))
-    owner.save(second, 1, (replace(LIST, name="趋势"),))
+    assert run(native_probe, "watchlist-save", command_id=first) == expected(1)
+    assert run(
+        native_probe, "watchlist-save", command_id=second, expected_version=1, lists=({**LIST, "name": "趋势"},)
+    ) == expected(2, ({**LIST, "name": "趋势"},))
     with psycopg.connect(watchlist_db) as connection:
         if mutation == "missing-head":
-            connection.execute("DELETE FROM watchlist_head WHERE namespace_id=%s", (NS.value,))
+            connection.execute("DELETE FROM watchlist_head WHERE namespace_id=%s", (NS,))
         elif mutation == "stale-head":
-            connection.execute("UPDATE watchlist_head SET version=1 WHERE namespace_id=%s", (NS.value,))
+            connection.execute("UPDATE watchlist_head SET version=1 WHERE namespace_id=%s", (NS,))
         elif mutation == "history-gap":
             connection.execute("ALTER TABLE watchlist_revision DISABLE TRIGGER watchlist_revision_immutable")
-            connection.execute("DELETE FROM watchlist_revision WHERE namespace_id=%s AND version=1", (NS.value,))
+            connection.execute("DELETE FROM watchlist_revision WHERE namespace_id=%s AND version=1", (NS,))
             connection.execute("ALTER TABLE watchlist_revision ENABLE TRIGGER watchlist_revision_immutable")
         elif mutation in {"payload", "representation", "source-ref"}:
             connection.execute("ALTER TABLE watchlist_revision DISABLE TRIGGER watchlist_revision_immutable")
@@ -263,9 +294,9 @@ def test_actual_commit_ack_loss_preserves_one_revision_and_exact_command_query(
     assert run(native_probe, "watchlist-save", command_id=cid) == expected(1)
     with psycopg.connect(watchlist_db) as connection:
         assert connection.execute(
-            "SELECT count(*) FROM watchlist_revision WHERE namespace_id=%s", (NS.value,)
+            "SELECT count(*) FROM watchlist_revision WHERE namespace_id=%s", (NS,)
         ).fetchone() == (1,)
-    assert OnlyPostgresWatchlistStore(watchlist_db, NS).read() == OnlyWatchlistBook(1, (LIST,))
+    assert run(native_probe, "watchlist-read") == expected(1)
 
 
 @pytest.mark.parametrize("empty", [False, True])
@@ -273,21 +304,20 @@ def test_original_outcomeless_intent_is_unknown_only_when_its_source_is_reconstr
     native_probe: Path, watchlist_db: str, empty: bool
 ) -> None:
     original = {
-        "list_id": LIST.list_id,
-        "name": LIST.name,
-        "source": asdict(SOURCE),
-        "instrument_ids": [] if empty else [LIST.members[0].instrument_id],
+        "list_id": LIST["list_id"],
+        "name": LIST["name"],
+        "source": dict(SOURCE),
+        "instrument_ids": [] if empty else [LIST["members"][0]["instrument_id"]],
     }
-    cid = OnlyProductCommandId(str(uuid4()))
-    intent = only_canonical_fingerprint({"namespace_id": NS.value, "expected_version": 0, "lists": [original]})
-    Commands(watchlist_db).admit_exact(
-        OnlyProductCommandAdmissionV1(cid, OnlyProductCommandKind.SAVE_WATCHLISTS, intent)
-    )
-    lists = (replace(LIST, members=()) if empty else LIST,)
-    assert run(native_probe, "watchlist-save", command_id=cid.value, lists=lists) == {
+    cid = str(uuid4())
+    records = fixture_record(native_probe, cid, {"version": 1, "lists": [original]}, representation=1)
+    with psycopg.connect(watchlist_db) as connection:
+        insert_admission(connection, records)
+    lists = ({**LIST, "members": []} if empty else LIST,)
+    assert run(native_probe, "watchlist-save", command_id=cid, lists=lists) == {
         "error": "WATCHLIST_COMMAND_CONFLICT" if empty else "WATCHLIST_COMMAND_UNKNOWN"
     }
-    assert run(native_probe, "watchlist-command", command_id=cid.value) == {"error": "WATCHLIST_COMMAND_UNKNOWN"}
+    assert run(native_probe, "watchlist-command", command_id=cid) == {"error": "WATCHLIST_COMMAND_UNKNOWN"}
     assert run(native_probe, "watchlist-read") == expected(0, ())
 
 
@@ -309,9 +339,9 @@ def concurrent(probe: Path, commands: tuple[str, str], names: tuple[str, str]) -
                     {
                         "op": "watchlist-save",
                         "command_id": cid,
-                        "namespace_id": NS.value,
+                        "namespace_id": NS,
                         "expected_version": 0,
-                        "lists": [asdict(replace(LIST, name=name))],
+                        "lists": [{**LIST, "name": name}],
                         "accepted_at": NOW.isoformat(),
                     }
                 )
@@ -342,7 +372,7 @@ def test_two_ready_connections_preserve_one_global_effect_and_no_overwrite(
     names = ("甲", "甲" if case == "same-command-same-intent" else "乙")
     outcomes = concurrent(native_probe, (first, second), names)
     if case == "same-command-same-intent":
-        assert outcomes == [expected(1, (replace(LIST, name="甲"),))] * 2
+        assert outcomes == [expected(1, ({**LIST, "name": "甲"},))] * 2
     else:
         success = [row for row in outcomes if "book" in row]
         assert len(success) == 1
@@ -353,33 +383,22 @@ def test_two_ready_connections_preserve_one_global_effect_and_no_overwrite(
         } in outcomes
     with psycopg.connect(watchlist_db) as connection:
         assert connection.execute(
-            "SELECT count(*) FROM watchlist_revision WHERE namespace_id=%s", (NS.value,)
+            "SELECT count(*) FROM watchlist_revision WHERE namespace_id=%s", (NS,)
         ).fetchone() == (1,)
     assert run(native_probe, "watchlist-read") in outcomes
 
 
-def insert_predecessor(connection: Any, cid: str) -> None:
-    payload = asdict(OnlyWatchlistBook(1, (LIST,)))
-    fingerprint = only_canonical_fingerprint({"namespace_id": NS.value, "book": payload})
-    intent = only_canonical_fingerprint({"namespace_id": NS.value, "expected_version": 0, "lists": payload["lists"]})
-    admission = OnlyProductCommandAdmissionV1(OnlyProductCommandId(cid), OnlyProductCommandKind.SAVE_WATCHLISTS, intent)
-    Commands.insert_or_verify_admission(connection, admission)
-    connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("watchlists:" + NS.value,))
+def insert_predecessor(probe: Path, connection: Any, cid: str) -> None:
+    payload = {"version": 1, "lists": [LIST]}
+    records = fixture_record(probe, cid, payload)
+    insert_admission(connection, records)
+    connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("watchlists:" + NS,))
     connection.execute(
         "INSERT INTO watchlist_revision(namespace_id,version,fingerprint,book_json,command_id,representation_version) VALUES(%s,1,%s,%s,%s,2)",
-        (NS.value, fingerprint, Jsonb(payload), cid),
+        (NS, records["fingerprint"], Jsonb(payload), cid),
     )
-    connection.execute("INSERT INTO watchlist_head(namespace_id,version) VALUES(%s,1)", (NS.value,))
-    Commands.insert_verified_receipt(
-        connection,
-        OnlyProductCommandReceipt(
-            admission.command_id,
-            admission.command_kind,
-            intent,
-            OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.WATCHLIST_REVISION, fingerprint),
-            NOW,
-        ),
-    )
+    connection.execute("INSERT INTO watchlist_head(namespace_id,version) VALUES(%s,1)", (NS,))
+    insert_receipt(connection, records)
 
 
 @pytest.mark.parametrize("operation", ["watchlist-save", "watchlist-read", "namespace-contention"])
@@ -396,13 +415,13 @@ def test_database_lock_barriers_preserve_current_state_and_read_snapshot(
                 # Admission/Receipt also own an existing global source-history
                 # frontier lock. Prepare the predecessor in the canonical order;
                 # a writer cannot hold that frontier while another advances it.
-                insert_predecessor(control, predecessor)
+                insert_predecessor(native_probe, control, predecessor)
                 lock_kind = "transactionid"
             elif operation == "watchlist-read":
                 control.execute("LOCK TABLE watchlist_head IN ACCESS EXCLUSIVE MODE")
                 lock_kind = "relation"
             else:
-                control.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("watchlists:" + NS.value,))
+                control.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("watchlists:" + NS,))
                 lock_kind = "advisory"
             child = subprocess.Popen(
                 [str(native_probe), "--pid-barrier"],
@@ -419,9 +438,9 @@ def test_database_lock_barriers_preserve_current_state_and_read_snapshot(
                     {
                         "op": "watchlist-save" if operation == "namespace-contention" else operation,
                         "command_id": contender,
-                        "namespace_id": NS.value,
+                        "namespace_id": NS,
                         "expected_version": 0,
-                        "lists": [asdict(LIST)],
+                        "lists": [LIST],
                         "accepted_at": NOW.isoformat(),
                     }
                 )
@@ -430,7 +449,7 @@ def test_database_lock_barriers_preserve_current_state_and_read_snapshot(
             child.stdin = None
             wait_for_database_lock_barrier(watchlist_db, child, ready["backend_pid"], blocker, lock_kind)
             if operation == "watchlist-read":
-                insert_predecessor(control, predecessor)
+                insert_predecessor(native_probe, control, predecessor)
             # Exiting commits the predecessor and releases the exact held barrier.
         assert child is not None
         stdout, stderr = child.communicate(timeout=20)
@@ -443,9 +462,9 @@ def test_database_lock_barriers_preserve_current_state_and_read_snapshot(
                 "namespace-contention": expected(1),
             }[operation]
         )
-        admission = Commands(watchlist_db).load_admission(OnlyProductCommandId(contender))
+        admission = run(native_probe, "load-admission", command_id=contender)["admission"]
         if operation == "namespace-contention":
-            assert admission is not None and admission.command_kind is OnlyProductCommandKind.SAVE_WATCHLISTS
+            assert admission is not None and admission["command_kind"] == "SAVE_WATCHLISTS"
         else:
             assert admission is None
         assert run(native_probe, "watchlist-read") == expected(1)
@@ -459,9 +478,8 @@ def test_database_lock_barriers_preserve_current_state_and_read_snapshot(
 def test_receipt_insert_failure_rolls_back_new_admission_revision_and_head(
     native_probe: Path, watchlist_db: str, existing: bool
 ) -> None:
-    owner = OnlyPostgresWatchlistStore(watchlist_db, NS)
     if existing:
-        owner.save(str(uuid4()), 0, (LIST,))
+        assert run(native_probe, "watchlist-save") == expected(1)
     version = 1 if existing else 0
     cid = str(uuid4())
     with psycopg.connect(watchlist_db) as connection:
@@ -477,7 +495,7 @@ def test_receipt_insert_failure_rolls_back_new_admission_revision_and_head(
     assert run(native_probe, "watchlist-save", command_id=cid, expected_version=version, lists=()) == {
         "error": "WATCHLIST_UNAVAILABLE"
     }
-    assert Commands(watchlist_db).load_admission(OnlyProductCommandId(cid)) is None
+    assert run(native_probe, "load-admission", command_id=cid)["admission"] is None
     assert run(native_probe, "watchlist-read") == expected(version, (LIST,) if existing else ())
     with psycopg.connect(watchlist_db) as connection:
         assert connection.execute("SELECT * FROM watchlist_revision ORDER BY namespace_id,version").fetchall() == before
@@ -493,7 +511,7 @@ def test_receipt_insert_failure_rolls_back_new_admission_revision_and_head(
 def test_dangling_head_without_any_history_is_corrupt_not_empty(native_probe: Path, watchlist_db: str) -> None:
     with psycopg.connect(watchlist_db) as connection:
         connection.execute("ALTER TABLE watchlist_head DROP CONSTRAINT watchlist_head_namespace_id_version_fkey")
-        connection.execute("INSERT INTO watchlist_head(namespace_id,version) VALUES(%s,1)", (NS.value,))
+        connection.execute("INSERT INTO watchlist_head(namespace_id,version) VALUES(%s,1)", (NS,))
     assert run(native_probe, "watchlist-read") == {"error": "WATCHLIST_HISTORY_CORRUPT"}
     assert run(native_probe, "watchlist-save") == {"error": "WATCHLIST_HISTORY_CORRUPT"}
 
@@ -501,16 +519,17 @@ def test_dangling_head_without_any_history_is_corrupt_not_empty(native_probe: Pa
 def test_count_equal_max_cannot_certify_history_containing_a_nonpositive_version(
     native_probe: Path, watchlist_db: str
 ) -> None:
-    owner = OnlyPostgresWatchlistStore(watchlist_db, NS)
-    owner.save(str(uuid4()), 0, (LIST,))
-    owner.save(str(uuid4()), 1, (replace(LIST, name="趋势"),))
+    assert run(native_probe, "watchlist-save") == expected(1)
+    assert run(native_probe, "watchlist-save", expected_version=1, lists=({**LIST, "name": "趋势"},)) == expected(
+        2, ({**LIST, "name": "趋势"},)
+    )
     with psycopg.connect(watchlist_db) as connection:
         connection.execute("ALTER TABLE watchlist_revision DISABLE TRIGGER watchlist_revision_immutable")
         connection.execute("ALTER TABLE watchlist_revision DROP CONSTRAINT watchlist_revision_version_check")
-        connection.execute("UPDATE watchlist_revision SET version=0 WHERE namespace_id=%s AND version=1", (NS.value,))
+        connection.execute("UPDATE watchlist_revision SET version=0 WHERE namespace_id=%s AND version=1", (NS,))
         connection.execute("ALTER TABLE watchlist_revision ENABLE TRIGGER watchlist_revision_immutable")
         assert connection.execute(
-            "SELECT count(*),max(version) FROM watchlist_revision WHERE namespace_id=%s", (NS.value,)
+            "SELECT count(*),max(version) FROM watchlist_revision WHERE namespace_id=%s", (NS,)
         ).fetchone() == (2, 2)
     assert run(native_probe, "watchlist-read") == {"error": "WATCHLIST_HISTORY_CORRUPT"}
 
@@ -518,9 +537,9 @@ def test_count_equal_max_cannot_certify_history_containing_a_nonpositive_version
 def test_rehashed_original_empty_source_and_outcome_still_require_original_command_intent(
     native_probe: Path, watchlist_db: str
 ) -> None:
-    cid, payload = insert_original(watchlist_db, empty=True)
+    cid, payload = insert_original(native_probe, watchlist_db, empty=True)
     payload["lists"][0]["source"]["integration_id"] = "different-source"
-    fingerprint = only_canonical_fingerprint({"namespace_id": NS.value, "book": payload})
+    fingerprint = fixture_record(native_probe, cid, payload, representation=1)["fingerprint"]
     with psycopg.connect(watchlist_db) as connection:
         connection.execute("ALTER TABLE watchlist_revision DISABLE TRIGGER watchlist_revision_immutable")
         connection.execute("ALTER TABLE product_command_receipt DISABLE TRIGGER USER")
@@ -539,11 +558,8 @@ def test_rehashed_original_empty_source_and_outcome_still_require_original_comma
 def test_original_version_primitive_type_cannot_be_laundered_by_json_value_deserialization(
     native_probe: Path, watchlist_db: str, primitive: object
 ) -> None:
-    from onlyalpha.application.watchlists import OnlyWatchlistError
-
     cid = str(uuid4())
-    owner = OnlyPostgresWatchlistStore(watchlist_db, NS)
-    owner.save(cid, 0, (LIST,))
+    assert run(native_probe, "watchlist-save", command_id=cid) == expected(1)
     with psycopg.connect(watchlist_db) as connection:
         connection.execute("ALTER TABLE watchlist_revision DISABLE TRIGGER watchlist_revision_immutable")
         connection.execute(
@@ -554,8 +570,8 @@ def test_original_version_primitive_type_cannot_be_laundered_by_json_value_deser
     # Keep the original numerical book hash/Admission/Receipt. Raw object/string/
     # boolean/fractional types are not a canonical integer, even if a decoder can
     # reinterpret the object as the same number.
-    with pytest.raises(OnlyWatchlistError, match="WATCHLIST_HISTORY_CORRUPT"):
-        owner.read()
+    # A second process independently reopens the exact malformed retained history.
+    assert run(native_probe, "watchlist-read") == {"error": "WATCHLIST_HISTORY_CORRUPT"}
     assert run(native_probe, "watchlist-read") == {"error": "WATCHLIST_HISTORY_CORRUPT"}
     assert run(native_probe, "watchlist-command", command_id=cid) == {"error": "WATCHLIST_HISTORY_CORRUPT"}
 
@@ -565,22 +581,19 @@ def test_original_version_primitive_type_cannot_be_laundered_by_json_value_deser
     [
         ("{lists,0,name}", "日常"),
         ("{lists,0,members,0,source,integration_id}", "source"),
-        ("{lists,0,members,0,source}", asdict(SOURCE)),
+        ("{lists,0,members,0,source}", SOURCE),
     ],
 )
 @pytest.mark.parametrize("representation", [1, 2])
 def test_raw_value_marker_cannot_reinterpret_original_watchlist_history(
     native_probe: Path, watchlist_db: str, path: str, original: object, representation: int
 ) -> None:
-    from onlyalpha.application.watchlists import OnlyWatchlistError
-
-    owner = OnlyPostgresWatchlistStore(watchlist_db, NS)
     if representation == 1:
-        cid, _payload = insert_original(watchlist_db, empty=False)
+        cid, _payload = insert_original(native_probe, watchlist_db, empty=False)
         path = path.replace(",members,0,source", ",source")
     else:
         cid = str(uuid4())
-        owner.save(cid, 0, (LIST,))
+        assert run(native_probe, "watchlist-save", command_id=cid) == expected(1)
     marker = {"$serde_json::private::RawValue": json.dumps(original, ensure_ascii=False)}
     with psycopg.connect(watchlist_db) as connection:
         connection.execute("ALTER TABLE watchlist_revision DISABLE TRIGGER watchlist_revision_immutable")
@@ -589,8 +602,8 @@ def test_raw_value_marker_cannot_reinterpret_original_watchlist_history(
             (path, Jsonb(marker), cid),
         )
         connection.execute("ALTER TABLE watchlist_revision ENABLE TRIGGER watchlist_revision_immutable")
-    with pytest.raises(OnlyWatchlistError, match="WATCHLIST_HISTORY_CORRUPT"):
-        owner.read()
+    # A second process independently reopens the exact malformed retained history.
+    assert run(native_probe, "watchlist-read") == {"error": "WATCHLIST_HISTORY_CORRUPT"}
     assert run(native_probe, "watchlist-read") == {"error": "WATCHLIST_HISTORY_CORRUPT"}
     assert run(native_probe, "watchlist-command", command_id=cid) == {"error": "WATCHLIST_HISTORY_CORRUPT"}
     assert run(native_probe, "watchlist-save", command_id=cid) == {"error": "WATCHLIST_HISTORY_CORRUPT"}

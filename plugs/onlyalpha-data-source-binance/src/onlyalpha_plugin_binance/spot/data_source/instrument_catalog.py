@@ -23,6 +23,7 @@ from onlyalpha.plugin.data_source import (
     OnlyDataSourceQuoteRequestV1,
     OnlyDataSourceQuoteV1,
 )
+
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 

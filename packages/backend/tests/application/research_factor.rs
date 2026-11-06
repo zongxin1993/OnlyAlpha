@@ -13,38 +13,47 @@ fn reference() -> Value {
 #[test]
 fn historical_graph_keeps_its_original_exact_identity() {
     use onlyalpha_calculation::product::Graph;
-    let r=reference();
-    let historical=Graph::from_record(&r["graph"],1024*1024).unwrap();
-    assert_eq!(historical.to_record(),r["graph"]);
-    assert_eq!(historical.fingerprint(),r["graph_fingerprint"].as_str().unwrap());
+    let r = reference();
+    let historical = Graph::from_record(&r["graph"], 1024 * 1024).unwrap();
+    assert_eq!(historical.to_record(), r["graph"]);
+    assert_eq!(
+        historical.fingerprint(),
+        r["graph_fingerprint"].as_str().unwrap()
+    );
     for definition in historical.ordered_nodes() {
-        assert_eq!(definition.to_record()["semantic_version"],"1");
+        assert_eq!(definition.to_record()["semantic_version"], "1");
     }
 }
 #[test]
 fn current_graph_uses_actual_native_operator_contracts_and_a_distinct_identity() {
     use onlyalpha_calculation_bridge::native_operators::OperatorCalculation;
-    let r=reference();
-    let c=compile(&r["candidate"],&r["draft"],&r["revision"]).unwrap();
-    assert_ne!(c.graph().to_record(),r["graph"]);
-    assert_ne!(c.graph().fingerprint(),r["graph_fingerprint"].as_str().unwrap());
-    assert_ne!(c.root_fingerprint(),r["root_fingerprint"].as_str().unwrap());
-    let mut operators=0;
+    let r = reference();
+    let c = compile(&r["candidate"], &r["draft"], &r["revision"]).unwrap();
+    assert_ne!(c.graph().to_record(), r["graph"]);
+    assert_ne!(
+        c.graph().fingerprint(),
+        r["graph_fingerprint"].as_str().unwrap()
+    );
+    assert_ne!(
+        c.root_fingerprint(),
+        r["root_fingerprint"].as_str().unwrap()
+    );
+    let mut operators = 0;
     for definition in c.graph().ordered_nodes() {
-        let record=definition.to_record();
-        if record["kind"]=="INDICATOR" {
-            operators+=1;
-            assert_eq!(record["semantic_version"],"2");
-            let actual=OperatorCalculation::from_record(&record).unwrap();
-            assert_eq!(actual.definition(),definition);
-        }else{
-            assert_eq!(record["kind"],"FACTOR");
-            assert_eq!(record["semantic_version"],"1");
+        let record = definition.to_record();
+        if record["kind"] == "INDICATOR" {
+            operators += 1;
+            assert_eq!(record["semantic_version"], "2");
+            let actual = OperatorCalculation::from_record(&record).unwrap();
+            assert_eq!(actual.definition(), definition);
+        } else {
+            assert_eq!(record["kind"], "FACTOR");
+            assert_eq!(record["semantic_version"], "1");
         }
     }
-    assert_eq!(operators,2);
-    assert_eq!(c.required_history_bars(),20);
-    assert_eq!(c.columns(), &["close".to_string(),"volume".to_string()]);
+    assert_eq!(operators, 2);
+    assert_eq!(c.required_history_bars(), 20);
+    assert_eq!(c.columns(), &["close".to_string(), "volume".to_string()]);
 }
 #[test]
 fn revision_source_and_reviewed_candidate_cannot_be_substituted() {
@@ -327,19 +336,43 @@ fn an_exact_published_revision_and_explicit_strategy_bindings_share_the_original
     let original = compile(&r["candidate"], &r["draft"], &r["revision"]).unwrap();
     assert_eq!(compiled.graph().to_record(), original.graph().to_record());
     assert_eq!(compiled.fingerprint(), original.fingerprint());
-    assert_eq!(compiled.revision_fingerprint(), r["revision"]["revision_fingerprint"].as_str().unwrap());
-    for mutation in ["missing-port", "extra-port", "not-closed", "unsupported-operator", "unbounded-period", "missing-version", "legacy-version", "semantic-version"] {
+    assert_eq!(
+        compiled.revision_fingerprint(),
+        r["revision"]["revision_fingerprint"].as_str().unwrap()
+    );
+    for mutation in [
+        "missing-port",
+        "extra-port",
+        "not-closed",
+        "unsupported-operator",
+        "unbounded-period",
+        "missing-version",
+        "legacy-version",
+        "semantic-version",
+    ] {
         let mut bindings = dependencies.clone();
         match mutation {
-            "missing-port" => { bindings.as_object_mut().unwrap().remove("close"); },
-            "extra-port" => { bindings["unexpected"] = json!({"input":"close","closed_only":true}); },
+            "missing-port" => {
+                bindings.as_object_mut().unwrap().remove("close");
+            }
+            "extra-port" => {
+                bindings["unexpected"] = json!({"input":"close","closed_only":true});
+            }
             "not-closed" => bindings["close"]["closed_only"] = json!(false),
             "unsupported-operator" => bindings["close_lag_20"]["operator"] = json!("other.delay"),
             "unbounded-period" => bindings["close_lag_20"]["period"] = json!(u64::MAX),
-            "missing-version" => { bindings["close_lag_20"].as_object_mut().unwrap().remove("semantic_version"); },
+            "missing-version" => {
+                bindings["close_lag_20"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("semantic_version");
+            }
             "legacy-version" => bindings["close_lag_20"]["semantic_version"] = json!("1"),
             _ => bindings["close_lag_20"]["semantic_version"] = json!("3"),
         }
-        assert!(compile_revision(&r["revision"], &bindings).is_err(), "{mutation}");
+        assert!(
+            compile_revision(&r["revision"], &bindings).is_err(),
+            "{mutation}"
+        );
     }
 }

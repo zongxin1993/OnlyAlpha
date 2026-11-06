@@ -212,6 +212,8 @@ python3 scripts/dev_verification.py run -- python scripts/test_suite.py --help
 
 `verify.py` 只选择和执行当前工作区的影响验证，不是任务完成 Authority；实际验收范围仍必须遵守 `AGENTS.md` 的 Task Contract、Impact Scope、风险分级与 Stop Condition。
 
+Rust 变更交给现有 Cargo owner/直接消费方检查；SDK 和算法协议交给现有 Python/ABI owner。数据库、正式 API、Web 与质量接线变化保留对应验证范围，需要明确确认后执行。出现 `LOCAL_IMPACT_REVIEW_REQUIRED` 时，应按实际影响通过上述统一入口选择场景；不得改用退役的 Research 通道或自动取 HEAD 充当 API 兼容基线。
+
 ## 文档入口
 
 - [`AGENTS.md`](AGENTS.md) — 工程任务与验收规则

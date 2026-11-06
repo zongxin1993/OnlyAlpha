@@ -349,9 +349,7 @@ impl<C: NodePort> Executor<C> {
                 "component_bindings",
             ],
         )?;
-        if v[program_key] != expected_program
-            || v["component_bindings"] != manifest(&v)?
-        {
+        if v[program_key] != expected_program || v["component_bindings"] != manifest(&v)? {
             return Err(bad());
         }
         // Decode all semantic state before invoking the producer's fresh restore boundary.

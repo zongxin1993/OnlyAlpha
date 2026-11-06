@@ -2,16 +2,15 @@ import threading
 from dataclasses import replace
 
 import pytest
-from onlyalpha_plugin_binance.errors import OnlyBinanceError
-from onlyalpha_plugin_binance.spot.data_source.continuity import OnlyBinanceSpotContinuityCoordinator
-from onlyalpha_plugin_binance.spot.data_source.normalize import only_normalize_rest_kline, only_normalize_rest_trade
-
 from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataType
 from onlyalpha.data.identifiers import OnlyDataSequence, OnlyDataVersion, OnlyMarketDataSourceId
 from onlyalpha.data.identity import only_bar_update_id, only_trade_update_id
 from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate, OnlyTradeTickUpdate
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha_plugin_binance.errors import OnlyBinanceError
+from onlyalpha_plugin_binance.spot.data_source.continuity import OnlyBinanceSpotContinuityCoordinator
+from onlyalpha_plugin_binance.spot.data_source.normalize import only_normalize_rest_kline, only_normalize_rest_trade
 
 
 def bar_update(sequence: int, instrument_bar_type) -> OnlyMarketDataInboundUpdate:  # type: ignore[no-untyped-def]

@@ -256,7 +256,13 @@ fn retained_record_snapshots_keep_independent_ready_delivery_and_immutable_paylo
     assert_eq!(committed_clone.record(), committed_wire);
     assert_eq!(ready.record(), ready_wire);
     assert_eq!(ready_clone.record(), ready_wire);
-    for retained in [&committed, &committed_clone, &ready, &ready_clone, &delivered] {
+    for retained in [
+        &committed,
+        &committed_clone,
+        &ready,
+        &ready_clone,
+        &delivered,
+    ] {
         assert_eq!(retained.prepared().encode().unwrap(), encoded);
         assert_eq!(retained.prepared().record(), planned.record());
     }
@@ -289,17 +295,34 @@ fn cloned_record_transport_remains_recovery_only_without_new_planner_authority()
         expected["ready"] = json!(ready);
         expected["delivered"] = json!(delivered);
         assert_eq!(observed.record(), expected);
-        assert_eq!(transported.record(), wire, "observed flags cannot change an earlier snapshot");
-        assert_eq!(observed.prepared().encode().unwrap(), planned.encode().unwrap());
+        assert_eq!(
+            transported.record(),
+            wire,
+            "observed flags cannot change an earlier snapshot"
+        );
+        assert_eq!(
+            observed.prepared().encode().unwrap(),
+            planned.encode().unwrap()
+        );
         let mut foreign = Harness::new(config()).unwrap();
         let before = foreign.components.checkpoint().unwrap();
-        assert!(coordinate(&mut foreign.store, &mut foreign.components, observed.prepared()).is_err());
+        assert!(
+            coordinate(
+                &mut foreign.store,
+                &mut foreign.components,
+                observed.prepared()
+            )
+            .is_err()
+        );
         assert_eq!(foreign.store.head().unwrap(), 0);
         assert_eq!(foreign.components.checkpoint().unwrap(), before);
     }
     let mut recovered = Components::new(config()).unwrap();
     recover(&mut original.store, &mut recovered).unwrap();
-    assert_eq!(recovered.checkpoint().unwrap(), original.components.checkpoint().unwrap());
+    assert_eq!(
+        recovered.checkpoint().unwrap(),
+        original.components.checkpoint().unwrap()
+    );
     assert_eq!(transported.record(), wire);
 }
 

@@ -70,7 +70,7 @@ jobs:
   diff-coverage:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Core branch coverage alone took 56 minutes; also measure recovery and real DBs.
+    # Measure the public SDK with the full current Python/ABI and serial PG owners.
     # Keep per-test hang limits and all coverage thresholds unchanged.
     timeout-minutes: 120
     steps:
@@ -82,9 +82,10 @@ jobs:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
-      - name: Produce canonical coverage evidence
-        run: deploy/run-tests.sh python scripts/coverage_acceptance.py
-      - name: Require changed core lines to be covered
+      - run: python scripts/dev_verification.py prepare
+      - name: Produce canonical public SDK coverage evidence
+        run: python scripts/dev_verification.py run -- python scripts/coverage_acceptance.py
+      - name: Require changed public SDK lines and branches to be covered
         env:
           BASE_REF: ${{ github.base_ref }}
         run: >-

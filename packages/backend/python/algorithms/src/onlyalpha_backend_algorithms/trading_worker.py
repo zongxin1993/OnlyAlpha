@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from google.protobuf.message import DecodeError
-from onlyalpha_gateway_protocol.v1 import calculation_pb2 as wire
-
 from onlyalpha.algorithm.codec import _pairs, exact, sha
 from onlyalpha.calculation.definition import (
     OnlyCalculationScalar,
@@ -19,6 +17,8 @@ from onlyalpha.calculation.definition import (
     only_calculation_scalar_to_dict,
 )
 from onlyalpha.canonical import only_canonical_json
+from onlyalpha_gateway_protocol.v1 import calculation_pb2 as wire
+
 from onlyalpha_backend_algorithms.chart_isolation import restrict
 from onlyalpha_backend_algorithms.trading_session import TradingGraphSession
 from onlyalpha_backend_algorithms.worker_io import read, verify_installation

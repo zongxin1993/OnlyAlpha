@@ -156,86 +156,150 @@ fn limit_contract_keeps_limit_and_rejects_market_precision_field() {
     assert_eq!(c.state().unwrap()["account"]["snapshot"]["cash"], "959.00");
 }
 
-fn whole_fill_admission(configuration:&Value, high_precision:bool) -> Value {
-    let mut admission=market(1,"BUY");
-    let policy="a".repeat(64);
-    admission["payload"]["request"]["metadata"]["replay_policy"]=json!(policy);
+fn whole_fill_admission(configuration: &Value, high_precision: bool) -> Value {
+    let mut admission = market(1, "BUY");
+    let policy = "a".repeat(64);
+    admission["payload"]["request"]["metadata"]["replay_policy"] = json!(policy);
     if high_precision {
-        admission["payload"]["request"]["quantity"]=json!({"schema_version":1,"value":"0.01000","precision":5});
-        admission["payload"]["market"]["notional"]=settlement_money("11.000000","0.01");
-        admission["payload"]["fee_contract"]["funding"]["principal_reservation"]["amount"]=json!("0.11");
-        admission["payload"]["fee_contract"]["funding"]["total_reservation"]["amount"]=json!("0.11");
+        admission["payload"]["request"]["quantity"] =
+            json!({"schema_version":1,"value":"0.01000","precision":5});
+        admission["payload"]["market"]["notional"] = settlement_money("11.000000", "0.01");
+        admission["payload"]["fee_contract"]["funding"]["principal_reservation"]["amount"] =
+            json!("0.11");
+        admission["payload"]["fee_contract"]["funding"]["total_reservation"]["amount"] =
+            json!("0.11");
     }
-    admission["payload"]["market"]["request_digest"]=json!(onlyalpha_execution::digest(admission["payload"]["request"].to_string().as_bytes()));
-    let model=json!({"schema_version":1,"kind":"GUARANTEED_WHOLE_FILL","runtime_kind":"BACKTEST","maximum_fill_count":1,"configuration_fingerprint":onlyalpha_execution::digest(configuration.to_string().as_bytes()),"policy_fingerprint":policy});
-    admission["payload"]["schema_version"]=json!(2);
-    admission["payload"]["settlement_fill_contract"]=json!({"schema_version":1,"kind":"BACKTEST_WHOLE_FILL","maximum_fill_count":1,"model_fingerprint":onlyalpha_execution::digest(model.to_string().as_bytes()),"model":model,"fee_estimate_assumptions_fingerprint":admission["payload"]["fee_contract"]["estimate"]["assumptions_fingerprint"]});
+    admission["payload"]["market"]["request_digest"] = json!(onlyalpha_execution::digest(
+        admission["payload"]["request"].to_string().as_bytes()
+    ));
+    let model = json!({"schema_version":1,"kind":"GUARANTEED_WHOLE_FILL","runtime_kind":"BACKTEST","maximum_fill_count":1,"configuration_fingerprint":onlyalpha_execution::digest(configuration.to_string().as_bytes()),"policy_fingerprint":policy});
+    admission["payload"]["schema_version"] = json!(2);
+    admission["payload"]["settlement_fill_contract"] = json!({"schema_version":1,"kind":"BACKTEST_WHOLE_FILL","maximum_fill_count":1,"model_fingerprint":onlyalpha_execution::digest(model.to_string().as_bytes()),"model":model,"fee_estimate_assumptions_fingerprint":admission["payload"]["fee_contract"]["estimate"]["assumptions_fingerprint"]});
     admission
 }
 #[test]
 fn whole_fill_admit_preserves_exact_quantity_and_recovers_the_bound_contract() {
-    let mut cfg=config();cfg["instruments"][0]["quantity_precision"]=json!(5);
-    let mut harness=Harness::new(cfg.clone()).unwrap();let admission=whole_fill_admission(&cfg,true);
-    let mut legacy=admission.clone();legacy["payload"]["schema_version"]=json!(1);legacy["payload"].as_object_mut().unwrap().remove("settlement_fill_contract");
+    let mut cfg = config();
+    cfg["instruments"][0]["quantity_precision"] = json!(5);
+    let mut harness = Harness::new(cfg.clone()).unwrap();
+    let admission = whole_fill_admission(&cfg, true);
+    let mut legacy = admission.clone();
+    legacy["payload"]["schema_version"] = json!(1);
+    legacy["payload"]
+        .as_object_mut()
+        .unwrap()
+        .remove("settlement_fill_contract");
     assert!(harness.prepare(&legacy).is_err());
-    apply(&mut harness,&admission);
-    let before=harness.checkpoint().unwrap();
-    let mut fresh=Harness::new(cfg).unwrap();fresh.store=harness.store.clone();
-    onlyalpha_execution::recover(&mut fresh.store,&mut fresh.components).unwrap();
-    assert_eq!(fresh.checkpoint().unwrap(),before);
-    let snapshot=fresh.order_snapshot(&fresh.store,"cluster",&order(1)).unwrap().to_record();
-    assert_eq!(snapshot["quantity"]["precision"],5);assert_eq!(snapshot["quantity"]["value"],"0.01000");
+    apply(&mut harness, &admission);
+    let before = harness.checkpoint().unwrap();
+    let mut fresh = Harness::new(cfg).unwrap();
+    fresh.store = harness.store.clone();
+    onlyalpha_execution::recover(&mut fresh.store, &mut fresh.components).unwrap();
+    assert_eq!(fresh.checkpoint().unwrap(), before);
+    let snapshot = fresh
+        .order_snapshot(&fresh.store, "cluster", &order(1))
+        .unwrap()
+        .to_record();
+    assert_eq!(snapshot["quantity"]["precision"], 5);
+    assert_eq!(snapshot["quantity"]["value"], "0.01000");
     assert!(snapshot["price"].is_null());
 }
 #[test]
 fn whole_fill_admit_rejects_detached_models_and_fee_assumptions() {
-    let cfg=config();let harness=Harness::new(cfg.clone()).unwrap();let original=whole_fill_admission(&cfg,false);
+    let cfg = config();
+    let harness = Harness::new(cfg.clone()).unwrap();
+    let original = whole_fill_admission(&cfg, false);
     for mutation in 0..5 {
-        let mut input=original.clone();let contract=&mut input["payload"]["settlement_fill_contract"];
+        let mut input = original.clone();
+        let contract = &mut input["payload"]["settlement_fill_contract"];
         match mutation {
-            0=>{contract.as_object_mut().unwrap().remove("model");},
-            1=>contract["model_fingerprint"]=json!("b".repeat(64)),
-            2=>{contract["model"]["configuration_fingerprint"]=json!("b".repeat(64));contract["model_fingerprint"]=json!(onlyalpha_execution::digest(contract["model"].to_string().as_bytes()));},
-            3=>{contract["model"]["policy_fingerprint"]=json!("b".repeat(64));contract["model_fingerprint"]=json!(onlyalpha_execution::digest(contract["model"].to_string().as_bytes()));},
-            _=>contract["fee_estimate_assumptions_fingerprint"]=json!("b".repeat(64)),
+            0 => {
+                contract.as_object_mut().unwrap().remove("model");
+            }
+            1 => contract["model_fingerprint"] = json!("b".repeat(64)),
+            2 => {
+                contract["model"]["configuration_fingerprint"] = json!("b".repeat(64));
+                contract["model_fingerprint"] = json!(onlyalpha_execution::digest(
+                    contract["model"].to_string().as_bytes()
+                ));
+            }
+            3 => {
+                contract["model"]["policy_fingerprint"] = json!("b".repeat(64));
+                contract["model_fingerprint"] = json!(onlyalpha_execution::digest(
+                    contract["model"].to_string().as_bytes()
+                ));
+            }
+            _ => contract["fee_estimate_assumptions_fingerprint"] = json!("b".repeat(64)),
         }
         assert!(harness.prepare(&input).is_err());
     }
-    for kind in ["LIVE","SIM"] {
-        let mut cfg=config();cfg["runtime_kind"]=json!(kind);let mut input=whole_fill_admission(&cfg,false);input["runtime_kind"]=json!(kind);
-        let harness=Harness::new(cfg).unwrap();assert!(harness.prepare(&input).is_err());
+    for kind in ["LIVE", "SIM"] {
+        let mut cfg = config();
+        cfg["runtime_kind"] = json!(kind);
+        let mut input = whole_fill_admission(&cfg, false);
+        input["runtime_kind"] = json!(kind);
+        let harness = Harness::new(cfg).unwrap();
+        assert!(harness.prepare(&input).is_err());
     }
 }
 #[test]
 fn whole_fill_admit_cannot_install_a_partial_model_trade() {
-    let cfg=config();let mut harness=Harness::new(cfg.clone()).unwrap();
-    apply(&mut harness,&whole_fill_admission(&cfg,false));apply(&mut harness,&stage(2,1,"UNKNOWN"));
-    let before=harness.checkpoint().unwrap();
-    assert!(harness.prepare(&market_fill(3,1,"2","10.002000")).is_err());
-    assert_eq!(harness.checkpoint().unwrap(),before);
-    apply(&mut harness,&market_fill(3,1,"4","10.002000"));
+    let cfg = config();
+    let mut harness = Harness::new(cfg.clone()).unwrap();
+    apply(&mut harness, &whole_fill_admission(&cfg, false));
+    apply(&mut harness, &stage(2, 1, "UNKNOWN"));
+    let before = harness.checkpoint().unwrap();
+    assert!(
+        harness
+            .prepare(&market_fill(3, 1, "2", "10.002000"))
+            .is_err()
+    );
+    assert_eq!(harness.checkpoint().unwrap(), before);
+    apply(&mut harness, &market_fill(3, 1, "4", "10.002000"));
 }
 
 #[test]
 fn retained_admission_preview_uses_the_same_owner_and_cannot_commit_or_allocate() {
     use onlyalpha_execution::Components;
-    for (capital,denied) in [("1000.00",false),("44.99",true)] {
-        let mut cfg=config();cfg["initial_cash"]=json!(capital);cfg["capitals"]["cluster"]=json!(capital);
-        let harness=Harness::new(cfg.clone()).unwrap();
-        let original=harness.checkpoint().unwrap();let input=market(1,"BUY");
-        let direct=harness.prepare(&input);
-        if denied {assert_eq!(direct.unwrap_err().0,"EXECUTION_RISK_DENIED");}else{assert!(direct.is_ok());}
+    for (capital, denied) in [("1000.00", false), ("44.99", true)] {
+        let mut cfg = config();
+        cfg["initial_cash"] = json!(capital);
+        cfg["capitals"]["cluster"] = json!(capital);
+        let harness = Harness::new(cfg.clone()).unwrap();
+        let original = harness.checkpoint().unwrap();
+        let input = market(1, "BUY");
+        let direct = harness.prepare(&input);
+        if denied {
+            assert_eq!(direct.unwrap_err().0, "EXECUTION_RISK_DENIED");
+        } else {
+            assert!(direct.is_ok());
+        }
         for _ in 0..2 {
-            assert_eq!(Components::admission_risk_denied(&cfg,&original,&input).unwrap(),denied);
-            assert_eq!(harness.checkpoint().unwrap(),original);
+            assert_eq!(
+                Components::admission_rejection(&cfg, &original, &input)
+                    .unwrap()
+                    .map(|error| error.0),
+                denied.then(|| "EXECUTION_RISK_DENIED".to_owned())
+            );
+            assert_eq!(harness.checkpoint().unwrap(), original);
             assert!(harness.store.rows.is_empty());
         }
-        let preview=harness.fee_order_preview(&harness.store,"cluster",&input["payload"]["request"],1).unwrap();
-        let read=Components::fee_order_preview_checkpoint(&cfg,&original["components"][0],"cluster",&input["payload"]["request"],1).unwrap();
-        assert_eq!(read,preview);
-        assert_eq!(read.order_id().value(),"runtime-ORDER-000001");
-        assert_eq!(harness.checkpoint().unwrap(),original);
-        let mut foreign=input.clone();foreign["runtime"]=json!("foreign");
-        assert!(Components::admission_risk_denied(&cfg,&original,&foreign).is_err());
+        let preview = harness
+            .fee_order_preview(&harness.store, "cluster", &input["payload"]["request"], 1)
+            .unwrap();
+        let read = Components::fee_order_preview_checkpoint(
+            &cfg,
+            &original["components"][0],
+            "cluster",
+            &input["payload"]["request"],
+            1,
+        )
+        .unwrap();
+        assert_eq!(read, preview);
+        assert_eq!(read.order_id().value(), "runtime-ORDER-000001");
+        assert_eq!(harness.checkpoint().unwrap(), original);
+        let mut foreign = input.clone();
+        foreign["runtime"] = json!("foreign");
+        assert!(Components::admission_rejection(&cfg, &original, &foreign).is_err());
     }
 }

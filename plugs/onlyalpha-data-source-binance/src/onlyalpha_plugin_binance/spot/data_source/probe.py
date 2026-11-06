@@ -16,6 +16,7 @@ from onlyalpha.plugin.integration_probe import (
     OnlyIntegrationProbeRequest,
     OnlyIntegrationProbeResult,
 )
+
 from onlyalpha_plugin_binance.errors import OnlyBinanceError, OnlyBinanceSchemaError
 from onlyalpha_plugin_binance.spot.reference.client import OnlyBinanceSpotReferenceClient
 from onlyalpha_plugin_binance.spot.reference.dto import OnlyBinanceSpotExchangeInfo

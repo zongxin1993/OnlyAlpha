@@ -332,23 +332,35 @@ pub use materialization::{MaterializedDataset, NativeMaterializationPlan};
 mod bars_inverse_tests {
     use super::*;
     fn dataset() -> Dataset {
-        let fixture:Value=serde_json::from_str(include_str!("../../../tests/application/fixtures/research_dataset.json")).unwrap();
-        Dataset::from_bars(&fixture["definition"],fixture["bars"].as_array().unwrap(),fixture["construction_fingerprint"].as_str().unwrap(),100).unwrap()
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../tests/application/fixtures/research_dataset.json"
+        ))
+        .unwrap();
+        Dataset::from_bars(
+            &fixture["definition"],
+            fixture["bars"].as_array().unwrap(),
+            fixture["construction_fingerprint"].as_str().unwrap(),
+            100,
+        )
+        .unwrap()
     }
     #[test]
     fn inverse_rejects_inconsistent_optional_or_precision_rows_instead_of_repairing_them() {
         for mutation in 0..7 {
-            let mut d=dataset();
+            let mut d = dataset();
             match mutation {
-                0=>d.rows[0]["quote_volume"]=Value::Null,
-                1=>d.rows[0]["price_precision"]=json!(true),
-                2=>{d.rows[0]["close"]=json!("101.123456789000000000");d.rows[0]["price_precision"]=json!(8);},
-                3=>d.rows[0]["turnover_currency"]=json!("USDT"),
-                4=>d.rows[0]["trading_day"]=json!("2025-02-30"),
-                5=>d.rows[0]["session_type"]=json!("UNRECOGNIZED"),
-                _=>d.rows[0]["unexpected_market_metadata"]=json!(true),
+                0 => d.rows[0]["quote_volume"] = Value::Null,
+                1 => d.rows[0]["price_precision"] = json!(true),
+                2 => {
+                    d.rows[0]["close"] = json!("101.123456789000000000");
+                    d.rows[0]["price_precision"] = json!(8);
+                }
+                3 => d.rows[0]["turnover_currency"] = json!("USDT"),
+                4 => d.rows[0]["trading_day"] = json!("2025-02-30"),
+                5 => d.rows[0]["session_type"] = json!("UNRECOGNIZED"),
+                _ => d.rows[0]["unexpected_market_metadata"] = json!(true),
             }
-            assert!(d.bars().is_err(),"mutation {mutation}");
+            assert!(d.bars().is_err(), "mutation {mutation}");
         }
     }
 }

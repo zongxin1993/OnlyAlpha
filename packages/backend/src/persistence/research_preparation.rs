@@ -100,16 +100,20 @@ mod tests {
         assert_ne!(original, intent("owner", &changed).unwrap());
     }
 }
-#[path="research_preparation/backtest.rs"]
+#[path = "research_preparation/backtest.rs"]
 mod backtest;
-pub(crate) use backtest::{require_running_backtest_preparation,require_running_manual_backtest_parent,cancelled_backtest_cleanup_in_transaction,accept_backtest,cancel_backtest,manual_backtest_authoring,BacktestAcceptance,BacktestReady,publish_backtest_ready};
+pub(crate) use backtest::{
+    BacktestAcceptance, BacktestReady, BacktestReadyResolution, accept_backtest, cancel_backtest,
+    cancelled_backtest_cleanup_in_transaction, manual_backtest_authoring, publish_backtest_ready,
+    require_running_backtest_preparation, require_running_manual_backtest_parent,
+};
 // Accepted Human preparation operations. This owner never substitutes for Research Run authority.
 use crate::{
     application::{
+        backtest_preparation::{BacktestOrigin, BacktestPrepareInput},
         command::{Admission, Binding, CommandId, CommandKind, Outcome, OutcomeKind, Receipt},
         factor_content::hash,
         factor_studies::PrepareInput,
-        backtest_preparation::{BacktestPrepareInput,BacktestOrigin},
         strategy_research::StrategyPrepareInput,
     },
     persistence::{
@@ -124,7 +128,7 @@ use tokio_postgres::{Client, Transaction};
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "RESEARCH_PREPARATION_INVALID";
 const CORRUPT: &str = "RESEARCH_PREPARATION_CORRUPT";
-pub(crate) const BACKTEST_NOT_ACCEPTED:&str="BACKTEST_PREPARATION_NOT_ACCEPTED";
+pub(crate) const BACKTEST_NOT_ACCEPTED: &str = "BACKTEST_PREPARATION_NOT_ACCEPTED";
 const UNAVAILABLE: &str = "RESEARCH_PREPARATION_UNAVAILABLE";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum State {
@@ -166,25 +170,115 @@ impl State {
 }
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
-pub(crate) enum PreparationRequest { Factor(PrepareInput), Strategy(StrategyPrepareInput), Backtest(BacktestPrepareInput) }
+pub(crate) enum PreparationRequest {
+    Factor(PrepareInput),
+    Strategy(StrategyPrepareInput),
+    Backtest(BacktestPrepareInput),
+}
 impl PreparationRequest {
-    pub(crate) fn factor(&self)->Result<&PrepareInput> {match self {Self::Factor(v)=>Ok(v),_=>Err(INVALID)}}
-    pub(crate) fn strategy(&self)->Result<&StrategyPrepareInput> {match self {Self::Strategy(v)=>Ok(v),_=>Err(INVALID)}}
-    pub(crate) fn is_strategy(&self)->bool {matches!(self,Self::Strategy(_))}
-    pub(crate) fn is_backtest(&self)->bool {matches!(self,Self::Backtest(_))}
-    pub(crate) fn backtest(&self)->Result<&BacktestPrepareInput> {match self {Self::Backtest(v)=>Ok(v),_=>Err(INVALID)}}
-    pub(crate) fn future_command(&self)->&str {match self {Self::Factor(v)=>&v.research_command_id,Self::Strategy(v)=>&v.research_command_id,Self::Backtest(v)=>&v.backtest_command_id}}
-    pub(crate) fn research_command(&self)->&str {self.future_command()}
-    pub(crate) fn reserved_run_id(&self)->String {let command=CommandId::new(self.future_command()).expect("verified future Command");match self {Self::Backtest(_)=>crate::application::backtest_preparation::run_id(&command),Self::Factor(_)|Self::Strategy(_)=>crate::persistence::research_submission::run_id(&command)}}
-    pub(crate) fn release(&self)->&str {match self {Self::Factor(v)=>&v.release_manifest_fingerprint,Self::Strategy(v)=>&v.release_manifest_fingerprint,Self::Backtest(v)=>&v.release_manifest_fingerprint}}
-    pub(crate) fn expected_active(&self)->Option<&str> {match self {Self::Factor(v)=>v.expected_active_generation.as_deref(),Self::Strategy(v)=>v.expected_active_generation.as_deref(),Self::Backtest(v)=>v.expected_active_generation.as_deref()}}
-    pub(crate) fn initialize(&self)->bool {match self {Self::Factor(v)=>v.initialize_fresh_runtime,Self::Strategy(v)=>v.initialize_fresh_runtime,Self::Backtest(v)=>v.initialize_fresh_runtime}}
-    fn kind(&self)->&'static str {match self {Self::Factor(_)=>"FACTOR_RESEARCH",Self::Strategy(_)=>"STRATEGY_RESEARCH",Self::Backtest(_)=>"BACKTEST_PREPARATION"}}
-    fn command_kind(&self)->CommandKind {match self {Self::Factor(_)=>CommandKind::PrepareFactorResearch,Self::Strategy(_)=>CommandKind::PrepareStrategyResearch,Self::Backtest(_)=>CommandKind::PrepareBacktest}}
-    fn cancel_kind(&self)->CommandKind {match self {Self::Factor(_)=>CommandKind::CancelFactorResearchPreparation,Self::Strategy(_)=>CommandKind::CancelStrategyResearchPreparation,Self::Backtest(_)=>CommandKind::CancelBacktestPreparation}}
-    fn validate(&self,command:&CommandId)->Result<()> {match self {Self::Factor(v)=>validate_input(command,v),Self::Strategy(v)=>v.validate(command).map(|_|()),Self::Backtest(v)=>v.validate(command)}}
-    fn intent(&self,owner:&str)->Result<String> {match self {Self::Factor(v)=>intent(owner,v),Self::Strategy(v)=>hash(&json!({"contract":"ONLYALPHA_STRATEGY_RESEARCH_PREPARATION_V1","owner":owner,"input":v})),Self::Backtest(v)=>hash(&json!({"contract":"ONLYALPHA_BACKTEST_PREPARATION_V2","owner":owner,"input":v}))}}
-
+    pub(crate) fn factor(&self) -> Result<&PrepareInput> {
+        match self {
+            Self::Factor(v) => Ok(v),
+            _ => Err(INVALID),
+        }
+    }
+    pub(crate) fn strategy(&self) -> Result<&StrategyPrepareInput> {
+        match self {
+            Self::Strategy(v) => Ok(v),
+            _ => Err(INVALID),
+        }
+    }
+    pub(crate) fn is_strategy(&self) -> bool {
+        matches!(self, Self::Strategy(_))
+    }
+    pub(crate) fn is_backtest(&self) -> bool {
+        matches!(self, Self::Backtest(_))
+    }
+    pub(crate) fn backtest(&self) -> Result<&BacktestPrepareInput> {
+        match self {
+            Self::Backtest(v) => Ok(v),
+            _ => Err(INVALID),
+        }
+    }
+    pub(crate) fn future_command(&self) -> &str {
+        match self {
+            Self::Factor(v) => &v.research_command_id,
+            Self::Strategy(v) => &v.research_command_id,
+            Self::Backtest(v) => &v.backtest_command_id,
+        }
+    }
+    pub(crate) fn research_command(&self) -> &str {
+        self.future_command()
+    }
+    pub(crate) fn reserved_run_id(&self) -> String {
+        let command = CommandId::new(self.future_command()).expect("verified future Command");
+        match self {
+            Self::Backtest(_) => crate::application::backtest_preparation::run_id(&command),
+            Self::Factor(_) | Self::Strategy(_) => {
+                crate::persistence::research_submission::run_id(&command)
+            }
+        }
+    }
+    pub(crate) fn release(&self) -> &str {
+        match self {
+            Self::Factor(v) => &v.release_manifest_fingerprint,
+            Self::Strategy(v) => &v.release_manifest_fingerprint,
+            Self::Backtest(v) => &v.release_manifest_fingerprint,
+        }
+    }
+    pub(crate) fn expected_active(&self) -> Option<&str> {
+        match self {
+            Self::Factor(v) => v.expected_active_generation.as_deref(),
+            Self::Strategy(v) => v.expected_active_generation.as_deref(),
+            Self::Backtest(v) => v.expected_active_generation.as_deref(),
+        }
+    }
+    pub(crate) fn initialize(&self) -> bool {
+        match self {
+            Self::Factor(v) => v.initialize_fresh_runtime,
+            Self::Strategy(v) => v.initialize_fresh_runtime,
+            Self::Backtest(v) => v.initialize_fresh_runtime,
+        }
+    }
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Factor(_) => "FACTOR_RESEARCH",
+            Self::Strategy(_) => "STRATEGY_RESEARCH",
+            Self::Backtest(_) => "BACKTEST_PREPARATION",
+        }
+    }
+    fn command_kind(&self) -> CommandKind {
+        match self {
+            Self::Factor(_) => CommandKind::PrepareFactorResearch,
+            Self::Strategy(_) => CommandKind::PrepareStrategyResearch,
+            Self::Backtest(_) => CommandKind::PrepareBacktest,
+        }
+    }
+    fn cancel_kind(&self) -> CommandKind {
+        match self {
+            Self::Factor(_) => CommandKind::CancelFactorResearchPreparation,
+            Self::Strategy(_) => CommandKind::CancelStrategyResearchPreparation,
+            Self::Backtest(_) => CommandKind::CancelBacktestPreparation,
+        }
+    }
+    fn validate(&self, command: &CommandId) -> Result<()> {
+        match self {
+            Self::Factor(v) => validate_input(command, v),
+            Self::Strategy(v) => v.validate(command).map(|_| ()),
+            Self::Backtest(v) => v.validate(command),
+        }
+    }
+    fn intent(&self, owner: &str) -> Result<String> {
+        match self {
+            Self::Factor(v) => intent(owner, v),
+            Self::Strategy(v) => hash(
+                &json!({"contract":"ONLYALPHA_STRATEGY_RESEARCH_PREPARATION_V1","owner":owner,"input":v}),
+            ),
+            Self::Backtest(v) => hash(
+                &json!({"contract":"ONLYALPHA_BACKTEST_PREPARATION_V2","owner":owner,"input":v}),
+            ),
+        }
+    }
 }
 /// Only this owning reader constructs an original accepted request handle.
 #[derive(Clone)]
@@ -200,16 +294,19 @@ pub(crate) struct Operation {
     pub(crate) detail: Value,
 }
 impl Operation {
-    pub(crate) fn source(&self)->Result<crate::application::factor_studies::Source> {
+    pub(crate) fn source(&self) -> Result<crate::application::factor_studies::Source> {
         match &self.request {
-            PreparationRequest::Strategy(v)=>Ok(v.source.clone()),
-            PreparationRequest::Backtest(v)=>Ok(v.source.clone()),
-            PreparationRequest::Factor(_)=>serde_json::from_value(self.accepted["study"]["advice"]["source"].clone()).map_err(|_|CORRUPT),
+            PreparationRequest::Strategy(v) => Ok(v.source.clone()),
+            PreparationRequest::Backtest(v) => Ok(v.source.clone()),
+            PreparationRequest::Factor(_) => {
+                serde_json::from_value(self.accepted["study"]["advice"]["source"].clone())
+                    .map_err(|_| CORRUPT)
+            }
         }
     }
     pub(crate) fn view(&self) -> Value {
-        if let PreparationRequest::Backtest(input)=&self.request {
-            let derived=&self.outputs["ready"]["admission"];
+        if let PreparationRequest::Backtest(input) = &self.request {
+            let derived = &self.outputs["ready"]["admission"];
             return json!({"schema_version":2,"command_id":self.command.value(),"profile":input.profile,"origin":input.origin,
                 "strategy_fingerprint":derived["strategy_fingerprint"],"freeze_relation_fingerprint":derived["freeze_relation_fingerprint"],
                 "qualification_decision_fingerprint":derived["qualification_decision_fingerprint"],"promotion_fingerprint":derived["promotion_fingerprint"],
@@ -218,12 +315,27 @@ impl Operation {
                 "preparation_fingerprint":self.outputs["ready"]["preparation_fingerprint"],"detail":self.detail,
                 "backtest_outcome":"UNOBSERVED","readiness":{"state":"NOT_APPLICABLE","code":null},"run_id":null,"accepted_at":self.accepted["accepted_at"]});
         }
-        let future=self.request.research_command();
-        let mut view=json!({"schema_version":1,"command_id":self.command.value(),"revision":self.revision.to_string(),"state":self.state.as_str(),"phase":self.phase,"research_command_id":future,"reserved_run_id":crate::persistence::research_submission::run_id(&CommandId::new(future).expect("verified command")),"prepared_study_fingerprint":self.outputs["ready"]["prepared_study_fingerprint"],"detail":self.detail,"research_outcome":"UNOBSERVED","readiness":{"state":"NOT_APPLICABLE","code":null},"run_id":null,"accepted_at":self.accepted["accepted_at"]});
+        let future = self.request.research_command();
+        let mut view = json!({"schema_version":1,"command_id":self.command.value(),"revision":self.revision.to_string(),"state":self.state.as_str(),"phase":self.phase,"research_command_id":future,"reserved_run_id":crate::persistence::research_submission::run_id(&CommandId::new(future).expect("verified command")),"prepared_study_fingerprint":self.outputs["ready"]["prepared_study_fingerprint"],"detail":self.detail,"research_outcome":"UNOBSERVED","readiness":{"state":"NOT_APPLICABLE","code":null},"run_id":null,"accepted_at":self.accepted["accepted_at"]});
         match &self.request {
-            PreparationRequest::Factor(v)=> {view["study_proposal_fingerprint"]=json!(v.study_proposal_fingerprint);view["advice"]=self.accepted["study"]["advice"].clone();},
-            PreparationRequest::Strategy(v)=> {for key in ["profile","strategy_id","strategy_revision_fingerprint","definition_fingerprint","context","source"] {view[key]=self.accepted["input"][key].clone();}debug_assert_eq!(view["profile"],v.profile);},
-            PreparationRequest::Backtest(_)=>unreachable!("handled typed view"),
+            PreparationRequest::Factor(v) => {
+                view["study_proposal_fingerprint"] = json!(v.study_proposal_fingerprint);
+                view["advice"] = self.accepted["study"]["advice"].clone();
+            }
+            PreparationRequest::Strategy(v) => {
+                for key in [
+                    "profile",
+                    "strategy_id",
+                    "strategy_revision_fingerprint",
+                    "definition_fingerprint",
+                    "context",
+                    "source",
+                ] {
+                    view[key] = self.accepted["input"][key].clone();
+                }
+                debug_assert_eq!(view["profile"], v.profile);
+            }
+            PreparationRequest::Backtest(_) => unreachable!("handled typed view"),
         }
         view
     }
@@ -282,43 +394,106 @@ impl<'a> Preparations<'a> {
     pub(crate) fn new(client: &'a mut Client) -> Self {
         Self { client }
     }
-    pub(crate) async fn existing(&mut self,command:&CommandId,owner:&str,input:&PrepareInput)->Result<Option<Operation>> {
-        self.existing_request(command,owner,PreparationRequest::Factor(input.clone())).await
+    pub(crate) async fn existing(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        input: &PrepareInput,
+    ) -> Result<Option<Operation>> {
+        self.existing_request(command, owner, PreparationRequest::Factor(input.clone()))
+            .await
     }
-    pub(crate) async fn existing_backtest(&mut self,command:&CommandId,owner:&str,input:&BacktestPrepareInput)->Result<Option<Operation>> {
-        self.existing_request(command,owner,PreparationRequest::Backtest(input.clone())).await
+    pub(crate) async fn existing_backtest(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        input: &BacktestPrepareInput,
+    ) -> Result<Option<Operation>> {
+        self.existing_request(command, owner, PreparationRequest::Backtest(input.clone()))
+            .await
     }
     /// Backtest's original-Command query observes Binding before resource rows.
     /// Its exclusive negative code is not shared with a generic resource 404.
-    pub(crate) async fn query_backtest_command(&mut self,namespace:&crate::bootstrap::deployment::SemanticStoreId,command:&CommandId,owner:&str)->Result<Operation> {
-        let tx=self.client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::ReadCommitted).read_only(true).start().await.map_err(db)?;
+    pub(crate) async fn query_backtest_command(
+        &mut self,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        command: &CommandId,
+        owner: &str,
+    ) -> Result<Operation> {
+        let tx = self
+            .client
+            .build_transaction()
+            .isolation_level(tokio_postgres::IsolationLevel::ReadCommitted)
+            .read_only(true)
+            .start()
+            .await
+            .map_err(db)?;
         bounds(&tx).await.map_err(db)?;
-        let value=backtest_command_in_transaction(&tx,namespace,command,owner).await?;
-        tx.commit().await.map_err(db)?;Ok(value)
+        let value = backtest_command_in_transaction(&tx, namespace, command, owner).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(value)
     }
     /// Every durable state is returned, including UNKNOWN and cancellation.
-    pub(crate) async fn for_backtest_origin(&mut self,origin:&BacktestOrigin,owner:&str)->Result<Vec<Operation>> {
-        origin.validate()?;let origin=serde_json::to_string(origin).map_err(db)?;
-        let tx=self.client.build_transaction().read_only(true).start().await.map_err(db)?;bounds(&tx).await.map_err(db)?;
+    pub(crate) async fn for_backtest_origin(
+        &mut self,
+        origin: &BacktestOrigin,
+        owner: &str,
+    ) -> Result<Vec<Operation>> {
+        origin.validate()?;
+        let origin = serde_json::to_string(origin).map_err(db)?;
+        let tx = self
+            .client
+            .build_transaction()
+            .read_only(true)
+            .start()
+            .await
+            .map_err(db)?;
+        bounds(&tx).await.map_err(db)?;
         let rows=tx.query("SELECT command_id::text FROM research_preparation WHERE owner=$1 AND preparation_kind='BACKTEST_PREPARATION' AND accepted_payload::jsonb->'input'->'origin'=$2::text::jsonb ORDER BY command_id LIMIT 101",&[&owner,&origin]).await.map_err(db)?;
-        let result=backtest_operations(&tx,rows,owner).await?;tx.commit().await.map_err(db)?;Ok(result)
+        let result = backtest_operations(&tx, rows, owner).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(result)
     }
     /// Published Strategy authoring history keeps all revisions and task states.
-    pub(crate) async fn for_strategy_backtests(&mut self,strategy_id:&str,owner:&str)->Result<Vec<Operation>> {
-        crate::application::private_assets::id(strategy_id,"STRATEGY").map_err(|_|INVALID)?;
-        let tx=self.client.build_transaction().read_only(true).start().await.map_err(db)?;bounds(&tx).await.map_err(db)?;
+    pub(crate) async fn for_strategy_backtests(
+        &mut self,
+        strategy_id: &str,
+        owner: &str,
+    ) -> Result<Vec<Operation>> {
+        crate::application::private_assets::id(strategy_id, "STRATEGY").map_err(|_| INVALID)?;
+        let tx = self
+            .client
+            .build_transaction()
+            .read_only(true)
+            .start()
+            .await
+            .map_err(db)?;
+        bounds(&tx).await.map_err(db)?;
         let rows=tx.query("SELECT command_id::text FROM research_preparation WHERE owner=$1 AND preparation_kind='BACKTEST_PREPARATION' AND accepted_payload::jsonb->'input'->'origin'->>'kind'='MANUAL_STRATEGY' AND accepted_payload::jsonb->'input'->'origin'->>'strategy_id'=$2 ORDER BY command_id LIMIT 101",&[&owner,&strategy_id]).await.map_err(db)?;
-        let result=backtest_operations(&tx,rows,owner).await?;tx.commit().await.map_err(db)?;Ok(result)
+        let result = backtest_operations(&tx, rows, owner).await?;
+        tx.commit().await.map_err(db)?;
+        Ok(result)
     }
     #[cfg(test)]
-    pub(crate) async fn existing_strategy(&mut self,command:&CommandId,owner:&str,input:&StrategyPrepareInput)->Result<Option<Operation>> {
-        self.existing_request(command,owner,PreparationRequest::Strategy(input.clone())).await
+    pub(crate) async fn existing_strategy(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        input: &StrategyPrepareInput,
+    ) -> Result<Option<Operation>> {
+        self.existing_request(command, owner, PreparationRequest::Strategy(input.clone()))
+            .await
     }
-    async fn existing_request(&mut self,command:&CommandId,owner:&str,input:PreparationRequest)->Result<Option<Operation>> {
+    async fn existing_request(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        input: PreparationRequest,
+    ) -> Result<Option<Operation>> {
         input.validate(command)?;
         let tx = self.client.transaction().await.map_err(db)?;
         bounds(&tx).await.map_err(db)?;
-        let result=existing_request_in_transaction(&tx,command,owner,&input).await?;
+        let result = existing_request_in_transaction(&tx, command, owner, &input).await?;
         tx.commit().await.map_err(db)?;
         Ok(result)
     }
@@ -348,31 +523,62 @@ impl<'a> Preparations<'a> {
         tx.commit().await.map_err(db)?;
         Ok(result)
     }
-    pub(crate) async fn for_strategy(&mut self,id:&str,owner:&str)->Result<Vec<Operation>> {
-        crate::application::private_assets::id(id,"STRATEGY").map_err(|_|INVALID)?;
-        let tx=self.client.transaction().await.map_err(db)?;bounds(&tx).await.map_err(db)?;
+    pub(crate) async fn for_strategy(&mut self, id: &str, owner: &str) -> Result<Vec<Operation>> {
+        crate::application::private_assets::id(id, "STRATEGY").map_err(|_| INVALID)?;
+        let tx = self.client.transaction().await.map_err(db)?;
+        bounds(&tx).await.map_err(db)?;
         if tx.query_opt("SELECT a.command_id FROM product_command_admission a WHERE command_kind='PREPARE_STRATEGY_RESEARCH' AND NOT EXISTS(SELECT 1 FROM research_preparation p WHERE p.command_id=a.command_id) UNION SELECT r.command_id FROM product_command_receipt r WHERE command_kind='PREPARE_STRATEGY_RESEARCH' AND NOT EXISTS(SELECT 1 FROM research_preparation p WHERE p.command_id=r.command_id) LIMIT 1",&[]).await.map_err(db)?.is_some(){return Err(CORRUPT);}
         let rows=tx.query("SELECT command_id::text FROM research_preparation WHERE owner=$1 AND preparation_kind='STRATEGY_RESEARCH' AND accepted_payload::jsonb->'input'->>'strategy_id'=$2 ORDER BY command_id LIMIT 101",&[&owner,&id]).await.map_err(db)?;
-        if rows.len()>100{return Err(UNAVAILABLE);}
-        let mut result=Vec::new();for row in rows {let command=CommandId::new(&row.try_get::<_,String>(0).map_err(db)?).map_err(db)?;let operation=load(&tx,&command,owner).await?;if operation.request.strategy()?.strategy_id!=id{return Err(CORRUPT);}result.push(operation);}
-        tx.commit().await.map_err(db)?;Ok(result)
+        if rows.len() > 100 {
+            return Err(UNAVAILABLE);
+        }
+        let mut result = Vec::new();
+        for row in rows {
+            let command = CommandId::new(&row.try_get::<_, String>(0).map_err(db)?).map_err(db)?;
+            let operation = load(&tx, &command, owner).await?;
+            if operation.request.strategy()?.strategy_id != id {
+                return Err(CORRUPT);
+            }
+            result.push(operation);
+        }
+        tx.commit().await.map_err(db)?;
+        Ok(result)
     }
-    pub(crate) async fn accept(&mut self,command:&CommandId,owner:&str,input:PrepareInput,at:OnlyUtcDateTime)->Result<Operation> {
-        self.accept_request(command,owner,PreparationRequest::Factor(input),at).await
+    pub(crate) async fn accept(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        input: PrepareInput,
+        at: OnlyUtcDateTime,
+    ) -> Result<Operation> {
+        self.accept_request(command, owner, PreparationRequest::Factor(input), at)
+            .await
     }
     #[cfg(test)]
-    pub(crate) async fn accept_strategy(&mut self,command:&CommandId,owner:&str,input:StrategyPrepareInput,at:OnlyUtcDateTime)->Result<Operation> {
-        self.accept_request(command,owner,PreparationRequest::Strategy(input),at).await
+    pub(crate) async fn accept_strategy(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        input: StrategyPrepareInput,
+        at: OnlyUtcDateTime,
+    ) -> Result<Operation> {
+        self.accept_request(command, owner, PreparationRequest::Strategy(input), at)
+            .await
     }
-    async fn accept_request(&mut self,command:&CommandId,owner:&str,input:PreparationRequest,at:OnlyUtcDateTime)->Result<Operation> {
+    async fn accept_request(
+        &mut self,
+        command: &CommandId,
+        owner: &str,
+        input: PreparationRequest,
+        at: OnlyUtcDateTime,
+    ) -> Result<Operation> {
         input.validate(command)?;
-        if input.is_backtest(){return Err(INVALID);}
-        let admission = Admission::new(
-            command.clone(),
-            input.command_kind(),
-            &input.intent(owner)?,
-        )
-        .map_err(db)?;
+        if input.is_backtest() {
+            return Err(INVALID);
+        }
+        let admission =
+            Admission::new(command.clone(), input.command_kind(), &input.intent(owner)?)
+                .map_err(db)?;
         let tx = self.client.transaction().await.map_err(db)?;
         bounds(&tx).await.map_err(db)?;
         Commands::lock_command(&tx, command).await.map_err(db)?;
@@ -401,27 +607,48 @@ impl<'a> Preparations<'a> {
             return Err(CORRUPT);
         }
         if input.is_strategy() {
-            let future=CommandId::new(input.research_command()).map_err(|_|INVALID)?;
-            Commands::lock_command(&tx,&future).await.map_err(db)?;
-            if !matches!(Commands::verify_binding_in_transaction(&tx,&future).await.map_err(db)?,Binding::None)
-                || tx.query_opt("SELECT 1 FROM research_run WHERE run_id=$1::text::uuid",&[&crate::persistence::research_submission::run_id(&future)]).await.map_err(db)?.is_some()
-            {return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");}
+            let future = CommandId::new(input.research_command()).map_err(|_| INVALID)?;
+            Commands::lock_command(&tx, &future).await.map_err(db)?;
+            if !matches!(
+                Commands::verify_binding_in_transaction(&tx, &future)
+                    .await
+                    .map_err(db)?,
+                Binding::None
+            ) || tx
+                .query_opt(
+                    "SELECT 1 FROM research_run WHERE run_id=$1::text::uuid",
+                    &[&crate::persistence::research_submission::run_id(&future)],
+                )
+                .await
+                .map_err(db)?
+                .is_some()
+            {
+                return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");
+            }
         }
         if input.initialize() {
             guard_fresh_runtime(runtime_history_exists(&tx).await?)?;
         }
-        let accepted=match &input {
-            PreparationRequest::Factor(input)=> {
-                let study=factor_studies::current(&tx,&input.study_proposal_fingerprint,owner).await?;
-                let confirmed=factor_proposals::confirmed_research_input(&tx,text(&study,"factor_proposal_fingerprint")?,owner,true).await?;
-                validated_inputs(&study,&confirmed)?;
+        let accepted = match &input {
+            PreparationRequest::Factor(input) => {
+                let study =
+                    factor_studies::current(&tx, &input.study_proposal_fingerprint, owner).await?;
+                let confirmed = factor_proposals::confirmed_research_input(
+                    &tx,
+                    text(&study, "factor_proposal_fingerprint")?,
+                    owner,
+                    true,
+                )
+                .await?;
+                validated_inputs(&study, &confirmed)?;
                 json!({"schema_version":1,"contract":"ONLYALPHA_ACCEPTED_RESEARCH_PREPARATION_V1","command_id":command.value(),"owner":owner,"input":input,"study":study,"factor_confirmation":confirmed,"accepted_at":at.to_string()})
-            },
-            PreparationRequest::Strategy(input)=> {
-                let (strategy,confirmed)=strategy_anchors(&tx,command,input,owner,true).await?;
+            }
+            PreparationRequest::Strategy(input) => {
+                let (strategy, confirmed) =
+                    strategy_anchors(&tx, command, input, owner, true).await?;
                 json!({"schema_version":1,"contract":"ONLYALPHA_ACCEPTED_STRATEGY_RESEARCH_PREPARATION_V1","command_id":command.value(),"owner":owner,"input":input,"strategy_revision":strategy,"factor_confirmation":confirmed,"accepted_at":at.to_string()})
-            },
-            PreparationRequest::Backtest(_)=>return Err(INVALID),
+            }
+            PreparationRequest::Backtest(_) => return Err(INVALID),
         };
         let fingerprint = hash(&accepted)?;
         let payload = canonical(&accepted)?;
@@ -469,7 +696,7 @@ impl<'a> Preparations<'a> {
         ) {
             return Ok(original);
         }
-        require_current(&tx,&original).await?;
+        require_current(&tx, &original).await?;
         let result = update(
             &tx,
             &original,
@@ -479,7 +706,7 @@ impl<'a> Preparations<'a> {
             &Value::Null,
         )
         .await?;
-        commit_updated(tx,result).await
+        commit_updated(tx, result).await
     }
     pub(crate) async fn progress(
         &mut self,
@@ -506,9 +733,11 @@ impl<'a> Preparations<'a> {
         {
             return Err("RESEARCH_PREPARATION_CANCEL_REQUESTED");
         }
-        if state==State::Ready&&current.request.is_backtest(){return Err("BACKTEST_READY_PROOF_REQUIRED");}
+        if state == State::Ready && current.request.is_backtest() {
+            return Err("BACKTEST_READY_PROOF_REQUIRED");
+        }
         if state == State::Ready {
-            require_current(&tx,&current).await?;
+            require_current(&tx, &current).await?;
             validate_ready(&current, outputs)?;
         }
         if !legal_transition(current.state, state, phase) {
@@ -520,7 +749,7 @@ impl<'a> Preparations<'a> {
             }
         }
         let result = update(&tx, &current, state, phase, outputs, detail).await?;
-        commit_updated(tx,result).await
+        commit_updated(tx, result).await
     }
     pub(crate) async fn cancel(
         &mut self,
@@ -536,8 +765,10 @@ impl<'a> Preparations<'a> {
         )?;
         let tx = self.client.transaction().await.map_err(db)?;
         bounds(&tx).await.map_err(db)?;
-        let original=load(&tx,command,owner).await?;
-        let admission=Admission::new(cancel.clone(),original.request.cancel_kind(),&fingerprint).map_err(db)?;
+        let original = load(&tx, command, owner).await?;
+        let admission =
+            Admission::new(cancel.clone(), original.request.cancel_kind(), &fingerprint)
+                .map_err(db)?;
         Commands::lock_command(&tx, cancel).await.map_err(db)?;
         let cancel_binding = Commands::verify_binding_in_transaction(&tx, cancel)
             .await
@@ -616,84 +847,230 @@ impl<'a> Preparations<'a> {
             )
             .await?
         };
-        commit_updated(tx,next).await
+        commit_updated(tx, next).await
     }
 }
-enum PreparationExpectation<'a> { Exact(&'a PreparationRequest),BacktestCommand }
+enum PreparationExpectation<'a> {
+    Exact(&'a PreparationRequest),
+    BacktestCommand,
+}
 /// Shared owning primitive. Every original input path and the Backtest Command
 /// query takes the same barrier and verifies the same canonical binding.
-async fn observe_original_preparation(tx:&Transaction<'_>,command:&CommandId,owner:&str,expectation:PreparationExpectation<'_>)->Result<Option<Operation>> {
-    Commands::lock_command(tx,command).await.map_err(db)?;
-    let binding=Commands::verify_binding_in_transaction(tx,command).await.map_err(db)?;
+async fn observe_original_preparation(
+    tx: &Transaction<'_>,
+    command: &CommandId,
+    owner: &str,
+    expectation: PreparationExpectation<'_>,
+) -> Result<Option<Operation>> {
+    Commands::lock_command(tx, command).await.map_err(db)?;
+    let binding = Commands::verify_binding_in_transaction(tx, command)
+        .await
+        .map_err(db)?;
     match binding {
-        Binding::None=> {
-            if tx.query_opt("SELECT 1 FROM research_preparation WHERE command_id=$1::text::uuid",&[&command.value()]).await.map_err(db)?.is_some(){return Err(CORRUPT);}
+        Binding::None => {
+            if tx
+                .query_opt(
+                    "SELECT 1 FROM research_preparation WHERE command_id=$1::text::uuid",
+                    &[&command.value()],
+                )
+                .await
+                .map_err(db)?
+                .is_some()
+            {
+                return Err(CORRUPT);
+            }
             Ok(None)
-        },
-        Binding::Admitted(admission)=> {
-            if matches!(expectation,PreparationExpectation::BacktestCommand)&&admission.kind()!=CommandKind::PrepareBacktest{return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");}
+        }
+        Binding::Admitted(admission) => {
+            if matches!(expectation, PreparationExpectation::BacktestCommand)
+                && admission.kind() != CommandKind::PrepareBacktest
+            {
+                return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");
+            }
             Err("RESEARCH_PREPARATION_OUTCOME_UNKNOWN")
-        },
-        Binding::Accepted(receipt)=> {
-            match expectation {
-                PreparationExpectation::Exact(input)=> {
-                    let expected=Admission::new(command.clone(),input.command_kind(),&input.intent(owner)?).map_err(db)?;
-                    if receipt.admission()!=&expected{return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");}
-                    Ok(Some(load(tx,command,owner).await?))
-                },
-                PreparationExpectation::BacktestCommand=> {
-                    if receipt.admission().kind()!=CommandKind::PrepareBacktest{return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");}
-                    let operation=load(tx,command,owner).await.map_err(|code|if code=="RESEARCH_PREPARATION_NOT_FOUND"{"RESEARCH_PREPARATION_COMMAND_CONFLICT"}else{code})?;
-                    if !operation.request.is_backtest(){return Err(CORRUPT);}Ok(Some(operation))
-                },
+        }
+        Binding::Accepted(receipt) => match expectation {
+            PreparationExpectation::Exact(input) => {
+                let expected =
+                    Admission::new(command.clone(), input.command_kind(), &input.intent(owner)?)
+                        .map_err(db)?;
+                if receipt.admission() != &expected {
+                    return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");
+                }
+                Ok(Some(load(tx, command, owner).await?))
+            }
+            PreparationExpectation::BacktestCommand => {
+                if receipt.admission().kind() != CommandKind::PrepareBacktest {
+                    return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");
+                }
+                let operation = load(tx, command, owner).await.map_err(|code| {
+                    if code == "RESEARCH_PREPARATION_NOT_FOUND" {
+                        "RESEARCH_PREPARATION_COMMAND_CONFLICT"
+                    } else {
+                        code
+                    }
+                })?;
+                if !operation.request.is_backtest() {
+                    return Err(CORRUPT);
+                }
+                Ok(Some(operation))
             }
         },
     }
 }
 /// The exact-request entry used by acceptance and pre-accept feedback.
-pub(crate) async fn existing_request_in_transaction(tx:&Transaction<'_>,command:&CommandId,owner:&str,input:&PreparationRequest)->Result<Option<Operation>> {
+pub(crate) async fn existing_request_in_transaction(
+    tx: &Transaction<'_>,
+    command: &CommandId,
+    owner: &str,
+    input: &PreparationRequest,
+) -> Result<Option<Operation>> {
     input.validate(command)?;
-    observe_original_preparation(tx,command,owner,PreparationExpectation::Exact(input)).await
+    observe_original_preparation(tx, command, owner, PreparationExpectation::Exact(input)).await
 }
 /// A negative is possible only in this expected namespace after actual Binding
 /// None and absent downstream operation. Driver loss and foreign facts fail closed.
-pub(crate) async fn backtest_command_in_transaction(tx:&Transaction<'_>,namespace:&crate::bootstrap::deployment::SemanticStoreId,command:&CommandId,owner:&str)->Result<Operation> {
-    let isolation:String=tx.query_one("SHOW transaction_isolation",&[]).await.map_err(db)?.try_get(0).map_err(db)?;
-    if isolation!="read committed"{return Err(UNAVAILABLE);}
-    crate::bootstrap::deployment::verify_binding_in_transaction(tx,namespace).await.map_err(|error|error.code())?;
-    observe_original_preparation(tx,command,owner,PreparationExpectation::BacktestCommand).await?.ok_or(BACKTEST_NOT_ACCEPTED)
+pub(crate) async fn backtest_command_in_transaction(
+    tx: &Transaction<'_>,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    command: &CommandId,
+    owner: &str,
+) -> Result<Operation> {
+    let isolation: String = tx
+        .query_one("SHOW transaction_isolation", &[])
+        .await
+        .map_err(db)?
+        .try_get(0)
+        .map_err(db)?;
+    if isolation != "read committed" {
+        return Err(UNAVAILABLE);
+    }
+    crate::bootstrap::deployment::verify_binding_in_transaction(tx, namespace)
+        .await
+        .map_err(|error| error.code())?;
+    observe_original_preparation(tx, command, owner, PreparationExpectation::BacktestCommand)
+        .await?
+        .ok_or(BACKTEST_NOT_ACCEPTED)
 }
-async fn backtest_operations(tx:&Transaction<'_>,rows:Vec<tokio_postgres::Row>,owner:&str)->Result<Vec<Operation>> {
-    if rows.len()>100{return Err(UNAVAILABLE);}
-    let mut result=Vec::new();for row in rows {let command=CommandId::new(&row.try_get::<_,String>(0).map_err(db)?).map_err(db)?;result.push(load(tx,&command,owner).await?);}Ok(result)
+async fn backtest_operations(
+    tx: &Transaction<'_>,
+    rows: Vec<tokio_postgres::Row>,
+    owner: &str,
+) -> Result<Vec<Operation>> {
+    if rows.len() > 100 {
+        return Err(UNAVAILABLE);
+    }
+    let mut result = Vec::new();
+    for row in rows {
+        let command = CommandId::new(&row.try_get::<_, String>(0).map_err(db)?).map_err(db)?;
+        result.push(load(tx, &command, owner).await?);
+    }
+    Ok(result)
 }
-pub(crate) async fn load(tx: &Transaction<'_>, command: &CommandId, owner: &str) -> Result<Operation> {
+pub(crate) async fn load(
+    tx: &Transaction<'_>,
+    command: &CommandId,
+    owner: &str,
+) -> Result<Operation> {
     let row=tx.query_opt("SELECT owner,accepted_fingerprint,accepted_payload,revision,state,phase,outputs_payload,detail_payload,preparation_kind FROM research_preparation WHERE command_id=$1::text::uuid",&[&command.value()]).await.map_err(db)?.ok_or("RESEARCH_PREPARATION_NOT_FOUND")?;
-    let actual:String=row.try_get(0).map_err(db)?;if actual!=owner{return Err("RESEARCH_PREPARATION_NOT_FOUND");}
-    let accepted=parse(&row.try_get::<_,String>(2).map_err(db)?)?;
-    let kind:String=row.try_get(8).map_err(db)?;
-    if kind=="BACKTEST_PREPARATION"&&accepted["schema_version"]==1&&accepted["contract"]=="ONLYALPHA_ACCEPTED_BACKTEST_PREPARATION_V1" {
-        if accepted["command_id"]!=command.value()||accepted["owner"]!=owner||hash(&accepted)?!=row.try_get::<_,String>(1).map_err(db)? {return Err(CORRUPT);}
+    let actual: String = row.try_get(0).map_err(db)?;
+    if actual != owner {
+        return Err("RESEARCH_PREPARATION_NOT_FOUND");
+    }
+    let accepted = parse(&row.try_get::<_, String>(2).map_err(db)?)?;
+    let kind: String = row.try_get(8).map_err(db)?;
+    if kind == "BACKTEST_PREPARATION"
+        && accepted["schema_version"] == 1
+        && accepted["contract"] == "ONLYALPHA_ACCEPTED_BACKTEST_PREPARATION_V1"
+    {
+        if accepted["command_id"] != command.value()
+            || accepted["owner"] != owner
+            || hash(&accepted)? != row.try_get::<_, String>(1).map_err(db)?
+        {
+            return Err(CORRUPT);
+        }
         return Err("BACKTEST_PREPARATION_HISTORICAL_READER_UNAVAILABLE");
     }
-    let request:PreparationRequest=serde_json::from_value(accepted["input"].clone()).map_err(|_|CORRUPT)?;
+    let request: PreparationRequest =
+        serde_json::from_value(accepted["input"].clone()).map_err(|_| CORRUPT)?;
     request.validate(command)?;
-    if request.kind()!=kind || accepted["schema_version"]!=(if request.is_backtest(){2}else{1}) || accepted["command_id"]!=command.value() || accepted["owner"]!=owner || hash(&accepted)?!=row.try_get::<_,String>(1).map_err(db)? {return Err(CORRUPT);}
+    if request.kind() != kind
+        || accepted["schema_version"] != (if request.is_backtest() { 2 } else { 1 })
+        || accepted["command_id"] != command.value()
+        || accepted["owner"] != owner
+        || hash(&accepted)? != row.try_get::<_, String>(1).map_err(db)?
+    {
+        return Err(CORRUPT);
+    }
     match &request {
-        PreparationRequest::Factor(request)=> {
-            exact_fields(&accepted,&["schema_version","contract","command_id","owner","input","study","factor_confirmation","accepted_at"])?;
-            if accepted["contract"]!="ONLYALPHA_ACCEPTED_RESEARCH_PREPARATION_V1" {return Err(CORRUPT);}
-            let study=&accepted["study"];let factor=&accepted["factor_confirmation"];
-            if hash(study)?!=request.study_proposal_fingerprint || study["owner"]!=owner || study["factor_proposal_fingerprint"]!=hash(&factor["snapshot"])? || study["factor_id"]!=factor["snapshot"]["factor_id"] {return Err(CORRUPT);}
-            if factor_studies::retained(tx,&request.study_proposal_fingerprint,owner).await?!=*study || factor_proposals::confirmed_research_input(tx,text(study,"factor_proposal_fingerprint")?,owner,false).await?!=*factor {return Err(CORRUPT);}
-        },
-        PreparationRequest::Strategy(request)=> {
-            exact_fields(&accepted,&["schema_version","contract","command_id","owner","input","strategy_revision","factor_confirmation","accepted_at"])?;
-            if accepted["contract"]!="ONLYALPHA_ACCEPTED_STRATEGY_RESEARCH_PREPARATION_V1" {return Err(CORRUPT);}
-            let (strategy,confirmed)=strategy_anchors(tx,command,request,owner,false).await?;
-            if strategy!=accepted["strategy_revision"] || confirmed!=accepted["factor_confirmation"] {return Err(CORRUPT);}
-        },
-        PreparationRequest::Backtest(input)=>backtest::validate_accepted(tx,command,owner,input,&accepted).await?,
+        PreparationRequest::Factor(request) => {
+            exact_fields(
+                &accepted,
+                &[
+                    "schema_version",
+                    "contract",
+                    "command_id",
+                    "owner",
+                    "input",
+                    "study",
+                    "factor_confirmation",
+                    "accepted_at",
+                ],
+            )?;
+            if accepted["contract"] != "ONLYALPHA_ACCEPTED_RESEARCH_PREPARATION_V1" {
+                return Err(CORRUPT);
+            }
+            let study = &accepted["study"];
+            let factor = &accepted["factor_confirmation"];
+            if hash(study)? != request.study_proposal_fingerprint
+                || study["owner"] != owner
+                || study["factor_proposal_fingerprint"] != hash(&factor["snapshot"])?
+                || study["factor_id"] != factor["snapshot"]["factor_id"]
+            {
+                return Err(CORRUPT);
+            }
+            if factor_studies::retained(tx, &request.study_proposal_fingerprint, owner).await?
+                != *study
+                || factor_proposals::confirmed_research_input(
+                    tx,
+                    text(study, "factor_proposal_fingerprint")?,
+                    owner,
+                    false,
+                )
+                .await?
+                    != *factor
+            {
+                return Err(CORRUPT);
+            }
+        }
+        PreparationRequest::Strategy(request) => {
+            exact_fields(
+                &accepted,
+                &[
+                    "schema_version",
+                    "contract",
+                    "command_id",
+                    "owner",
+                    "input",
+                    "strategy_revision",
+                    "factor_confirmation",
+                    "accepted_at",
+                ],
+            )?;
+            if accepted["contract"] != "ONLYALPHA_ACCEPTED_STRATEGY_RESEARCH_PREPARATION_V1" {
+                return Err(CORRUPT);
+            }
+            let (strategy, confirmed) =
+                strategy_anchors(tx, command, request, owner, false).await?;
+            if strategy != accepted["strategy_revision"]
+                || confirmed != accepted["factor_confirmation"]
+            {
+                return Err(CORRUPT);
+            }
+        }
+        PreparationRequest::Backtest(input) => {
+            backtest::validate_accepted(tx, command, owner, input, &accepted).await?
+        }
     }
     let binding = Commands::verify_binding_in_transaction(tx, command)
         .await
@@ -701,7 +1078,12 @@ pub(crate) async fn load(tx: &Transaction<'_>, command: &CommandId, owner: &str)
     let Binding::Accepted(receipt) = binding else {
         return Err(CORRUPT);
     };
-    let expected=Admission::new(command.clone(),request.command_kind(),&request.intent(owner)?).map_err(db)?;
+    let expected = Admission::new(
+        command.clone(),
+        request.command_kind(),
+        &request.intent(owner)?,
+    )
+    .map_err(db)?;
     if receipt.admission() != &expected
         || receipt.outcome().kind() != OutcomeKind::ResearchPreparationOperation
         || receipt.outcome().id() != hash(&accepted)?
@@ -819,8 +1201,12 @@ fn exact_fields(value: &Value, fields: &[&str]) -> Result<()> {
     Ok(())
 }
 fn validate_ready(o: &Operation, outputs: &Value) -> Result<()> {
-    if o.request.is_backtest(){return backtest::validate_ready(o,outputs);}
-    if o.request.is_strategy(){return validate_strategy_ready(o,outputs);}
+    if o.request.is_backtest() {
+        return backtest::validate_ready(o, outputs);
+    }
+    if o.request.is_strategy() {
+        return validate_strategy_ready(o, outputs);
+    }
     let ready = &outputs["ready"];
     let record = &ready["prepared_study"];
     exact_fields(
@@ -855,7 +1241,7 @@ fn validate_ready(o: &Operation, outputs: &Value) -> Result<()> {
     crate::application::research_run::verify_native_spec_record(&spec.record()?)?;
     let original = validated_inputs(&o.accepted["study"], &o.accepted["factor_confirmation"])?;
     let preview = &o.accepted["factor_confirmation"]["snapshot"]["preview"];
-    let future = CommandId::new(&o.request.research_command()).map_err(db)?;
+    let future = CommandId::new(o.request.research_command()).map_err(db)?;
     let environment = &outputs["environment"];
     let r = &ready["prepared_inputs"];
     let mut fields = Vec::from([
@@ -1019,14 +1405,21 @@ fn legal_transition(from: State, to: State, phase: &str) -> bool {
         || from == Ready && to == Cancelled && phase == "CANCELLATION"
 }
 async fn validate_environment(tx: &Transaction<'_>, o: &Operation) -> Result<()> {
-    if o.request.is_backtest(){return backtest::validate_environment(o);}
+    if o.request.is_backtest() {
+        return backtest::validate_environment(o);
+    }
     let e = &o.outputs["environment"];
     let publication = &e["publication"];
-    let (_,revision)=algorithm_inputs(o)?;
-    let id=text(&revision,"factor_id")?;
-    let command=CommandId::new(text(publication,"command_id")?).map_err(db)?;
-    let actual=crate::persistence::private_factor_postgres::bound(tx,id,&command,None).await.map_err(|e|e.code())?.ok_or(CORRUPT)?;
-    if actual!=*publication || actual["result"]["revision"]!=revision {return Err(CORRUPT);}
+    let (_, revision) = algorithm_inputs(o)?;
+    let id = text(&revision, "factor_id")?;
+    let command = CommandId::new(text(publication, "command_id")?).map_err(db)?;
+    let actual = crate::persistence::private_factor_postgres::bound(tx, id, &command, None)
+        .await
+        .map_err(|e| e.code())?
+        .ok_or(CORRUPT)?;
+    if actual != *publication || actual["result"]["revision"] != revision {
+        return Err(CORRUPT);
+    }
     let generation = text(e, "runtime_generation_fingerprint")?;
     let proof = &e["installed_proof"];
     let mut body = proof.clone();
@@ -1045,7 +1438,7 @@ async fn validate_environment(tx: &Transaction<'_>, o: &Operation) -> Result<()>
         return Err(CORRUPT);
     }
     let binding = &e["binding"];
-    let future = CommandId::new(&o.request.research_command()).map_err(db)?;
+    let future = CommandId::new(o.request.research_command()).map_err(db)?;
     if binding["kind"] != "RuntimeWorkBound"
         || binding["work_id"] != crate::persistence::research_submission::run_id(&future)
         || binding["reason"] != "research"
@@ -1110,13 +1503,17 @@ pub(crate) async fn guard_submission(
     let current = load(tx, &o.command, &o.owner).await?;
     if current.outputs.get("cancellation").is_some()
         || !matches!(current.state, State::Ready | State::Running)
-        || (if current.request.is_backtest(){&current.outputs["ready"]["preparation_fingerprint"]}else{&current.outputs["ready"]["prepared_study_fingerprint"]}) != expected
+        || (if current.request.is_backtest() {
+            &current.outputs["ready"]["preparation_fingerprint"]
+        } else {
+            &current.outputs["ready"]["prepared_study_fingerprint"]
+        }) != expected
         || current.request.research_command() != o.request.research_command()
         || current.accepted != o.accepted
     {
         return Err("RESEARCH_PREPARATION_STALE");
     }
-    require_current(tx,&current).await?;
+    require_current(tx, &current).await?;
     Ok(())
 }
 
@@ -1133,12 +1530,7 @@ async fn validate_cancellation(tx: &Transaction<'_>, o: &Operation) -> Result<()
     let fp = hash(
         &json!({"contract":"ONLYALPHA_CANCEL_RESEARCH_PREPARATION_V1","owner":o.owner,"body":{"preparation_command_id":o.command.value(),"expected_revision":revision}}),
     )?;
-    let expected = Admission::new(
-        command.clone(),
-        o.request.cancel_kind(),
-        &fp,
-    )
-    .map_err(db)?;
+    let expected = Admission::new(command.clone(), o.request.cancel_kind(), &fp).map_err(db)?;
     let Binding::Accepted(receipt) = Commands::verify_binding_in_transaction(tx, &command)
         .await
         .map_err(db)?
@@ -1158,111 +1550,328 @@ async fn validate_cancellation(tx: &Transaction<'_>, o: &Operation) -> Result<()
     Ok(())
 }
 
-async fn strategy_anchors(tx:&Transaction<'_>,command:&CommandId,input:&StrategyPrepareInput,owner:&str,current:bool)->Result<(Value,Value)> {
-    use crate::application::{private_assets,private_strategy::Definition};
-    let context=input.validate(command)?;
-    let strategy=private_assets::strategy_revision_in_transaction(tx,&input.strategy_id,&input.strategy_revision_fingerprint).await.map_err(|e|e.code())?;
-    if strategy["definition_fingerprint"]!=input.definition_fingerprint {return Err("RESEARCH_PREPARATION_STRATEGY_MISMATCH");}
-    let definition=Definition::from_record(&strategy["definition"])?;
+async fn strategy_anchors(
+    tx: &Transaction<'_>,
+    command: &CommandId,
+    input: &StrategyPrepareInput,
+    owner: &str,
+    current: bool,
+) -> Result<(Value, Value)> {
+    use crate::application::{private_assets, private_strategy::Definition};
+    let context = input.validate(command)?;
+    let strategy = private_assets::strategy_revision_in_transaction(
+        tx,
+        &input.strategy_id,
+        &input.strategy_revision_fingerprint,
+    )
+    .await
+    .map_err(|e| e.code())?;
+    if strategy["definition_fingerprint"] != input.definition_fingerprint {
+        return Err("RESEARCH_PREPARATION_STRATEGY_MISMATCH");
+    }
+    let definition = Definition::from_record(&strategy["definition"])?;
     context.definition(&definition)?;
-    let d=definition.to_record();
-    let deps=d["factor_revision_dependencies"].as_array().filter(|v|v.len()==1).ok_or(INVALID)?;
-    let dependency=&deps[0];let id=text(dependency,"factor_id")?;
-    let factor=private_assets::factor_revision_in_transaction(tx,id,text(dependency,"revision_fingerprint")?).await.map_err(|e|e.code())?;
-    let confirmed=factor_proposals::confirmed_strategy_research_input(tx,&input.factor_proposal_fingerprint,owner,current).await?;
-    let draft=crate::application::private_assets::authoring::Draft::new(confirmed["snapshot"]["preview"]["draft"].clone()).map_err(|e|e.code())?;
-    if draft.factor_id()!=id || draft.revision().map_err(|e|e.code())?!=factor
-        || d["universe"]!=json!({"kind":"SINGLE_INSTRUMENT","instruments":[input.source.instrument_id]})
-        || d["market_input"]["bar_semantic"]["formation"]!=json!({"schema_version":1,"kind":"FIXED_DURATION","window_minutes":1,"stride_minutes":1,"alignment":"SESSION_START"})
-        || d["market_input"]["bar_semantic"]["price_type"]!="LAST"
-        || d["market_input"]["bar_semantic"]["adjustment_policy"]!="RAW"
-        || d["market_input"]["construction_requirement"]["kind"]!="EXACT_RECIPE"
-        || d["market_input"]["construction_requirement"]["recipe"]["kind"]!="PROVIDER_NATIVE"
-    {return Err("RESEARCH_PREPARATION_STRATEGY_MISMATCH");}
-    let factors=d["calculations"].as_array().ok_or(INVALID)?.iter().filter(|v|v["type_reference"]["kind"]=="FACTOR").collect::<Vec<_>>();
-    if factors.len()!=1 || factors[0]["type_reference"]["type_id"]!=id || factors[0]["type_reference"]["semantic_version"]!=factor["semantic_version"] {return Err(INVALID);}
-    compile_confirmed(&confirmed,&factor)?;
-    Ok((strategy,confirmed))
+    let d = definition.to_record();
+    let deps = d["factor_revision_dependencies"]
+        .as_array()
+        .filter(|v| v.len() == 1)
+        .ok_or(INVALID)?;
+    let dependency = &deps[0];
+    let id = text(dependency, "factor_id")?;
+    let factor = private_assets::factor_revision_in_transaction(
+        tx,
+        id,
+        text(dependency, "revision_fingerprint")?,
+    )
+    .await
+    .map_err(|e| e.code())?;
+    let confirmed = factor_proposals::confirmed_strategy_research_input(
+        tx,
+        &input.factor_proposal_fingerprint,
+        owner,
+        current,
+    )
+    .await?;
+    let draft = crate::application::private_assets::authoring::Draft::new(
+        confirmed["snapshot"]["preview"]["draft"].clone(),
+    )
+    .map_err(|e| e.code())?;
+    if draft.factor_id() != id
+        || draft.revision().map_err(|e| e.code())? != factor
+        || d["universe"]
+            != json!({"kind":"SINGLE_INSTRUMENT","instruments":[input.source.instrument_id]})
+        || d["market_input"]["bar_semantic"]["formation"]
+            != json!({"schema_version":1,"kind":"FIXED_DURATION","window_minutes":1,"stride_minutes":1,"alignment":"SESSION_START"})
+        || d["market_input"]["bar_semantic"]["price_type"] != "LAST"
+        || d["market_input"]["bar_semantic"]["adjustment_policy"] != "RAW"
+        || d["market_input"]["construction_requirement"]["kind"] != "EXACT_RECIPE"
+        || d["market_input"]["construction_requirement"]["recipe"]["kind"] != "PROVIDER_NATIVE"
+    {
+        return Err("RESEARCH_PREPARATION_STRATEGY_MISMATCH");
+    }
+    let factors = d["calculations"]
+        .as_array()
+        .ok_or(INVALID)?
+        .iter()
+        .filter(|v| v["type_reference"]["kind"] == "FACTOR")
+        .collect::<Vec<_>>();
+    if factors.len() != 1
+        || factors[0]["type_reference"]["type_id"] != id
+        || factors[0]["type_reference"]["semantic_version"] != factor["semantic_version"]
+    {
+        return Err(INVALID);
+    }
+    compile_confirmed(&confirmed, &factor)?;
+    Ok((strategy, confirmed))
 }
-fn compile_confirmed(confirmed:&Value,revision:&Value)->Result<crate::application::research_factor::CompiledFactor> {
-    let preview=&confirmed["snapshot"]["preview"];
-    let candidate=json!({"name":"Factor","purpose":"Research","hypothesis":preview["hypothesis"],"expression":preview["expression"]});
-    crate::application::research_factor::compile(&candidate,&preview["draft"],revision)
+fn compile_confirmed(
+    confirmed: &Value,
+    revision: &Value,
+) -> Result<crate::application::research_factor::CompiledFactor> {
+    let preview = &confirmed["snapshot"]["preview"];
+    let candidate = json!({"name":"Factor","purpose":"Research","hypothesis":preview["hypothesis"],"expression":preview["expression"]});
+    crate::application::research_factor::compile(&candidate, &preview["draft"], revision)
 }
 /// The actual installed preparer consumes one exact confirmed Factor in both profiles.
-pub(crate) fn algorithm_inputs(o:&Operation)->Result<(crate::application::research_factor::CompiledFactor,Value)> {
+pub(crate) fn algorithm_inputs(
+    o: &Operation,
+) -> Result<(crate::application::research_factor::CompiledFactor, Value)> {
     match &o.request {
-        PreparationRequest::Backtest(_)=>Err(INVALID),
-        PreparationRequest::Factor(_)=> {let v=validated_inputs(&o.accepted["study"],&o.accepted["factor_confirmation"])?;Ok((v.factor,v.revision))},
-        PreparationRequest::Strategy(_)=> {
-            let revision=crate::application::private_assets::authoring::Draft::new(o.accepted["factor_confirmation"]["snapshot"]["preview"]["draft"].clone()).map_err(|e|e.code())?.revision().map_err(|e|e.code())?;
-            Ok((compile_confirmed(&o.accepted["factor_confirmation"],&revision)?,revision))
-        },
+        PreparationRequest::Backtest(_) => Err(INVALID),
+        PreparationRequest::Factor(_) => {
+            let v = validated_inputs(&o.accepted["study"], &o.accepted["factor_confirmation"])?;
+            Ok((v.factor, v.revision))
+        }
+        PreparationRequest::Strategy(_) => {
+            let revision = crate::application::private_assets::authoring::Draft::new(
+                o.accepted["factor_confirmation"]["snapshot"]["preview"]["draft"].clone(),
+            )
+            .map_err(|e| e.code())?
+            .revision()
+            .map_err(|e| e.code())?;
+            Ok((
+                compile_confirmed(&o.accepted["factor_confirmation"], &revision)?,
+                revision,
+            ))
+        }
     }
 }
-pub(crate) async fn require_current(tx:&Transaction<'_>,o:&Operation)->Result<()> {
+pub(crate) async fn require_current(tx: &Transaction<'_>, o: &Operation) -> Result<()> {
     match &o.request {
-        PreparationRequest::Backtest(v)=>backtest::validate_accepted(tx,&o.command,&o.owner,v,&o.accepted).await?,
-        PreparationRequest::Factor(v)=> {if factor_studies::current(tx,&v.study_proposal_fingerprint,&o.owner).await?!=o.accepted["study"] {return Err("RESEARCH_PREPARATION_STUDY_STALE");}},
-        PreparationRequest::Strategy(v)=> {let (strategy,confirmed)=strategy_anchors(tx,&o.command,v,&o.owner,true).await?;if strategy!=o.accepted["strategy_revision"] || confirmed!=o.accepted["factor_confirmation"] {return Err("RESEARCH_PREPARATION_STRATEGY_MISMATCH");}},
+        PreparationRequest::Backtest(v) => {
+            backtest::validate_accepted(tx, &o.command, &o.owner, v, &o.accepted).await?
+        }
+        PreparationRequest::Factor(v) => {
+            if factor_studies::current(tx, &v.study_proposal_fingerprint, &o.owner).await?
+                != o.accepted["study"]
+            {
+                return Err("RESEARCH_PREPARATION_STUDY_STALE");
+            }
+        }
+        PreparationRequest::Strategy(v) => {
+            let (strategy, confirmed) = strategy_anchors(tx, &o.command, v, &o.owner, true).await?;
+            if strategy != o.accepted["strategy_revision"]
+                || confirmed != o.accepted["factor_confirmation"]
+            {
+                return Err("RESEARCH_PREPARATION_STRATEGY_MISMATCH");
+            }
+        }
     }
     Ok(())
 }
-fn validate_strategy_ready(o:&Operation,outputs:&Value)->Result<()> {
-    use crate::application::{private_strategy::Definition,strategy_research::{DecisionGraph,RunSpecification,Specification}};
-    let input=o.request.strategy()?;let context=input.validate(&o.command)?;
-    let ready=&outputs["ready"];let record=&ready["prepared_study"];let p=&ready["prepared_inputs"];let environment=&outputs["environment"];
-    exact_fields(ready,&["preparation_command_id","strategy_revision_fingerprint","factor_confirmation_command_id","runtime_generation_fingerprint","installed_proof_fingerprint","dataset_materialization_id","source_selection","prepared_study","prepared_study_fingerprint","prepared_inputs"])?;
-    exact_fields(record,&["schema_version","command_id","owner","request","composition_fingerprint","decision_group_fingerprint"])?;
-    exact_fields(p,&["schema_version","contract","composition","runtime_generation_fingerprint","runtime_work_binding","execution_binding","input_window","dataset_snapshot_fingerprint","dataset_materialization","dataset_construction_fingerprint","run_specification_fingerprint","algorithm_resolution_request","algorithm_resolution","native_implementations"])?;
-    let request=crate::persistence::research_submission::strategy::Request::from_record(&record["request"])?;
-    let spec=RunSpecification::from_record(request.specification().record())?;let s=spec.record();
-    let policy=crate::bootstrap::research_namespace::policy();
-    let future=CommandId::new(o.request.research_command()).map_err(db)?;
-    let definition=Definition::from_record(&o.accepted["strategy_revision"]["definition"])?;
-    let declared=definition.to_record();
-    let nodes=p["algorithm_resolution"]["nodes"].as_array().ok_or(CORRUPT)?;
-    let project=|instances:&Value|->Result<Value>{let mut result=Vec::new();for instance in instances.as_array().ok_or(CORRUPT)? {let matches=nodes.iter().filter(|n|n["instance_key"]==instance["instance_key"]).collect::<Vec<_>>();if matches.len()!=1{return Err(CORRUPT);}let node=matches[0];result.push(json!({"instance_key":node["instance_key"],"definition":node["definition"],"definition_fingerprint":node["definition_fingerprint"],"type_declaration":node["type_declaration"]}));}Ok(json!(result))};
-    let decision=DecisionGraph::derive(&definition,&project(&declared["calculations"])?)?;
-    let targets=DecisionGraph::target_graph(&context,&project(&context.record()["targets"])?)?;
-    let science=Specification::derive(&context.definition(&definition)?,&decision,&targets,text(p,"dataset_snapshot_fingerprint")?)?;
-    let mut window=decision.input_window(&context,60_000_000_000)?;window.as_object_mut().ok_or(CORRUPT)?.remove("research_context_fingerprint");
-    if record["schema_version"]!=1 || record["command_id"]!=future.value() || record["owner"]!=o.owner
-        || ready["preparation_command_id"]!=o.command.value() || ready["strategy_revision_fingerprint"]!=input.strategy_revision_fingerprint
-        || ready["factor_confirmation_command_id"]!=o.accepted["factor_confirmation"]["confirmation_command_id"]
-        || ready["prepared_study_fingerprint"]!=hash(record)? || !text(record,"decision_group_fingerprint").is_ok_and(crate::is_sha256_hex)
-        || request.parent_run_id().is_some() || request.policy()!=(text(&policy,"policy_id")?,text(&policy,"policy_version")?)
-        || s["scientific_specification"]!=*science.record() || s["decision"]!=decision.record() || s["target_graph"]!=targets.to_record()
-        || s["input_window"]!=window || p["input_window"]!=window || p["schema_version"]!=1 || p["contract"]!="ONLYALPHA_STRATEGY_RESEARCH_PREPARED_INPUTS_V1"
-        || p["run_specification_fingerprint"]!=spec.fingerprint()? || p["runtime_work_binding"]!=environment["binding"]
-        || p["runtime_work_binding"]["work_id"]!=crate::persistence::research_submission::run_id(&future)
-        || p["composition"]["private_strategy_id"]!=input.strategy_id || p["composition"]["private_strategy_revision_fingerprint"]!=input.strategy_revision_fingerprint
-        || p["composition"]["private_strategy_definition_fingerprint"]!=input.definition_fingerprint || p["composition"]["research_context_fingerprint"]!=context.fingerprint()?
-        || p["composition"]["research_definition_fingerprint"]!=context.definition(&definition)?.fingerprint()?
-        || record["composition_fingerprint"]!=p["composition"]["composition_fingerprint"]
-        || p["execution_binding"]!=s["execution_binding"] || p["dataset_snapshot_fingerprint"]!=s["scientific_specification"]["dataset_snapshot_fingerprint"]
-        || p["runtime_generation_fingerprint"]!=s["runtime_generation_fingerprint"] || p["composition"]["catalog_generation_fingerprint"]!=s["catalog_generation_fingerprint"]
-        || environment["installed_proof"]["algorithm_artifact"]!=s["algorithm_artifact_fingerprint"] || p["algorithm_resolution"]["algorithm_artifact"]!=s["algorithm_artifact_fingerprint"]
-        || ready["runtime_generation_fingerprint"]!=p["runtime_generation_fingerprint"] || ready["runtime_generation_fingerprint"]!=environment["runtime_generation_fingerprint"]
-        || ready["installed_proof_fingerprint"]!=environment["installed_proof_fingerprint"] || ready["dataset_materialization_id"]!=p["dataset_materialization"]["materialization_id"]
-        || p["dataset_materialization"]["dataset_snapshot_fingerprint"]!=p["dataset_snapshot_fingerprint"]
-    {return Err(CORRUPT);}
-    let selection=&ready["source_selection"];
-    exact_fields(selection,&["preparation_command_id","source","acquisition","scope","revision","seal"])?;
-    if selection["preparation_command_id"]!=o.command.value() || selection["source"]!=serde_json::to_value(&input.source).map_err(db)?
-        || selection["scope"]!=selection["revision"]["scope"] || selection["revision"]["revision_id"]!=selection["seal"]["revision_id"]
-        || selection["acquisition"]["status"]!="COMPLETE" || selection["acquisition"]["revision_id"]!=selection["revision"]["revision_id"]
-        || selection["acquisition"]["revision_fingerprint"]!=selection["revision"]["fingerprint"] || selection["acquisition"]["seal_id"]!=selection["seal"]["seal_id"]
-    {return Err(CORRUPT);}Ok(())
+fn validate_strategy_ready(o: &Operation, outputs: &Value) -> Result<()> {
+    use crate::application::{
+        private_strategy::Definition,
+        strategy_research::{DecisionGraph, RunSpecification, Specification},
+    };
+    let input = o.request.strategy()?;
+    let context = input.validate(&o.command)?;
+    let ready = &outputs["ready"];
+    let record = &ready["prepared_study"];
+    let p = &ready["prepared_inputs"];
+    let environment = &outputs["environment"];
+    exact_fields(
+        ready,
+        &[
+            "preparation_command_id",
+            "strategy_revision_fingerprint",
+            "factor_confirmation_command_id",
+            "runtime_generation_fingerprint",
+            "installed_proof_fingerprint",
+            "dataset_materialization_id",
+            "source_selection",
+            "prepared_study",
+            "prepared_study_fingerprint",
+            "prepared_inputs",
+        ],
+    )?;
+    exact_fields(
+        record,
+        &[
+            "schema_version",
+            "command_id",
+            "owner",
+            "request",
+            "composition_fingerprint",
+            "decision_group_fingerprint",
+        ],
+    )?;
+    exact_fields(
+        p,
+        &[
+            "schema_version",
+            "contract",
+            "composition",
+            "runtime_generation_fingerprint",
+            "runtime_work_binding",
+            "execution_binding",
+            "input_window",
+            "dataset_snapshot_fingerprint",
+            "dataset_materialization",
+            "dataset_construction_fingerprint",
+            "run_specification_fingerprint",
+            "algorithm_resolution_request",
+            "algorithm_resolution",
+            "native_implementations",
+        ],
+    )?;
+    let request = crate::persistence::research_submission::strategy::Request::from_record(
+        &record["request"],
+    )?;
+    let spec = RunSpecification::from_record(request.specification().record())?;
+    let s = spec.record();
+    let policy = crate::bootstrap::research_namespace::policy();
+    let future = CommandId::new(o.request.research_command()).map_err(db)?;
+    let definition = Definition::from_record(&o.accepted["strategy_revision"]["definition"])?;
+    let declared = definition.to_record();
+    let nodes = p["algorithm_resolution"]["nodes"]
+        .as_array()
+        .ok_or(CORRUPT)?;
+    let project = |instances: &Value| -> Result<Value> {
+        let mut result = Vec::new();
+        for instance in instances.as_array().ok_or(CORRUPT)? {
+            let matches = nodes
+                .iter()
+                .filter(|n| n["instance_key"] == instance["instance_key"])
+                .collect::<Vec<_>>();
+            if matches.len() != 1 {
+                return Err(CORRUPT);
+            }
+            let node = matches[0];
+            result.push(json!({"instance_key":node["instance_key"],"definition":node["definition"],"definition_fingerprint":node["definition_fingerprint"],"type_declaration":node["type_declaration"]}));
+        }
+        Ok(json!(result))
+    };
+    let decision = DecisionGraph::derive(&definition, &project(&declared["calculations"])?)?;
+    let targets = DecisionGraph::target_graph(&context, &project(&context.record()["targets"])?)?;
+    let science = Specification::derive(
+        &context.definition(&definition)?,
+        &decision,
+        &targets,
+        text(p, "dataset_snapshot_fingerprint")?,
+    )?;
+    let mut window = decision.input_window(&context, 60_000_000_000)?;
+    window
+        .as_object_mut()
+        .ok_or(CORRUPT)?
+        .remove("research_context_fingerprint");
+    if record["schema_version"] != 1
+        || record["command_id"] != future.value()
+        || record["owner"] != o.owner
+        || ready["preparation_command_id"] != o.command.value()
+        || ready["strategy_revision_fingerprint"] != input.strategy_revision_fingerprint
+        || ready["factor_confirmation_command_id"]
+            != o.accepted["factor_confirmation"]["confirmation_command_id"]
+        || ready["prepared_study_fingerprint"] != hash(record)?
+        || !text(record, "decision_group_fingerprint").is_ok_and(crate::is_sha256_hex)
+        || request.parent_run_id().is_some()
+        || request.policy()
+            != (
+                text(&policy, "policy_id")?,
+                text(&policy, "policy_version")?,
+            )
+        || s["scientific_specification"] != *science.record()
+        || s["decision"] != decision.record()
+        || s["target_graph"] != targets.to_record()
+        || s["input_window"] != window
+        || p["input_window"] != window
+        || p["schema_version"] != 1
+        || p["contract"] != "ONLYALPHA_STRATEGY_RESEARCH_PREPARED_INPUTS_V1"
+        || p["run_specification_fingerprint"] != spec.fingerprint()?
+        || p["runtime_work_binding"] != environment["binding"]
+        || p["runtime_work_binding"]["work_id"]
+            != crate::persistence::research_submission::run_id(&future)
+        || p["composition"]["private_strategy_id"] != input.strategy_id
+        || p["composition"]["private_strategy_revision_fingerprint"]
+            != input.strategy_revision_fingerprint
+        || p["composition"]["private_strategy_definition_fingerprint"]
+            != input.definition_fingerprint
+        || p["composition"]["research_context_fingerprint"] != context.fingerprint()?
+        || p["composition"]["research_definition_fingerprint"]
+            != context.definition(&definition)?.fingerprint()?
+        || record["composition_fingerprint"] != p["composition"]["composition_fingerprint"]
+        || p["execution_binding"] != s["execution_binding"]
+        || p["dataset_snapshot_fingerprint"]
+            != s["scientific_specification"]["dataset_snapshot_fingerprint"]
+        || p["runtime_generation_fingerprint"] != s["runtime_generation_fingerprint"]
+        || p["composition"]["catalog_generation_fingerprint"] != s["catalog_generation_fingerprint"]
+        || environment["installed_proof"]["algorithm_artifact"]
+            != s["algorithm_artifact_fingerprint"]
+        || p["algorithm_resolution"]["algorithm_artifact"] != s["algorithm_artifact_fingerprint"]
+        || ready["runtime_generation_fingerprint"] != p["runtime_generation_fingerprint"]
+        || ready["runtime_generation_fingerprint"] != environment["runtime_generation_fingerprint"]
+        || ready["installed_proof_fingerprint"] != environment["installed_proof_fingerprint"]
+        || ready["dataset_materialization_id"] != p["dataset_materialization"]["materialization_id"]
+        || p["dataset_materialization"]["dataset_snapshot_fingerprint"]
+            != p["dataset_snapshot_fingerprint"]
+    {
+        return Err(CORRUPT);
+    }
+    let selection = &ready["source_selection"];
+    exact_fields(
+        selection,
+        &[
+            "preparation_command_id",
+            "source",
+            "acquisition",
+            "scope",
+            "revision",
+            "seal",
+        ],
+    )?;
+    if selection["preparation_command_id"] != o.command.value()
+        || selection["source"] != serde_json::to_value(&input.source).map_err(db)?
+        || selection["scope"] != selection["revision"]["scope"]
+        || selection["revision"]["revision_id"] != selection["seal"]["revision_id"]
+        || selection["acquisition"]["status"] != "COMPLETE"
+        || selection["acquisition"]["revision_id"] != selection["revision"]["revision_id"]
+        || selection["acquisition"]["revision_fingerprint"] != selection["revision"]["fingerprint"]
+        || selection["acquisition"]["seal_id"] != selection["seal"]["seal_id"]
+    {
+        return Err(CORRUPT);
+    }
+    Ok(())
 }
 
-async fn commit_updated(tx:Transaction<'_>,expected:Operation)->Result<Operation> {
+async fn commit_updated(tx: Transaction<'_>, expected: Operation) -> Result<Operation> {
     if expected.request.is_backtest() {
-        tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE").await.map_err(db)?;
-        let actual=load(&tx,&expected.command,&expected.owner).await?;
-        if actual.accepted!=expected.accepted || actual.revision!=expected.revision || actual.state!=expected.state
-            || actual.phase!=expected.phase || actual.outputs!=expected.outputs || actual.detail!=expected.detail {return Err(CORRUPT);}
-        crate::persistence::authority_session::AuthoritySession::verify_transaction(&tx).await.map_err(|_|UNAVAILABLE)?;
+        tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE")
+            .await
+            .map_err(db)?;
+        let actual = load(&tx, &expected.command, &expected.owner).await?;
+        if actual.accepted != expected.accepted
+            || actual.revision != expected.revision
+            || actual.state != expected.state
+            || actual.phase != expected.phase
+            || actual.outputs != expected.outputs
+            || actual.detail != expected.detail
+        {
+            return Err(CORRUPT);
+        }
+        crate::persistence::authority_session::AuthoritySession::verify_transaction(&tx)
+            .await
+            .map_err(|_| UNAVAILABLE)?;
     }
-    tx.commit().await.map_err(db)?;Ok(expected)
+    tx.commit().await.map_err(db)?;
+    Ok(expected)
 }

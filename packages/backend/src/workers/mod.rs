@@ -1,17 +1,17 @@
 pub mod algorithm;
 pub mod backtest;
-pub mod trading_nodes;
+pub mod backtest_result;
 pub mod research;
 pub mod research_environment;
 pub(crate) mod research_service;
-pub mod backtest_result;
+pub mod trading_nodes;
 
 #[cfg(test)]
-#[path="../../tests/application/support/backtest_service_assertions.rs"]
+#[path = "../../tests/application/support/backtest_service_assertions.rs"]
 pub(crate) mod backtest_service_tests;
 
-pub(crate) mod trading_program;
 pub(crate) mod backtest_service;
+pub(crate) mod trading_program;
 
 pub mod backtest_terminal;
 

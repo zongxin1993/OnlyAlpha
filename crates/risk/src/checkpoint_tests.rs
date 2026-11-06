@@ -42,7 +42,10 @@ fn cold_and_warm_records_reuse_one_exact_encoding() {
     manager.apply(&kill(1, true)).unwrap();
     assert!(manager.checkpoint_cache.get().is_none());
     assert_original_encoding(&manager);
-    assert!(!Arc::ptr_eq(&first, &manager.checkpoint_record().unwrap().0));
+    assert!(!Arc::ptr_eq(
+        &first,
+        &manager.checkpoint_record().unwrap().0
+    ));
     CHECKPOINT_ENCODINGS.with(|n| assert_eq!(n.get(), 2));
 }
 
@@ -52,7 +55,10 @@ fn cloned_owners_and_detached_records_do_not_share_mutations() {
     manager.apply(&kill(1, true)).unwrap();
     let (original, fingerprint) = manager.checkpoint_record().unwrap();
     let mut other = manager.clone();
-    assert!(Arc::ptr_eq(&original, &other.checkpoint_record().unwrap().0));
+    assert!(Arc::ptr_eq(
+        &original,
+        &other.checkpoint_record().unwrap().0
+    ));
 
     let mut detached = Arc::clone(&original);
     Arc::make_mut(&mut detached)["state"]["sequence"] = json!(999);
@@ -77,7 +83,10 @@ fn rejected_duplicate_and_restore_paths_preserve_exact_owner_state() {
     let (original, _) = manager.checkpoint_record().unwrap();
     let checkpoint = manager.checkpoint().unwrap();
     assert_eq!(manager.apply(&command).unwrap().status, Status::Duplicate);
-    assert!(Arc::ptr_eq(&original, &manager.checkpoint_record().unwrap().0));
+    assert!(Arc::ptr_eq(
+        &original,
+        &manager.checkpoint_record().unwrap().0
+    ));
 
     let mut conflicting = command;
     conflicting["payload"]["active"] = json!(false);
@@ -85,14 +94,20 @@ fn rejected_duplicate_and_restore_paths_preserve_exact_owner_state() {
     let mut invalid_candidate = kill(2, false);
     invalid_candidate["payload"]["scope"] = json!("FOREIGN");
     assert!(manager.apply(&invalid_candidate).is_err());
-    assert!(Arc::ptr_eq(&original, &manager.checkpoint_record().unwrap().0));
+    assert!(Arc::ptr_eq(
+        &original,
+        &manager.checkpoint_record().unwrap().0
+    ));
 
     let mut corrupt = original.as_ref().clone();
     corrupt["state"]["sequence"] = json!(999);
     let bytes = serde_json::to_vec(&corrupt).unwrap();
     assert!(manager.restore(&bytes, &digest(&bytes)).is_err());
     assert!(manager.restore(&checkpoint.0, &"f".repeat(64)).is_err());
-    assert!(Arc::ptr_eq(&original, &manager.checkpoint_record().unwrap().0));
+    assert!(Arc::ptr_eq(
+        &original,
+        &manager.checkpoint_record().unwrap().0
+    ));
 
     let mut restored = Manager::new(config()).unwrap();
     restored.restore(&checkpoint.0, &checkpoint.1).unwrap();

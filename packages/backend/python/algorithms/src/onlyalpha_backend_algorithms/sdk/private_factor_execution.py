@@ -16,9 +16,8 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Any, cast
 
-import pyarrow as pa  # type: ignore[import-untyped]
-
 import onlyalpha.algorithm.private_factor as private_factor_sdk
+import pyarrow as pa  # type: ignore[import-untyped]
 from onlyalpha.algorithm.private_factor import (
     ONLY_PRIVATE_FACTOR_API_V1 as ONLY_PRIVATE_FACTOR_API_V1,
 )
@@ -73,6 +72,7 @@ from onlyalpha.quant_assets.private_factor_provider_snapshot import (
 from onlyalpha.quant_assets.private_factor_provider_snapshot import (
     OnlyPrivateFactorProviderSnapshotV1 as OnlyPrivateFactorProviderSnapshotV1,
 )
+
 from onlyalpha_backend_algorithms.sdk.private_factor_source import OnlyPrivateFactorExecutableSourceV1, source_sha256
 
 

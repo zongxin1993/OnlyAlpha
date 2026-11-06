@@ -422,10 +422,7 @@ fn prepare_installed(
     native_artifact["execution_capabilities"] = native_descriptor["execution_capabilities"].clone();
     native_artifact["implementations"] = json!(native_implementations);
     native_artifact["manifest_fingerprint"] = hash(&native_artifact).map_err(|_| INVALID)?.into();
-    let mut artifacts = vec![
-        (core_artifact, core_bytes),
-        (native_artifact, native),
-    ];
+    let mut artifacts = vec![(core_artifact, core_bytes), (native_artifact, native)];
     if let Some((version, name, bytes)) = target_wheel {
         let mut target_artifact = distribution(
             "CALCULATION",

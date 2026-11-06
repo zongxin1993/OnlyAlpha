@@ -7,15 +7,15 @@ use onlyalpha_backend::workers::{
 };
 use onlyalpha_backtest::{Inputs, MarketInput, RunLoop, RunSpec, Source, Trading};
 use onlyalpha_calculation_bridge::{ChartInstallation, StrategyPreparation, fingerprint};
+use onlyalpha_data_source_binance::spot_source::spot_calendar;
 use onlyalpha_domain::{
     base::OnlyDomainModel,
     market::OnlyBar,
     numeric::OnlyDecimal,
     time::{OnlyTimestamp, OnlyUtcDateTime},
 };
-use onlyalpha_market_data::{construction::*, delivery::*, state::*, *};
-use onlyalpha_data_source_binance::spot_source::spot_calendar;
 use onlyalpha_market_crypto::spot::SpotRuleSnapshot;
+use onlyalpha_market_data::{construction::*, delivery::*, state::*, *};
 use onlyalpha_strategy::{Executor, Program};
 use serde_json::{Value, json};
 use std::{error::Error, path::Path, sync::Arc};
@@ -320,15 +320,24 @@ fn installed_source_to_native_next_open_kernel_and_durable_recovery() -> Result<
         let (spec, input, participants, _) = composition(&case, installation.clone(), &artifact)?;
         Ok(RunLoop::open(&root, spec, input, participants)?)
     };
-    assert!(resume().is_err(), "a paused Run with a missing journal cannot resume");
+    assert!(
+        resume().is_err(),
+        "a paused Run with a missing journal cannot resume"
+    );
     assert_eq!(journal_cut(&root), without_journal);
     std::fs::rename(hidden_journal, journal)?;
     let hidden_root = root.with_extension("withheld");
     std::fs::rename(&root, &hidden_root)?;
-    assert!(resume().is_err(), "a missing paused Run directory cannot resume");
+    assert!(
+        resume().is_err(),
+        "a missing paused Run directory cannot resume"
+    );
     assert!(!root.exists());
     std::fs::create_dir(&root)?;
-    assert!(resume().is_err(), "an empty directory cannot replace a paused Run");
+    assert!(
+        resume().is_err(),
+        "an empty directory cannot replace a paused Run"
+    );
     assert!(journal_cut(&root).is_empty());
     std::fs::remove_dir(&root)?;
     std::fs::rename(hidden_root, &root)?;
@@ -685,11 +694,8 @@ fn installed_source_to_native_next_open_kernel_and_durable_recovery() -> Result<
     assert_eq!(journal_cut(&root), before);
     drop(snapshot);
     // Read the same SQLite-owned end boundary without creating a second replay or book.
-    let runtime = onlyalpha_runtime::Runtime::open(
-        &root,
-        durable_configuration,
-        &durable_artifact,
-    )?;
+    let runtime =
+        onlyalpha_runtime::Runtime::open(&root, durable_configuration, &durable_artifact)?;
     let refs = runtime.replay_refs()?;
     assert_eq!(refs.len(), final_step_count);
     spool.rewind()?;
@@ -719,7 +725,10 @@ fn installed_source_to_native_next_open_kernel_and_durable_recovery() -> Result<
     assert_eq!(moved.result(), &final_proof["execution_result"]);
     assert_eq!(moved.state(), &final_state);
     assert_eq!(journal_cut(&moved_root), original);
-    assert!(!root.exists(), "historical reads must not restore the old path");
+    assert!(
+        !root.exists(),
+        "historical reads must not restore the old path"
+    );
     drop(moved);
     std::fs::remove_dir_all(moved_root)?;
     Ok(())

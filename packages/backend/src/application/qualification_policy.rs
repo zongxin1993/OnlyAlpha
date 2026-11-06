@@ -212,15 +212,19 @@ pub struct Store {
     research: OwnedFd,
 }
 impl Store {
-    pub(crate) fn namespace(&self)->std::result::Result<SemanticStoreId,&'static str> {
-        deployment::load_semantic_store_id_at(&self.research).map_err(|e|e.code())
+    pub(crate) fn namespace(&self) -> std::result::Result<SemanticStoreId, &'static str> {
+        deployment::load_semantic_store_id_at(&self.research).map_err(|e| e.code())
     }
 
-    pub fn load_exact(&self, id:&str, revision:&str, max_work:usize)->Result<Policy> {
-        if !identifier(id) || !version(revision) {return Err(Error::Conflict);}
-        self.read_all(&mut Work(max_work))?.remove(&(id.into(),revision.into())).ok_or(Error::Missing)
+    pub fn load_exact(&self, id: &str, revision: &str, max_work: usize) -> Result<Policy> {
+        if !identifier(id) || !version(revision) {
+            return Err(Error::Conflict);
+        }
+        self.read_all(&mut Work(max_work))?
+            .remove(&(id.into(), revision.into()))
+            .ok_or(Error::Missing)
     }
-    pub fn policies(&self,max_work:usize)->Result<Vec<Policy>> {
+    pub fn policies(&self, max_work: usize) -> Result<Vec<Policy>> {
         Ok(self.read_all(&mut Work(max_work))?.into_values().collect())
     }
     pub fn open(research: BorrowedFd<'_>) -> Result<Self> {
@@ -512,33 +516,60 @@ impl Policy {
     // Both real typed owners use one exact scalar evaluator. This private value
     // helper cannot publish a Decision or manufacture an owning evidence handle.
     fn evaluate_scalars(
-        &self, gate:&str, subject:&str, reference:Value, metrics:&BTreeMap<&str,u64>,
+        &self,
+        gate: &str,
+        subject: &str,
+        reference: Value,
+        metrics: &BTreeMap<&str, u64>,
     ) -> std::result::Result<EvaluatedDecision, &'static str> {
-        const UNSUPPORTED:&str="QUALIFICATION_POLICY_UNSUPPORTED";
-        const GATE:&str="QUALIFICATION_EVIDENCE_GATE_MISMATCH";
-        if self.record["gate"]!=gate {return Err(GATE);}
-        if self.record["missing_evidence_behavior"]!="FAIL"||self.record["aggregation"]!="ALL" {return Err(UNSUPPORTED);}
-        let mut results=Vec::new();let mut approved=true;
-        for criterion in self.record["criteria"].as_array().expect("validated Policy criteria") {
-            if criterion["evidence_kind"]!=reference["kind"] {return Err(GATE);}
-            let observed=metrics.get(criterion["metric"].as_str().ok_or(UNSUPPORTED)?).ok_or(UNSUPPORTED)?.to_string();
-            let value=observed.parse::<OnlyDecimal>().map_err(|_|UNSUPPORTED)?;
-            let threshold=criterion["threshold"].as_str().expect("validated Policy threshold").parse::<OnlyDecimal>().map_err(|_|UNSUPPORTED)?;
-            let passed=match criterion["comparison"].as_str() {
-                Some("GT")=>value>threshold,Some("GE")=>value>=threshold,Some("EQ")=>value==threshold,
-                Some("LE")=>value<=threshold,Some("LT")=>value<threshold,_=>return Err(UNSUPPORTED),
+        const UNSUPPORTED: &str = "QUALIFICATION_POLICY_UNSUPPORTED";
+        const GATE: &str = "QUALIFICATION_EVIDENCE_GATE_MISMATCH";
+        if self.record["gate"] != gate {
+            return Err(GATE);
+        }
+        if self.record["missing_evidence_behavior"] != "FAIL" || self.record["aggregation"] != "ALL"
+        {
+            return Err(UNSUPPORTED);
+        }
+        let mut results = Vec::new();
+        let mut approved = true;
+        for criterion in self.record["criteria"]
+            .as_array()
+            .expect("validated Policy criteria")
+        {
+            if criterion["evidence_kind"] != reference["kind"] {
+                return Err(GATE);
+            }
+            let observed = metrics
+                .get(criterion["metric"].as_str().ok_or(UNSUPPORTED)?)
+                .ok_or(UNSUPPORTED)?
+                .to_string();
+            let value = observed.parse::<OnlyDecimal>().map_err(|_| UNSUPPORTED)?;
+            let threshold = criterion["threshold"]
+                .as_str()
+                .expect("validated Policy threshold")
+                .parse::<OnlyDecimal>()
+                .map_err(|_| UNSUPPORTED)?;
+            let passed = match criterion["comparison"].as_str() {
+                Some("GT") => value > threshold,
+                Some("GE") => value >= threshold,
+                Some("EQ") => value == threshold,
+                Some("LE") => value <= threshold,
+                Some("LT") => value < threshold,
+                _ => return Err(UNSUPPORTED),
             };
-            approved&=passed;
+            approved &= passed;
             results.push(json!({"criterion_id":criterion["criterion_id"],"source_evidence_fingerprint":reference["evidence_fingerprint"],
                 "metric":criterion["metric"],"observed_value":observed,"comparison":criterion["comparison"],"threshold":criterion["threshold"],
                 "outcome":if passed{"PASS"}else{"FAIL"}}));
         }
-        let mut record=json!({"schema_version":1,"subject_strategy_fingerprint":subject,"gate":self.record["gate"],
+        let mut record = json!({"schema_version":1,"subject_strategy_fingerprint":subject,"gate":self.record["gate"],
             "policy_id":self.record["policy_id"],"policy_version":self.record["policy_version"],"policy_fingerprint":self.record["policy_fingerprint"],
             "evidence":[reference],"criterion_results":results,"outcome":if approved{"APPROVED"}else{"REJECTED"}});
-        let mut identity=record.clone();identity["domain"]=json!("onlyalpha.strategy.qualification-decision");
-        record["decision_fingerprint"]=json!(record_fingerprint(&identity));
-        Ok(EvaluatedDecision{record})
+        let mut identity = record.clone();
+        identity["domain"] = json!("onlyalpha.strategy.qualification-decision");
+        record["decision_fingerprint"] = json!(record_fingerprint(&identity));
+        Ok(EvaluatedDecision { record })
     }
 }
 
@@ -770,15 +801,28 @@ mod manual_policy_declaration_tests {
     use super::*;
     #[test]
     fn exact_manual_policy_declares_execution_validation_without_research_statistics() {
-        let mut body=json!({"schema_version":1,"policy_id":"manual-backtest","policy_version":"1",
+        let mut body = json!({"schema_version":1,"policy_id":"manual-backtest","policy_version":"1",
             "gate":"MANUAL_STRATEGY_TO_BACKTEST","missing_evidence_behavior":"FAIL","aggregation":"ALL",
             "criteria":[{"criterion_id":"execution-validation","evidence_kind":"STRATEGY_VALIDATION",
                 "metric":"strategy.execution_validation_passed","comparison":"EQ","threshold":"1"}]});
-        let mut identity=body.clone();identity["domain"]=json!("onlyalpha.strategy.qualification-policy");
-        body["policy_fingerprint"]=json!(record_fingerprint(&identity));
-        assert_eq!(Policy::from_json(&body.to_string(),DOCUMENT_WORK).unwrap().to_record(),body);
-        let mut wrong=body;wrong["gate"]=json!("MANUAL_STRATEGY_TO_LIVE");
-        let mut identity=wrong.clone();identity.as_object_mut().unwrap().remove("policy_fingerprint");identity["domain"]=json!("onlyalpha.strategy.qualification-policy");wrong["policy_fingerprint"]=json!(record_fingerprint(&identity));
-        assert!(Policy::from_json(&wrong.to_string(),DOCUMENT_WORK).is_err());
+        let mut identity = body.clone();
+        identity["domain"] = json!("onlyalpha.strategy.qualification-policy");
+        body["policy_fingerprint"] = json!(record_fingerprint(&identity));
+        assert_eq!(
+            Policy::from_json(&body.to_string(), DOCUMENT_WORK)
+                .unwrap()
+                .to_record(),
+            body
+        );
+        let mut wrong = body;
+        wrong["gate"] = json!("MANUAL_STRATEGY_TO_LIVE");
+        let mut identity = wrong.clone();
+        identity
+            .as_object_mut()
+            .unwrap()
+            .remove("policy_fingerprint");
+        identity["domain"] = json!("onlyalpha.strategy.qualification-policy");
+        wrong["policy_fingerprint"] = json!(record_fingerprint(&identity));
+        assert!(Policy::from_json(&wrong.to_string(), DOCUMENT_WORK).is_err());
     }
 }

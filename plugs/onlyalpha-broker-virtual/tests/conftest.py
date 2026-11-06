@@ -2,8 +2,6 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
-from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
-
 from onlyalpha.broker import OnlyBrokerGatewayId, OnlyBrokerOrderRequest, OnlyBrokerRequestId
 from onlyalpha.core.clock import OnlyBacktestClock
 from onlyalpha.domain.enums import (
@@ -26,6 +24,7 @@ from onlyalpha.domain.identifiers import (
 from onlyalpha.domain.market import OnlyBar, OnlyBarSemantic, OnlyBarType
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
 
 CNY = OnlyCurrency("CNY", 2)
 ACCOUNT = OnlyAccountId("virtual-account")

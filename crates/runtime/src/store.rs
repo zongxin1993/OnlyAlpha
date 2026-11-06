@@ -12,6 +12,11 @@ use std::{
     time::Duration,
 };
 const APPLICATION: i64 = 0x4f415250;
+// SQLite owns page coherence. Every observation still runs the complete SQL reader.
+const PAGE_CACHE_KIB: i32 = 32 * 1024;
+// Large canonical TEXT rows otherwise span many SQLite overflow pages.
+// This layout choice applies only before a new database's first schema write.
+const CREATE_PAGE_SIZE: i32 = 64 * 1024;
 const SCHEMA: &[&str] = &[
     "CREATE TABLE meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), payload TEXT NOT NULL, digest TEXT NOT NULL) STRICT",
     "CREATE TABLE state (singleton INTEGER PRIMARY KEY CHECK(singleton=1), head INTEGER NOT NULL CHECK(head>=0), last_hash TEXT) STRICT",
@@ -47,7 +52,10 @@ pub(crate) enum PayloadText<'row> {
 }
 impl PayloadText<'_> {
     pub(crate) fn as_str(&self) -> &str {
-        match self { Self::Borrowed(value) => value, Self::Shared(value) => value.as_ref() }
+        match self {
+            Self::Borrowed(value) => value,
+            Self::Shared(value) => value.as_ref(),
+        }
     }
     pub(crate) fn matches(&self, original: &std::sync::Arc<str>) -> bool {
         match self {
@@ -62,10 +70,14 @@ impl PayloadText<'_> {
         }
     }
     #[cfg(test)]
-    pub(crate) fn is_borrowed(&self) -> bool { matches!(self, Self::Borrowed(_)) }
+    pub(crate) fn is_borrowed(&self) -> bool {
+        matches!(self, Self::Borrowed(_))
+    }
 }
 pub(crate) fn payload_column<'row>(
-    row: &'row rusqlite::Row<'_>, index: usize, cached: Option<&std::sync::Arc<str>>,
+    row: &'row rusqlite::Row<'_>,
+    index: usize,
+    cached: Option<&std::sync::Arc<str>>,
 ) -> Result<PayloadText<'row>, Error> {
     let actual = sql(row.get_ref(index))?;
     if let (rusqlite::types::ValueRef::Text(bytes), Some(cached)) = (&actual, cached)
@@ -80,7 +92,9 @@ pub(crate) fn payload_column<'row>(
     // semantic checks permit retention in their owning codec cache.
     #[cfg(test)]
     PAYLOAD_TEXT_VALIDATIONS.with(|count| count.set(count.get() + 1));
-    actual.as_str().map(PayloadText::Borrowed)
+    actual
+        .as_str()
+        .map(PayloadText::Borrowed)
         .map_err(|cause| error(&format!("SQL: {cause}")))
 }
 fn io<T, E: std::fmt::Display>(r: Result<T, E>) -> Result<T, Error> {
@@ -180,6 +194,9 @@ pub struct SqliteStore {
     // Pure configuration-derived hashes only; never observed Store state.
     genesis_hashes: OnceLock<(Value, Vec<String>)>,
     pub(crate) decoded_replay_rows: RefCell<BTreeMap<i64, crate::replay::DecodedReplayRow>>,
+    // Exact immutable binding codec data only; never mutable Replay/source state.
+    pub(crate) replay_binding_codec:
+        RefCell<Option<std::sync::Arc<crate::replay::ReplayBindingData>>>,
     pub(crate) replay_anchors:
         RefCell<BTreeMap<u64, (String, std::sync::Arc<crate::dictionary_codec::Anchor>)>>,
     pub(crate) replay_reference_metadata:
@@ -248,6 +265,7 @@ impl SqliteStore {
             decoded_rows: RefCell::new(BTreeMap::new()),
             genesis_hashes: OnceLock::new(),
             decoded_replay_rows: RefCell::new(BTreeMap::new()),
+            replay_binding_codec: RefCell::new(None),
             replay_anchors: RefCell::new(BTreeMap::new()),
             replay_reference_metadata: RefCell::new(BTreeMap::new()),
             connection,
@@ -255,6 +273,9 @@ impl SqliteStore {
             _lease: lease,
         };
         if create {
+            sql(store
+                .connection
+                .pragma_update(None, "page_size", CREATE_PAGE_SIZE))?;
             store.configure()?;
             let tx = sql(store
                 .connection
@@ -276,6 +297,13 @@ impl SqliteStore {
             ))?;
             sql(tx.execute("INSERT INTO state VALUES(1,0,NULL)", []))?;
             sql(tx.commit())?;
+            let actual_page_size: i32 =
+                sql(store
+                    .connection
+                    .pragma_query_value(None, "page_size", |row| row.get(0)))?;
+            if actual_page_size != CREATE_PAGE_SIZE {
+                return Err(error("PAGE_SIZE"));
+            }
             io(File::open(&root).and_then(|f| f.sync_all()))?;
         }
         if migrate {
@@ -315,6 +343,7 @@ impl SqliteStore {
                 | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         ))?;
         sql(connection.busy_timeout(Duration::ZERO))?;
+        sql(connection.pragma_update(None, "cache_size", -PAGE_CACHE_KIB))?;
         sql(connection.execute_batch(
             "PRAGMA query_only=ON; PRAGMA trusted_schema=OFF; PRAGMA temp_store=MEMORY;",
         ))?;
@@ -330,6 +359,7 @@ impl SqliteStore {
             decoded_rows: RefCell::new(BTreeMap::new()),
             genesis_hashes: OnceLock::new(),
             decoded_replay_rows: RefCell::new(BTreeMap::new()),
+            replay_binding_codec: RefCell::new(None),
             replay_reference_metadata: RefCell::new(BTreeMap::new()),
             replay_anchors: RefCell::new(BTreeMap::new()),
             connection,
@@ -392,6 +422,9 @@ impl SqliteStore {
         Ok((components, records, Value::Array(witnesses)))
     }
     fn configure(&self) -> Result<(), Error> {
+        sql(self
+            .connection
+            .pragma_update(None, "cache_size", -PAGE_CACHE_KIB))?;
         let journal: String =
             sql(self
                 .connection
@@ -573,7 +606,17 @@ impl SqliteStore {
                 if dictionary.is_some() {
                     return Err(error("DICTIONARY_BASE"));
                 }
-                let (value, anchor) = crate::dictionary_codec::decode_anchor(&frame)?;
+                let (value, anchor) = if let Some(original) = known {
+                    let (value, anchor) = crate::dictionary_codec::decode_for_commit(
+                        &frame,
+                        None,
+                        original.prepared(),
+                    )?;
+                    (value, anchor.expect("actual fixed anchor frame"))
+                } else {
+                    let (value, anchor) = crate::dictionary_codec::decode_anchor(&frame)?;
+                    (Some(value), anchor)
+                };
                 actual_dictionary = Some(std::sync::Arc::new(DictionaryAnchorSource {
                     raw: payload_text.to_shared(),
                     anchor,
@@ -581,7 +624,19 @@ impl SqliteStore {
                 value
             } else {
                 let anchor = dictionary.ok_or_else(|| error("DICTIONARY_BASE"))?;
-                let value = crate::dictionary_codec::decode(&frame, Some(&anchor.anchor))?;
+                let value = if let Some(original) = known {
+                    crate::dictionary_codec::decode_for_commit(
+                        &frame,
+                        Some(&anchor.anchor),
+                        original.prepared(),
+                    )?
+                    .0
+                } else {
+                    Some(crate::dictionary_codec::decode(
+                        &frame,
+                        Some(&anchor.anchor),
+                    )?)
+                };
                 actual_dictionary = Some(std::sync::Arc::clone(anchor));
                 value
             };
@@ -591,7 +646,10 @@ impl SqliteStore {
             // required; neither a digest nor a header can select this branch.
             let record = match known {
                 Some(original) => {
-                    if original.prepared().value() != &prepared {
+                    if prepared
+                        .as_ref()
+                        .is_some_and(|value| original.prepared().value() != value)
+                    {
                         return Err(error("COMMIT_READBACK"));
                     }
                     original.observation_snapshot(ready == 1, delivered == 1)?
@@ -599,6 +657,7 @@ impl SqliteStore {
                 None => {
                     #[cfg(test)]
                     PREPARED_BODY_REDECODES.with(|count| count.set(count.get() + 1));
+                    let prepared = prepared.expect("cold storage4 decoded its complete value");
                     Record::decode(
                         &json!({"schema_version":1,"prepared":prepared,"ready":ready==1,"delivered":delivered==1}),
                     )?
@@ -665,7 +724,8 @@ impl SqliteStore {
         let projection_hashes = prepared.projection_hashes().to_vec();
         // A freshly decoded dictionary anchor already retained these exact
         // bounded bytes. Reuse that same allocation for the row's body cache.
-        let cached_payload = actual_dictionary.as_ref()
+        let cached_payload = actual_dictionary
+            .as_ref()
             .filter(|source| source.anchor.sequence() == sequence)
             .map(|source| std::sync::Arc::clone(&source.raw))
             .unwrap_or_else(|| payload_text.to_shared());
@@ -715,8 +775,15 @@ impl SqliteStore {
             return Ok(None);
         };
         let input_id = text_column(row, 0)?;
-        let payload = payload_column(row, 1, self.decoded_rows.borrow().get(&sequence)
-            .filter(|cached| cached.version == self.storage_version).map(|cached| &cached.payload))?;
+        let payload = payload_column(
+            row,
+            1,
+            self.decoded_rows
+                .borrow()
+                .get(&sequence)
+                .filter(|cached| cached.version == self.storage_version)
+                .map(|cached| &cached.payload),
+        )?;
         let expected = text_column(row, 2)?;
         let ready: Option<i64> = sql(row.get(3))?;
         let delivered: Option<i64> = sql(row.get(4))?;
@@ -849,8 +916,15 @@ impl SqliteStore {
             let sequence =
                 u64::try_from(sql(row.get::<_, i64>(0))?).map_err(|_| error("SEQUENCE"))?;
             let input_id = text_column(row, 1)?;
-            let payload = payload_column(row, 2, self.decoded_rows.borrow().get(&sequence)
-                .filter(|cached| cached.version == self.storage_version).map(|cached| &cached.payload))?;
+            let payload = payload_column(
+                row,
+                2,
+                self.decoded_rows
+                    .borrow()
+                    .get(&sequence)
+                    .filter(|cached| cached.version == self.storage_version)
+                    .map(|cached| &cached.payload),
+            )?;
             let expected = text_column(row, 3)?;
             let ready: Option<i64> = sql(row.get(4))?;
             let delivered: Option<i64> = sql(row.get(5))?;

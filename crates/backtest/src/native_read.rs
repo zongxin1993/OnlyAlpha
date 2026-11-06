@@ -193,14 +193,15 @@ impl NativeExecution for OriginalExecution<'_> {
             return Ok(());
         }
         if input["op"] == "ADMIT"
-            && Components::admission_risk_denied(self.configuration, &self.checkpoint()?, input)?
+            && let Some(rejection) =
+                Components::admission_rejection(self.configuration, &self.checkpoint()?, input)?
         {
-            return Err(Error("EXECUTION_RISK_DENIED".into()));
+            return Err(rejection);
         }
         Err(err("TERMINAL_NATIVE_INPUT_MISSING"))
     }
 }
-fn accepted<'a>(preparation: &'a Value) -> Result<Option<&'a Value>, Error> {
+fn accepted(preparation: &Value) -> Result<Option<&Value>, Error> {
     let rows = preparation["strategy"]["accepted"]
         .as_array()
         .filter(|rows| rows.len() <= 1)

@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import stat
@@ -127,10 +128,56 @@ def git_input_hashes(cut: Path) -> dict[str, str]:
     }
 
 
-def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, str]:
+def command_git_revisions(command: list[str]) -> tuple[str, ...]:
+    """Take exact compatibility input from the formal command, never the environment."""
+    arguments: list[str]
+    if len(command) > 1 and command[1] in {"scripts/openapi_contract.py", "./scripts/openapi_contract.py"}:
+        arguments = command[2:]
+    elif command[1:3] == ["-m", "scripts.openapi_contract"]:
+        arguments = command[3:]
+    else:
+        return ()
+    if arguments[:1] != ["verify"]:
+        return ()
+    if len(arguments) == 3 and arguments[1] == "--base":
+        revision = arguments[2]
+    elif len(arguments) == 2 and arguments[1].startswith("--base="):
+        revision = arguments[1].removeprefix("--base=")
+    else:
+        raise ValueError("DEV_VERIFICATION_EXACT_GIT_REVISION_REQUIRED")
+    if (
+        Path(command[0]).name not in {"python", "python3", "python3.12"}
+        or re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", revision) is None
+    ):
+        raise ValueError("DEV_VERIFICATION_EXACT_GIT_REVISION_REQUIRED")
+    return (revision,)
+
+
+def validate_git_revisions(root: Path, revisions: tuple[str, ...]) -> None:
+    """Only full commit object IDs are admitted; tags and revision expressions refuse."""
+    if revisions and not (root / ".git").exists():
+        raise ValueError("DEV_VERIFICATION_EXACT_GIT_COMMIT_UNAVAILABLE")
+    for revision in revisions:
+        if re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", revision) is None:
+            raise ValueError("DEV_VERIFICATION_EXACT_GIT_REVISION_REQUIRED")
+        result = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-t", revision],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        if result.returncode != 0 or result.stdout.strip() != "commit":
+            raise ValueError("DEV_VERIFICATION_EXACT_GIT_COMMIT_UNAVAILABLE")
+
+
+def capture_git(
+    root: Path, cut: Path, previous: dict[str, Any], *, required_revisions: tuple[str, ...] = ()
+) -> dict[str, str]:
     """Transport HEAD/tree/index and exact local release base, without remote configuration."""
     if git_input_hashes(cut) != previous.get("git_inputs", {}):
         raise ValueError("DEV_VERIFICATION_GIT_CUT_MODIFIED")
+    validate_git_revisions(root, required_revisions)
     if not (root / ".git").exists():
         return {}
     git = ["git", "-C", str(root)]
@@ -151,7 +198,7 @@ def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, st
     # Missing exact objects are a hard refusal, never a latest/current fallback.
     for required in historical:
         subprocess.run([*git, "cat-file", "-e", required + "^{commit}"], capture_output=True, check=True, timeout=15)
-    revisions = list(dict.fromkeys([revision, *([base] if base else []), *historical]))
+    revisions = list(dict.fromkeys([revision, *([base] if base else []), *historical, *required_revisions]))
     index_path = Path(
         subprocess.check_output(
             [*git, "rev-parse", "--path-format=absolute", "--git-path", "index"], text=True, timeout=15
@@ -215,10 +262,20 @@ def capture_git(root: Path, cut: Path, previous: dict[str, Any]) -> dict[str, st
     return git_input_hashes(cut)
 
 
-def freeze_source(root: Path, operation_id: str, *, product: bool = False, research: bool = False) -> dict[str, str]:
+def freeze_source(
+    root: Path,
+    operation_id: str,
+    *,
+    product: bool = False,
+    research: bool = False,
+    required_git_revisions: tuple[str, ...] = (),
+) -> dict[str, str]:
     """Refresh one managed source view while the host lifecycle reservation is held."""
     from scripts.embed_build_provenance import resolve_build_provenance_bytes, write_build_provenance
 
+    if product and required_git_revisions:
+        raise ValueError("DEV_VERIFICATION_PRODUCT_GIT_REFUSED")
+    validate_git_revisions(root, required_git_revisions)
     inputs = source_inputs(root)
     cut = root / (".test-cache/dev-product-source" if product else ".test-cache/dev-source-cut")
     marker = cut / CUT_METADATA
@@ -282,7 +339,7 @@ def freeze_source(root: Path, operation_id: str, *, product: bool = False, resea
                 mountpoint.touch(exist_ok=False)
     if source_inputs(cut) != inputs or source_inputs(root) != inputs:
         raise ValueError("DEV_VERIFICATION_SOURCE_CHANGED_DURING_CAPTURE")
-    git_inputs = {} if product else capture_git(root, cut, previous)
+    git_inputs = {} if product else capture_git(root, cut, previous, required_revisions=required_git_revisions)
     if research:
         provenance = resolve_build_provenance_bytes(cut)
         destination = cut / "src/onlyalpha/_build_provenance.json"
@@ -293,7 +350,13 @@ def freeze_source(root: Path, operation_id: str, *, product: bool = False, resea
     frozen_inputs = source_inputs(cut)
     marker.write_text(
         json.dumps(
-            {"source_root": str(root), "operation_id": operation_id, "inputs": frozen_inputs, "git_inputs": git_inputs},
+            {
+                "source_root": str(root),
+                "operation_id": operation_id,
+                "inputs": frozen_inputs,
+                "git_inputs": git_inputs,
+                "required_git_revisions": list(required_git_revisions),
+            },
             sort_keys=True,
         )
     )
@@ -418,7 +481,9 @@ def controlled_hostnames(chart_stream: bool) -> tuple[bytes, ...]:
 def controlled_hosts_bytes(original: bytes, operation_id: str, *, chart_stream: bool = False) -> bytes:
     if str(uuid.UUID(operation_id)) != operation_id or uuid.UUID(operation_id).version != 4:
         raise ValueError("DEV_CONTROLLED_HTTPS_OPERATION_INVALID")
-    if b"onlyalpha-dev-controlled-https:" in original or any(host in original.lower() for host in controlled_hostnames(chart_stream)):
+    if b"onlyalpha-dev-controlled-https:" in original or any(
+        host in original.lower() for host in controlled_hostnames(chart_stream)
+    ):
         raise ValueError("DEV_CONTROLLED_HTTPS_EXISTING_MAPPING_REFUSED")
     newline = b"" if original.endswith(b"\n") else b"\n"
     return (
@@ -613,7 +678,13 @@ def controlled_https_mapping(raw: bytes, operation_id: str, *, chart_stream: boo
 
 
 def _controlled_https_exec(
-    container: dict[str, Any], operation_id: str, source_sha256: str, action: str, environment: dict[str, str], *, chart_stream: bool = False
+    container: dict[str, Any],
+    operation_id: str,
+    source_sha256: str,
+    action: str,
+    environment: dict[str, str],
+    *,
+    chart_stream: bool = False,
 ) -> dict[str, Any]:
     container_id = container["Id"]
     image_id = container["Image"]
@@ -676,6 +747,7 @@ def run_inside(
 ) -> int:
     if not command:
         raise ValueError("DEV_VERIFICATION_COMMAND_REQUIRED")
+    required_git_revisions = command_git_revisions(command)
     if (
         controlled_source_https
         != ("--controlled-source-https" in command or command == CONTROLLED_BACKTEST_FIXTURE_COMMAND)
@@ -700,8 +772,10 @@ def run_inside(
             or source_cut.get("inputs") != before
             or source_cut.get("source_root") != os.environ.get("ONLYALPHA_DEV_SOURCE_ROOT", str(ROOT))
             or source_cut.get("git_inputs", {}) != git_input_hashes(ROOT)
+            or source_cut.get("required_git_revisions") != list(required_git_revisions)
         ):
             raise ValueError("DEV_VERIFICATION_SOURCE_CUT_NOT_ADMITTED")
+        validate_git_revisions(ROOT, required_git_revisions)
         if controlled_source_https:
             hosts_fd = os.open(CONTROLLED_HOSTS, os.O_RDONLY | os.O_NOFOLLOW)
             with os.fdopen(hosts_fd, "rb") as hosts:
@@ -711,7 +785,9 @@ def run_inside(
                     or identity.st_uid != 0
                     or identity.st_nlink != 1
                     or identity.st_mode & 0o022
-                    or not controlled_https_mapping(hosts.read(1024 * 1024 + 1), operation_id, chart_stream="--chart-sma-market-input" in command)
+                    or not controlled_https_mapping(
+                        hosts.read(1024 * 1024 + 1), operation_id, chart_stream="--chart-sma-market-input" in command
+                    )
                 ):
                     raise ValueError("DEV_CONTROLLED_HTTPS_MAPPING_UNPROVEN")
         artifacts = ROOT / "test-results/dev-verification"
@@ -865,7 +941,12 @@ def run_host(
             )
     elif mode == "run":
         raise ValueError("DEV_VERIFICATION_CONTAINER_REQUIRED")
-    inputs = freeze_source(ROOT, reservation["operation_id"], research="research-postgres" in command)
+    inputs = freeze_source(
+        ROOT,
+        reservation["operation_id"],
+        research="research-postgres" in command,
+        required_git_revisions=command_git_revisions(command),
+    )
     if mode == "runtime-build":
         from scripts.runtime_build import build_image
 
@@ -885,6 +966,12 @@ def run_host(
             == 0
         )
         reservation["completed"] = False
+        subprocess.run(
+            [*compose, "pull", "--policy", "missing", "postgres", "clickhouse"],
+            cwd=ROOT,
+            env=environment,
+            check=True,
+        )
         if rebuild or not available:
             subprocess.run([*compose, "build", "validation"], cwd=ROOT, env=environment, check=True)
         image = json.loads(subprocess.check_output(["docker", "image", "inspect", IMAGE], text=True, timeout=15))[0]
@@ -923,7 +1010,14 @@ def run_host(
         if cut.get("operation_id") != reservation["operation_id"]:
             raise ValueError("DEV_CONTROLLED_HTTPS_SOURCE_CUT_REFUSED")
         source_sha256 = hashlib.sha256(json.dumps(cut["inputs"], sort_keys=True).encode()).hexdigest()
-        begin = _controlled_https_exec(records[0], reservation["operation_id"], source_sha256, "begin", environment, chart_stream="--chart-sma-market-input" in command)
+        begin = _controlled_https_exec(
+            records[0],
+            reservation["operation_id"],
+            source_sha256,
+            "begin",
+            environment,
+            chart_stream="--chart-sma-market-input" in command,
+        )
     status = subprocess.run(invocation, cwd=ROOT, env=environment, check=False).returncode
     outcome = json.loads((ROOT / "test-results/dev-verification/last-outcome.json").read_text())
     if outcome.get("operation_id") != reservation["operation_id"] or outcome.get("completed") is not True:
@@ -944,7 +1038,11 @@ def run_host(
         ):
             raise ValueError("DEV_CONTROLLED_HTTPS_CONTAINER_REFUSED")
         restored = _controlled_https_exec(
-            current[0], reservation["operation_id"], begin["source_sha256"], "restore", environment,
+            current[0],
+            reservation["operation_id"],
+            begin["source_sha256"],
+            "restore",
+            environment,
             chart_stream="--chart-sma-market-input" in command,
         )
         if any(
@@ -985,7 +1083,12 @@ def main() -> int:
             raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
         print(
             json.dumps(
-                controlled_https_root(args.mode.removeprefix("controlled-https-"), args.operation_id, chart_stream=args.controlled_chart_stream), sort_keys=True
+                controlled_https_root(
+                    args.mode.removeprefix("controlled-https-"),
+                    args.operation_id,
+                    chart_stream=args.controlled_chart_stream,
+                ),
+                sort_keys=True,
             ),
             flush=True,
         )
@@ -1007,6 +1110,8 @@ def main() -> int:
         except ValueError as error:
             if str(error) in {
                 "DEV_VERIFICATION_COMMAND_REQUIRED",
+                "DEV_VERIFICATION_EXACT_GIT_REVISION_REQUIRED",
+                "DEV_VERIFICATION_EXACT_GIT_COMMIT_UNAVAILABLE",
                 "DEV_VERIFICATION_BUSY",
                 "DEV_VERIFICATION_ENVIRONMENT_REBUILD_REQUIRED",
                 "DEV_VERIFICATION_SOURCE_CUT_NOT_ADMITTED",

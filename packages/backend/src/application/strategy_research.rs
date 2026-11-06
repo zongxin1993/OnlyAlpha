@@ -21,7 +21,9 @@ pub use run_specification::RunSpecification;
 pub(crate) use run_specification::tests::record as test_run_record;
 mod execution;
 pub use execution::StrategyEvaluation;
-pub(crate) use execution::{observe_graph,source_revision,planned_graph_validation};
+pub(crate) use execution::{
+    GraphObservationInputs, observe_graph, planned_graph_validation, source_revision,
+};
 mod decision;
 pub use decision::DecisionGraph;
 pub(crate) use decision::canonical_input_window;

@@ -2,18 +2,17 @@ import json
 import time
 
 import pytest
-from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
-from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
-from onlyalpha_plugin_binance.spot.data_source.factory import factory
-from onlyalpha_plugin_binance.spot.data_source.historical import OnlyBinanceSpotHistoricalClient
-from onlyalpha_plugin_binance.spot.reference.client import OnlyBinanceSpotReferenceClient
-
 from onlyalpha.plugin.integration import OnlyIntegrationProbeCheck
 from onlyalpha.plugin.integration_probe import (
     OnlyIntegrationProbePolicy,
     OnlyIntegrationProbeRequest,
     OnlyIntegrationProbeStatus,
 )
+from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
+from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
+from onlyalpha_plugin_binance.spot.data_source.factory import factory
+from onlyalpha_plugin_binance.spot.data_source.historical import OnlyBinanceSpotHistoricalClient
+from onlyalpha_plugin_binance.spot.reference.client import OnlyBinanceSpotReferenceClient
 
 
 @pytest.mark.external

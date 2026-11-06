@@ -17,6 +17,7 @@ from onlyalpha.plugin.api import (
     OnlyUnsupportedMarketProductVersionError,
     only_identity_fingerprint,
 )
+
 from onlyalpha_plugin_generic_t0_cash.compiler import OnlyGenericT0CashPolicyCompiler
 from onlyalpha_plugin_generic_t0_cash.config import OnlyGenericT0CashConfig
 from onlyalpha_plugin_generic_t0_cash.fee_pack import only_generic_t0_cash_market_fee_pack

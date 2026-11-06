@@ -10,52 +10,44 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from onlyalpha.application.integration_application import _admission
-from onlyalpha.application.integration_configuration import (
-    OnlyIntegrationId,
-    OnlyIntegrationLifecycleState,
-    only_integration_json_document,
-)
-from onlyalpha.application.product_command_receipt import OnlyProductCommandId, OnlyProductCommandKind
-from onlyalpha.persistence.postgres.integration_store import OnlyPostgresIntegrationStore
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-
 from .support.integration import NOW, call, create_request, lifecycle_request, replay_request
+from .support.integration_rows import draft_bindings, draft_row, integration_row
+from .test_schema_postgres import migration_backend as migration_backend
+from .test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 
 
 @pytest.fixture
-def integration_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def integration_db(schema_db: str) -> str:
+    return schema_db
 
 
-def test_create_atomic_empty_draft_and_python_reader_and_catalog_independent_replay(
+def test_create_atomic_empty_draft_and_independent_sql_readback_and_catalog_independent_replay(
     native_probe: Path, integration_db: str
 ) -> None:
     request = create_request()
-    assert call(native_probe, replay_request(request)) == {"result": None}
+    assert call(native_probe, replay_request(request, native_probe)) == {"result": None}
     result = call(native_probe, request)
     assert result["replayed"] is False
     admission = result["result"]["admission"]
-    assert admission["command_fingerprint"] == replay_request(request)["fingerprint"]
+    assert admission["command_fingerprint"] == replay_request(request, native_probe)["fingerprint"]
     assert result["result"]["receipt"] == {
         "outcome_kind": "INTEGRATION",
         "outcome_id": request["integration_id"],
         "accepted_at": "2026-09-20T00:00:00Z",
     }
-    store = OnlyPostgresIntegrationStore(integration_db, now=lambda: NOW)
-    ident = OnlyIntegrationId(request["integration_id"])
-    owner = store.load_integration(ident)
-    draft = store.load_draft(ident)
-    assert owner.type_id == request["type_id"] and owner.lifecycle_state is OnlyIntegrationLifecycleState.ACTIVE
-    assert owner.created_at == owner.updated_at == NOW
-    assert draft.draft_version == 1 and dict(draft.public_configuration_document) == {}
-    assert draft.probe_configuration_document is None and draft.base_revision_fingerprint is None
-    assert only_integration_json_document(draft.type_descriptor_document) == json.loads(request["descriptor"])
-    assert store.load_draft_secret_bindings(ident) == ()
-    assert call(native_probe, replay_request(request)) == dict(result, replayed=True)
+
+    ident = request["integration_id"]
+    owner = integration_row(integration_db, ident)
+    draft = draft_row(integration_db, ident)
+    assert owner["type_id"] == request["type_id"] and owner["lifecycle_state"] == "ACTIVE"
+    assert owner["created_at"] == owner["updated_at"] == NOW
+    assert draft["draft_version"] == 1 and dict(draft["public_configuration_document"]) == {}
+    assert draft["probe_configuration_document"] is None and draft["base_revision_fingerprint"] is None
+    assert draft["type_descriptor_document"] == json.loads(request["descriptor"])
+    assert draft_bindings(integration_db, ident) == ()
+    assert call(native_probe, replay_request(request, native_probe)) == dict(result, replayed=True)
     assert call(native_probe, request) == dict(result, replayed=True)
 
 
@@ -91,11 +83,13 @@ def test_lifecycle_allowed_edges_archive_final_and_old_replay_after_later_progre
         command = lifecycle_request(request, before, after)
         result = call(native_probe, command)
         assert result["replayed"] is False
-        assert result["result"]["admission"]["command_fingerprint"] == replay_request(command)["fingerprint"]
+        assert (
+            result["result"]["admission"]["command_fingerprint"] == replay_request(command, native_probe)["fingerprint"]
+        )
         commands.append((command, result))
-    owner = OnlyPostgresIntegrationStore(integration_db).load_integration(OnlyIntegrationId(request["integration_id"]))
-    assert owner.lifecycle_state is OnlyIntegrationLifecycleState.ARCHIVED
-    assert call(native_probe, replay_request(request)) == dict(created, replayed=True)
+    owner = integration_row(integration_db, request["integration_id"])
+    assert owner["lifecycle_state"] == "ARCHIVED"
+    assert call(native_probe, replay_request(request, native_probe)) == dict(created, replayed=True)
     for command, result in commands:
         assert call(native_probe, command) == dict(result, replayed=True)
     for target in ["ACTIVE", "DISABLED", "ARCHIVED"]:
@@ -111,7 +105,7 @@ def test_admission_only_unknown_and_dangling_receipt_never_create_effect(
     native_probe: Path, integration_db: str
 ) -> None:
     request = create_request()
-    replay = replay_request(request)
+    replay = replay_request(request, native_probe)
     admitted = dict(replay, op="admit")
     assert call(native_probe, admitted) == {"result": "CREATED"}
     assert call(native_probe, request) == {"error": "PRODUCT_COMMAND_OUTCOME_UNKNOWN"}
@@ -165,7 +159,7 @@ def test_stale_or_noop_lifecycle_never_reserves_command(
     assert "error" not in call(native_probe, request)
     mutation = lifecycle_request(request, expected, target)
     assert call(native_probe, mutation) == {"error": "INTEGRATION_LIFECYCLE_CONFLICT"}
-    assert call(native_probe, replay_request(mutation)) == {"result": None}
+    assert call(native_probe, replay_request(mutation, native_probe)) == {"result": None}
 
 
 @pytest.mark.parametrize("same_command", [True, False])
@@ -246,7 +240,7 @@ def test_actual_commit_ack_loss_keeps_uncertainty_then_recovers_one_exact_effect
             child_configuration.setenv("ONLYALPHA_POSTGRES_DSN", fault.dsn)
             assert call(native_probe, request) == {"error": "INTEGRATION_PERSISTENCE_UNAVAILABLE"}
         assert fault.done.is_set(), "must observe the server's actual COMMIT before cutting its acknowledgement"
-    recovered = call(native_probe, replay_request(request))
+    recovered = call(native_probe, replay_request(request, native_probe))
     assert recovered["replayed"] is True
     assert call(native_probe, request) == recovered
     with psycopg.connect(integration_db) as connection:
@@ -254,30 +248,22 @@ def test_actual_commit_ack_loss_keeps_uncertainty_then_recovers_one_exact_effect
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone() == (1,)
 
 
-def test_existing_python_command_receipt_replays_in_rust_without_plugin_lookup(
+def test_existing_native_receipt_replays_in_a_fresh_process_without_plugin_lookup(
     native_probe: Path, integration_db: str
 ) -> None:
-    from onlyalpha.persistence.postgres.integration_product_store import OnlyPostgresIntegrationProductStore
-
     from .test_integration_postgres import descriptor
 
     desc = descriptor()
     request = create_request()
-    request["type_id"] = desc.type_id.value
-    request["descriptor"] = json.dumps(only_integration_json_document(desc.to_dict(include_fingerprint=False)))
-    replay = replay_request(request)
-    admission = _admission(
-        OnlyProductCommandId(request["command_id"]),
-        OnlyProductCommandKind.CREATE_INTEGRATION,
-        {key: request[key] for key in ("integration_id", "type_id", "display_name")},
-    )
-    owner = OnlyPostgresIntegrationProductStore(integration_db, b"k" * 32, now=lambda: NOW)
-    accepted = owner.create_integration_with_receipt(
-        admission, OnlyIntegrationId(request["integration_id"]), desc, request["display_name"]
-    )
-    assert accepted.replayed is False
+    request["type_id"] = desc["type_id"]
+    request["descriptor"] = json.dumps(desc)
+    replay = replay_request(request, native_probe)
+    accepted = call(native_probe, request)
+    assert accepted["replayed"] is False
     result = call(native_probe, replay)
     assert result["replayed"] is True
-    assert result["result"]["admission"]["command_fingerprint"] == accepted.receipt.command_fingerprint
-    assert result["result"]["receipt"]["outcome_id"] == accepted.receipt.outcome_ref.outcome_id
+    assert (
+        result["result"]["admission"]["command_fingerprint"] == accepted["result"]["admission"]["command_fingerprint"]
+    )
+    assert result["result"]["receipt"]["outcome_id"] == accepted["result"]["receipt"]["outcome_id"]
     assert call(native_probe, request) == result

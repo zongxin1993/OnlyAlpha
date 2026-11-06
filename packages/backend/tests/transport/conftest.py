@@ -15,8 +15,7 @@ from packages.backend.tests.postgres_fixtures import postgres_dsn
 __all__ = ["postgres_dsn"]
 
 
-@pytest.fixture(scope="session")
-def integration_http_probe() -> Path:
+def build_integration_http_probe() -> Path:
     from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
 
     root = Path(__file__).resolve().parents[4]
@@ -47,3 +46,8 @@ def integration_http_probe() -> Path:
         check=True,
     )
     return output / target / "debug/examples/integration-http-probe"
+
+
+@pytest.fixture(scope="session")
+def integration_http_probe() -> Path:
+    return build_integration_http_probe()

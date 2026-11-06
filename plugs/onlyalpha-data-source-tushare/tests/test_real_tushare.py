@@ -2,13 +2,6 @@ import os
 from datetime import UTC, datetime
 
 import pytest
-from onlyalpha_plugin_tushare.config import OnlyTushareConfig
-from onlyalpha_plugin_tushare.data_source.provider import (
-    OnlyTushareHistoricalDataProvider,
-)
-from onlyalpha_plugin_tushare.sdk.adapter import OnlyTushareSdkClient
-from onlyalpha_plugin_tushare.sdk.loader import load_tushare
-
 from onlyalpha.cache.historical import (
     OnlyHistoricalCacheService,
     OnlyParquetHistoricalCacheStore,
@@ -16,6 +9,12 @@ from onlyalpha.cache.historical import (
 from onlyalpha.cache.historical.models import OnlyCachePolicy
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyHistoricalDataRequest
+from onlyalpha_plugin_tushare.config import OnlyTushareConfig
+from onlyalpha_plugin_tushare.data_source.provider import (
+    OnlyTushareHistoricalDataProvider,
+)
+from onlyalpha_plugin_tushare.sdk.adapter import OnlyTushareSdkClient
+from onlyalpha_plugin_tushare.sdk.loader import load_tushare
 
 
 @pytest.mark.integration

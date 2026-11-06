@@ -274,8 +274,10 @@ impl SqliteStore {
         &self,
         records: &[Record],
     ) -> Result<Vec<ReplayEntryRef>, Error> {
-        let binding = self.replay_binding()?.ok_or_else(|| bad("UNBOUND"))?;
-        let mut previous = sha(&binding);
+        let binding = self.replay_binding_data()?.ok_or_else(|| bad("UNBOUND"))?;
+        // decoded() proved raw is the exact canonical Value bytes and this
+        // actual digest is their SHA. Reuse that same initial-chain identity.
+        let mut previous = binding.fingerprint().to_owned();
         let mut execution = 0_u64;
         let mut result: Vec<ReplayEntryRef> = Vec::new();
         let mut statement = sql(self
@@ -284,9 +286,15 @@ impl SqliteStore {
         let mut rows = sql(statement.query([]))?;
         while let Some(row) = sql(rows.next())? {
             let index: i64 = sql(row.get(0))?;
-            let raw = crate::store::payload_column(row, 1,
-                self.replay_reference_metadata.borrow().get(&index)
-                    .filter(|cached| cached.version == self.storage_version).map(|cached| &cached.raw))?;
+            let raw = crate::store::payload_column(
+                row,
+                1,
+                self.replay_reference_metadata
+                    .borrow()
+                    .get(&index)
+                    .filter(|cached| cached.version == self.storage_version)
+                    .map(|cached| &cached.raw),
+            )?;
             let physical = crate::store::text_column(row, 2)?;
             let ready: i64 = sql(row.get(3))?;
             #[cfg(test)]
@@ -510,7 +518,8 @@ impl SqliteStore {
                 let reference = prefix
                     .get(usize::try_from(base - 1).map_err(|_| bad("BASIS"))?)
                     .ok_or_else(|| bad("BASIS"))?;
-                if !reference.body.dictionary || reference.body.basis.is_some() || !reference.ready {
+                if !reference.body.dictionary || reference.body.basis.is_some() || !reference.ready
+                {
                     return Err(bad("BASIS"));
                 }
                 let raw = self.encoded_step(reference)?;
@@ -557,7 +566,11 @@ impl SqliteStore {
         }
         let previous = match prefix.last() {
             Some(last) => last.body.logical.clone(),
-            None => sha(&self.replay_binding()?.ok_or_else(|| bad("UNBOUND"))?),
+            None => self
+                .replay_binding_data()?
+                .ok_or_else(|| bad("UNBOUND"))?
+                .fingerprint()
+                .to_owned(),
         };
         if expected.body.previous != previous || expected.body.start != execution_head as u64 {
             return Err(bad("STEP_PRECONDITION"));
@@ -588,7 +601,8 @@ impl SqliteStore {
         original: &ReplayEntryRef,
         current: Option<&Components>,
     ) -> Result<Vec<ReplayEntryRef>, Error> {
-        self.complete_ref_observed(prefix, original, current, false).map(|value| value.references)
+        self.complete_ref_observed(prefix, original, current, false)
+            .map(|value| value.references)
     }
     fn complete_ref_observed(
         &mut self,
@@ -634,14 +648,20 @@ impl SqliteStore {
                 // A pending-observation error belongs to delivery, not to the
                 // already successful Replay completion. Keep it as local data.
                 let events = onlyalpha_execution::pending_events(source, current);
-                Ok(ReplayCompletion { references: observed, pending_events: events })
+                Ok(ReplayCompletion {
+                    references: observed,
+                    pending_events: events,
+                })
             })
         } else {
             let (_, observed) = self.fresh_ref_source(current)?;
             if observed != expected {
                 return Err(bad("READY_READBACK"));
             }
-            Ok(ReplayCompletion { references: observed, pending_events: Ok(Vec::new()) })
+            Ok(ReplayCompletion {
+                references: observed,
+                pending_events: Ok(Vec::new()),
+            })
         }
     }
 }
@@ -741,9 +761,9 @@ impl Runtime {
     ) -> Result<ReplayCompletion, Error> {
         self.require_healthy()?;
         self.healthy = false;
-        let observed = self.store.complete_ref_observed(
-            prefix, original, Some(&self.components), true,
-        )?;
+        let observed =
+            self.store
+                .complete_ref_observed(prefix, original, Some(&self.components), true)?;
         self.healthy = true;
         Ok(observed)
     }
@@ -787,7 +807,10 @@ mod shared_reference_tests {
         ready.ready = true;
         assert!(!pending.ready());
         assert!(ready.ready());
-        assert_ne!(pending, ready, "full equality includes the fresh ready observation");
+        assert_ne!(
+            pending, ready,
+            "full equality includes the fresh ready observation"
+        );
         assert!(pending.same_body(&ready));
         assert_eq!(pending.body.inputs, vec![sha(&step["inputs"][0])]);
         // Independently decoded bytes must compare by complete content, even
@@ -796,7 +819,10 @@ mod shared_reference_tests {
         assert!(!Arc::ptr_eq(&ready.body, &observed.body));
         assert_eq!(ready, observed);
         let other_version = from_frame(&raw, &physical, 1, 1, 4).unwrap();
-        assert_ne!(ready, other_version, "body equality retains storage version");
+        assert_ne!(
+            ready, other_version,
+            "body equality retains storage version"
+        );
         assert!(from_frame(&raw, &physical, 1, 2, 3).is_err());
     }
 }

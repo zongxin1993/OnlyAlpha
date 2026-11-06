@@ -3,17 +3,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from onlyalpha_plugin_binance.errors import OnlyBinanceError
-from onlyalpha_plugin_binance.spot.data_source.historical import (
-    OnlyBinanceSpotHistoricalClient,
-    OnlyBinanceSpotHistoricalProvider,
-)
-
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyHistoricalDataRequest, OnlyHistoricalTradeDataRequest
 from onlyalpha.data.identifiers import OnlyDataVersion
 from onlyalpha.domain.market import OnlyBarSemantic, OnlyBarType
+from onlyalpha_plugin_binance.errors import OnlyBinanceError
+from onlyalpha_plugin_binance.spot.data_source.historical import (
+    OnlyBinanceSpotHistoricalClient,
+    OnlyBinanceSpotHistoricalProvider,
+)
 
 
 class FakeHistoricalClient:

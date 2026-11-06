@@ -37,7 +37,8 @@ pub struct Manager {
     journal_bytes: usize,
     pub(crate) sequence: u64,
     // Pure canonical representation of this state, never source or Ready proof.
-    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<crate::recovery::CachedCheckpoint>>,
+    pub(crate) checkpoint_cache:
+        std::sync::OnceLock<std::sync::Arc<crate::recovery::CachedCheckpoint>>,
 }
 impl Manager {
     pub fn new(config: Value) -> Result<Self, Error> {

@@ -710,24 +710,34 @@ fn local_prepared_constructor_hashes_complete_body_once_and_cold_decode_rechecks
     crate::model::HASHED_CANONICAL_WATCH
         .with(|watch| *watch.borrow_mut() = Some((canonical.clone(), 0)));
     let local = Prepared::new(body).unwrap();
-    assert_eq!(crate::model::HASHED_CANONICAL_WATCH
-        .with(|watch| watch.borrow_mut().take().unwrap().1), 1,
-        "the same owned complete payload was hashed twice during local construction");
+    assert_eq!(
+        crate::model::HASHED_CANONICAL_WATCH.with(|watch| watch.borrow_mut().take().unwrap().1),
+        1,
+        "the same owned complete payload was hashed twice during local construction"
+    );
     assert!(local.is_planned());
     assert_eq!(local.encode().unwrap(), planned.encode().unwrap());
-    crate::model::HASHED_CANONICAL_WATCH
-        .with(|watch| *watch.borrow_mut() = Some((canonical, 0)));
+    crate::model::HASHED_CANONICAL_WATCH.with(|watch| *watch.borrow_mut() = Some((canonical, 0)));
     let cold = Prepared::decode(&local.encode().unwrap()).unwrap();
-    assert_eq!(crate::model::HASHED_CANONICAL_WATCH
-        .with(|watch| watch.borrow_mut().take().unwrap().1), 1,
-        "cold bytes must still recompute the complete payload hash");
+    assert_eq!(
+        crate::model::HASHED_CANONICAL_WATCH.with(|watch| watch.borrow_mut().take().unwrap().1),
+        1,
+        "cold bytes must still recompute the complete payload hash"
+    );
     assert!(!cold.is_planned());
     assert_eq!(cold, local);
-    assert_eq!(Prepared::new(local.record()).unwrap_err().0, "EXECUTION_PAYLOAD_HASH");
+    assert_eq!(
+        Prepared::new(local.record()).unwrap_err().0,
+        "EXECUTION_PAYLOAD_HASH"
+    );
     let mut corrupt = local.record();
     corrupt["payload_hash"] = json!("f".repeat(64));
-    assert_eq!(Prepared::decode(&serde_json::to_vec(&corrupt).unwrap()).unwrap_err().0,
-        "EXECUTION_PAYLOAD_HASH");
+    assert_eq!(
+        Prepared::decode(&serde_json::to_vec(&corrupt).unwrap())
+            .unwrap_err()
+            .0,
+        "EXECUTION_PAYLOAD_HASH"
+    );
 }
 
 #[test]
@@ -738,13 +748,28 @@ fn locally_computed_payload_hash_does_not_skip_structure_projection_or_event_che
     for fault in 0..6 {
         let mut body = original.clone();
         match fault {
-            0 => { body["sequence"] = json!(0); }
-            1 => { body["config_hash"] = json!("bad"); }
-            2 => { body["projections"][0]["result_hash"] = json!("f".repeat(64)); }
-            3 => { body["projections"][0]["component"] = json!("UNKNOWN"); }
-            4 => { body["events"][0]["event_id"] = json!("foreign-event"); }
-            _ => { body["unexpected"] = Value::Null; }
+            0 => {
+                body["sequence"] = json!(0);
+            }
+            1 => {
+                body["config_hash"] = json!("bad");
+            }
+            2 => {
+                body["projections"][0]["result_hash"] = json!("f".repeat(64));
+            }
+            3 => {
+                body["projections"][0]["component"] = json!("UNKNOWN");
+            }
+            4 => {
+                body["events"][0]["event_id"] = json!("foreign-event");
+            }
+            _ => {
+                body["unexpected"] = Value::Null;
+            }
         }
-        assert!(Prepared::new(body).is_err(), "local payload shortcut accepted fault {fault}");
+        assert!(
+            Prepared::new(body).is_err(),
+            "local payload shortcut accepted fault {fault}"
+        );
     }
 }

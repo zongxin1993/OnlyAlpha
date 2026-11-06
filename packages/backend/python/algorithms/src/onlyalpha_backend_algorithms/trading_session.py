@@ -24,6 +24,7 @@ from onlyalpha.calculation.definition import (
 )
 from onlyalpha.calculation.implementation import OnlyCalculationStateCapability
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration, OnlyTradingBackendFactory
+
 from onlyalpha_backend_algorithms.research_evaluation import ManagedProgramHost, TradingBackend
 from onlyalpha_backend_algorithms.research_resolution import MAX_WORK, registry_for_sources
 

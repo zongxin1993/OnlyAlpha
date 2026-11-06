@@ -43,7 +43,10 @@ impl Specification {
     }
     pub fn validate(&self) -> Result<()> {
         if self.kind != "TIME_SERIES_FACTOR_RESEARCH"
-            || !match (self.schema_version, self.authoring_generation_fingerprint.as_deref()) {
+            || !match (
+                self.schema_version,
+                self.authoring_generation_fingerprint.as_deref(),
+            ) {
                 (4, None) => true,
                 (6, Some(pin)) => crate::is_sha256_hex(pin),
                 _ => false,
@@ -253,9 +256,13 @@ impl NativeSpecification {
                 _ => return Err(INVALID),
             },
             Self::Strategy(s) => {
-                let value=if key=="dataset_snapshot_fingerprint" { &s.record()["scientific_specification"][key] } else { &s.record()[key] };
+                let value = if key == "dataset_snapshot_fingerprint" {
+                    &s.record()["scientific_specification"][key]
+                } else {
+                    &s.record()[key]
+                };
                 value.as_str().ok_or(INVALID)?
-            },
+            }
         };
         if !crate::is_sha256_hex(value) {
             return Err(INVALID);
@@ -415,7 +422,9 @@ impl VerifiedRun {
     pub fn factor_specification(&self) -> Result<&Specification> {
         self.specification.as_factor()
     }
-    pub fn strategy_specification(&self) -> Result<&crate::application::strategy_research::RunSpecification> {
+    pub fn strategy_specification(
+        &self,
+    ) -> Result<&crate::application::strategy_research::RunSpecification> {
         self.specification.as_strategy()
     }
 }
@@ -425,10 +434,16 @@ pub struct VerifiedCompletion {
     pub(crate) result: String,
     pub(crate) artifact: String,
     pub(crate) execution_evidence: Vec<String>,
-    pub(crate) strategy_cut:Option<std::sync::Arc<crate::persistence::research_evidence::StrategyReadCut>>,
+    pub(crate) strategy_cut:
+        Option<std::sync::Arc<crate::persistence::research_evidence::StrategyReadCut>>,
 }
 impl VerifiedCompletion {
-    pub(crate) fn verify_cut(&self)->Result<()> {if let Some(cut)=&self.strategy_cut{cut.verify()?;}Ok(())}
+    pub(crate) fn verify_cut(&self) -> Result<()> {
+        if let Some(cut) = &self.strategy_cut {
+            cut.verify()?;
+        }
+        Ok(())
+    }
     pub fn run_id(&self) -> &str {
         self.run.run_id()
     }
@@ -476,7 +491,9 @@ impl VerifiedInspection {
         if self.publication_cut.is_empty() {
             return Err("RESEARCH_INSPECTION_CUT_REQUIRED");
         }
-        if let InspectionOutcome::Complete(completion)=&self.outcome {completion.verify_cut()?;}
+        if let InspectionOutcome::Complete(completion) = &self.outcome {
+            completion.verify_cut()?;
+        }
         for lock in &self.publication_cut {
             lock.verify()?;
         }
@@ -613,7 +630,10 @@ mod native_specification_tests {
         let pin = json!("f".repeat(64));
         authoring["authoring_generation_fingerprint"] = pin.clone();
         let bound = NativeSpecification::from_record(&authoring).unwrap();
-        assert_eq!(bound.subject().unwrap().record()["authoring_generation_fingerprint"], pin);
+        assert_eq!(
+            bound.subject().unwrap().record()["authoring_generation_fingerprint"],
+            pin
+        );
         assert_ne!(bound.fingerprint().unwrap(), spec.fingerprint().unwrap());
     }
 }

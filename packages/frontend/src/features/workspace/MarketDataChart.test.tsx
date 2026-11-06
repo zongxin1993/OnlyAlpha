@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { requiredValue } from "../../test/requiredValue";
 import { readTemporaryMarketData } from "../../api/marketData/temporary";
 import { temporaryWindowForQuery } from "../../test/temporaryMarketDataClient";
@@ -195,9 +196,11 @@ function configuredSources() {
 function renderWorkspace(client: MarketDataApiClient) {
     temporaryProducer = client;
     return render(
-        <AppProviders integrationClient={configuredSources()} marketDataClient={client}>
-            <WorkspacePage />
-        </AppProviders>
+        <MemoryRouter>
+            <AppProviders integrationClient={configuredSources()} marketDataClient={client}>
+                <WorkspacePage />
+            </AppProviders>
+        </MemoryRouter>
     );
 }
 
@@ -975,18 +978,20 @@ it("defaults fence the aborted workspace bootstrap before starting one Source di
     const listSources = vi.fn<MarketDataApiClient["listSources"]>(() => Promise.resolve([source]));
     render(
         <StrictMode>
-            <AppProviders
-                integrationClient={configuredSources()}
-                marketDataClient={
-                    (temporaryProducer = marketDataClient({
-                        listSources,
-                        listInstruments,
-                        queryBars
-                    }))
-                }
-            >
-                <WorkspacePage />
-            </AppProviders>
+            <MemoryRouter>
+                <AppProviders
+                    integrationClient={configuredSources()}
+                    marketDataClient={
+                        (temporaryProducer = marketDataClient({
+                            listSources,
+                            listInstruments,
+                            queryBars
+                        }))
+                    }
+                >
+                    <WorkspacePage />
+                </AppProviders>
+            </MemoryRouter>
         </StrictMode>
     );
     await waitFor(() => {

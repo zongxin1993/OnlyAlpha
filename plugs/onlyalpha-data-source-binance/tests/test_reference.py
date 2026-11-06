@@ -6,13 +6,12 @@ from decimal import Decimal
 from hashlib import sha256
 
 import pytest
+from onlyalpha.plugin.api import OnlyTradingDay
 from onlyalpha_market_crypto.spot.capability import only_map_order_type, only_map_time_in_force
 from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment
 from onlyalpha_plugin_binance.errors import OnlyBinanceReferenceStoreError, OnlyBinanceSchemaError
 from onlyalpha_plugin_binance.spot.reference.capture import OnlyBinanceSpotReferenceCapture
 from onlyalpha_plugin_binance.spot.reference.store import OnlyBinanceSpotReferenceStore
-
-from onlyalpha.plugin.api import OnlyTradingDay
 
 
 def _symbol(

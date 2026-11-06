@@ -11,6 +11,7 @@ from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyVenueOrderId
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+
 from onlyalpha_broker_binance.errors import OnlyBinanceSchemaError
 from onlyalpha_broker_binance.spot.broker.codec import only_binance_client_order_id
 from onlyalpha_broker_binance.spot.broker.dto import OnlyBinanceSpotAccountDto, OnlyBinanceSpotOrderDto

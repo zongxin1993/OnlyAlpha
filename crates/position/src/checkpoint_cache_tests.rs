@@ -14,20 +14,31 @@ fn command(id: &str, op: &str, at: u64, payload: Value) -> Value {
         "time":at,"op":op,"payload":payload})
 }
 fn trade(id: &str, at: u64) -> Value {
-    command(id, "TRADE", at, json!({"schema_version":1,"instrument":"BTCUSDT.BINANCE",
+    command(
+        id,
+        "TRADE",
+        at,
+        json!({"schema_version":1,"instrument":"BTCUSDT.BINANCE",
         "cluster":"a","order":"order-a","trade":id,"venue_trade":format!("venue-{id}"),
         "execution":format!("execution-{id}"),"sequence":at,"side":"BUY","position_side":"LONG",
         "position_mode":"NETTING","price":"10.00","quantity":"2","fee":"0.00",
-        "bucket":"SETTLED","terminal_fill":false}))
+        "bucket":"SETTLED","terminal_fill":false}),
+    )
 }
 fn reserve(id: &str, quantity: &str, at: u64) -> Value {
-    command(id, "RESERVE", at, json!({"schema_version":1,"instrument":"BTCUSDT.BINANCE",
-        "cluster":"a","order":"order-a","quantity":quantity}))
+    command(
+        id,
+        "RESERVE",
+        at,
+        json!({"schema_version":1,"instrument":"BTCUSDT.BINANCE",
+        "cluster":"a","order":"order-a","quantity":quantity}),
+    )
 }
 fn original_checkpoint(owner: &Manager) -> (Vec<u8>, String) {
     // Independent literal original encoder, not checkpoint_record's projection.
     let bytes = serde_json::to_vec(&json!({"schema_version":2,"config":owner.config,
-        "journal":owner.state.journal,"state":owner.state()})).unwrap();
+        "journal":owner.state.journal,"state":owner.state()}))
+    .unwrap();
     let fingerprint = digest(&bytes);
     (bytes, fingerprint)
 }
@@ -98,13 +109,25 @@ fn refusal_and_exact_duplicate_preserve_cache_but_new_duplicate_occurrence_chang
     assert_eq!(owner.apply(&conflicting).unwrap().status, Status::Conflict);
     assert!(Arc::ptr_eq(&original, &assert_exact(&owner)));
     // The failed attempt did not consume this identity; the valid retry commits.
-    assert_eq!(owner.apply(&reserve("retry", "1", 2)).unwrap().status, Status::Applied);
+    assert_eq!(
+        owner.apply(&reserve("retry", "1", 2)).unwrap().status,
+        Status::Applied
+    );
     let reserved = assert_exact(&owner);
     assert!(!Arc::ptr_eq(&original, &reserved));
-    assert_eq!(owner.apply(&reserve("second-occurrence", "1", 3)).unwrap().status, Status::Duplicate);
+    assert_eq!(
+        owner
+            .apply(&reserve("second-occurrence", "1", 3))
+            .unwrap()
+            .status,
+        Status::Duplicate
+    );
     let repeated = assert_exact(&owner);
     assert!(!Arc::ptr_eq(&reserved, &repeated));
-    assert_eq!(repeated["journal"].as_array().unwrap().len(), reserved["journal"].as_array().unwrap().len() + 1);
+    assert_eq!(
+        repeated["journal"].as_array().unwrap().len(),
+        reserved["journal"].as_array().unwrap().len() + 1
+    );
     assert_eq!(repeated["state"]["now"], reserved["state"]["now"]);
 }
 
@@ -113,7 +136,10 @@ fn successful_stale_observation_invalidates_the_retained_representation() {
     let mut owner = Manager::new(config()).unwrap();
     owner.apply(&trade("current", 10)).unwrap();
     let original = assert_exact(&owner);
-    assert_eq!(owner.apply(&trade("stale", 1)).unwrap().status, Status::Stale);
+    assert_eq!(
+        owner.apply(&trade("stale", 1)).unwrap().status,
+        Status::Stale
+    );
     let changed = assert_exact(&owner);
     assert!(!Arc::ptr_eq(&original, &changed));
     assert_ne!(original, changed);
@@ -143,8 +169,13 @@ fn restore_replays_exact_history_and_failed_candidates_cannot_replace_warm_recei
             _ => (),
         }
         let mut encoded = serde_json::to_vec(&corrupt).unwrap();
-        if fault == "canonical" { encoded.push(b' '); }
-        assert!(receiver.restore(&encoded, &digest(&encoded)).is_err(), "{fault}");
+        if fault == "canonical" {
+            encoded.push(b' ');
+        }
+        assert!(
+            receiver.restore(&encoded, &digest(&encoded)).is_err(),
+            "{fault}"
+        );
         assert!(Arc::ptr_eq(&restored, &assert_exact(&receiver)), "{fault}");
     }
     // Preserve the existing API's ability to replace an owner via full replay.

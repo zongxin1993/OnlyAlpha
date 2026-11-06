@@ -3,6 +3,7 @@ FROM ghcr.io/astral-sh/uv:0.10.5@sha256:476133fa2aaddb4cbee003e3dc79a88d327a5dc7
 # Official Rust toolchain is a build/validation input, never a production service.
 FROM rust:1.99.1-slim-bookworm@sha256:a24e292b4af7bdee351a31d3a6379972a5652f0ea22a1b6d6883324ac4f5097c AS rust-tools
 RUN rustup component add --toolchain 1.99.1 rustfmt clippy
+RUN CARGO_NET_RETRY=0 cargo install --locked --version 27.1.0 cargo-mutants
 
 # Dependency resolution is an explicit preparation artifact, never a test lane.
 FROM rust-tools AS rust-manifests
@@ -12,6 +13,8 @@ COPY crates/ ./crates/
 COPY packages/backend/ ./packages/backend/
 COPY plugs/onlyalpha-market-crypto/Cargo.toml ./plugs/onlyalpha-market-crypto/Cargo.toml
 COPY plugs/onlyalpha-market-crypto/src/*.rs ./plugs/onlyalpha-market-crypto/src/
+COPY plugs/onlyalpha-market-cn-ashare/Cargo.toml ./plugs/onlyalpha-market-cn-ashare/Cargo.toml
+COPY plugs/onlyalpha-market-cn-ashare/src/ ./plugs/onlyalpha-market-cn-ashare/src/
 COPY plugs/onlyalpha-data-source-binance/Cargo.toml ./plugs/onlyalpha-data-source-binance/Cargo.toml
 COPY plugs/onlyalpha-data-source-binance/src/*.rs ./plugs/onlyalpha-data-source-binance/src/
 COPY plugs/onlyalpha-data-source-tushare/Cargo.toml ./plugs/onlyalpha-data-source-tushare/Cargo.toml
@@ -81,7 +84,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 USER onlyalpha
 RUN git config --global --add safe.directory /workspace
-RUN uv sync --frozen --no-dev --no-install-workspace --no-install-local --group compose-acceptance \
+RUN uv sync --frozen --no-build-package z3-solver --no-dev --no-install-workspace --no-install-local --group compose-acceptance \
     && python scripts/build_algorithm_sdk.py /tmp/onlyalpha-dev-algorithm-wheels \
     && uv pip install --offline --no-deps /tmp/onlyalpha-dev-algorithm-wheels/*.whl \
     && rm -r /tmp/onlyalpha-dev-algorithm-wheels

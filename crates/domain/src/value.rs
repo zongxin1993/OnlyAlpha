@@ -17,6 +17,34 @@ fn validate_precision(value: &OnlyDecimal, precision: u8) -> Result<(), OnlyDoma
     }
     Ok(())
 }
+// Keep construction policy outside generated wrappers so mutation tools exercise it.
+fn validate_quantity(value: &OnlyDecimal, precision: u8) -> Result<(), OnlyDomainError> {
+    validate_precision(value, precision)?;
+    if value.is_negative() && !value.is_zero() {
+        return Err(invalid("quantity cannot be negative"));
+    }
+    Ok(())
+}
+fn validate_multiplier(value: &OnlyDecimal, precision: u8) -> Result<(), OnlyDomainError> {
+    validate_precision(value, precision)?;
+    if value.is_negative() || value.is_zero() {
+        return Err(invalid("multiplier must be positive"));
+    }
+    Ok(())
+}
+fn validated_currency_code(code: &str, precision: u8) -> Result<String, OnlyDomainError> {
+    let code = uppercase(code.trim_matches(whitespace));
+    if code.is_empty()
+        || code.chars().count() > 12
+        || !code.chars().all(alphanumeric)
+        || precision > 18
+    {
+        return Err(invalid(
+            "currency requires 1..12 alphanumeric characters and precision 0..18",
+        ));
+    }
+    Ok(code)
+}
 pub(crate) fn serialization(error: OnlyDomainError) -> OnlyDomainError {
     OnlyDomainError::Serialization(error.to_string())
 }
@@ -32,16 +60,7 @@ impl OnlyCurrency {
         precision: u8,
         currency_type: OnlyCurrencyType,
     ) -> Result<Self, OnlyDomainError> {
-        let code = uppercase(code.trim_matches(whitespace));
-        if code.is_empty()
-            || code.chars().count() > 12
-            || !code.chars().all(alphanumeric)
-            || precision > 18
-        {
-            return Err(invalid(
-                "currency requires 1..12 alphanumeric characters and precision 0..18",
-            ));
-        }
+        let code = validated_currency_code(code, precision)?;
         Ok(Self {
             code,
             precision,
@@ -76,14 +95,13 @@ impl OnlyDomainModel for OnlyCurrency {
 }
 
 macro_rules! scalar {
-    ($name:ident, $predicate:expr, $message:literal) => {
+    ($name:ident, $validate:ident) => {
         #[derive(Clone, Debug, PartialEq, Eq, Hash)]
         pub struct $name { value: OnlyDecimal, precision: u8 }
         $crate::base::domain_field!($name);
         impl $name {
             pub fn new(value: OnlyDecimal, precision: u8) -> Result<Self, OnlyDomainError> {
-                validate_precision(&value, precision)?;
-                if !($predicate)(&value) { return Err(invalid($message)); }
+                $validate(&value, precision)?;
                 Ok(Self { value, precision })
             }
             pub fn value(&self) -> &OnlyDecimal { &self.value }
@@ -100,19 +118,11 @@ macro_rules! scalar {
         }
     };
 }
-scalar!(OnlyPrice, |_: &OnlyDecimal| true, "invalid price");
-scalar!(
-    OnlyQuantity,
-    |v: &OnlyDecimal| !v.is_negative() || v.is_zero(),
-    "quantity cannot be negative"
-);
-scalar!(OnlyRate, |_: &OnlyDecimal| true, "invalid rate");
-scalar!(OnlyPercentage, |_: &OnlyDecimal| true, "invalid percentage");
-scalar!(
-    OnlyMultiplier,
-    |v: &OnlyDecimal| !v.is_negative() && !v.is_zero(),
-    "multiplier must be positive"
-);
+scalar!(OnlyPrice, validate_precision);
+scalar!(OnlyQuantity, validate_quantity);
+scalar!(OnlyRate, validate_precision);
+scalar!(OnlyPercentage, validate_precision);
+scalar!(OnlyMultiplier, validate_multiplier);
 
 impl OnlyQuantity {
     pub fn checked_add(&self, other: &Self) -> Result<Self, OnlyDomainError> {

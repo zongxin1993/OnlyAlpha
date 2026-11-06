@@ -2,7 +2,6 @@ from datetime import time
 from decimal import Decimal
 
 import pytest
-
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import (
     OnlyMarketType,

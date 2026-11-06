@@ -169,11 +169,19 @@ mod native_operator_version_tests {
     use super::*;
     #[test]
     fn current_preview_uses_explicit_native_operator_versions_without_revising_the_factor() {
-        let candidate=json!({"name":"价量关系","purpose":"观察","hypothesis":"对照","expression":{"op":"add","left":{"input":"close","lag":2},"right":{"input":"volume","mean":3}}});
-        let value=preview(&candidate,"private.factor.native_references").unwrap();
-        assert_eq!(value["draft"]["semantic_version"],"1");
-        assert_eq!(value["dependencies"]["close_lag_2"]["operator"],"onlyalpha.operator.delay");
-        assert_eq!(value["dependencies"]["volume_mean_3"]["operator"],"onlyalpha.operator.rolling_mean");
-        for dependency in value["dependencies"].as_object().unwrap().values() {assert_eq!(dependency["semantic_version"],"2");}
+        let candidate = json!({"name":"价量关系","purpose":"观察","hypothesis":"对照","expression":{"op":"add","left":{"input":"close","lag":2},"right":{"input":"volume","mean":3}}});
+        let value = preview(&candidate, "private.factor.native_references").unwrap();
+        assert_eq!(value["draft"]["semantic_version"], "1");
+        assert_eq!(
+            value["dependencies"]["close_lag_2"]["operator"],
+            "onlyalpha.operator.delay"
+        );
+        assert_eq!(
+            value["dependencies"]["volume_mean_3"]["operator"],
+            "onlyalpha.operator.rolling_mean"
+        );
+        for dependency in value["dependencies"].as_object().unwrap().values() {
+            assert_eq!(dependency["semantic_version"], "2");
+        }
     }
 }

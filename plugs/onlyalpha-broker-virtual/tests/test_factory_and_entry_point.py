@@ -3,8 +3,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from importlib import metadata
 
-from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerFactory
-
 from onlyalpha.broker import (
     OnlyBoundedBrokerInboundQueue,
     OnlyBrokerCapability,
@@ -17,6 +15,7 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney
 from onlyalpha.event.bus import OnlyEventBus
 from onlyalpha.plugin import OnlyBrokerPluginCapabilities
 from onlyalpha.plugin.broker import OnlyBrokerCreateRequest
+from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerFactory
 
 
 def test_entry_point_loads_virtual_factory_class() -> None:

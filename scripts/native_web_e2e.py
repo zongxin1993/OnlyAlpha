@@ -12,6 +12,7 @@ import platform
 import queue
 import signal
 import socket
+import sqlite3
 import ssl
 import subprocess
 import sys
@@ -37,6 +38,66 @@ from scripts.native_workstation_build import build
 from scripts.runtime_artifacts import product_versions, verify_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def observe_stopped_backtest(probe: Path, user_data: Path, run_id: str) -> dict:
+    # Call only after Host SIGTERM + positive process join. Do not retry a busy,
+    # unreadable or incomplete source; the Runtime owner must reject it.
+    if str(uuid.UUID(run_id)) != run_id or uuid.UUID(run_id).version != 4:
+        raise ValueError("invalid original Run identity")
+    path = user_data / "backtest" / "runtime" / run_id / "runtime.sqlite3"
+    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    try:
+        db.execute("PRAGMA query_only=ON")
+        db.execute("PRAGMA trusted_schema=OFF")
+        # These two values are observed identity inputs, not validated proof.
+        # No Python frame/dictionary/replay codec or digest admission is involved.
+        raw = db.execute("SELECT payload FROM meta WHERE singleton=1").fetchone()
+        if raw is None:
+            raise RuntimeError("missing runtime identity")
+        identity = json.loads(raw[0])
+    finally:
+        db.close()
+    request = {
+        "user_data": str(user_data),
+        "run_id": run_id,
+        "configuration": identity["configuration"],
+        "kernel_artifact": identity["kernel_artifact"],
+    }
+    actual = subprocess.run(
+        [str(probe), "--read-backtest-runtime-source"],
+        input=json.dumps(request),
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=120,
+    )
+    observation = json.loads(actual.stdout)
+    if observation["schema_version"] != 1 or observation["run_id"] != run_id:
+        raise RuntimeError("wrong observation identity")
+    return observation
+
+
+def require_paused_backtest(observation: dict) -> None:
+    assert observation["execution_prefix"] and observation["replay_prefix"]
+    last = observation["steps"][-1]
+    assert last["kind"] == "PAUSE" and last["status"] == "PAUSED"
+    assert last["input_finished"] is False and last["input_cancelled"] is False
+    state = observation["state"]
+    assert state["status"] == "PAUSED" and state["input_finished"] is False
+    assert state.get("input_cancelled", False) is False
+    assert state["outcome"] is None
+
+
+def require_resumed_backtest(before: dict, after: dict) -> None:
+    assert after["run_id"] == before["run_id"] and after["binding"] == before["binding"]
+    assert after["execution_prefix"][: len(before["execution_prefix"])] == before["execution_prefix"]
+    assert after["replay_prefix"][: len(before["replay_prefix"])] == before["replay_prefix"]
+    assert after["steps"][: len(before["steps"])] == before["steps"]
+    later = after["steps"][len(before["steps"]) :]
+    assert later and later[0]["kind"] == "RESUME" and later[0]["status"] == "RUNNING"
+    assert later[-1]["kind"] == "TERMINATE" and later[-1]["status"] == "TERMINATED"
+    assert after["state"]["outcome"]["status"] == "COMPLETED"
 
 
 def clickhouse_namespace(backend: Path, database: str, *, initialize: bool) -> None:
@@ -251,7 +312,9 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
 
 
 @contextmanager
-def controlled_source_https(output: Path, *, backtest: bool = False, chart_sma: bool = False) -> Iterator[tuple[Path, dict[str, Any]]]:
+def controlled_source_https(
+    output: Path, *, backtest: bool = False, chart_sma: bool = False
+) -> Iterator[tuple[Path, dict[str, Any]]]:
     """Controlled external Binance input; never a Product/Authority substitute.
 
     The host runner owns the explicit official-hostname mapping. This process
@@ -418,7 +481,10 @@ def controlled_source_https(output: Path, *, backtest: bool = False, chart_sma: 
                 key = self.headers.get("Sec-WebSocket-Key")
                 if (
                     request.path != "/ws/btcusdt@kline_15m"
-                    or request.query or request.netloc or request.scheme or request.fragment
+                    or request.query
+                    or request.netloc
+                    or request.scheme
+                    or request.fragment
                     or self.headers.get_all("Host") != [stream_host]
                     or self.headers.get("Upgrade", "").lower() != "websocket"
                     or self.headers.get("Sec-WebSocket-Version") != "13"
@@ -439,18 +505,41 @@ def controlled_source_https(output: Path, *, backtest: bool = False, chart_sma: 
                 opened = event_ms // stride_ms * stride_ms
                 price = 90000 + (opened // stride_ms) % 100
                 payload = json.dumps(
-                    {"e": "kline", "E": event_ms, "s": "BTCUSDT", "k": {
-                        "s": "BTCUSDT", "i": "15m", "t": opened, "T": opened + stride_ms - 1,
-                        "o": str(price), "h": str(price + 1), "l": str(price - 1), "c": str(price),
-                        "v": "100", "q": str(price * 100), "n": 100, "V": "50", "Q": str(price * 50),
-                        "x": False,
-                    }},
+                    {
+                        "e": "kline",
+                        "E": event_ms,
+                        "s": "BTCUSDT",
+                        "k": {
+                            "s": "BTCUSDT",
+                            "i": "15m",
+                            "t": opened,
+                            "T": opened + stride_ms - 1,
+                            "o": str(price),
+                            "h": str(price + 1),
+                            "l": str(price - 1),
+                            "c": str(price),
+                            "v": "100",
+                            "q": str(price * 100),
+                            "n": 100,
+                            "V": "50",
+                            "Q": str(price * 50),
+                            "x": False,
+                        },
+                    },
                     separators=(",", ":"),
                 ).encode()
                 self.wfile.write(b"\x81\x7e" + len(payload).to_bytes(2, "big") + payload)
                 self.wfile.flush()
-                record({"kind":"chart_stream","host":stream_host,"path":request.path,"status":101,
-                        "preview_start_ms":opened,"frame_sha256":hashlib.sha256(payload).hexdigest()})
+                record(
+                    {
+                        "kind": "chart_stream",
+                        "host": stream_host,
+                        "path": request.path,
+                        "status": 101,
+                        "preview_start_ms": opened,
+                        "frame_sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                )
                 self.close_connection = True
                 self.connection.settimeout(150)
                 self.rfile.read(2)
@@ -538,10 +627,7 @@ def controlled_source_https(output: Path, *, backtest: bool = False, chart_sma: 
                         ):
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                         interval = query["interval"]
-                        if (
-                            query["symbol"] != ["BTCUSDT"]
-                            or interval not in (["15m"], ["1m"])
-                        ):
+                        if query["symbol"] != ["BTCUSDT"] or interval not in (["15m"], ["1m"]):
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
                         start, end = query["startTime"][0], query["endTime"][0]
                         if not start.isascii() or not start.isdecimal() or not end.isascii() or not end.isdecimal():
@@ -551,7 +637,9 @@ def controlled_source_https(output: Path, *, backtest: bool = False, chart_sma: 
                         limit = query["limit"][0]
                         if chart_range:
                             if (
-                                not limit.isascii() or not limit.isdecimal() or len(limit) > 4
+                                not limit.isascii()
+                                or not limit.isdecimal()
+                                or len(limit) > 4
                                 or not 1 <= int(limit) <= 1000
                                 or upper - lower > int(limit) * stride_ms
                             ):
@@ -581,11 +669,22 @@ def controlled_source_https(output: Path, *, backtest: bool = False, chart_sma: 
                                 response = []
                                 for opened in range(lower, upper, stride_ms):
                                     price = 90000 + (opened // stride_ms) % 100
-                                    response.append([
-                                        opened, str(price), str(price + 1), str(price - 1), str(price),
-                                        "100", opened + stride_ms - 1, str(price * 100), 100,
-                                        "50", str(price * 50), "0",
-                                    ])
+                                    response.append(
+                                        [
+                                            opened,
+                                            str(price),
+                                            str(price + 1),
+                                            str(price - 1),
+                                            str(price),
+                                            "100",
+                                            opened + stride_ms - 1,
+                                            str(price * 100),
+                                            100,
+                                            "50",
+                                            str(price * 50),
+                                            "0",
+                                        ]
+                                    )
                             elif first_ms <= lower < upper <= exclusive_end_ms:
                                 response = [row for row in fixture["klines"] if lower <= row[0] < upper][:1000]
                             elif (
@@ -1022,8 +1121,28 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
     clickhouse_namespace(executable, database, initialize=True)
     try:
         result = run_host("initial")
+        lifecycle = output / "factor-restart-input.json.backtest-functional-running-recovery"
+        paused = None
+        if result == 0 and lifecycle.exists():
+            if not args.restart_check:
+                raise ValueError("RUNNING_RECOVERY_REQUIRES_RESTART_CHECK")
+            saved = json.loads(lifecycle.read_text())
+            run_id = saved["run"]["run_id"]
+            if saved["kind"] != "RUNNING" or saved["path"] != f"/backtest/runs/{run_id}":
+                raise ValueError("foreign running recovery evidence")
+            target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
+            probe = ROOT / "test-results/rust-kernel/target" / target / "release/examples/command-postgres-probe"
+            # run_host has positively joined the original Host and all children.
+            # A naturally completed Run must fail this actual PAUSE fence.
+            paused = observe_stopped_backtest(probe, data, run_id)
+            require_paused_backtest(paused)
+            Path(str(lifecycle) + ".pause").write_text(json.dumps(paused) + "\n")
         if result == 0 and args.restart_check:
             result = run_host("restored")
+            if result == 0 and paused is not None:
+                resumed = observe_stopped_backtest(probe, data, run_id)
+                require_resumed_backtest(paused, resumed)
+                Path(str(lifecycle) + ".resumed").write_text(json.dumps(resumed) + "\n")
         return result
     finally:
         clickhouse_namespace(executable, database, initialize=False)

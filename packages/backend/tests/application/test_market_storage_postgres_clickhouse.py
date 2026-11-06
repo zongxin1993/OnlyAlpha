@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import functools
 import hashlib
 import json
@@ -10,15 +11,17 @@ import platform
 import re
 import shutil
 import socket
+import struct
 import subprocess
 import threading
 import tomllib
+import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, cast
@@ -27,30 +30,17 @@ import psycopg
 import pytest
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
 
-from onlyalpha.data.models import OnlyBarUpdate, OnlyMarketDataInboundUpdate
-from onlyalpha.market_data.durable.codec import only_encode_record_bundle
-from onlyalpha.market_data.durable.models import (
-    OnlyCanonicalMarketFactRecord,
-    OnlyIngestSegment,
-    OnlyMarketDataRecordBundle,
+from packages.backend.tests.application.support.native_research_market_fixture import (
+    MarketStorageInputs,
+    strategy_preparation_case,
 )
-from onlyalpha.market_data.durable.revision import OnlyRevisionCommitService, only_build_coverage
-from onlyalpha.market_data.durable.wal import OnlyMarketDataWal
-from onlyalpha.persistence.clickhouse import (
-    OnlyClickHouseClient,
-    OnlyClickHouseConfig,
-    OnlyClickHouseMarketFactStore,
-    only_assert_clickhouse_test_database,
+from packages.backend.tests.application.support.native_research_market_fixture import (
+    market_database as native_market_database,
 )
-from onlyalpha.persistence.clickhouse.market_data_store import _physical_row_sql, _quote
-from onlyalpha.persistence.postgres.market_data_catalog import OnlyPostgresMarketDataCatalog, _scope_payload
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from scripts.native_http_contract import native_executable
-from scripts.native_web_e2e import clickhouse_namespace
-from packages.backend.tests.application.support.market_data_fixture import bar_update, reference_update, trade_update
 from packages.backend.tests.application.test_runtime_installation_postgres import (
     native_environment_case as native_environment_case,
 )
+from scripts.native_http_contract import native_executable
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse, pytest.mark.timeout(120)]
 AT = datetime(2026, 10, 22, tzinfo=UTC)
@@ -74,7 +64,7 @@ def _build_market_probe(*, release: bool = False) -> Path:
             "build",
             "--frozen",
             "--offline",
-            *(["--release"] if release else ["--config", "profile.dev.package.onlyalpha-backend.debug=0"]),
+            *(["--release"] if release else []),
             "--target",
             target,
             "-j1",
@@ -96,31 +86,338 @@ def market_probe() -> Path:
     return _build_market_probe()
 
 
+@dataclass(frozen=True)
+class ClickHouseObservations(MarketStorageInputs):
+    """SQL is only setup/fault injection or independent physical observation."""
+
+    def execute(self, sql: str) -> bytes:
+        assert self.config.database.startswith("onlyalpha_test_")
+        separator = "&" if "?" in self.config.url else "?"
+        url = self.config.url + separator + urllib.parse.urlencode({"database": self.config.database})
+        authorization = base64.b64encode(f"{self.config.user}:{self.config.password}".encode()).decode()
+        request = urllib.request.Request(url, data=sql.encode(), headers={"Authorization": "Basic " + authorization})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return cast(bytes, response.read())
+
+    def query_json(self, sql: str) -> tuple[dict[str, Any], ...]:
+        raw = self.execute(sql + " FORMAT JSONEachRow")
+        return tuple(json.loads(line) for line in raw.splitlines())
+
+
 @contextmanager
-def market_database(postgres_dsn: str) -> Iterator[OnlyClickHouseClient]:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    name = "onlyalpha_test_native_market_storage_" + uuid.uuid4().hex
-    only_assert_clickhouse_test_database(name)
-    config = OnlyClickHouseConfig(
-        os.environ["ONLYALPHA_TEST_CLICKHOUSE_URL"],
-        database=name,
-        user=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_USER", "default"),
-        password=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_PASSWORD", ""),
-        storage_policy=os.environ.get("ONLYALPHA_TEST_CLICKHOUSE_STORAGE_POLICY", "hot_cold"),
-    )
-    client = OnlyClickHouseClient(config)
-    backend = native_executable(release=True)
-    clickhouse_namespace(backend, name, initialize=True)
-    try:
-        yield client
-    finally:
-        clickhouse_namespace(backend, name, initialize=False)
+def market_database(postgres_dsn: str) -> Iterator[ClickHouseObservations]:
+    with native_market_database(postgres_dsn) as inputs:
+        yield ClickHouseObservations(inputs.config)
 
 
 @pytest.fixture
-def database(postgres_dsn: str) -> Iterator[OnlyClickHouseClient]:
+def database(postgres_dsn: str) -> Iterator[ClickHouseObservations]:
     with market_database(postgres_dsn) as client:
         yield client
+
+
+def fixture(action: str, *, binary: Path | None = None, **values: Any) -> dict[str, Any]:
+    # Transport only: all business IDs, Domain restoration, WAL and Dataset IO
+    # below are performed by the shipping Rust owners in the existing probe.
+    result = subprocess.run(
+        [str(binary or _build_market_probe())],
+        input=json.dumps(
+            {"op": "market-storage", "request": {"op": "fixture", "action": action, "at": AT.isoformat(), **values}}
+        ),
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=True,
+    )
+    record = cast(dict[str, Any], json.loads(result.stdout))
+    assert "error" not in record, (record, result.stderr)
+    return record
+
+
+def _scope_payload(segment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: segment[key]
+        for key in (
+            "source_id",
+            "market",
+            "instrument_id",
+            "data_kind",
+            "start_ns",
+            "end_ns",
+            "data_version",
+            "bar_type",
+            "first_sequence",
+            "last_sequence",
+            "bar_construction",
+        )
+    }
+
+
+def _quote(value: str) -> str:
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+# Independent physical proof observer: exact durable schema column order and tags.
+# The SQL evaluates all columns, including zero-row partitions, not record_hash alone.
+_PHYSICAL_COLUMNS = {
+    "market_raw_event": (
+        ("raw_event_id", "S"),
+        ("source_id", "S"),
+        ("provider", "S"),
+        ("venue", "S"),
+        ("market", "S"),
+        ("stream", "S"),
+        ("capture_session_id", "S"),
+        ("segment_id", "S"),
+        ("segment_content_hash", "S"),
+        ("record_ordinal", "I"),
+        ("provider_event_type", "S"),
+        ("provider_event_id", "S"),
+        ("provider_sequence", "I"),
+        ("ts_event_ns", "I"),
+        ("ts_receive_ns", "I"),
+        ("ts_ingest_ns", "I"),
+        ("payload_codec", "S"),
+        ("provider_schema", "S"),
+        ("integration_binding_fingerprint", "S"),
+        ("provenance", "S"),
+        ("raw_payload_base64", "S"),
+        ("raw_sha256", "S"),
+        ("record_hash", "S"),
+    ),
+    "market_trade": (
+        ("canonical_fact_id", "S"),
+        ("source_id", "S"),
+        ("instrument_id", "S"),
+        ("segment_id", "S"),
+        ("segment_content_hash", "S"),
+        ("capture_session_id", "S"),
+        ("raw_event_id", "S"),
+        ("provider_event_id", "S"),
+        ("provider_sequence", "I"),
+        ("ts_event_ns", "I"),
+        ("ts_receive_ns", "I"),
+        ("ts_ingest_ns", "I"),
+        ("price", "D"),
+        ("price_precision", "I"),
+        ("quantity", "D"),
+        ("quantity_precision", "I"),
+        ("aggressor_side", "S"),
+        ("provenance", "S"),
+        ("quality_state", "S"),
+        ("canonical_payload_json", "S"),
+        ("canonical_payload_hash", "S"),
+        ("normalizer_id", "S"),
+        ("normalizer_version", "S"),
+        ("record_hash", "S"),
+    ),
+    "market_bar": (
+        ("canonical_fact_id", "S"),
+        ("source_id", "S"),
+        ("instrument_id", "S"),
+        ("segment_id", "S"),
+        ("segment_content_hash", "S"),
+        ("capture_session_id", "S"),
+        ("raw_event_id", "S"),
+        ("ts_event_ns", "I"),
+        ("ts_receive_ns", "I"),
+        ("ts_ingest_ns", "I"),
+        ("bar_start_ns", "I"),
+        ("bar_end_ns", "I"),
+        ("bar_type_json", "S"),
+        ("open", "D"),
+        ("high", "D"),
+        ("low", "D"),
+        ("close", "D"),
+        ("price_precision", "I"),
+        ("volume", "D"),
+        ("quantity_precision", "I"),
+        ("quote_volume", "D"),
+        ("trade_count", "I"),
+        ("provenance", "S"),
+        ("quality_state", "S"),
+        ("canonical_payload_json", "S"),
+        ("canonical_payload_hash", "S"),
+        ("normalizer_id", "S"),
+        ("normalizer_version", "S"),
+        ("record_hash", "S"),
+    ),
+    "market_reference_price": (
+        ("canonical_fact_id", "S"),
+        ("source_id", "S"),
+        ("instrument_id", "S"),
+        ("segment_id", "S"),
+        ("segment_content_hash", "S"),
+        ("capture_session_id", "S"),
+        ("raw_event_id", "S"),
+        ("ts_event_ns", "I"),
+        ("ts_receive_ns", "I"),
+        ("ts_ingest_ns", "I"),
+        ("reference_kind", "S"),
+        ("price", "D"),
+        ("price_precision", "I"),
+        ("provenance", "S"),
+        ("quality_state", "S"),
+        ("canonical_payload_json", "S"),
+        ("canonical_payload_hash", "S"),
+        ("normalizer_id", "S"),
+        ("normalizer_version", "S"),
+        ("record_hash", "S"),
+    ),
+}
+
+
+def _physical_row_sql(table: str) -> str:
+    parts = []
+    for column, tag in _PHYSICAL_COLUMNS[table]:
+        rendered = f"toString({column})"
+        parts.append(f"if(isNull({column}), '{tag}N', concat('{tag}V', toString(length({rendered})), ':', {rendered}))")
+    return "concat(" + ", ".join(parts) + ")"
+
+
+def _assert_physical_inputs(
+    client: ClickHouseObservations, segment: dict[str, Any], records: list[dict[str, Any]]
+) -> None:
+    """Independent OAMD-to-column assertions; never writes a market fact."""
+    from decimal import Decimal
+
+    expected: dict[str, list[dict[str, Any]]] = {table: [] for table in _PHYSICAL_COLUMNS}
+    for ordinal, bundle in enumerate(records):
+        evidence, facts = bundle["evidence"], bundle["canonical_facts"]
+        raw = {
+            key: evidence[key]
+            for key in (
+                "raw_event_id",
+                "source_id",
+                "provider",
+                "venue",
+                "market",
+                "stream",
+                "capture_session_id",
+                "provider_event_type",
+                "provider_event_id",
+                "provider_sequence",
+                "ts_event_ns",
+                "ts_receive_ns",
+                "payload_codec",
+                "provider_schema",
+                "provenance",
+                "raw_sha256",
+            )
+        }
+        raw.update(
+            segment_id=segment["segment_id"],
+            segment_content_hash=segment["content_hash"],
+            record_ordinal=ordinal,
+            ts_ingest_ns=min((fact["ts_ingest_ns"] for fact in facts), default=evidence["ts_receive_ns"]),
+            raw_payload_base64=evidence["payload_base64"],
+        )
+        if evidence.get("integration_binding_fingerprint") is not None:
+            raw["integration_binding_fingerprint"] = evidence["integration_binding_fingerprint"]
+        raw["record_hash"] = fixture("record-hash", row=raw)["fingerprint"]
+        expected["market_raw_event"].append(raw)
+        for fact in facts:
+            payload = fact["canonical_payload"]["payload"]["value"]
+            row = {
+                key: fact[key]
+                for key in (
+                    "canonical_fact_id",
+                    "source_id",
+                    "instrument_id",
+                    "segment_id",
+                    "capture_session_id",
+                    "raw_event_id",
+                    "ts_event_ns",
+                    "ts_receive_ns",
+                    "ts_ingest_ns",
+                    "provenance",
+                    "quality_state",
+                    "canonical_payload_hash",
+                    "normalizer_id",
+                    "normalizer_version",
+                )
+            }
+            row.update(
+                segment_content_hash=segment["content_hash"],
+                canonical_payload_json=json.dumps(
+                    fact["canonical_payload"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                ),
+            )
+            if fact["data_kind"] == "BAR":
+                for key in ("open", "high", "low", "close", "volume", "quote_volume"):
+                    row[key] = None if payload[key] is None else payload[key]["value"]
+                row.update(
+                    price_precision=payload["open"]["precision"],
+                    quantity_precision=payload["volume"]["precision"],
+                    trade_count=payload["trade_count"],
+                    bar_type_json=json.dumps(
+                        payload["bar_type"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                    ),
+                )
+                for key in ("bar_start", "bar_end"):
+                    value = datetime.fromisoformat(payload[key]) - datetime(1970, 1, 1, tzinfo=UTC)
+                    row[key + "_ns"] = (value.days * 86400 + value.seconds) * 1_000_000_000 + value.microseconds * 1000
+                table = "market_bar"
+            elif fact["data_kind"] == "TRADE":
+                row.update(
+                    price=payload["price"]["value"],
+                    quantity=payload["quantity"]["value"],
+                    price_precision=payload["price"]["precision"],
+                    quantity_precision=payload["quantity"]["precision"],
+                    provider_event_id=payload["trade_id"]["value"],
+                    provider_sequence=payload["sequence"],
+                    aggressor_side=payload["aggressor_side"],
+                )
+                table = "market_trade"
+            else:
+                assert fact["data_kind"] == "MARKET_REFERENCE"
+                row.update(
+                    reference_kind=payload["reference_kind"],
+                    price=None if payload["price"] is None else payload["price"]["value"],
+                    price_precision=None if payload["price"] is None else payload["price"]["precision"],
+                )
+                table = "market_reference_price"
+            row["record_hash"] = fixture("record-hash", row=row)["fingerprint"]
+            expected[table].append(row)
+    for table, wanted in expected.items():
+        actual = client.query_json(
+            "SELECT * FROM "
+            + table
+            + " ORDER BY "
+            + ("record_ordinal" if table == "market_raw_event" else "canonical_fact_id")
+        )
+        wanted.sort(key=lambda row: row.get("record_ordinal", row.get("canonical_fact_id")))
+        assert len(actual) == len(wanted)
+        for observed, original in zip(actual, wanted, strict=True):
+            assert set(observed) == {column for column, _ in _PHYSICAL_COLUMNS[table]}
+            for column, tag in _PHYSICAL_COLUMNS[table]:
+                left, right = observed[column], original.get(column)
+                if left is None or right is None:
+                    assert left is right, (table, column)
+                elif tag == "D":
+                    assert Decimal(str(left)) == Decimal(str(right)), (table, column)
+                elif tag == "I":
+                    assert int(left) == int(right), (table, column)
+                else:
+                    assert left == right, (table, column)
+
+
+def observed_frames(raw: bytes) -> tuple[dict[str, Any], ...]:
+    # Independent framing observer, also safe while the real Rust writer owns
+    # the live WAL. This does not construct or certify business identities.
+    frames: list[dict[str, Any]] = []
+    offset = 0
+    while offset < len(raw):
+        header = raw[offset : offset + 53]
+        assert len(header) == 53 and header[:5] == b"OAMD\x01"
+        length, ordinal = struct.unpack(">QQ", header[5:21])
+        payload = raw[offset + 53 : offset + 53 + length]
+        assert len(payload) == length and ordinal == len(frames)
+        assert hashlib.sha256(payload).digest() == header[21:]
+        frames.append(json.loads(payload))
+        offset += 53 + length
+    assert offset == len(raw)
+    return tuple(frames)
 
 
 def _strategy_probe_diagnostics(stderr: str | bytes | None) -> None:
@@ -139,7 +436,7 @@ def _strategy_probe_diagnostics(stderr: str | bytes | None) -> None:
 
 
 def probe(
-    binary: Path, client: OnlyClickHouseClient, op: str, *, process_timeout: int = 30, **values: Any
+    binary: Path, client: ClickHouseObservations, op: str, *, process_timeout: int = 30, **values: Any
 ) -> dict[str, Any]:
     request = {"op": op, "at": AT.isoformat(), "database": client.config.database, "url": client.config.url, **values}
     env = dict(os.environ)
@@ -169,10 +466,9 @@ def probe(
 
 
 def test_retained_source_fixture_prepares_only_declared_market_inputs(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:
     """Technical precondition proof, never the Factor/Study/Research UI acceptance."""
-    from scripts.native_http_contract import native_executable
 
     native = native_executable(release=False)
     tables = (
@@ -226,92 +522,69 @@ def retained(
     segment_id: str = "retained",
     binding: str | None = None,
     raw_payload: bytes | None = None,
-) -> tuple[OnlyMarketDataWal, OnlyIngestSegment]:
-    fixture = json.loads((Path(__file__).parent / "fixtures/market_wal_history.json").read_text())
-    from onlyalpha.market_data.durable.codec import only_decode_record_bundle
-    from onlyalpha.market_data.durable.models import OnlyRawProviderEvidence
+    updates: list[dict[str, Any]] | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    history = json.loads((Path(__file__).parent / "fixtures/market_wal_history.json").read_text())
+    specs = (
+        updates if updates is not None else ([{"index": index}] if kind in {"BAR", "TRADE", "MARKET_REFERENCE"} else [])
+    )
+    result = fixture(
+        "retained",
+        root=str(root),
+        id=segment_id,
+        kind=kind,
+        binding=binding,
+        raw_payload_base64=None if raw_payload is None else base64.b64encode(raw_payload).decode(),
+        bundle=json.loads(history["native_bundle_json"]),
+        updates=specs,
+    )
+    return root, result["segment"]
 
-    evidence = only_decode_record_bundle(fixture["native_bundle_json"].encode()).evidence
-    evidence = replace(evidence, capture_session_id=f"capture-{segment_id}", integration_binding_fingerprint=binding)
-    if kind not in {"BAR", "RAW_BAR"}:
-        evidence = replace(evidence, bar_construction=None)
-    # Capture identity is recomputed from its original formal fields, never copied.
-    evidence = OnlyRawProviderEvidence.capture(
-        source_id=evidence.source_id,
-        capture_session_id=evidence.capture_session_id,
-        provider=evidence.provider,
-        venue=evidence.venue,
-        market=evidence.market,
-        stream=evidence.stream,
-        provider_event_type=evidence.provider_event_type,
-        ts_receive_ns=evidence.ts_receive_ns,
-        payload=evidence.payload if raw_payload is None else raw_payload,
-        provenance=evidence.provenance,
-        integration_binding_fingerprint=binding,
-        bar_construction=evidence.bar_construction,
-    )
-    update = (
-        bar_update(index)
-        if kind == "BAR"
-        else trade_update(index)
-        if kind == "TRADE"
-        else reference_update(index)
-        if kind == "MARKET_REFERENCE"
-        else None
-    )
-    facts = (
-        ()
-        if update is None
-        else (
-            OnlyCanonicalMarketFactRecord.bind(
-                update,
-                evidence,
-                segment_id=segment_id,
-                ts_ingest_ns=123,
-                normalizer_id="native-reference",
-                normalizer_version="1",
-            ),
-        )
-    )
-    wal = OnlyMarketDataWal(root, capacity_bytes=32 * 1024 * 1024, now=lambda: AT)
-    wal.open_segment(segment_id)
-    wal.append(OnlyMarketDataRecordBundle(evidence, facts))
-    segment = wal.seal(sealed_at=AT)
-    return wal, segment
+
+def retained_records(root: Path, segment: dict[str, Any]) -> dict[str, Any]:
+    return fixture("read", root=str(root), id=segment["segment_id"])
 
 
 def drain(
-    binary: Path, client: OnlyClickHouseClient, wal: OnlyMarketDataWal, segment: OnlyIngestSegment, **options: Any
+    binary: Path, client: ClickHouseObservations, wal: Path, segment: dict[str, Any], **options: Any
 ) -> dict[str, Any]:
-    scope = None if segment.canonical_count == 0 else _scope_payload(segment.recovery_scope())
-    return probe(binary, client, "drain", root=str(wal.root), ids=[segment.segment_id], scope=scope, **options)
+    scope = None if segment["canonical_count"] == 0 else _scope_payload(segment)
+    return probe(binary, client, "drain", root=str(wal), ids=[segment["segment_id"]], scope=scope, **options)
 
 
 @pytest.mark.parametrize("kind", ["BAR", "TRADE", "MARKET_REFERENCE", "RAW_ONLY", "RAW_BAR"])
 def test_native_first_write_all_retained_families_and_exact_original_proofs(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path, kind: str
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path, kind: str
 ) -> None:
     wal, segment = retained(tmp_path, kind, index=0 if kind == "BAR" else 10)
-    records = wal.read_sealed(segment.segment_id)
+    prepared = retained_records(wal, segment)
+    records = prepared["records"]
     result = drain(market_probe, database, wal, segment)
     assert "error" not in result, result
     assert not list(tmp_path.glob("*.sealed.wal"))
-    record = probe(market_probe, database, "segment", id=segment.segment_id)
-    if kind != "TRADE":
-        expected = (
-            OnlyClickHouseMarketFactStore(database)
-            .verify_segments((segment,), {segment.segment_id: records})
-            .physical_proofs[0]
-        )
-        assert record["proof"] == expected.to_dict()
-    else:
+    record = probe(market_probe, database, "segment", id=segment["segment_id"])
+    reference = prepared
+    assert record["proof"]["raw_count"] == segment["raw_count"] == len(records)
+    assert (
+        record["proof"]["canonical_count"]
+        == segment["canonical_count"]
+        == sum(len(row["canonical_facts"]) for row in records)
+    )
+    assert {part["table"] for part in record["proof"]["partitions"]} == {
+        "market_raw_event",
+        "market_trade",
+        "market_bar",
+        "market_reference_price",
+    }
+    assert len(record["proof"]["partitions"]) == 4
+    if kind == "TRADE":
         assert database.query_json("SELECT provider_event_id FROM market_trade") == ({"provider_event_id": "10"},)
-        # Known Python projection defect is explicitly outside value parity: the
-        # typed canonical payload and original fact/Segment identities remain equal.
-        assert (
-            OnlyClickHouseMarketFactStore._fact_row(segment, records[0].canonical_facts[0])["provider_event_id"]
-            == "{'schema_version': 1, 'value': '10'}"
-        )
+        assert records[0]["canonical_facts"][0]["canonical_payload"]["payload"]["value"]["trade_id"] == {
+            "schema_version": 1,
+            "value": "10",
+        }
+    _assert_physical_inputs(database, segment, records)
     for partition in record["proof"]["partitions"]:
         table = partition["table"]
         observed = database.query_json(
@@ -322,18 +595,14 @@ def test_native_first_write_all_retained_families_and_exact_original_proofs(
         )[0]
         assert int(str(observed["n"])) == partition["row_count"]
         assert observed["digest"] == partition["row_set_digest"]
-    assert record["proof"]["segment_metadata_fingerprint"] == only_canonical_fingerprint(segment)
-    assert record["segment"]["created_at"] == segment.created_at.isoformat()
+    assert record["proof"]["segment_metadata_fingerprint"] == reference["metadata_fingerprint"]
+    assert record["segment"]["created_at"] == segment["created_at"]
     if kind in {"BAR", "TRADE"}:
         revision = result["revision"]
         read = probe(market_probe, database, "read", id=revision["revision_id"])
-        assert read["facts"] == [only_canonical_payload(records[0].canonical_facts[0])]
-        assert (
-            read["manifest"]["fingerprint"]
-            == only_build_coverage(segment.recovery_scope(), (segment,), records[0].canonical_facts).fingerprint
-        )
-        py = OnlyPostgresMarketDataCatalog(postgres_dsn)
-        assert py.load_sealed_revision(revision["revision_id"])[0].fingerprint == revision["fingerprint"]
+        assert read["facts"] == [records[0]["canonical_facts"][0]]
+        assert read["manifest"]["fingerprint"] == reference["manifest"]["fingerprint"]
+        assert read["revision"]["fingerprint"] == revision["fingerprint"]
     elif kind == "MARKET_REFERENCE":
         assert result["manifest"]["coverage_status"] == "UNPROVABLE"
         assert result["revision"] is None
@@ -343,22 +612,71 @@ def test_native_first_write_all_retained_families_and_exact_original_proofs(
 
 @pytest.mark.parametrize("kind", ["BAR", "TRADE"])
 def test_original_published_proof_does_not_authorize_a_wrong_current_wal_projection(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path, kind: str
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path, kind: str
 ) -> None:
     wal, segment = retained(tmp_path, kind, index=0 if kind == "BAR" else 10)
-    records = {segment.segment_id: wal.read_sealed(segment.segment_id)}
-    facts = OnlyClickHouseMarketFactStore(database)
-    facts.write_segments((segment,), records)
-    catalog = OnlyPostgresMarketDataCatalog(postgres_dsn, now=lambda: AT)
-    manifest, revision, seal = OnlyRevisionCommitService(facts, catalog, now=lambda: AT).commit(
-        (segment,), segment.recovery_scope(), records, reason="BACKFILL"
-    )
+    stopped = drain(market_probe, database, wal, segment, stop="CatalogCommitted")
+    assert stopped == {"error": "MARKET_DATA_RECOVERY_STOPPED"}
+    original = probe(market_probe, database, "segment", id=segment["segment_id"])
+    # The retained current projection starts valid. Inject only the old invalid
+    # TradeId column spelling as a controlled physical fault, never a Python writer.
+    with psycopg.connect(postgres_dsn) as connection:
+        revision_id, revision_fingerprint, manifest_id = connection.execute(
+            "SELECT revision_id, revision_fingerprint, manifest_id FROM market_data_revision"
+        ).fetchone()
+        seal_id = connection.execute(
+            "SELECT seal_id FROM market_revision_seal WHERE revision_id=%s", (revision_id,)
+        ).fetchone()[0]
+    read = probe(market_probe, database, "read", id=revision_id)
+    assert "error" not in read
+    assert read["revision"]["fingerprint"] == revision_fingerprint
+    assert read["manifest"]["manifest_id"] == manifest_id
+    assert read["seal"]["seal_id"] == seal_id
+    proof_before = original["proof"]
+    if kind == "TRADE":
+        current = retained_records(wal, segment)
+        bad_row = fixture("wrong-trade-row", segment=segment, fact=current["records"][0]["canonical_facts"][0])
+        assert bad_row["provider_event_id"] == "{'schema_version': 1, 'value': '10'}"
+        database.execute(
+            "ALTER TABLE market_trade UPDATE provider_event_id="
+            + _quote(bad_row["provider_event_id"])
+            + ",record_hash="
+            + _quote(bad_row["record_hash"])
+            + " WHERE 1 SETTINGS mutations_sync=2"
+        )
+        # The historical proof is internally consistent with every bad physical
+        # column, including the row hash. Only re-deriving the current WAL can
+        # reject this state; a simple proof-vs-CH comparison must succeed.
+        partitions = []
+        for part in original["proof"]["partitions"]:
+            table = part["table"]
+            observed = database.query_json(
+                "SELECT count() AS n, lower(hex(SHA256(arrayStringConcat(arraySort(groupArray("
+                + _physical_row_sql(table)
+                + ")),'')))) AS digest FROM "
+                + table
+            )[0]
+            assert int(observed["n"]) == part["row_count"]
+            partitions.append({"table": table, "row_count": int(observed["n"]), "row_set_digest": observed["digest"]})
+        proof_before = fixture("physical-proof-record", segment=segment, partitions=partitions)
+        assert proof_before != original["proof"]
+        with psycopg.connect(postgres_dsn) as connection:
+            connection.execute(
+                "ALTER TABLE market_segment_physical_proof DISABLE TRIGGER market_segment_physical_proof_reject_mutation"
+            )
+            changed = connection.execute(
+                "UPDATE market_segment_physical_proof SET proof_fingerprint=%s,proof=%s::jsonb WHERE segment_id=%s",
+                (proof_before["fingerprint"], json.dumps(proof_before), segment["segment_id"]),
+            )
+            assert changed.rowcount == 1
+            connection.execute(
+                "ALTER TABLE market_segment_physical_proof ENABLE TRIGGER market_segment_physical_proof_reject_mutation"
+            )
+        accepted_history = probe(market_probe, database, "segment", id=segment["segment_id"])
+        assert accepted_history == {"segment": original["segment"], "proof": proof_before}
+        assert probe(market_probe, database, "read", id=revision_id) == read
     with psycopg.connect(postgres_dsn) as c:
         before = c.execute("SELECT to_jsonb(t) FROM market_data_revision t").fetchall()
-    read = probe(market_probe, database, "read", id=revision.revision_id)
-    assert read["manifest"]["fingerprint"] == manifest.fingerprint
-    assert read["seal"]["seal_id"] == seal.seal_id
-    proof_before = catalog.load_physical_proofs((segment.segment_id,))[0].to_dict()
     before_wal = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
     before_physical = {
         table: database.query_json(f"SELECT * FROM {table}")
@@ -373,8 +691,8 @@ def test_original_published_proof_does_not_authorize_a_wrong_current_wal_project
         assert not list(tmp_path.glob("*.gc.*"))
     else:
         assert recovered == {"count": 1}, recovered
-        assert not (tmp_path / f"{segment.segment_id}.sealed.wal").exists()
-    assert catalog.load_physical_proofs((segment.segment_id,))[0].to_dict() == proof_before
+        assert not (tmp_path / f"{segment['segment_id']}.sealed.wal").exists()
+    assert probe(market_probe, database, "segment", id=segment["segment_id"])["proof"] == proof_before
     assert {table: database.query_json(f"SELECT * FROM {table}") for table in before_physical} == before_physical
 
     with psycopg.connect(postgres_dsn) as c:
@@ -383,7 +701,7 @@ def test_original_published_proof_does_not_authorize_a_wrong_current_wal_project
 
 @pytest.mark.parametrize("stop", ["BeforeStore", "RawWritten", "StoreWritten", "Verified", "CatalogCommitted"])
 def test_every_durable_boundary_preserves_recoverable_or_explicit_partial_state(
-    market_probe: Path, database: OnlyClickHouseClient, tmp_path: Path, stop: str
+    market_probe: Path, database: ClickHouseObservations, tmp_path: Path, stop: str
 ) -> None:
     wal, segment = retained(tmp_path)
     stopped = drain(market_probe, database, wal, segment, stop=stop)
@@ -462,7 +780,7 @@ class DelayedOriginal:
 
 
 def test_ambiguous_submit_then_absent_restart_never_resends_delayed_original(
-    market_probe: Path, database: OnlyClickHouseClient, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, tmp_path: Path
 ) -> None:
     wal, segment = retained(tmp_path, "RAW_ONLY")
     delayed = DelayedOriginal(database.config.url)
@@ -489,10 +807,10 @@ def test_ambiguous_submit_then_absent_restart_never_resends_delayed_original(
 
 
 def test_intent_preserves_admission_occurrences_and_reuses_complete_history_from_older_binding(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:
     wal, segment = retained(tmp_path)
-    scope = _scope_payload(segment.recovery_scope())
+    scope = _scope_payload(segment)
     intent = probe(market_probe, database, "intent", scope=scope, provenance="REST_BACKFILL", binding="b" * 64)
     assert intent["admitted_at"] == AT.isoformat()
     assert (
@@ -550,7 +868,7 @@ def test_intent_preserves_admission_occurrences_and_reuses_complete_history_from
     ],
 )
 def test_selected_owner_and_relation_mutations_fail_closed(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path, case: str
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path, case: str
 ) -> None:
     wal, segment = retained(tmp_path)
     result = drain(market_probe, database, wal, segment)
@@ -591,13 +909,13 @@ def test_selected_owner_and_relation_mutations_fail_closed(
                 "UPDATE market_data_revision SET scope=jsonb_set(scope,'{end_ns}',to_jsonb((scope->>'end_ns')::bigint+60000000000))"
             )
     assert "error" in probe(market_probe, database, "read", id=rid)
-    scope = _scope_payload(segment.recovery_scope())
+    scope = _scope_payload(segment)
     range_result = probe(market_probe, database, "range", scope=scope, intervals=[[scope["start_ns"], scope["end_ns"]]])
     assert "error" in range_result
 
 
 def test_physical_column_corruption_is_not_hidden_by_payload_or_record_hash(
-    market_probe: Path, database: OnlyClickHouseClient, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, tmp_path: Path
 ) -> None:
     wal, segment = retained(tmp_path)
     result = drain(market_probe, database, wal, segment)
@@ -610,21 +928,21 @@ def test_physical_column_corruption_is_not_hidden_by_payload_or_record_hash(
 
 
 def test_range_membership_excludes_unrelated_overlapping_segment(
-    market_probe: Path, database: OnlyClickHouseClient, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, tmp_path: Path
 ) -> None:
     first_wal, first = retained(tmp_path / "first", index=0, segment_id="first")
     first_result = drain(market_probe, database, first_wal, first)
     second_wal, second = retained(tmp_path / "second", index=1, segment_id="second")
-    assert first.start_ns is not None
-    wider = _scope_payload(replace(second.recovery_scope(), start_ns=first.start_ns))
-    incomplete = probe(market_probe, database, "drain", root=str(second_wal.root), ids=[second.segment_id], scope=wider)
+    assert first["start_ns"] is not None
+    wider = _scope_payload({**second, "start_ns": first["start_ns"]})
+    incomplete = probe(market_probe, database, "drain", root=str(second_wal), ids=[second["segment_id"]], scope=wider)
     assert incomplete["manifest"]["coverage_status"] == "INCOMPLETE"
-    scope = _scope_payload(first.recovery_scope())
-    queried = probe(market_probe, database, "range", scope=scope, intervals=[[first.start_ns, second.end_ns]])
+    scope = _scope_payload(first)
+    queried = probe(market_probe, database, "range", scope=scope, intervals=[[first["start_ns"], second["end_ns"]]])
     assert queried["status"] == "INCOMPLETE" and queried["facts"] == []
     assert len(queried["evidence"]) == 1
     assert queried["evidence"][0]["revision_id"] == first_result["revision"]["revision_id"]
-    assert queried["gaps"] == [{"start_ns": first.end_ns, "end_ns": second.end_ns}]
+    assert queried["gaps"] == [{"start_ns": first["end_ns"], "end_ns": second["end_ns"]}]
 
 
 @pytest.mark.parametrize(
@@ -641,21 +959,21 @@ def test_range_membership_excludes_unrelated_overlapping_segment(
     ],
 )
 def test_real_gc_restart_requires_exact_physical_and_applicable_catalog_authority(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path, state: str
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path, state: str
 ) -> None:
     wal, segment = retained(tmp_path)
     assert drain(market_probe, database, wal, segment, stop="CatalogCommitted") == {
         "error": "MARKET_DATA_RECOVERY_STOPPED"
     }
     marker = json.dumps(
-        {"schema_version": 1, "segment_id": segment.segment_id, "content_hash": segment.content_hash},
+        {"schema_version": 1, "segment_id": segment["segment_id"], "content_hash": segment["content_hash"]},
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
     if state == "stage-prefix":
         (tmp_path / "retained.gc.json.tmp").write_bytes(marker[:20])
     elif state == "wrong-hash":
-        (tmp_path / "retained.gc.json").write_bytes(marker.replace(segment.content_hash.encode(), b"a" * 64))
+        (tmp_path / "retained.gc.json").write_bytes(marker.replace(segment["content_hash"].encode(), b"a" * 64))
     else:
         (tmp_path / "retained.gc.json").write_bytes(marker)
     if state in {"moved", "metadata-removed", "content-removed", "missing-marker"}:
@@ -723,10 +1041,10 @@ class RecorderBarrierProxy:
 
 
 def test_real_pending_drain_does_not_block_recording_or_consume_live_open_segment(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:
     wal, segment = retained(tmp_path)
-    bundle = json.loads(only_encode_record_bundle(wal.read_sealed(segment.segment_id)[0]))
+    bundle = json.loads(json.dumps(retained_records(wal, segment)["records"][0]))
     bundle["canonical_facts"] = []
     proxy = RecorderBarrierProxy(database.config.url, tmp_path)
     child = None
@@ -734,8 +1052,8 @@ def test_real_pending_drain_does_not_block_recording_or_consume_live_open_segmen
         request = {
             "op": "drain-record",
             "root": str(tmp_path),
-            "scope": _scope_payload(segment.recovery_scope()),
-            "ids": [segment.segment_id],
+            "scope": _scope_payload(segment),
+            "ids": [segment["segment_id"]],
             "live_bundle": bundle,
             "at": AT.isoformat(),
             "url": proxy.url,
@@ -760,7 +1078,7 @@ def test_real_pending_drain_does_not_block_recording_or_consume_live_open_segmen
         child.stdin = None
         assert proxy.appended.wait(15), "recorder completed two durable appends while physical request is held"
         assert child.poll() is None, "drain must still await the controlled physical request"
-        frames = tuple(OnlyMarketDataWal._decode_frames((tmp_path / "live.open.wal").read_bytes(), sealed=False))
+        frames = tuple(observed_frames((tmp_path / "live.open.wal").read_bytes()))
         assert len(frames) == 2
         assert not (tmp_path / "live.segment.json").exists()
         with psycopg.connect(postgres_dsn) as c:
@@ -774,9 +1092,7 @@ def test_real_pending_drain_does_not_block_recording_or_consume_live_open_segmen
         result = json.loads(output)
         assert result["appended"] is True and result["live_open"] is True
         assert not (tmp_path / "retained.sealed.wal").exists()
-        assert (
-            len(tuple(OnlyMarketDataWal._decode_frames((tmp_path / "live.open.wal").read_bytes(), sealed=False))) == 2
-        )
+        assert len(tuple(observed_frames((tmp_path / "live.open.wal").read_bytes()))) == 2
     finally:
         proxy.release.set()
         if child is not None and child.poll() is None:
@@ -786,7 +1102,7 @@ def test_real_pending_drain_does_not_block_recording_or_consume_live_open_segmen
 
 
 def test_operation_cumulative_budget_fails_before_dispatch_and_does_not_certify_empty(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:
     first, a = retained(tmp_path, segment_id="a", raw_payload=b"x" * 6000)
     second, b = retained(tmp_path, segment_id="b", raw_payload=b"x" * 6000)
@@ -795,7 +1111,7 @@ def test_operation_cumulative_budget_fails_before_dispatch_and_does_not_certify_
     for wal, segment in ((first, a), (second, b)):
         result = drain(market_probe, database, wal, segment, max_bytes=budget, stop="BeforeStore")
         assert result == {"error": "MARKET_DATA_RECOVERY_STOPPED"}
-    request = dict(root=str(tmp_path), ids=[a.segment_id, b.segment_id], scope=_scope_payload(a.recovery_scope()))
+    request: dict[str, Any] = dict(root=str(tmp_path), ids=[a["segment_id"], b["segment_id"]], scope=_scope_payload(a))
     assert probe(market_probe, database, "drain", max_bytes=budget, **request) == {
         "error": "MARKET_DATA_STORE_UNAVAILABLE"
     }
@@ -811,7 +1127,7 @@ def test_operation_cumulative_budget_fails_before_dispatch_and_does_not_certify_
 
 
 def test_native_empty_raw_payload_is_a_physical_value(
-    market_probe: Path, database: OnlyClickHouseClient, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, tmp_path: Path
 ) -> None:
     wal, segment = retained(tmp_path, "RAW_ONLY", raw_payload=b"")
     result = drain(market_probe, database, wal, segment)
@@ -820,16 +1136,16 @@ def test_native_empty_raw_payload_is_a_physical_value(
 
 
 def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_producer_equality(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:
     old_wal, old = retained(tmp_path / "old", index=0, segment_id="old")
     old_result = drain(market_probe, database, old_wal, old)
     assert old_result["revision"] is not None
-    assert not (old_wal.root / "old.sealed.wal").exists()
+    assert not (old_wal / "old.sealed.wal").exists()
     new_wal, new = retained(tmp_path / "new", index=1, segment_id="new", binding="b" * 64)
-    assert old.integration_binding_fingerprint is None and new.integration_binding_fingerprint == "b" * 64
-    assert new.end_ns is not None
-    scope = _scope_payload(replace(old.recovery_scope(), end_ns=new.end_ns))
+    assert old["integration_binding_fingerprint"] is None and new["integration_binding_fingerprint"] == "b" * 64
+    assert new["end_ns"] is not None
+    scope = _scope_payload({**old, "end_ns": new["end_ns"]})
     intent = probe(market_probe, database, "intent", scope=scope, provenance="REST_BACKFILL", binding="b" * 64)
     probe(market_probe, database, "lease-start", id=intent["acquisition_id"])
     new_result = drain(market_probe, database, new_wal, new)
@@ -842,7 +1158,7 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
         revision_id=new_result["revision"]["revision_id"],
         detail="unrelated incomplete requested coverage",
     ) == {"error": "MARKET_DATA_EVIDENCE_UNPROVABLE"}
-    references = sorted([[old.segment_id, old.content_hash], [new.segment_id, new.content_hash]])
+    references = sorted([[old["segment_id"], old["content_hash"]], [new["segment_id"], new["content_hash"]]])
     result = probe(market_probe, database, "compose", scope=scope, refs=references)
     assert result["manifest"]["coverage_status"] == "COMPLETE"
     assert result["revision"]["segment_refs"] == references
@@ -857,7 +1173,7 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
         detail="old history plus exact current gap",
     )
     assert complete["outcome"] == "COMPLETE"
-    assert not list(old_wal.root.glob("*.sealed.wal")) and not list(new_wal.root.glob("*.sealed.wal"))
+    assert not list(old_wal.glob("*.sealed.wal")) and not list(new_wal.glob("*.sealed.wal"))
     wrong = [references[0], references[1].copy()]
     wrong[1][1] = "f" * 64
     assert probe(market_probe, database, "compose", scope=scope, refs=wrong) == {
@@ -871,7 +1187,7 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
     }
     foreign_wal, foreign = retained(tmp_path / "foreign", "TRADE", index=10, segment_id="foreign")
     drain(market_probe, database, foreign_wal, foreign)
-    wrong_family = sorted([references[0], [foreign.segment_id, foreign.content_hash]])
+    wrong_family = sorted([references[0], [foreign["segment_id"], foreign["content_hash"]]])
     assert probe(market_probe, database, "compose", scope=scope, refs=wrong_family) == {
         "error": "MARKET_DATA_EVIDENCE_UNPROVABLE"
     }
@@ -880,7 +1196,7 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
         c.execute(
             "ALTER TABLE market_segment_physical_proof DISABLE TRIGGER market_segment_physical_proof_reject_mutation"
         )
-        c.execute("DELETE FROM market_segment_physical_proof WHERE segment_id=%s", (old.segment_id,))
+        c.execute("DELETE FROM market_segment_physical_proof WHERE segment_id=%s", (old["segment_id"],))
     assert probe(market_probe, database, "compose", scope=scope, refs=references) == {
         "error": "MARKET_DATA_EVIDENCE_UNPROVABLE"
     }
@@ -889,20 +1205,20 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
 
 
 def test_range_query_explicitly_rejects_non_bar_family(
-    market_probe: Path, database: OnlyClickHouseClient, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, tmp_path: Path
 ) -> None:
     _wal, segment = retained(tmp_path, "TRADE", index=10)
-    scope = _scope_payload(segment.recovery_scope())
+    scope = _scope_payload(segment)
     assert probe(market_probe, database, "range", scope=scope, intervals=[[scope["start_ns"], scope["end_ns"]]]) == {
         "error": "MARKET_DATA_INPUT_INVALID"
     }
 
 
 def test_latest_exact_family_selects_stored_metadata_and_never_falls_back_from_bad_latest(
-    market_probe: Path, database: OnlyClickHouseClient, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, tmp_path: Path
 ) -> None:
     old_wal, old = retained(tmp_path / "old", index=0, segment_id="old")
-    family = _scope_payload(old.recovery_scope())
+    family = _scope_payload(old)
     assert probe(market_probe, database, "latest", scope=family) == {"error": "SEALED_REVISION_NOT_FOUND"}
     first = drain(market_probe, database, old_wal, old)
     new_wal, new = retained(tmp_path / "new", index=1, segment_id="new")
@@ -910,20 +1226,20 @@ def test_latest_exact_family_selects_stored_metadata_and_never_falls_back_from_b
     selected = probe(market_probe, database, "latest", scope=family)
     assert selected["revision"]["revision_id"] == newest["revision"]["revision_id"]
     assert selected["revision"]["revision_id"] != first["revision"]["revision_id"]
-    assert len(selected["facts"]) == 1 and selected["facts"][0]["segment_id"] == new.segment_id
+    assert len(selected["facts"]) == 1 and selected["facts"][0]["segment_id"] == new["segment_id"]
     database.execute("ALTER TABLE market_bar UPDATE close=close+1 WHERE segment_id='new' SETTINGS mutations_sync=2")
     assert probe(market_probe, database, "latest", scope=family) == {"error": "MARKET_DATA_EVIDENCE_UNPROVABLE"}
 
 
 def test_unknown_occurrence_is_retained_when_a_new_execution_reacquires_the_exact_lease(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:
     _wal, segment = retained(tmp_path)
     intent = probe(
         market_probe,
         database,
         "intent",
-        scope=_scope_payload(segment.recovery_scope()),
+        scope=_scope_payload(segment),
         provenance="REST_BACKFILL",
         binding="b" * 64,
     )
@@ -942,49 +1258,33 @@ def test_unknown_occurrence_is_retained_when_a_new_execution_reacquires_the_exac
 
 
 def test_current_native_trade_published_before_gc_recovers_with_all_columns_exact(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:
     wal, segment = retained(tmp_path, "TRADE", index=10)
     assert drain(market_probe, database, wal, segment, stop="CatalogCommitted") == {
         "error": "MARKET_DATA_RECOVERY_STOPPED"
     }
-    before = probe(market_probe, database, "segment", id=segment.segment_id)
+    before = probe(market_probe, database, "segment", id=segment["segment_id"])
     assert database.query_json("SELECT provider_event_id FROM market_trade") == ({"provider_event_id": "10"},)
-    assert (tmp_path / f"{segment.segment_id}.sealed.wal").exists()
+    assert (tmp_path / f"{segment['segment_id']}.sealed.wal").exists()
     assert probe(market_probe, database, "recover", root=str(tmp_path), startup=True) == {"count": 1}
-    assert not (tmp_path / f"{segment.segment_id}.sealed.wal").exists()
-    assert probe(market_probe, database, "segment", id=segment.segment_id) == before
+    assert not (tmp_path / f"{segment['segment_id']}.sealed.wal").exists()
+    assert probe(market_probe, database, "segment", id=segment["segment_id"]) == before
 
 
 @pytest.mark.parametrize("case", ["complete", "duplicate", "conflict", "timestamp", "payload"])
 def test_range_filters_intervals_only_after_whole_revision_proof(
-    market_probe: Path, database: OnlyClickHouseClient, tmp_path: Path, case: str
+    market_probe: Path, database: ClickHouseObservations, tmp_path: Path, case: str
 ) -> None:
-    def sealed(
-        name: str, updates: tuple[OnlyMarketDataInboundUpdate, ...]
-    ) -> tuple[OnlyMarketDataWal, OnlyIngestSegment, tuple[OnlyCanonicalMarketFactRecord, ...]]:
-        seed, seed_segment = retained(tmp_path / ("seed-" + name), segment_id="seed-" + name)
-        evidence = seed.read_sealed(seed_segment.segment_id)[0].evidence
-        facts = tuple(
-            OnlyCanonicalMarketFactRecord.bind(
-                update,
-                evidence,
-                segment_id=name,
-                ts_ingest_ns=123,
-                normalizer_id="native-reference",
-                normalizer_version="1",
-            )
-            for update in updates
-        )
-        wal = OnlyMarketDataWal(tmp_path / name, capacity_bytes=32 * 1024 * 1024, now=lambda: AT)
-        wal.open_segment(name)
-        wal.append(OnlyMarketDataRecordBundle(evidence, facts))
-        return wal, wal.seal(sealed_at=AT), facts
+    def sealed(name: str, updates: list[dict[str, Any]]) -> tuple[Path, dict[str, Any], list[dict[str, Any]]]:
+        wal, segment = retained(tmp_path / name, segment_id=name, updates=updates)
+        facts = retained_records(wal, segment)["records"][0]["canonical_facts"]
+        return wal, segment, facts
 
-    wal, segment, facts = sealed("wide", tuple(bar_update(index) for index in range(3)))
+    wal, segment, facts = sealed("wide", [{"index": index} for index in range(3)])
     published = drain(market_probe, database, wal, segment)
     assert published["manifest"]["coverage_status"] == "COMPLETE"
-    scope = _scope_payload(segment.recovery_scope())
+    scope = _scope_payload(segment)
     start = scope["start_ns"]
     end = scope["end_ns"]
     assert isinstance(start, int) and isinstance(end, int)
@@ -992,7 +1292,7 @@ def test_range_filters_intervals_only_after_whole_revision_proof(
     intervals = [[start, start + stride], [start + 2 * stride, end]]
     if case in {"duplicate", "conflict"}:
         duplicate_wal, duplicate_segment, _ = sealed(
-            "another", (bar_update(0, close="101.50000000" if case == "conflict" else "101.00000000"),)
+            "another", [{"index": 0, "close": "101.50000000" if case == "conflict" else "101.00000000"}]
         )
         assert (
             drain(market_probe, database, duplicate_wal, duplicate_segment)["manifest"]["coverage_status"] == "COMPLETE"
@@ -1000,7 +1300,7 @@ def test_range_filters_intervals_only_after_whole_revision_proof(
     if case in {"timestamp", "payload"}:
         # This middle fact is outside both requested intervals but remains inside
         # the exact selected Revision, so its physical proof must still be read.
-        payload = {**facts[1].canonical_payload, "ts_event": "malformed-timestamp"} if case == "timestamp" else {}
+        payload = {**facts[1]["canonical_payload"], "ts_event": "malformed-timestamp"} if case == "timestamp" else {}
         mutation = "canonical_payload_json=" + _quote(
             json.dumps(only_canonical_payload(payload), sort_keys=True, separators=(",", ":"))
         )
@@ -1017,62 +1317,44 @@ def test_range_filters_intervals_only_after_whole_revision_proof(
         assert result["complete_intervals"] == result["expected"] == 2
         assert result["gaps"] == result["issues"] == []
         assert [fact["canonical_fact_id"] for fact in result["facts"]] == [
-            facts[index].canonical_fact_id for index in (0, 2)
+            facts[index]["canonical_fact_id"] for index in (0, 2)
         ]
         assert len(result["facts"]) == 2
         assert len(result["evidence"]) == (2 if case == "duplicate" else 1)
 
 
 def test_native_sealed_dataset_materialization_matches_sdk_and_survives_ack_loss(
-    market_probe: Path, database: OnlyClickHouseClient, postgres_dsn: str, tmp_path: Path
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:
-    from onlyalpha.core.ranges import OnlyTimeRange
-    from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
-    from onlyalpha.research.dataset.identity import only_content_fingerprint, only_snapshot_fingerprint
-    from onlyalpha.research.dataset.lineage import OnlyMarketDataRevisionBinding, only_dataset_materialization_id
-    from onlyalpha.research.dataset.parquet_store import OnlyParquetResearchDatasetSnapshotStore
-    from onlyalpha.research.dataset.schema import RESEARCH_BAR_DATASET_SCHEMA_V2
-    from onlyalpha.research.dataset.sealed_input_identity import (
-        OnlySealedMarketDataMaterializationPlan,
-        only_sealed_market_data_input_fingerprints,
-    )
-
     wal_root = tmp_path / "wal"
     wal_root.mkdir()
     wal, segment = retained(wal_root, "BAR")
+    reference = retained_records(wal, segment)
+    bar = reference["records"][0]["canonical_facts"][0]["canonical_payload"]["payload"]["value"]
     sealed = drain(market_probe, database, wal, segment)
     assert "error" not in sealed, sealed
-    scope = segment.recovery_scope()
-    assert scope.bar_construction is not None
-    from onlyalpha.data.models import OnlyBarUpdate
-
-    payload = bar_update(0).payload
-    assert isinstance(payload, OnlyBarUpdate)
-    bar = payload.bar
-    definition = OnlyResearchDatasetDefinition(
-        (bar.instrument_id,), bar.bar_type.semantic, OnlyTimeRange(bar.ts_event, bar.ts_event + timedelta(minutes=1))
-    )
+    scope = _scope_payload(segment)
+    assert scope["bar_construction"] is not None
+    first = datetime.fromisoformat(bar["ts_event"])
+    definition = {
+        "schema_version": 2,
+        "dataset_type": "HISTORICAL_BAR",
+        "instruments": [scope["instrument_id"]],
+        "bar_semantic": scope["bar_construction"]["plan"]["target_semantic"],
+        "time_range": {"start": first.isoformat(), "end": (first + timedelta(minutes=1)).isoformat()},
+        "quality_policy": "STRICT",
+        "closed_only": True,
+    }
     revision = sealed["revision"]
-    plan = OnlySealedMarketDataMaterializationPlan((revision["revision_id"],), definition, (scope,))
-    construction, request = only_sealed_market_data_input_fingerprints(
-        plan,
-        (
-            (
-                str(bar.instrument_id),
-                scope.bar_construction.fingerprint,
-                revision["fingerprint"],
-                sealed["seal"]["seal_id"],
-            ),
-        ),
+    reference = fixture(
+        "dataset-reference", definition=definition, scope=scope, revision=revision, seal=sealed["seal"], bars=[bar]
     )
-    expected = only_snapshot_fingerprint(
-        definition, RESEARCH_BAR_DATASET_SCHEMA_V2, only_content_fingerprint((bar,)), 1, construction
-    )
+    expected, request = reference["snapshot"], reference["request"]
     dataset_root = tmp_path / "datasets"
     dataset_root.mkdir()
     args = dict(
         id=revision["revision_id"],
-        definition=definition.to_dict(),
+        definition=definition,
         scope=_scope_payload(scope),
         dataset_root=str(dataset_root),
     )
@@ -1103,16 +1385,37 @@ def test_native_sealed_dataset_materialization_matches_sdk_and_survives_ack_loss
     original = probe(market_probe, database, "dataset-materialize", **args)
     assert "error" not in original, original
     assert original["snapshot"]["snapshot_fingerprint"] == expected
-    binding = OnlyMarketDataRevisionBinding(
-        scope.source_id, scope.instrument_id, "BAR", revision["revision_id"], revision["fingerprint"]
-    )
-    assert original["lineage"]["materialization_id"] == only_dataset_materialization_id(
-        expected, (binding,), "onlyalpha.sealed-market-data", "1", request
-    )
-    # Independent reader, actual Parquet bytes and the original SDK Domain values.
-    reader = OnlyParquetResearchDatasetSnapshotStore(dataset_root)
-    assert reader.load_bars(expected) == (bar,)
-    assert reader.load_materialization(original["lineage"]["materialization_id"]).request_fingerprint == request
+    assert original["lineage"]["materialization_id"] == reference["materialization"]
+
+    def read_original() -> dict[str, Any]:
+        return fixture(
+            "dataset-read", dataset_root=str(dataset_root), materialization=original["lineage"]["materialization_id"]
+        )
+
+    restored = read_original()
+    assert restored["bars"] == [bar]
+    assert restored["lineage"]["request_fingerprint"] == request
+    # Read actual immutable Parquet independently of the backend Dataset reader.
+    import pyarrow.parquet as parquet
+
+    files = list(dataset_root.glob("sha256/*/*/data/*.parquet"))
+    assert len(files) == 1
+    rows = parquet.read_table(files[0]).to_pylist()
+    from decimal import Decimal
+
+    assert [
+        {
+            key: format(value, "f")
+            if isinstance(value, Decimal)
+            else value.isoformat()
+            if isinstance(value, datetime)
+            else value.isoformat()
+            if isinstance(value, date)
+            else value
+            for key, value in row.items()
+        }
+        for row in rows
+    ] == reference["rows"]
     again = probe(market_probe, database, "dataset-materialize", **args)
     assert again == original
     # Existing immutable Snapshot stays readable when its physical source becomes
@@ -1120,7 +1423,7 @@ def test_native_sealed_dataset_materialization_matches_sdk_and_survives_ack_loss
     database.execute("ALTER TABLE market_bar UPDATE close = close + 1 WHERE 1 SETTINGS mutations_sync=2")
     refused = probe(market_probe, database, "dataset-materialize", **args)
     assert "error" in refused
-    assert reader.load_bars(expected) == (bar,)
+    assert read_original()["bars"] == [bar]
 
 
 @pytest.fixture(scope="session")
@@ -1191,19 +1494,14 @@ def native_research_case(
 def prepare_native_research_case(
     market_probe: Path,
     native_research_executor: Path,
-    database: OnlyClickHouseClient,
+    database: ClickHouseObservations,
     postgres_dsn: str,
     tmp_path: Path,
     mode: str,
     native_research_algorithm_bundle: tuple[Path, Path, str],
 ) -> dict[str, Any]:
-    import hashlib
-    from uuid import UUID, uuid4
+    from uuid import uuid4
 
-    from onlyalpha.core.ranges import OnlyTimeRange
-    from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
-    from onlyalpha.research.novelty.model import OnlyNoveltyPolicyRevisionV1
-    from onlyalpha.research.novelty.store import OnlyNoveltyPolicyStore
     from packages.backend.tests.application.support.research_admission_reference import build
     from packages.backend.tests.application.test_factor_proposals_postgres import call, grant, proposal
 
@@ -1234,12 +1532,7 @@ def prepare_native_research_case(
     )
     assert "error" not in accepted, accepted
     command = str(uuid4())
-    digest = bytearray(
-        hashlib.sha256(b"ONLYALPHA_NOVELTY_GATED_RESEARCH_RUN_ID_V4\x1f" + command.encode()).digest()[:16]
-    )
-    digest[6] = (digest[6] & 15) | 64
-    digest[8] = (digest[8] & 63) | 128
-    work_id = str(UUID(bytes=bytes(digest)))
+    work_id = fixture("run-id", binary=market_probe, command=command)["run_id"]
     factor = build(
         tmp_path / "runtime",
         native_research_executor,
@@ -1250,63 +1543,37 @@ def prepare_native_research_case(
     )
     actual = tmp_path / "runtime/native-executor"
     semantic = tmp_path / "semantic"
+    semantic.mkdir(mode=0o700)
+    provision = probe(actual, database, "strategy-evidence-provision", semantic_root=str(semantic))
+    assert "error" not in provision, provision
     research = semantic / "research"
     datasets = research / "datasets"
-    datasets.mkdir(parents=True)
     projection = research / "experiment-memory"
-    projection.mkdir()
-    policy = json.loads((ROOT / "packages/backend/tests/application/fixtures/research_novelty.json").read_text())[
-        "policy"
-    ]
-    OnlyNoveltyPolicyStore(semantic).put(OnlyNoveltyPolicyRevisionV1.from_dict(policy))
-    source_roots = {
-        "RESEARCH_RESULT": str(research / "results"),
-        "RESEARCH_STATISTICS": str(research / "statistics-results"),
-        "RESEARCH_FACTOR_PAIR_STATISTICS": str(research / "statistics-results"),
-        "RESEARCH_SUMMARY_STATISTICS": str(research / "statistics-results"),
-    }
-    for family, name in [
-        ("AGENT_PROVENANCE", "agent-provenance"),
-        ("QUALIFICATION_DECISION", "qualification-decisions"),
-        ("SEARCH_PROVENANCE", "search-provenance"),
-    ]:
-        directory = research / name
-        directory.mkdir()
-        (directory / "sha256").mkdir()
-        (directory / ".source-cut.lock").touch(mode=0o600)
-        source_roots[family] = str(directory)
-    seed, segment = retained(tmp_path / "seed", segment_id="research-seed")
-    evidence = seed.read_sealed(segment.segment_id)[0].evidence
-    updates = tuple(bar_update(i, close=f"{100 + (i % 7) * 0.12 + (i % 11) * 0.01:.8f}") for i in range(128 + history))
-    facts = tuple(
-        OnlyCanonicalMarketFactRecord.bind(
-            update,
-            evidence,
-            segment_id="research-input",
-            ts_ingest_ns=123,
-            normalizer_id="native-reference",
-            normalizer_version="1",
-        )
-        for update in updates
-    )
-    wal = OnlyMarketDataWal(tmp_path / "wal", capacity_bytes=32 * 1024 * 1024, now=lambda: AT)
-    wal.open_segment("research-input")
-    wal.append(OnlyMarketDataRecordBundle(evidence, facts))
-    segment = wal.seal(sealed_at=AT)
+    source_roots = provision["source_roots"]
+    updates = [{"index": i, "close": f"{100 + (i % 7) * 0.12 + (i % 11) * 0.01:.8f}"} for i in range(128 + history)]
+    wal, segment = retained(tmp_path / "wal", segment_id="research-input", updates=updates)
     assert "error" not in drain(actual, database, wal, segment)
-    scope = segment.recovery_scope()
+    scope = _scope_payload(segment)
     composed = probe(
-        actual, database, "compose", scope=_scope_payload(scope), refs=[(segment.segment_id, segment.content_hash)]
+        actual,
+        database,
+        "compose",
+        scope=_scope_payload(scope),
+        refs=[(segment["segment_id"], segment["content_hash"])],
     )
     assert "error" not in composed, composed
-    first_update = updates[0].payload
-    assert isinstance(first_update, OnlyBarUpdate)
-    first = first_update.bar.ts_event
+    first = datetime.fromtimestamp(segment["start_ns"] // 1_000_000_000, UTC) + timedelta(minutes=1)
     end = first + timedelta(minutes=128 + history)
-    definition = OnlyResearchDatasetDefinition(
-        (first_update.bar.instrument_id,), first_update.bar.bar_type.semantic, OnlyTimeRange(first, end)
-    )
-    start_ns = scope.start_ns + (history + 1) * 60_000_000_000
+    definition = {
+        "schema_version": 2,
+        "dataset_type": "HISTORICAL_BAR",
+        "instruments": [scope["instrument_id"]],
+        "bar_semantic": scope["bar_construction"]["plan"]["target_semantic"],
+        "time_range": {"start": first.isoformat(), "end": end.isoformat()},
+        "quality_policy": "STRICT",
+        "closed_only": True,
+    }
+    start_ns = scope["start_ns"] + (history + 1) * 60_000_000_000
     end_ns = start_ns + 128 * 60_000_000_000
     study = {
         "schema_version": 1,
@@ -1326,7 +1593,7 @@ def prepare_native_research_case(
     request = dict(
         at="2026-10-29T00:00:00Z",
         id=composed["revision"]["revision_id"],
-        definition=definition.to_dict(),
+        definition=definition,
         scope=_scope_payload(scope),
         dataset_root=str(datasets),
         factor=factor,
@@ -1337,7 +1604,8 @@ def prepare_native_research_case(
         research_root=str(research),
         projection_root=str(projection),
         source_roots=source_roots,
-        initialize_evidence=True,
+        initialize_evidence=False,
+        policy_id="onlyalpha.factor-research",
         mode=mode,
     )
     return dict(
@@ -1467,10 +1735,6 @@ def test_native_strategy_environment_retains_target_calculation_artifact_without
 ) -> None:
     import hashlib
 
-    from onlyalpha_gateway_protocol.distribution import OnlyDistributionArtifactManifest
-
-    from onlyalpha.generation_identity import OnlyRuntimeGenerationManifest
-
     case = native_environment_case
     root, executable, artifact, vector = (case[k] for k in ["root", "executable", "artifact", "vector"])
 
@@ -1505,25 +1769,34 @@ def test_native_strategy_environment_retains_target_calculation_artifact_without
     legacy_history = (legacy_root / "generation-events.jsonl").read_bytes()
     runtime = tmp_path / "use_test_strategy_runtime"
     first = run("STRATEGY", runtime, True)
-    manifest = OnlyRuntimeGenerationManifest.from_dict(first["manifest"])
+    manifest = first["manifest"]
     assert first["snapshot"] == {
         "active_for_new_work": None,
-        "states": {manifest.runtime_generation_fingerprint: "READY"},
+        "states": {manifest["runtime_generation_fingerprint"]: "READY"},
     }
-    assert (
-        len(manifest.artifact_sha256s)
-        == len(OnlyRuntimeGenerationManifest.from_dict(legacy["manifest"]).artifact_sha256s) + 1
-    )
+    assert len(manifest["artifact_sha256s"]) == len(legacy["manifest"]["artifact_sha256s"]) + 1
     artifacts = [
         json.loads((runtime / "artifacts" / digest[:2] / digest / "manifest.json").read_text())
-        for digest in manifest.artifact_sha256s
+        for digest in manifest["artifact_sha256s"]
     ]
     targets = [m for m in artifacts if m["distribution_name"] == "onlyalpha-backend-algorithms"]
     assert len(targets) == 1
     target = targets[0]
-    assert OnlyDistributionArtifactManifest.from_dict(target).to_dict() == target
+    # Re-enter the actual Rust preparation/publication owners. Registry's
+    # install_artifact validates the complete Artifact manifest/fingerprint,
+    # physical wheel SHA/size and exact existing retained pair; no Python DTO
+    # can stand in for that proof or rewrite the original Generation history.
+    original_target = (
+        runtime / "artifacts" / target["artifact_sha256"][:2] / target["artifact_sha256"] / "manifest.json"
+    ).read_bytes()
+    original_history = (runtime / "generation-events.jsonl").read_bytes()
+    assert run("STRATEGY", runtime, False) == first
+    assert (
+        runtime / "artifacts" / target["artifact_sha256"][:2] / target["artifact_sha256"] / "manifest.json"
+    ).read_bytes() == original_target
+    assert (runtime / "generation-events.jsonl").read_bytes() == original_history
     assert target["role"] == "CALCULATION" and target["schema_version"] == 1
-    assert target["tested_core_execution_fingerprint"] == manifest.core_execution.fingerprint
+    assert target["tested_core_execution_fingerprint"] == only_canonical_fingerprint(manifest["core_execution"])
     assert target["assets"] == []
     assert all(target[k] is None for k in ("provider_id", "provider_version", "provider_content_fingerprint"))
     assert target["implementations"]
@@ -1585,229 +1858,6 @@ def test_native_strategy_environment_retains_target_calculation_artifact_without
         missing.rename(wheel)
 
 
-def strategy_preparation_case(
-    native_environment_case: dict[str, Any],
-    market_probe: Path,
-    database: OnlyClickHouseClient,
-    tmp_path: Path,
-    fault: str = "normal",
-    work_id: str = "use_test_strategy_prepare",
-    runtime_root: Path | None = None,
-    first_bar_start: datetime | None = None,
-    manual_only: bool = False,
-    fresh_runtime: bool = True,
-) -> dict[str, Any]:
-    from uuid import uuid4
-
-    from onlyalpha.core.ranges import OnlyTimeRange
-    from onlyalpha.research.dataset.definition import OnlyResearchDatasetDefinition
-    from packages.backend.tests.application.test_private_strategy_authoring_postgres import call as author
-
-    # Reuse the real sealed-release producer, rather than a caller-authored
-    # Runtime manifest or a value-test preparation grant.
-    case = native_environment_case
-    executable, release, artifact, vector = (case[k] for k in ["executable", "root", "artifact", "vector"])
-    runtime = runtime_root if runtime_root is not None else tmp_path / "use_test_strategy_runtime"
-    generation = None
-    if not manual_only:
-        try:
-            result = subprocess.run(
-                [str(executable)],
-                input=json.dumps(
-                    {
-                        "op": "runtime-environment",
-                        "preparation_kind": "STRATEGY",
-                        "factor": vector,
-                        "release_root": str(release),
-                        "runtime_root": str(runtime),
-                        "algorithm_artifact": artifact,
-                        "fresh": fresh_runtime,
-                        "bind_work": work_id,
-                        "activation_command": str(uuid4()),
-                        "at": "2026-11-01T01:00:00Z",
-                    }
-                ),
-                text=True,
-                capture_output=True,
-                check=True,
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired as error:
-            # Preserve the original deadline and expose only the probe's bounded
-            # phase markers; the request and deployment environment are not logged.
-            for line in (error.stderr or b"").decode("utf-8", errors="replace").splitlines():
-                if line.startswith("[runtime-environment] phase="):
-                    print(line, flush=True)
-            raise
-        environment = json.loads(result.stdout)
-        assert "error" not in environment, (environment, result.stderr)
-        generation = environment["manifest"]["runtime_generation_fingerprint"]
-        assert environment["snapshot"]["active_for_new_work"] == generation
-    saved = author(
-        market_probe,
-        vector["draft"]["factor_id"],
-        "save",
-        op="factor-authoring",
-        factor_id=vector["draft"]["factor_id"],
-        draft=vector["draft"],
-        expected=None,
-    )
-    assert "error" not in saved, saved
-    published = author(
-        market_probe,
-        vector["draft"]["factor_id"],
-        "publish",
-        op="factor-authoring",
-        factor_id=vector["draft"]["factor_id"],
-        expected=saved["result"]["draft_fingerprint"],
-    )
-    assert published["result"]["revision"] == vector["revision"]
-
-    # Controlled market inputs enter through existing WAL/seal/catalog owners.
-    # They are technical inputs, never claimed as real Binance observations.
-    seed, seed_segment = retained(tmp_path / "seed", segment_id="use-test-strategy-seed")
-    evidence = seed.read_sealed(seed_segment.segment_id)[0].evidence
-    evaluating = manual_only or fault == "evaluate" or fault.startswith("eval-")
-    row_count = 740 if evaluating else 28
-    updates = tuple(
-        bar_update(
-            i,
-            close="101.20200000" if i == 20 else "100.89900000" if i == 21 else "101.00000000",
-            first_bar_start=first_bar_start,
-        )
-        for i in range(row_count)
-    )
-    facts = tuple(
-        OnlyCanonicalMarketFactRecord.bind(
-            update,
-            evidence,
-            segment_id="use-test-strategy-input",
-            ts_ingest_ns=123,
-            normalizer_id="native-reference",
-            normalizer_version="1",
-        )
-        for update in updates
-    )
-    wal = OnlyMarketDataWal(tmp_path / "wal", capacity_bytes=32 * 1024 * 1024, now=lambda: AT)
-    wal.open_segment("use-test-strategy-input")
-    wal.append(OnlyMarketDataRecordBundle(evidence, facts))
-    segment = wal.seal(sealed_at=AT)
-    assert "error" not in drain(executable, database, wal, segment)
-    scope = segment.recovery_scope()
-    composed = probe(
-        executable, database, "compose", scope=_scope_payload(scope), refs=[(segment.segment_id, segment.content_hash)]
-    )
-    assert "error" not in composed, composed
-    first_update = updates[0].payload
-    assert isinstance(first_update, OnlyBarUpdate)
-    first = first_update.bar.ts_event
-    definition = OnlyResearchDatasetDefinition(
-        (first_update.bar.instrument_id,),
-        first_update.bar.bar_type.semantic,
-        OnlyTimeRange(first, first + timedelta(minutes=row_count)),
-    )
-    dataset_root = tmp_path / "datasets"
-    dataset_root.mkdir()
-
-    calculations = json.loads(
-        (ROOT / "packages/backend/tests/application/fixtures/strategy_calculations.json").read_text()
-    )
-    seed_strategy = json.loads((ROOT / "examples/private-assets/strategy/simple_momentum/strategy.json").read_text())[
-        "strategy"
-    ]["definition"]
-    seed_strategy["calculations"] = calculations["instances"]
-    seed_strategy["factor_revision_dependencies"] = calculations["factor_revision_dependencies"]
-    seed_strategy["signals"]["entry"]["operator"] = ">="
-    seed_strategy["signals"]["entry"]["right"]["value"]["value"] = "0.001"
-    seed_strategy["universe"] = {"kind": "SINGLE_INSTRUMENT", "instruments": [str(first_update.bar.instrument_id)]}
-    seed_strategy["market_input"]["bar_semantic"] = definition.to_dict()["bar_semantic"]
-    seed_strategy["market_input"]["construction_requirement"]["recipe"] = _scope_payload(scope)["bar_construction"][
-        "plan"
-    ]["resolved_recipe"]
-    strategy_id = "private.strategy.use_test_s" + uuid4().hex
-    strategy = {
-        "schema_version": 1,
-        "strategy_id": strategy_id,
-        "base_revision_fingerprint": None,
-        "semantic_version": "1",
-        "description": "Actual input proof",
-        "tags": [],
-        "definition": seed_strategy,
-    }
-    saved = author(market_probe, strategy_id, "save", draft=strategy, expected=None)
-    assert "error" not in saved, saved
-    revision = author(market_probe, strategy_id, "publish", expected=saved["result"]["draft_fingerprint"])["result"][
-        "revision"
-    ]
-    context = None
-    if not manual_only:
-        reference = json.loads(
-            (ROOT / "packages/backend/tests/application/fixtures/strategy_specification.json").read_text()
-        )
-        context = {
-            "schema_version": 1,
-            "start": (first + timedelta(minutes=20)).isoformat(),
-            "end": (first + timedelta(minutes=29 if fault == "window" else row_count)).isoformat(),
-            "targets": [
-                {
-                    "instance_key": "forward_return",
-                    "type_reference": {
-                        "kind": "TARGET",
-                        "type_id": "onlyalpha.target.forward_return",
-                        "semantic_version": "1",
-                    },
-                    "parameters": {"exit_offset": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 5}}},
-                    "published_outputs": ["target_value"],
-                    "primary_output": None,
-                    "input_bindings": [
-                        {"input_name": "entry_price", "source": "bar.close"},
-                        {"input_name": "exit_price", "source": "bar.close"},
-                    ],
-                }
-            ],
-            "statistics": [
-                {
-                    "variable": {"kind": "VARIABLE", "instance_key": "momentum", "output_name": "value"},
-                    "target_instance_key": "forward_return",
-                    "definition": reference["specification"]["statistics"][0]["definition"],
-                }
-            ],
-            "display_metadata": {},
-        }
-        if evaluating:
-            rank = context["statistics"][0]
-            context["statistics"].append({**rank, "definition": {**rank["definition"], "method": "RANK_IC"}})
-    selected = executable
-    if fault == "native":
-        selected = tmp_path / "different-backend-image"
-        selected.write_bytes(executable.read_bytes() + b"\n# different actual loaded native image\n")
-        selected.chmod(0o500)
-    arguments = dict(
-        id=composed["revision"]["revision_id"],
-        definition=definition.to_dict(),
-        scope=_scope_payload(scope),
-        dataset_root=str(dataset_root),
-        strategy_id=strategy_id,
-        strategy_revision=revision["revision_fingerprint"],
-        strategy_context=context,
-        strategy_fault=fault,
-        strategy_evaluation=evaluating,
-        runtime_root=str(runtime),
-        runtime_generation=generation,
-        algorithm_root=str(release / "algorithms"),
-        algorithm_artifact=artifact,
-    )
-    return dict(
-        selected=selected,
-        arguments=arguments,
-        vector=vector,
-        revision=revision,
-        strategy_id=strategy_id,
-        evaluating=evaluating,
-        updates=updates,
-    )
-
-
 @pytest.mark.parametrize(
     "fault",
     [
@@ -1825,7 +1875,7 @@ def strategy_preparation_case(
 def test_actual_strategy_preparation_consumes_composer_runtime_and_sealed_dataset(
     native_environment_case: dict[str, Any],
     market_probe: Path,
-    database: OnlyClickHouseClient,
+    database: ClickHouseObservations,
     postgres_dsn: str,
     tmp_path: Path,
     fault: str,
@@ -1834,6 +1884,20 @@ def test_actual_strategy_preparation_consumes_composer_runtime_and_sealed_datase
     selected, arguments, vector, revision, strategy_id, evaluating = (
         prepared_case[k] for k in ["selected", "arguments", "vector", "revision", "strategy_id", "evaluating"]
     )
+    if fault == "native":
+        # Prove this fault is a valid, differently loaded native ELF, rather
+        # than an unreadable/corrupt capability observation.
+        observed = subprocess.run(
+            [str(selected), "--describe-native-runtime"],
+            env={},
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=True,
+        )
+        image = json.loads(observed.stdout)["image"]
+        assert image["artifact"] == hashlib.sha256(selected.read_bytes()).hexdigest()
+        assert image["artifact"] != hashlib.sha256(native_environment_case["executable"].read_bytes()).hexdigest()
     actual = probe(selected, database, "dataset-strategy-prepare", **arguments)
     with psycopg.connect(postgres_dsn) as conn:
         assert conn.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
@@ -1850,7 +1914,11 @@ def test_actual_strategy_preparation_consumes_composer_runtime_and_sealed_datase
             "missing-composition": "PRIVATE_STRATEGY_COMPOSITION_CORRUPT",
             "native": "RESEARCH_NATIVE_IMAGE_MISMATCH",
         }[fault]
-        assert actual == {"error": expected}
+        assert actual == {"error": expected}, {
+            "fault": fault,
+            "actual_error": actual.get("error"),
+            "actual_keys": sorted(actual),
+        }
         assert compositions == ((0,) if fault == "missing-composition" else (1,))
         return
     if fault in {"eval-spec", "eval-cancel", "eval-dataset"}:
@@ -1922,19 +1990,13 @@ def test_actual_strategy_preparation_consumes_composer_runtime_and_sealed_datase
                 assert bindings[node["definition_fingerprint"]][key] == implementation["implementation_fingerprint"]
     assert "strategy_fingerprint" not in prepared and "strategy_fingerprint" not in spec
     if evaluating:
-        _assert_actual_strategy_evaluation(actual, prepared_case["updates"])
+        _assert_actual_strategy_evaluation(actual, prepared_case["axis_ns"])
     assert probe(selected, database, "dataset-strategy-prepare", **arguments) == actual
 
 
-def _assert_actual_strategy_evaluation(
-    actual: dict[str, Any], updates: tuple[OnlyMarketDataInboundUpdate, ...]
-) -> None:
+def _assert_actual_strategy_evaluation(actual: dict[str, Any], axis: list[int]) -> None:
     """Independent value checks over two actual numerical producers; no evidence grant."""
     from onlyalpha.calculation.definition import OnlyCalculationDefinition
-
-    from onlyalpha.domain.time import OnlyTimestamp
-    from onlyalpha.research.evaluation.plan import OnlyResearchStatisticsPlan
-    from onlyalpha.research.evaluation.result import OnlyResearchStatisticRow, OnlyResearchStatisticStatus
 
     evaluation, spec = actual["evaluation"], actual["specification"]
     assert evaluation["schema_version"] == 1
@@ -1946,11 +2008,6 @@ def _assert_actual_strategy_evaluation(
     assert evaluation["input_window"] == spec["input_window"]
     # The scientific Calculation/Statistics axis stays the full immutable Dataset.
     # Warmup is intrinsic NULL; the separate report window contains 720 samples.
-    assert all(isinstance(update.payload, OnlyBarUpdate) for update in updates)
-    axis = [
-        OnlyTimestamp.from_datetime(cast(OnlyBarUpdate, update.payload).bar.ts_event).to_unix_nanos()
-        for update in updates
-    ]
     assert len(axis) == 740 and evaluation["axis"] == axis
     assert evaluation["observation_count"] == 720
     assert evaluation["axis"][-1] < int(spec["input_window"]["observation_end_ns"])
@@ -2021,21 +2078,24 @@ def _assert_actual_strategy_evaluation(
     assert len(statistics) == len(spec["scientific_specification"]["statistics"]) == 2
     assert {result["plan"]["definition"]["method"] for result in statistics} == {"IC", "RANK_IC"}
     for result in statistics:
-        plan = OnlyResearchStatisticsPlan.from_dict(result["plan"])
-        assert plan.statistics_fingerprint == result["statistics_fingerprint"]
-        assert plan.definition.method.value in {"IC", "RANK_IC"}
-        assert plan.feature.node_fingerprint == factor
-        assert plan.target.node_fingerprint in targets
+        plan = result["plan"]
+        assert only_canonical_fingerprint(plan) == result["statistics_fingerprint"]
+        assert plan["definition"]["method"] in {"IC", "RANK_IC"}
+        assert plan["feature"]["node_fingerprint"] == factor
+        assert plan["target"]["node_fingerprint"] in targets
         assert [row["ts_event_ns"] for row in result["rows"]] == axis
         assert len(result["rows"]) == 740
         for index, row in enumerate(result["rows"]):
             # Existing public Stats1: one cross-section per timestamp, not one
             # 720-observation time-series correlation or invented significance.
             count = int(feature[index]["type"] != "NULL" and target[index]["type"] != "NULL")
-            expected = OnlyResearchStatisticRow(
-                axis[index], None, count, OnlyResearchStatisticStatus.INSUFFICIENT_OBSERVATIONS
-            )
-            assert row == expected.semantic_payload()
+            expected = {
+                "ts_event_ns": axis[index],
+                "statistic_value": None,
+                "sample_count": count,
+                "status": "INSUFFICIENT_OBSERVATIONS",
+            }
+            assert row == expected
     _assert_complete_strategy_profiles(evaluation, nodes, bindings)
     assert (
         not {
@@ -2056,59 +2116,35 @@ def _assert_actual_strategy_evaluation(
 def test_strategy_submission_reuses_original_command_and_run_with_physical_session_fencing(
     native_environment_case: dict[str, Any],
     market_probe: Path,
-    database: OnlyClickHouseClient,
+    database: ClickHouseObservations,
     postgres_dsn: str,
     tmp_path: Path,
     mode: str,
 ) -> None:
-    from uuid import UUID, uuid4
-
-    from onlyalpha.research.novelty.model import OnlyNoveltyPolicyRevisionV1
-    from onlyalpha.research.novelty.store import OnlyNoveltyPolicyStore
+    from uuid import uuid4
 
     command = str(uuid4())
-    digest = bytearray(
-        hashlib.sha256(b"ONLYALPHA_NOVELTY_GATED_RESEARCH_RUN_ID_V4\x1f" + command.encode()).digest()[:16]
-    )
-    digest[6], digest[8] = (digest[6] & 15) | 64, (digest[8] & 63) | 128
-    work_id = str(UUID(bytes=bytes(digest)))
+    work_id = fixture("run-id", binary=market_probe, command=command)["run_id"]
     case = strategy_preparation_case(native_environment_case, market_probe, database, tmp_path, work_id=work_id)
     selected, arguments = case["selected"], case["arguments"]
     semantic = tmp_path / "use_test_semantic"
+    semantic.mkdir(mode=0o700)
+    provision = probe(selected, database, "strategy-evidence-provision", semantic_root=str(semantic))
+    assert "error" not in provision, provision
     research = semantic / "research"
     dataset_root, projection = research / "datasets", research / "experiment-memory"
-    dataset_root.mkdir(parents=True)
-    projection.mkdir()
-    policy = json.loads((ROOT / "packages/backend/tests/application/fixtures/research_novelty.json").read_text())[
-        "policy"
-    ]
-    OnlyNoveltyPolicyStore(semantic).put(OnlyNoveltyPolicyRevisionV1.from_dict(policy))
-    roots = {
-        "RESEARCH_RESULT": str(research / "results"),
-        "RESEARCH_STATISTICS": str(research / "statistics-results"),
-        "RESEARCH_FACTOR_PAIR_STATISTICS": str(research / "statistics-results"),
-        "RESEARCH_SUMMARY_STATISTICS": str(research / "statistics-results"),
-    }
-    for family, name in [
-        ("AGENT_PROVENANCE", "agent-provenance"),
-        ("QUALIFICATION_DECISION", "qualification-decisions"),
-        ("SEARCH_PROVENANCE", "search-provenance"),
-    ]:
-        directory = research / name
-        directory.mkdir()
-        (directory / "sha256").mkdir()
-        (directory / ".source-cut.lock").touch(mode=0o600)
-        roots[family] = str(directory)
+    roots = provision["source_roots"]
     review_file = tmp_path / "use_test_original_review.json"
     arguments.update(
         dataset_root=str(dataset_root),
         research_command=command,
         submission_mode=mode,
+        policy_id="onlyalpha.factor-research",
         semantic_root=str(semantic),
         research_root=str(research),
         projection_root=str(projection),
         source_roots=roots,
-        initialize_evidence=True,
+        initialize_evidence=False,
         review_file=str(review_file),
     )
     if mode == "commit-no-reply":
@@ -2256,8 +2292,6 @@ def _assert_complete_strategy_profiles(
 
     from onlyalpha.calculation.definition import OnlyCalculationDefinition
 
-    from onlyalpha.calculation.equivalence import only_required_calculation_equivalence_profile
-
     fixed = {
         "FLAT_SEQUENCE",
         "NEGATIVE_SLOPE_SEQUENCE",
@@ -2284,12 +2318,19 @@ def _assert_complete_strategy_profiles(
     assert len(profiles) == len(evaluation["node_profiles"]) == len(nodes) and profiles.keys() == nodes.keys()
     for key, node in profiles.items():
         definition = OnlyCalculationDefinition.from_dict(nodes[key])
-        required = only_required_calculation_equivalence_profile(definition)
-        assert node["profile_covered_cases"] == list(required.cases)
+        required_cases = set(fixed)
+        if any(port.nullable for port in definition.inputs):
+            required_cases.add("NULLABLE_INPUT_SEMANTICS")
+        if any(port.data_type.value == "BOOLEAN" for port in definition.inputs):
+            required_cases.add("BOOLEAN_TRUTH_NULL_SEMANTICS")
+        if len(definition.outputs) > 1:
+            required_cases.add("MULTI_OUTPUT_ALIGNMENT")
+        required = sorted(required_cases)
+        assert node["profile_covered_cases"] == required
         assert node["research_implementation_fingerprint"] == bindings[key]["research_implementation_fingerprint"]
         assert node["trading_implementation_fingerprint"] == bindings[key]["trading_implementation_fingerprint"]
         cases = {row["case_id"]: row for row in node["cases"]}
-        assert len(cases) == len(node["cases"]) == len(required.cases) and cases.keys() == set(required.cases)
+        assert len(cases) == len(node["cases"]) == len(required) and cases.keys() == set(required)
         for case in cases.values():
             assert 1 <= len(case["inputs"]) <= 8192
             assert len(case["research_outputs"]) == len(case["trading_outputs"]) == len(case["inputs"])

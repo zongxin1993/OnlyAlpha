@@ -14,6 +14,7 @@ from onlyalpha.plugin.api import (
     OnlyTradingDay,
     only_identity_fingerprint,
 )
+
 from onlyalpha_market_crypto.spot.capability import OnlyBinanceSpotCompatibilityStatus
 
 

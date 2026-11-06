@@ -1,5 +1,6 @@
 //! Isolated execution planning and exact committed projection recovery.
 //! Storage drivers, provider rules and official Runtime activation remain outside this library.
+mod canonical_roundtrip;
 mod components;
 mod model;
 mod planning;
@@ -24,7 +25,6 @@ pub use backtest_result::BacktestResult;
 extern crate self as onlyalpha_execution;
 #[cfg(test)]
 mod projection_digest_tests;
-
 
 #[cfg(test)]
 mod valuation_ledger_view_tests;

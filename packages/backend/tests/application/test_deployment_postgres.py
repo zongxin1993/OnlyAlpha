@@ -8,9 +8,9 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-
-from .support.integration import call
+from .support.native_probe import call
+from .test_schema_postgres import migration_backend as migration_backend
+from .test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 ID = "550e8400-e29b-41d4-a716-446655440000"
@@ -18,9 +18,8 @@ OTHER = "550e8400-e29b-41d4-a716-446655440001"
 
 
 @pytest.fixture
-def deployment_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def deployment_db(schema_db: str) -> str:
+    return schema_db
 
 
 def check(probe: Path, local: str = ID, *, lost_connection: bool = False) -> dict[str, object]:

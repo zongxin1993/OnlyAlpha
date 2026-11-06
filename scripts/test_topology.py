@@ -92,7 +92,9 @@ def load_metrics(metrics_dir: Path) -> tuple[LaneMetrics, ...]:
     return load_metric_files(files)
 
 
-def validate_shards(metrics: tuple[LaneMetrics, ...], expected_nodes: set[str]) -> dict[str, Any]:
+def validate_shards(
+    metrics: tuple[LaneMetrics, ...], expected_nodes: set[str], *, expected_commit: str | None = None
+) -> dict[str, Any]:
     node_sets = [set(item.tests) for item in metrics]
     union = set().union(*node_sets) if node_sets else set()
     duplicate = sorted(
@@ -108,7 +110,12 @@ def validate_shards(metrics: tuple[LaneMetrics, ...], expected_nodes: set[str]) 
         "missing_tests": sorted(expected_nodes - union),
         "unexpected_test_count": len(union - expected_nodes),
         "unexpected_tests": sorted(union - expected_nodes),
-        "complete": union == expected_nodes and not duplicate,
+        "complete": bool(expected_nodes)
+        and union == expected_nodes
+        and not duplicate
+        and all(item.tests and item.collected == len(item.tests) for item in metrics)
+        and len({item.lane for item in metrics}) == 1
+        and (expected_commit is None or all(item.commit == expected_commit for item in metrics)),
     }
 
 
@@ -305,17 +312,34 @@ def main() -> int:
     parser.add_argument("--json-output", type=Path, default=DEFAULT_JSON_OUTPUT)
     parser.add_argument("--markdown-output", type=Path, default=DEFAULT_MARKDOWN_OUTPUT)
     parser.add_argument("--validate-shards", nargs="+", type=Path)
-    parser.add_argument("--expected-duration-path", type=Path)
+    expected = parser.add_mutually_exclusive_group()
+    expected.add_argument("--expected-duration-path", type=Path)
+    expected.add_argument("--expected-nodeids-path", type=Path)
+    parser.add_argument("--expected-commit")
     args = parser.parse_args()
     try:
         if args.validate_shards is not None:
-            if args.expected_duration_path is None:
-                parser.error("--expected-duration-path is required with --validate-shards")
+            if args.expected_duration_path is None and args.expected_nodeids_path is None:
+                parser.error("an expected duration or collected node-id authority is required")
             shard_metrics = load_metric_files(tuple(args.validate_shards), allow_duplicate_lanes=True)
-            expected_payload = json.loads(args.expected_duration_path.read_text(encoding="utf-8"))
-            if not isinstance(expected_payload, dict) or not all(isinstance(node, str) for node in expected_payload):
-                parser.error("expected duration data must be a JSON object keyed by node id")
-            proof = validate_shards(shard_metrics, set(expected_payload))
+            if args.expected_nodeids_path is not None:
+                expected_payload = json.loads(args.expected_nodeids_path.read_text(encoding="utf-8"))
+                if (
+                    not isinstance(expected_payload, list)
+                    or not expected_payload
+                    or not all(isinstance(node, str) and node for node in expected_payload)
+                    or len(set(expected_payload)) != len(expected_payload)
+                ):
+                    parser.error("expected collection must be a nonempty unique JSON array of node ids")
+            else:
+                expected_payload = json.loads(args.expected_duration_path.read_text(encoding="utf-8"))
+                if (
+                    not isinstance(expected_payload, dict)
+                    or not expected_payload
+                    or not all(isinstance(node, str) and node for node in expected_payload)
+                ):
+                    parser.error("expected duration data must be a nonempty JSON object keyed by node id")
+            proof = validate_shards(shard_metrics, set(expected_payload), expected_commit=args.expected_commit)
             print(json.dumps(proof, indent=2, sort_keys=True))
             return 0 if proof["complete"] else 1
         metrics = load_metrics(args.metrics_dir)

@@ -331,7 +331,9 @@ impl Drop for Running {
             .ready
             .store(false, std::sync::atomic::Ordering::Release);
         self.host.chart_gate.close();
-        if !self.host.research_drained.load(Ordering::Acquire) || !self.host.backtest_drained.load(Ordering::Acquire) {
+        if !self.host.research_drained.load(Ordering::Acquire)
+            || !self.host.backtest_drained.load(Ordering::Acquire)
+        {
             self.host.stop_research_admission();
             self.host.retain_research_owner();
         }
@@ -442,12 +444,22 @@ impl Running {
                 )
                 .await
                 .map_err(|e| Failure::unavailable(e.code()))?;
-            writer.verify().await.map_err(|e|Failure::unavailable(e.code()))?;
-            if crate::bootstrap::research_namespace::open_manual_backtest_existing(&config.user_data)
-                .map_err(Failure::unavailable)?!=*inputs.namespace() {
+            writer
+                .verify()
+                .await
+                .map_err(|e| Failure::unavailable(e.code()))?;
+            if crate::bootstrap::research_namespace::open_manual_backtest_existing(
+                &config.user_data,
+            )
+            .map_err(Failure::unavailable)?
+                != *inputs.namespace()
+            {
                 return Err(Failure::unavailable("RESEARCH_SEMANTIC_STORE_MISMATCH"));
             }
-            writer.verify().await.map_err(|e|Failure::unavailable(e.code()))?;
+            writer
+                .verify()
+                .await
+                .map_err(|e| Failure::unavailable(e.code()))?;
             let frozen = FrozenStore::open(inputs.roots().directory(Directory::Research))
                 .map_err(|e| Failure::unavailable(e.code()))?;
             frozen
@@ -464,20 +476,32 @@ impl Running {
                 )
                 .await
                 .map_err(|e| Failure::unavailable(e.code()))?;
-            let expected_policy=crate::bootstrap::research_namespace::experimental_backtest_policy()
-                .map_err(|e|Failure::unavailable(e.code()))?;
-            let policy=qualification_policy::Store::open(inputs.roots().directory(Directory::Research))
-                .map_err(|e|Failure::unavailable(e.code()))?
-                .load_exact("experimental-backtest","1",WORK)
-                .map_err(|e|Failure::unavailable(e.code()))?;
-            if policy!=expected_policy {return Err(Failure::unavailable("QUALIFICATION_POLICY_IDENTITY_CONFLICT"));}
-            let expected_manual_policy=crate::bootstrap::research_namespace::manual_backtest_policy()
-                .map_err(|error|Failure::unavailable(error.code()))?;
-            let manual_policy=qualification_policy::Store::open(inputs.roots().directory(Directory::Research))
-                .map_err(|error|Failure::unavailable(error.code()))?
-                .load_exact("manual-backtest","1",WORK)
-                .map_err(|error|Failure::unavailable(error.code()))?;
-            if manual_policy!=expected_manual_policy {return Err(Failure::unavailable("QUALIFICATION_POLICY_IDENTITY_CONFLICT"));}
+            let expected_policy =
+                crate::bootstrap::research_namespace::experimental_backtest_policy()
+                    .map_err(|e| Failure::unavailable(e.code()))?;
+            let policy =
+                qualification_policy::Store::open(inputs.roots().directory(Directory::Research))
+                    .map_err(|e| Failure::unavailable(e.code()))?
+                    .load_exact("experimental-backtest", "1", WORK)
+                    .map_err(|e| Failure::unavailable(e.code()))?;
+            if policy != expected_policy {
+                return Err(Failure::unavailable(
+                    "QUALIFICATION_POLICY_IDENTITY_CONFLICT",
+                ));
+            }
+            let expected_manual_policy =
+                crate::bootstrap::research_namespace::manual_backtest_policy()
+                    .map_err(|error| Failure::unavailable(error.code()))?;
+            let manual_policy =
+                qualification_policy::Store::open(inputs.roots().directory(Directory::Research))
+                    .map_err(|error| Failure::unavailable(error.code()))?
+                    .load_exact("manual-backtest", "1", WORK)
+                    .map_err(|error| Failure::unavailable(error.code()))?;
+            if manual_policy != expected_manual_policy {
+                return Err(Failure::unavailable(
+                    "QUALIFICATION_POLICY_IDENTITY_CONFLICT",
+                ));
+            }
             let snapshots = Integrations::new(
                 writer
                     .client_mut()
@@ -684,24 +708,46 @@ impl Running {
                 .research_wake
                 .set(wake)
                 .map_err(|_| Failure::unavailable("RESEARCH_SERVICE_ALREADY_STARTED"))?;
-            let connection = running.host.database.research_connection(
-                running.host.inputs.namespace(), writer_pid, running.host.writer_live.clone(),
-            ).await?;
+            let connection = running
+                .host
+                .database
+                .research_connection(
+                    running.host.inputs.namespace(),
+                    writer_pid,
+                    running.host.writer_live.clone(),
+                )
+                .await?;
             let preparation = &running.host.research_preparation_config;
             let service = crate::workers::backtest_worker::Service::start(
-                connection, Arc::clone(&running.host.writer),
+                connection,
+                Arc::clone(&running.host.writer),
                 crate::workers::backtest_service::Configuration {
                     backtest_root: running.host.backtest_root.clone(),
                     research_root: preparation.research_root.clone(),
                     runtime_root: preparation.runtime_root.clone(),
                     algorithms_root: preparation.algorithms_root.clone(),
                     native_version: preparation.native_version.clone(),
-                }, || host::now().map_err(|_| crate::application::research_admission::PreparationError::from("BACKTEST_CLOCK_UNAVAILABLE")),
-            ).map_err(Failure::unavailable)?;
+                },
+                || {
+                    host::now().map_err(|_| {
+                        crate::application::research_admission::PreparationError::from(
+                            "BACKTEST_CLOCK_UNAVAILABLE",
+                        )
+                    })
+                },
+            )
+            .map_err(Failure::unavailable)?;
             let wake = service.wake();
-            running.host.backtest_drained.store(false, Ordering::Release);
+            running
+                .host
+                .backtest_drained
+                .store(false, Ordering::Release);
             *running.host.backtest.lock().await = Some(service);
-            running.host.backtest_wake.set(wake).map_err(|_| Failure::unavailable("BACKTEST_SERVICE_ALREADY_STARTED"))?;
+            running
+                .host
+                .backtest_wake
+                .set(wake)
+                .map_err(|_| Failure::unavailable("BACKTEST_SERVICE_ALREADY_STARTED"))?;
             Ok(())
         }
         .await;
@@ -762,14 +808,20 @@ impl Running {
         }
         {
             let mut original = self.host.backtest.lock().await;
-            if let Some(service) = original.as_mut() && let Err(code) = service.drain().await {
+            if let Some(service) = original.as_mut()
+                && let Err(code) = service.drain().await
+            {
                 self.host.retain_research_owner();
                 return Err(Failure::unavailable(code));
             }
             original.take();
             self.host.backtest_drained.store(true, Ordering::Release);
         }
-        self.host.research_failed_hold.lock().unwrap_or_else(|error| error.into_inner()).take();
+        self.host
+            .research_failed_hold
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
         let mut failure = None;
         remember(
             &mut failure,
@@ -921,3 +973,9 @@ mod driver_tests {
         assert!(!driver_active(&observer));
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/transport/backtest_recovery_startup.rs"]
+mod backtest_recovery_startup;
+#[cfg(test)]
+pub(crate) use backtest_recovery_startup::open as test_backtest_owner;

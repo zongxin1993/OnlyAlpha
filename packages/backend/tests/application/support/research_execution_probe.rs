@@ -113,7 +113,9 @@ pub async fn run(
             .ok_or("catalog")?
             .into(),
         algorithm_artifact_fingerprint: f["algorithm_artifact"].as_str().ok_or("artifact")?.into(),
-        authoring_generation_fingerprint: Some(inputs.factor_authoring_generation_fingerprint()?.into()),
+        authoring_generation_fingerprint: Some(
+            inputs.factor_authoring_generation_fingerprint()?.into(),
+        ),
         execution_binding: inputs.record()["execution_binding"].clone(),
     };
     let human = Access::new(&"a".repeat(64))?;
@@ -367,27 +369,46 @@ pub async fn run(
     if phase == "crash-after-claim" {
         let claim = ResearchExecution::new(client)
             .claim_authoring(
-                &run, &proof, worker,
-                "00000000-0000-4000-8000-000000000920", at,
+                &run,
+                &proof,
+                worker,
+                "00000000-0000-4000-8000-000000000920",
+                at,
             )
-            .await?.ok_or("original authoring claim")?;
+            .await?
+            .ok_or("original authoring claim")?;
         assert!(claim.ownership_certain());
         std::process::exit(73);
     }
     let before = ResearchExecution::new(client).observe(&run).await?;
-    let attempts: i64 = client.query_one(
-        "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
-        &[&run.run_id()],
-    ).await?.get(0);
-    assert!(ResearchExecution::new(client)
-        .claim(&run, worker, "00000000-0000-4000-8000-000000000919", at)
-        .await.is_err());
+    let attempts: i64 = client
+        .query_one(
+            "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
+            &[&run.run_id()],
+        )
+        .await?
+        .get(0);
+    assert!(
+        ResearchExecution::new(client)
+            .claim(&run, worker, "00000000-0000-4000-8000-000000000919", at)
+            .await
+            .is_err()
+    );
     let after = ResearchExecution::new(client).observe(&run).await?;
-    assert_eq!((before.state, before.revision), (after.state, after.revision));
-    assert_eq!(attempts, client.query_one(
-        "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
-        &[&run.run_id()],
-    ).await?.get::<_, i64>(0));
+    assert_eq!(
+        (before.state, before.revision),
+        (after.state, after.revision)
+    );
+    assert_eq!(
+        attempts,
+        client
+            .query_one(
+                "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
+                &[&run.run_id()],
+            )
+            .await?
+            .get::<_, i64>(0)
+    );
 
     let mut first = None;
     if mode == "budget" || mode == "budget-with-result" {
@@ -423,7 +444,13 @@ pub async fn run(
     if !matches!(mode, "normal" | "wrong-native-version") && first.is_none() {
         first = Some(
             ResearchExecution::new(client)
-                .claim_authoring(&run, &proof, worker, "00000000-0000-4000-8000-000000000913", at)
+                .claim_authoring(
+                    &run,
+                    &proof,
+                    worker,
+                    "00000000-0000-4000-8000-000000000913",
+                    at,
+                )
                 .await?
                 .ok_or("claim")?,
         );
@@ -561,7 +588,13 @@ pub async fn run(
         if first.is_none() {
             first = Some(
                 ResearchExecution::new(client)
-                    .claim_authoring(&run, &proof, worker, "00000000-0000-4000-8000-000000000915", at)
+                    .claim_authoring(
+                        &run,
+                        &proof,
+                        worker,
+                        "00000000-0000-4000-8000-000000000915",
+                        at,
+                    )
                     .await?
                     .ok_or("claim")?,
             );
@@ -579,7 +612,13 @@ pub async fn run(
         );
         assert!(
             ResearchExecution::new(client)
-                .claim_authoring(&run, &proof, worker, "00000000-0000-4000-8000-000000000916", at)
+                .claim_authoring(
+                    &run,
+                    &proof,
+                    worker,
+                    "00000000-0000-4000-8000-000000000916",
+                    at
+                )
                 .await?
                 .is_none()
         );
@@ -614,13 +653,19 @@ pub async fn run(
         )
         .await;
         if mode == "wrong-native-version" {
-            assert_eq!(status.err().ok_or("wrong executor claimed")?.code(), "RESEARCH_EXECUTOR_IMAGE_MISMATCH");
+            assert_eq!(
+                status.err().ok_or("wrong executor claimed")?.code(),
+                "RESEARCH_EXECUTOR_IMAGE_MISMATCH"
+            );
             let status = ResearchExecution::new(client).observe(&run).await?;
             assert_eq!((status.state, status.revision), (RunState::Queued, 0));
-            let attempts: i64 = client.query_one(
-                "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
-                &[&run.run_id()],
-            ).await?.get(0);
+            let attempts: i64 = client
+                .query_one(
+                    "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
+                    &[&run.run_id()],
+                )
+                .await?
+                .get(0);
             assert_eq!(attempts, 0);
             return Ok(json!({"run_id":run.run_id(),"state":"QUEUED"}));
         }

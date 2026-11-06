@@ -188,14 +188,24 @@ async fn serve(
         if !next_scan(wake, &mut poll).await {
             return Ok(());
         }
-        let client = connection.as_mut().ok_or(UNKNOWN)?.client_mut().await.map_err(|_| UNAVAILABLE)?;
-        let ids=research_submission::pending_native_run_ids(client).await?;
+        let client = connection
+            .as_mut()
+            .ok_or(UNKNOWN)?
+            .client_mut()
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+        let ids = research_submission::pending_native_run_ids(client).await?;
         for id in ids {
             if wake.stopped() {
                 return Ok(());
             }
             let run = research_submission::load(
-                connection.as_mut().ok_or(UNKNOWN)?.client_mut().await.map_err(|_| UNAVAILABLE)?,
+                connection
+                    .as_mut()
+                    .ok_or(UNKNOWN)?
+                    .client_mut()
+                    .await
+                    .map_err(|_| UNAVAILABLE)?,
                 &id,
                 None,
             )
@@ -208,7 +218,15 @@ async fn serve(
             let result = handoff(wake, async {
                 clock()?;
                 let retained = run.clone();
-                let outcome = if let Some(outcome) = research::recover_owned(writer, &run, &config.research_root, &config.runtime_root, clock).await? {
+                let outcome = if let Some(outcome) = research::recover_owned(
+                    writer,
+                    &run,
+                    &config.research_root,
+                    &config.runtime_root,
+                    clock,
+                )
+                .await?
+                {
                     outcome
                 } else {
                     let configuration = config.clone();
@@ -222,16 +240,31 @@ async fn serve(
                         let mut original = connection.take().ok_or(UNKNOWN)?;
                         let (original, result) = tokio::task::spawn_blocking(move || {
                             let result = runtime.block_on(async {
-                                let client = original.client_mut().await.map_err(|_| PreparationError::from(UNAVAILABLE))?;
-                                restore_work(run, &configuration, worker, attempt, Some(client)).await
+                                let client = original
+                                    .client_mut()
+                                    .await
+                                    .map_err(|_| PreparationError::from(UNAVAILABLE))?;
+                                restore_work(run, &configuration, worker, attempt, Some(client))
+                                    .await
                             });
                             (original, result)
-                        }).await.map_err(|_| PreparationError::from(UNKNOWN))?;
+                        })
+                        .await
+                        .map_err(|_| PreparationError::from(UNKNOWN))?;
                         *connection = Some(original);
                         result?
                     } else {
-                        tokio::task::spawn_blocking(move || runtime.block_on(restore_work(run, &configuration, worker, attempt, None)))
-                            .await.map_err(|_| PreparationError::from(UNKNOWN))??
+                        tokio::task::spawn_blocking(move || {
+                            runtime.block_on(restore_work(
+                                run,
+                                &configuration,
+                                worker,
+                                attempt,
+                                None,
+                            ))
+                        })
+                        .await
+                        .map_err(|_| PreparationError::from(UNKNOWN))??
                     };
                     research::run_owned(writer, work, clock).await?
                 };
@@ -258,25 +291,47 @@ async fn serve(
                 return Err("RESEARCH_NODE_AUTHORITY_UNAVAILABLE");
             }
         }
-        if let Err(error) = cleanup_terminal_bindings(connection, writer, config, wake, status, clock).await {
+        if let Err(error) =
+            cleanup_terminal_bindings(connection, writer, config, wake, status, clock).await
+        {
             return Err(error.code());
         }
         status.send_replace(Status::Idle);
     }
 }
 async fn cleanup_terminal_bindings(
-    connection: &mut Option<ResearchConnection>, writer: &research::SharedAuthority,
-    config: &Configuration, wake: &Wake, status: &watch::Sender<Status>,
+    connection: &mut Option<ResearchConnection>,
+    writer: &research::SharedAuthority,
+    config: &Configuration,
+    wake: &Wake,
+    status: &watch::Sender<Status>,
     clock: &(impl Fn() -> Result<OnlyUtcDateTime, PreparationError> + Send + Sync),
 ) -> Result<(), PreparationError> {
     let root = config.runtime_root.clone();
-    let Some(bindings) = tokio::task::spawn_blocking(move || crate::persistence::research_runtime::Registry::try_unreleased_work_bindings(&root))
-        .await.map_err(|_| PreparationError::from(UNKNOWN))?? else { return Ok(()); };
-    if bindings.len() > 10000 { return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED".into()); }
+    let Some(bindings) = tokio::task::spawn_blocking(move || {
+        crate::persistence::research_runtime::Registry::try_unreleased_work_bindings(&root)
+    })
+    .await
+    .map_err(|_| PreparationError::from(UNKNOWN))??
+    else {
+        return Ok(());
+    };
+    if bindings.len() > 10000 {
+        return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED".into());
+    }
     for (work, generation, reason) in bindings {
-        if wake.stopped() { return Ok(()); }
-        if reason != "research" { continue; }
-        let client = connection.as_mut().ok_or(UNKNOWN)?.client_mut().await.map_err(|_| PreparationError::from(UNAVAILABLE))?;
+        if wake.stopped() {
+            return Ok(());
+        }
+        if reason != "research" {
+            continue;
+        }
+        let client = connection
+            .as_mut()
+            .ok_or(UNKNOWN)?
+            .client_mut()
+            .await
+            .map_err(|_| PreparationError::from(UNAVAILABLE))?;
         let run = match research_submission::load(client, &work, None).await {
             // Input preparation can own a future research binding before a Run
             // exists. That original preparation, not this scanner, owns it.
@@ -286,16 +341,30 @@ async fn cleanup_terminal_bindings(
         };
         if run.runtime_generation_fingerprint()? != generation
             || run.prepared_inputs["runtime_work_binding"]["work_id"] != work
-            || run.prepared_inputs["runtime_work_binding"]["reason"] != reason {
+            || run.prepared_inputs["runtime_work_binding"]["reason"] != reason
+        {
             return Err("RESEARCH_RECOVERY_BINDING_INVALID".into());
         }
-        let observed = crate::persistence::research_execution::ResearchExecution::new(client).observe(&run).await?;
-        if !observed.state.terminal() { continue; }
+        let observed = crate::persistence::research_execution::ResearchExecution::new(client)
+            .observe(&run)
+            .await?;
+        if !observed.state.terminal() {
+            continue;
+        }
         let cleanup = handoff(wake, async {
-            research::recover_owned(writer, &run, &config.research_root, &config.runtime_root, clock).await?
-                .filter(|value| value.state.terminal()).ok_or("RESEARCH_TERMINAL_CLEANUP_CONFLICT")?;
+            research::recover_owned(
+                writer,
+                &run,
+                &config.research_root,
+                &config.runtime_root,
+                clock,
+            )
+            .await?
+            .filter(|value| value.state.terminal())
+            .ok_or("RESEARCH_TERMINAL_CLEANUP_CONFLICT")?;
             release_terminal(&run, config, wake, status, clock).await
-        }).await;
+        })
+        .await;
         match cleanup {
             None => return Ok(()),
             Some(result) => result?,
@@ -354,8 +423,19 @@ async fn restore_work(
         8 * 1024 * 1024,
     )?;
     let inputs = match run.specification() {
-        NativeSpecification::Factor(_) => research_admission::restore(&run, runtime, &installation, &datasets)?,
-        NativeSpecification::Strategy(_) => research_admission::restore_strategy(&mut Composer::new(client.ok_or("RESEARCH_RECOVERY_READER_REQUIRED")?), &run, runtime, &installation, &datasets).await?,
+        NativeSpecification::Factor(_) => {
+            research_admission::restore(&run, runtime, &installation, &datasets)?
+        }
+        NativeSpecification::Strategy(_) => {
+            research_admission::restore_strategy(
+                &mut Composer::new(client.ok_or("RESEARCH_RECOVERY_READER_REQUIRED")?),
+                &run,
+                runtime,
+                &installation,
+                &datasets,
+            )
+            .await?
+        }
     };
     Ok(Work {
         run,
@@ -370,18 +450,32 @@ async fn restore_work(
     })
 }
 async fn release_terminal(
-    run: &VerifiedRun, config: &Configuration, wake: &Wake,
-    status: &watch::Sender<Status>, clock: &impl Fn() -> Result<OnlyUtcDateTime, PreparationError>,
+    run: &VerifiedRun,
+    config: &Configuration,
+    wake: &Wake,
+    status: &watch::Sender<Status>,
+    clock: &impl Fn() -> Result<OnlyUtcDateTime, PreparationError>,
 ) -> Result<(), PreparationError> {
     let work = run.run_id().to_owned();
     let generation = run.runtime_generation_fingerprint()?.to_owned();
-    let owner = run.prepared_inputs["runtime_work_binding"]["reason"].as_str().filter(|v| *v == "research").ok_or("RESEARCH_RECOVERY_BINDING_INVALID")?.to_owned();
+    let owner = run.prepared_inputs["runtime_work_binding"]["reason"]
+        .as_str()
+        .filter(|v| *v == "research")
+        .ok_or("RESEARCH_RECOVERY_BINDING_INVALID")?
+        .to_owned();
     loop {
         let root = config.runtime_root.clone();
-        let work = work.clone(); let generation = generation.clone(); let owner = owner.clone(); let at = clock()?;
+        let work = work.clone();
+        let generation = generation.clone();
+        let owner = owner.clone();
+        let at = clock()?;
         let result = tokio::task::spawn_blocking(move || {
-            crate::persistence::research_runtime::Registry::open_existing(&root)?.release_work_exact(&work, &generation, &owner, "research-service", at).map(drop)
-        }).await.map_err(|_| PreparationError::from(UNKNOWN))?;
+            crate::persistence::research_runtime::Registry::open_existing(&root)?
+                .release_work_exact(&work, &generation, &owner, "research-service", at)
+                .map(drop)
+        })
+        .await
+        .map_err(|_| PreparationError::from(UNKNOWN))?;
         match result {
             Ok(()) => return Ok(()),
             Err("RESEARCH_RUNTIME_UNAVAILABLE") => {

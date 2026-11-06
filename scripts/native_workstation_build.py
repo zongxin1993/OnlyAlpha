@@ -49,6 +49,13 @@ def build(
     directory.mkdir(parents=True)
     (directory / "bin").mkdir()
     shutil.copy2(native_executable(), directory / "bin/onlyalpha-backend")
+    # Construct the final Shipping image before its first execution or seal.
+    # Historical artifacts and Cargo's original executable remain untouched.
+    subprocess.run(
+        ["strip", "--strip-all", str(directory / "bin/onlyalpha-backend")],
+        check=True,
+        timeout=30,
+    )
     from scripts.embed_build_provenance import resolve_build_provenance_bytes
 
     (directory / "source-provenance.json").write_bytes(resolve_build_provenance_bytes(ROOT))

@@ -262,6 +262,9 @@ fn native_state(cash: &str) -> (NativeReplay, Candidate) {
     cfg["profiles"]["cluster"]["instruments"] = json!(["600000.XSHG"]);
     cfg["instruments"][0]["id"] = json!("600000.XSHG");
     cfg["instruments"][0]["quantity_precision"] = json!(0);
+    native_state_for_configuration(cfg)
+}
+fn native_state_for_configuration(cfg: Value) -> (NativeReplay, Candidate) {
     let fixture: Value =
         serde_json::from_str(include_str!("../../../test-data/settlement/common-v1.json")).unwrap();
     let mut s = settings();
@@ -280,7 +283,11 @@ fn native_state(cash: &str) -> (NativeReplay, Candidate) {
     assert!(calendar.is_effective_on(day));
     assert!(calendar.is_trading_day(day));
     s["calendar"] = calendar.to_record();
-    s["policy"]["quantity"] = json!({"schema_version":1,"value":"4","precision":0});
+    s["policy"]["quantity"] = if cfg["instruments"][0]["quantity_precision"] == 2 {
+        json!({"schema_version":1,"value":"4.00","precision":2})
+    } else {
+        json!({"schema_version":1,"value":"4","precision":0})
+    };
     (
         NativeReplay::new(
             &s,
@@ -685,4 +692,38 @@ fn native_book_uses_one_complete_owner_view_without_per_order_source_queries() {
     );
     assert_eq!(c.checkpoint().unwrap(), before);
     assert_eq!(c.records(), records.as_slice());
+}
+
+#[test]
+fn next_open_account_capacity_is_explicit_rejection_without_risk_or_new_facts() {
+    let mut history = crate::execution_test_fixture::account_capacity_history(true);
+    let before = history.checkpoint().unwrap();
+    let rows = history.records().to_vec();
+    let (mut policy, _) = native_state_for_configuration(history.configuration().clone());
+    policy
+        .closed(&native_input(2, "10.00"), &decision(true, false), &history)
+        .unwrap();
+    let result = policy
+        .opening(&native_input(3, "10.00").opening(), &mut history)
+        .unwrap();
+    assert_eq!(result["status"], "REJECTED");
+    assert_eq!(result["reason"], "ACCOUNT_JOURNAL_BOUND");
+    assert!(result.get("risk_denied").is_none());
+    assert!(policy.capture()["pending"].is_null());
+    assert_eq!(history.checkpoint().unwrap(), before);
+    assert_eq!(history.records(), rows.as_slice());
+    let mut cold =
+        Candidate::new(history.configuration().clone(), history.records().to_vec()).unwrap();
+    let (mut restored, _) = native_state_for_configuration(cold.configuration().clone());
+    restored.restore(&policy.capture()).unwrap();
+    restored
+        .closed(&native_input(4, "10.00"), &decision(true, false), &cold)
+        .unwrap();
+    assert_eq!(
+        restored
+            .opening(&native_input(5, "10.00").opening(), &mut cold)
+            .unwrap()["reason"],
+        "ACCOUNT_JOURNAL_BOUND"
+    );
+    assert_eq!(cold.checkpoint().unwrap(), before);
 }

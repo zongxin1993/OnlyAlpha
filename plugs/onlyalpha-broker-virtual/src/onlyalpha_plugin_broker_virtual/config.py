@@ -6,6 +6,7 @@ from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.domain.base import OnlyDomainModel
 from onlyalpha.domain.identifiers import OnlyAccountId
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyQuantity
+
 from onlyalpha_plugin_broker_virtual.fill_plan import (
     OnlyVirtualFillDispatchMode,
     OnlyVirtualFillScheduleMode,

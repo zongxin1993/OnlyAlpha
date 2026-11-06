@@ -683,36 +683,34 @@ fn verify_statistics(
 fn publish_calculation(owner: &Directory, candidate: &CalculationBundle) -> Result<()> {
     let logical = &candidate.logical;
     let exists = || optional_directory(owner, &["sha256", &logical[..2], logical]);
-    if exists()?.is_none() {
-        if let Err(error) = put_bundle_at(
+    if exists()?.is_none()
+        && let Err(error) = put_bundle_at(
             owner.fd.as_fd(),
             &["sha256", &logical[..2], logical],
             &candidate.files,
             BUDGET,
-        ) {
-            if exists()?.is_none() {
-                return Err(error);
-            }
-            // A concurrent complete winner is accepted only through the same
-            // semantic/Parquet owner read, retaining its original audit bytes.
-        }
+        )
+        && exists()?.is_none()
+    {
+        return Err(error);
     }
+    // A concurrent complete winner is accepted only through the same
+    // semantic/Parquet owner read, retaining its original audit bytes.
     verify_calculation(owner, candidate, &mut Vec::new()).map(drop)
 }
 fn publish_statistics(owner: &Directory, candidate: &StatisticsBundle) -> Result<()> {
     let logical = &candidate.logical;
     let exists = || optional_directory(owner, &["sha256", &logical[..2], logical]);
-    if exists()?.is_none() {
-        if let Err(error) = put_bundle_at(
+    if exists()?.is_none()
+        && let Err(error) = put_bundle_at(
             owner.fd.as_fd(),
             &["sha256", &logical[..2], logical],
             &candidate.files,
             BUDGET,
-        ) {
-            if exists()?.is_none() {
-                return Err(error);
-            }
-        }
+        )
+        && exists()?.is_none()
+    {
+        return Err(error);
     }
     verify_statistics(owner, candidate, &mut Vec::new()).map(drop)
 }
@@ -733,12 +731,11 @@ fn verify_single(
 fn publish_result(owner: &Directory, result: &Value) -> Result<()> {
     let logical = pin(result, "research_result_plan_fingerprint")?;
     let parts = ["sha256", &logical[..2], logical];
-    if optional_directory(owner, &parts)?.is_none() {
-        if let Err(error) = put_at(owner.fd.as_fd(), &parts, "manifest.json", result) {
-            if optional_directory(owner, &parts)?.is_none() {
-                return Err(error);
-            }
-        }
+    if optional_directory(owner, &parts)?.is_none()
+        && let Err(error) = put_at(owner.fd.as_fd(), &parts, "manifest.json", result)
+        && optional_directory(owner, &parts)?.is_none()
+    {
+        return Err(error);
     }
     let directory = optional_directory(owner, &parts)?.ok_or(INVALID)?;
     exact_files(&directory, &["manifest.json"])?;
@@ -793,13 +790,13 @@ fn report_value(
 fn publish_report(owner: &Directory, run: &VerifiedRun, report: &Value) -> Result<()> {
     let parts = [STRATEGY_PROFILE, "runs", run.run_id()];
     let files = BTreeMap::from([("manifest.json".into(), report_bytes(report)?)]);
-    if optional_directory(owner, &parts)?.is_none() {
-        if let Err(error) = put_bundle_at(owner.fd.as_fd(), &parts, &files, LIMIT) {
-            // An audit-neutral immutable conflict may have a complete winner.
-            // I/O and fsync uncertainty must retain the unsuccessful outcome.
-            if error != "IMMUTABLE_JSON_INVALID" || optional_directory(owner, &parts)?.is_none() {
-                return Err(error);
-            }
+    if optional_directory(owner, &parts)?.is_none()
+        && let Err(error) = put_bundle_at(owner.fd.as_fd(), &parts, &files, LIMIT)
+    {
+        // An audit-neutral immutable conflict may have a complete winner.
+        // I/O and fsync uncertainty must retain the unsuccessful outcome.
+        if error != "IMMUTABLE_JSON_INVALID" || optional_directory(owner, &parts)?.is_none() {
+            return Err(error);
         }
     }
     let directory = optional_directory(owner, &parts)?.ok_or(INVALID)?;
@@ -864,13 +861,12 @@ fn retained_runtime(
                 if !allowed.contains(&implementation_projection(body)?) {
                     return Err(INVALID);
                 }
-                if definition["kind"] == "PREDICATE" {
-                    if !native.contains(body)
+                if definition["kind"] == "PREDICATE"
+                    && (!native.contains(body)
                         || body["resources"]
-                            != json!([{"relative_path":"bin/onlyalpha-backend","byte_sha256":record["execution_binding"]["executor_artifact_sha256"]}])
-                    {
-                        return Err(INVALID);
-                    }
+                            != json!([{"relative_path":"bin/onlyalpha-backend","byte_sha256":record["execution_binding"]["executor_artifact_sha256"]}]))
+                {
+                    return Err(INVALID);
                 }
             }
         }
@@ -953,13 +949,12 @@ fn load(
     {
         return Err(INVALID);
     }
-    if let Some((result, artifact, executions)) = &run.completion {
-        if report["research_result_fingerprint"] != *result
+    if let Some((result, artifact, executions)) = &run.completion
+        && (report["research_result_fingerprint"] != *result
             || report["artifact_content_fingerprint"] != *artifact
-            || report["calculation_execution_evidence_fingerprints"] != json!(executions)
-        {
-            return Err(INVALID);
-        }
+            || report["calculation_execution_evidence_fingerprints"] != json!(executions))
+    {
+        return Err(INVALID);
     }
     let at: OnlyUtcDateTime = text(&report, "created_at")?.parse().map_err(|_| INVALID)?;
     let materialized = MaterializedDataset::load(

@@ -1,6 +1,6 @@
 use crate::{Manager, manager::CachedCheckpoint, model::*};
-use std::sync::Arc;
 use serde_json::{Value, json};
+use std::sync::Arc;
 impl Manager {
     fn cached_checkpoint(&self) -> Result<&CachedCheckpoint, Error> {
         if let Some(checkpoint) = self.checkpoint_cache.get() {
@@ -16,11 +16,19 @@ impl Manager {
         }));
         let bytes = serde_json::to_vec(record.as_ref())?;
         let fingerprint = digest(&bytes);
-        let checkpoint = CachedCheckpoint { bytes, fingerprint, record };
+        let checkpoint = CachedCheckpoint {
+            bytes,
+            fingerprint,
+            record,
+        };
         let _ = self.checkpoint_cache.set(Arc::new(checkpoint));
         // Concurrent shared readers construct the same immutable state. A
         // successful set, or another reader winning it, always leaves a value.
-        Ok(self.checkpoint_cache.get().expect("checkpoint was initialized").as_ref())
+        Ok(self
+            .checkpoint_cache
+            .get()
+            .expect("checkpoint was initialized")
+            .as_ref())
     }
 
     pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
@@ -33,7 +41,10 @@ impl Manager {
     /// source, Ready or execution authority.
     pub fn checkpoint_record(&self) -> Result<(Arc<Value>, String), Error> {
         let checkpoint = self.cached_checkpoint()?;
-        Ok((Arc::clone(&checkpoint.record), checkpoint.fingerprint.clone()))
+        Ok((
+            Arc::clone(&checkpoint.record),
+            checkpoint.fingerprint.clone(),
+        ))
     }
     /// Extend this exact canonical data prefix without reapplying its commands.
     /// This validates data only; it supplies no Store, source or Ready proof.
@@ -47,8 +58,15 @@ impl Manager {
         if serde_json::to_vec(&value)? != bytes || record["config"] != self.config {
             return Err(err("LEDGER_CHECKPOINT_CONTEXT_OR_CANONICAL"));
         }
-        let journal = record["journal"].as_array().ok_or_else(|| err("LEDGER_CHECKPOINT_JOURNAL"))?;
-        if journal.len() <= self.journal.len() || journal[..self.journal.len()].iter().zip(&self.journal).any(|(a,b)|a!=b.as_ref()) {
+        let journal = record["journal"]
+            .as_array()
+            .ok_or_else(|| err("LEDGER_CHECKPOINT_JOURNAL"))?;
+        if journal.len() <= self.journal.len()
+            || journal[..self.journal.len()]
+                .iter()
+                .zip(&self.journal)
+                .any(|(a, b)| a != b.as_ref())
+        {
             return Err(err("LEDGER_CHECKPOINT_EXTENSION_PREFIX"));
         }
         let mut candidate = self.clone();
@@ -87,7 +105,13 @@ impl Manager {
                 return Err(err("LEDGER_REPLAY_RECEIPT"));
             }
         }
-        if serde_json::to_value(candidate.journal.iter().map(std::sync::Arc::as_ref).collect::<Vec<_>>())? != r["journal"]
+        if serde_json::to_value(
+            candidate
+                .journal
+                .iter()
+                .map(std::sync::Arc::as_ref)
+                .collect::<Vec<_>>(),
+        )? != r["journal"]
             || candidate.state() != r["state"]
         {
             return Err(err("LEDGER_CHECKPOINT_STATE"));
@@ -97,9 +121,9 @@ impl Manager {
     }
 }
 
-
 #[cfg(test)]
 #[path = "recovery_extension_tests.rs"]
 mod extension_tests;
 
-#[cfg(test)] std::thread_local! {static CHECKPOINT_ENCODINGS:std::cell::Cell<u64>=const{std::cell::Cell::new(0)};}
+#[cfg(test)]
+std::thread_local! {static CHECKPOINT_ENCODINGS:std::cell::Cell<u64>=const{std::cell::Cell::new(0)};}

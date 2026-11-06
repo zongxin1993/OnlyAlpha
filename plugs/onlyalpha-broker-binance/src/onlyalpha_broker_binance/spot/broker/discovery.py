@@ -25,6 +25,7 @@ from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.execution import OnlyOrderRejection, OnlyOrderSnapshot
 from onlyalpha.domain.identifiers import OnlyAccountId, OnlyRuntimeId
 from onlyalpha.domain.time import OnlyTimestamp
+
 from onlyalpha_broker_binance.private_http import OnlyBinancePrivateRequestError
 from onlyalpha_broker_binance.spot.broker.codec import only_binance_client_order_id
 from onlyalpha_broker_binance.spot.broker.gateway import OnlyBinanceSpotBrokerGateway

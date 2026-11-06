@@ -4,7 +4,6 @@ from decimal import Decimal
 
 import pytest
 from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillScheduleStepSpec
-
 from tests.support.virtual_broker import ACCOUNT, bar
 from tests.support.virtual_broker import accept_scheduled_order as _accept
 from tests.support.virtual_broker import schedule_gateway as _gateway

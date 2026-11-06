@@ -3,9 +3,6 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from onlyalpha_plugin_cn_ashare.factory import OnlyCnAshareMarketProductFactory
-from onlyalpha_plugin_cn_ashare.reference import OnlyCnAshareReferenceAuthority
-
 from onlyalpha.domain.enums import OnlyOrderSide
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.time import OnlyTradingDay
@@ -18,6 +15,8 @@ from onlyalpha.market.product import (
     OnlyMarketProductResolutionContext,
     OnlyMarketProductVersion,
 )
+from onlyalpha_plugin_cn_ashare.factory import OnlyCnAshareMarketProductFactory
+from onlyalpha_plugin_cn_ashare.reference import OnlyCnAshareReferenceAuthority
 
 
 class _NoResources:

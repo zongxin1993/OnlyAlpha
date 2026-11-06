@@ -1,8 +1,7 @@
 import pytest
+from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha_plugin_tushare.config import OnlyTushareConfig
 from onlyalpha_plugin_tushare.errors import OnlyTushareError
-
-from onlyalpha.domain.enums import OnlyAdjustmentType
 
 
 def test_token_environment_precedes_hidden_direct_config(monkeypatch) -> None:

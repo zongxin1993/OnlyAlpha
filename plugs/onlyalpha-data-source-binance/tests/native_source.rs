@@ -1,5 +1,5 @@
-use onlyalpha_domain::base::OnlyDomainModel;
 use onlyalpha_data_source_binance::spot_normalize::{instrument, rest_bar_interval};
+use onlyalpha_domain::base::OnlyDomainModel;
 use serde_json::json;
 
 #[test]

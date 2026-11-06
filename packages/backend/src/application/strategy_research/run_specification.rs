@@ -274,9 +274,17 @@ impl RunSpecification {
         }
         Ok(spec)
     }
-    pub(crate) fn calculation_graph(&self,id:&str)->Result<&Graph>{self.calculations.get(id).map(|c|&c.graph).ok_or(INVALID)}
-    pub(crate) fn target_graph(&self)->&Graph{&self.targets}
-    pub(crate) fn calculation_graphs(&self)->impl Iterator<Item=(&str,&Graph)>{self.calculations.iter().map(|(id,c)|(id.as_str(),&c.graph))}
+    pub(crate) fn calculation_graph(&self, id: &str) -> Result<&Graph> {
+        self.calculations.get(id).map(|c| &c.graph).ok_or(INVALID)
+    }
+    pub(crate) fn target_graph(&self) -> &Graph {
+        &self.targets
+    }
+    pub(crate) fn calculation_graphs(&self) -> impl Iterator<Item = (&str, &Graph)> {
+        self.calculations
+            .iter()
+            .map(|(id, c)| (id.as_str(), &c.graph))
+    }
     pub fn record(&self) -> &Value {
         &self.record
     }

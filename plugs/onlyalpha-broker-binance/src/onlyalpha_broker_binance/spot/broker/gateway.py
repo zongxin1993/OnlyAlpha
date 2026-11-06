@@ -40,6 +40,7 @@ from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
 from onlyalpha.fee.evidence import OnlyExternalFeeEvidence, OnlyExternalFeeEvidenceMode
 from onlyalpha.fee.evidence_scope import OnlyExternalFeeEvidenceScope
+
 from onlyalpha_broker_binance.errors import OnlyBinanceSchemaError
 from onlyalpha_broker_binance.private_http import (
     OnlyBinanceDispatchKnowledge,

@@ -1,4 +1,5 @@
 //! Existing Generation journal: retained input reads and native lifecycle mutations.
+mod artifact_digest;
 mod contracts;
 mod lifecycle;
 mod publication;
@@ -17,6 +18,8 @@ const INVALID: &str = "RESEARCH_RUNTIME_PROOF_INVALID";
 const UNAVAILABLE: &str = "RESEARCH_RUNTIME_UNAVAILABLE";
 const INVENTORY_LOCK_BUSY: &str = "RESEARCH_RUNTIME_INVENTORY_LOCK_BUSY";
 const LIMIT: usize = 8 * 1024 * 1024;
+static ARTIFACT_DIGEST_MEMO: artifact_digest::ArtifactDigestMemo =
+    artifact_digest::ArtifactDigestMemo::new();
 fn digest(v: &Value, field: &str) -> Result<String> {
     let mut v = v.clone();
     let expected = v
@@ -172,9 +175,7 @@ impl RuntimeEvidenceHold {
     pub(crate) fn strategy_validation_inputs(&mut self, algorithm: &str) -> Result<Value> {
         let installed = self.installed_proof(algorithm)?;
         let core = self.retained.core_artifact()?.clone();
-        let operator = self
-            .retained
-            .operator_artifact()?;
+        let operator = self.retained.operator_artifact()?;
         let target = self.retained.target_artifact()?;
         let bindings = self.retained.manifest["private_factor_bindings"]
             .as_array()
@@ -668,7 +669,9 @@ impl RuntimeInputHold {
                 .filter(|n| *n > 0)
                 .ok_or(INVALID)?;
             remaining = remaining.checked_sub(size).ok_or(UNAVAILABLE)?;
-            if m["role"] == "QUANT_ASSET" || m["role"] == "BACKEND_RUNTIME" && m["schema_version"] == 3 {
+            if m["role"] == "QUANT_ASSET"
+                || m["role"] == "BACKEND_RUNTIME" && m["schema_version"] == 3
+            {
                 providers.push(json!({"provider_id":m["provider_id"],"provider_version":m["provider_version"],"provider_content_fingerprint":m["provider_content_fingerprint"],"artifact_sha256":m["artifact_sha256"]}));
             }
             for i in m["implementations"].as_array().ok_or(INVALID)? {
@@ -775,16 +778,27 @@ impl RuntimeInputHold {
     /// Select the exact archived Operator implementation artifact of this Generation.
     pub(crate) fn operator_artifact(&mut self) -> Result<Value> {
         self.verify_artifacts()?;
-        let selected = self.executor.as_ref().ok_or("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
+        let selected = self
+            .executor
+            .as_ref()
+            .ok_or("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
         if selected["schema_version"] != 3 {
             // Read only the exact distribution already archived by this original
             // Generation. This preserves historical references without executing
             // or rebuilding a retired Python implementation.
             return self.distribution_artifact("onlyalpha-plugin-operators");
         }
-        if selected["role"] != "BACKEND_RUNTIME" {return Err(INVALID);}
-        let (path, digest, size) = self.artifacts.iter().find(|(_, digest, _)| selected["artifact_sha256"] == *digest).ok_or(INVALID)?;
-        Ok(json!({"path":self.root_path.join(path),"sha256":digest,"size":size,"distribution_version":selected["distribution_version"]}))
+        if selected["role"] != "BACKEND_RUNTIME" {
+            return Err(INVALID);
+        }
+        let (path, digest, size) = self
+            .artifacts
+            .iter()
+            .find(|(_, digest, _)| selected["artifact_sha256"] == *digest)
+            .ok_or(INVALID)?;
+        Ok(
+            json!({"path":self.root_path.join(path),"sha256":digest,"size":size,"distribution_version":selected["distribution_version"]}),
+        )
     }
     /// Select only an already physically verified wheel of this held Generation.
     /// This does not discover an installed/current distribution or grant work.
@@ -794,14 +808,16 @@ impl RuntimeInputHold {
     /// Resolve the exact Target implementation declared by this Generation.
     pub(crate) fn target_artifact(&mut self) -> Result<Value> {
         self.select_distribution_artifact(|manifest| {
-            manifest["implementations"].as_array().is_some_and(|implementations| {
-                implementations.iter().any(|implementation| {
-                    implementation["kind"] == "TARGET"
-                        && implementation["type_id"] == "onlyalpha.target.forward_return"
-                        && implementation["semantic_version"] == "1"
-                        && implementation["backend"] == "RESEARCH"
+            manifest["implementations"]
+                .as_array()
+                .is_some_and(|implementations| {
+                    implementations.iter().any(|implementation| {
+                        implementation["kind"] == "TARGET"
+                            && implementation["type_id"] == "onlyalpha.target.forward_return"
+                            && implementation["semantic_version"] == "1"
+                            && implementation["backend"] == "RESEARCH"
+                    })
                 })
-            })
         })
     }
     fn select_distribution_artifact(&mut self, matches: impl Fn(&Value) -> bool) -> Result<Value> {
@@ -867,7 +883,9 @@ impl RuntimeInputHold {
             .executor
             .as_ref()
             .ok_or("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
-        if !matches!(selected["schema_version"].as_u64(), Some(2 | 3)) || selected["role"] != "BACKEND_RUNTIME" {
+        if !matches!(selected["schema_version"].as_u64(), Some(2 | 3))
+            || selected["role"] != "BACKEND_RUNTIME"
+        {
             return Err("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE");
         }
         let native = crate::workers::algorithm::describe_native_runtime(env!("CARGO_PKG_VERSION"))
@@ -993,8 +1011,15 @@ impl RuntimeInputHold {
 }
 
 fn verify_bytes(root: &OwnedFd, path: &str, expected: &str, size: u64) -> Result<()> {
-    use sha2::{Digest, Sha256};
-    use std::io::Read;
+    verify_bytes_using(root, path, expected, size, &ARTIFACT_DIGEST_MEMO)
+}
+fn verify_bytes_using(
+    root: &OwnedFd,
+    path: &str,
+    expected: &str,
+    size: u64,
+    memo: &artifact_digest::ArtifactDigestMemo,
+) -> Result<()> {
     let mut parts = path.split('/').peekable();
     let mut dir = protected::duplicate_directory(root.as_fd()).map_err(|_| UNAVAILABLE)?;
     while let Some(name) = parts.next() {
@@ -1019,35 +1044,47 @@ fn verify_bytes(root: &OwnedFd, path: &str, expected: &str, size: u64) -> Result
         {
             return Err(INVALID);
         }
-        let mut file = std::fs::File::from(fd).take(size + 1);
-        let mut hash = Sha256::new();
-        let mut buffer = [0; 65536];
-        let mut total = 0;
-        loop {
-            let n = file.read(&mut buffer).map_err(|_| UNAVAILABLE)?;
-            if n == 0 {
-                break;
-            }
-            total += n as u64;
-            #[cfg(test)]
-            metadata_read_tests::SCANNED_BYTES.with(|count| count.set(count.get() + n as u64));
-            hash.update(&buffer[..n]);
-        }
-        if total != size
-            || hash
-                .finalize()
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
-                != expected
-        {
-            return Err(INVALID);
-        }
-        return Ok(());
+        return verify_read_bytes(std::fs::File::from(fd), expected, size, memo);
     }
     Err(INVALID)
+}
+fn verify_read_bytes(
+    reader: impl std::io::Read,
+    expected: &str,
+    size: u64,
+    memo: &artifact_digest::ArtifactDigestMemo,
+) -> Result<()> {
+    use std::io::Read;
+    let mut file = reader.take(size + 1);
+    let mut hash = memo.stream(size);
+    let mut buffer = [0; 65536];
+    let mut total = 0;
+    loop {
+        let n = file.read(&mut buffer).map_err(|_| UNAVAILABLE)?;
+        if n == 0 {
+            break;
+        }
+        total += n as u64;
+        #[cfg(test)]
+        metadata_read_tests::SCANNED_BYTES.with(|count| count.set(count.get() + n as u64));
+        hash.update(&buffer[..n]);
+    }
+    if total != size
+        || hash
+            .finish()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+            != expected
+    {
+        return Err(INVALID);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 #[path = "research_runtime/metadata_read_tests.rs"]
 mod metadata_read_tests;
+
+#[cfg(test)]
+mod artifact_digest_tests;

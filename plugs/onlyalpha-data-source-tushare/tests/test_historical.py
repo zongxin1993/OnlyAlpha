@@ -1,9 +1,5 @@
 from datetime import UTC, datetime
 
-from onlyalpha_plugin_tushare.data_source.provider import (
-    OnlyTushareHistoricalDataProvider,
-)
-
 from onlyalpha.cache.historical import (
     OnlyHistoricalCacheService,
     OnlyParquetHistoricalCacheStore,
@@ -11,6 +7,9 @@ from onlyalpha.cache.historical import (
 from onlyalpha.cache.historical.models import OnlyCachePolicy
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.historical import OnlyHistoricalDataRequest
+from onlyalpha_plugin_tushare.data_source.provider import (
+    OnlyTushareHistoricalDataProvider,
+)
 
 from .support import OnlyFakeFrame, row
 

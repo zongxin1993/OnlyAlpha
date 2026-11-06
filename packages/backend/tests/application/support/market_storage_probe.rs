@@ -13,6 +13,9 @@ fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str, Box<dyn std::error::Error>
     v[k].as_str().ok_or_else(|| format!("missing {k}").into())
 }
 pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
+    if text(v, "op")? == "fixture" {
+        return fixture_reference(v);
+    }
     let dsn = std::env::var("ONLYALPHA_POSTGRES_DSN")?;
     let config: tokio_postgres::Config = dsn.parse()?;
     if !config.get_dbname().is_some_and(|n| n.ends_with("_test")) {
@@ -431,6 +434,7 @@ async fn retained_source_prerequisite(
     use onlyalpha_backend::persistence::{
         authority_session::AuthoritySession, integration_postgres::Integrations,
     };
+    use onlyalpha_data_source_binance::{spot_authoring, spot_normalize, spot_source::SpotFactory};
     use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBarSemantic, time::OnlyTimestamp};
     use onlyalpha_integration_contract::{
         IntegrationTypeId,
@@ -440,7 +444,6 @@ async fn retained_source_prerequisite(
         OnlyConstructionIdentity, OnlyConstructionRequirement, OnlyConstructionResolutionContext,
         OnlyConstructionResolutionPlan,
     };
-    use onlyalpha_data_source_binance::{spot_authoring, spot_normalize, spot_source::SpotFactory};
     use sha2::{Digest, Sha256};
     use std::{os::unix::fs::DirBuilderExt, sync::Arc};
     const WORK: usize = 64 * 1024 * 1024;
@@ -452,13 +455,36 @@ async fn retained_source_prerequisite(
     // Controlled current-slice input; the original retained browser profile is unchanged.
     let (start_ms, stride_ms, row_count, minutes) = match v.get("fixture_profile") {
         None => (START_MS, STRIDE_MS, 575i64, 15u16),
-        Some(Value::String(profile)) if profile == "BTC_SPOT_NEXT_OPEN_2025_V1" =>
-            (1_735_861_200_000i64, 60_000i64, 740i64, 1u16),
-        Some(Value::String(profile)) if profile == "RESEARCH_INPUT_ADMISSION_V1" =>
-            (START_MS, 60_000i64, 2i64, 1u16),
+        Some(Value::String(profile)) if profile == "BTC_SPOT_NEXT_OPEN_2025_V1" => {
+            (1_735_861_200_000i64, 60_000i64, 740i64, 1u16)
+        }
+        Some(Value::String(profile)) if profile == "RESEARCH_INPUT_ADMISSION_V1" => {
+            (START_MS, 60_000i64, 2i64, 1u16)
+        }
+        Some(Value::String(profile)) if profile == "STRATEGY_RESEARCH_EVIDENCE_V1" => {
+            (1_735_817_940_000i64, 60_000i64, 740i64, 1u16)
+        }
+        Some(Value::String(profile)) if profile == "MANUAL_BACKTEST_VALIDATION_V1" => {
+            (1_735_861_200_000i64, 60_000i64, 740i64, 1u16)
+        }
+        Some(Value::String(profile)) if profile == "STRATEGY_PREPARATION_EVALUATION_V1" => {
+            (START_MS, 60_000i64, 740i64, 1u16)
+        }
+        Some(Value::String(profile)) if profile == "STRATEGY_PREPARATION_V1" => {
+            (START_MS, 60_000i64, 28i64, 1u16)
+        }
         _ => return Err("unknown controlled input profile".into()),
     };
     let next_open = v["fixture_profile"] == "BTC_SPOT_NEXT_OPEN_2025_V1";
+    let research = matches!(
+        v["fixture_profile"].as_str(),
+        Some(
+            "STRATEGY_RESEARCH_EVIDENCE_V1"
+                | "MANUAL_BACKTEST_VALIDATION_V1"
+                | "STRATEGY_PREPARATION_EVALUATION_V1"
+                | "STRATEGY_PREPARATION_V1"
+        )
+    );
     fn sha(bytes: &[u8]) -> String {
         Sha256::digest(bytes)
             .iter()
@@ -601,6 +627,12 @@ async fn retained_source_prerequisite(
     } else {
         provider_instrument
     };
+    let provider_instrument = if research {
+        json!({"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING",
+            "filters":[{"filterType":"PRICE_FILTER","tickSize":"0.00000001"},{"filterType":"LOT_SIZE","stepSize":"0.00000001","minQty":"0.00000001"}]})
+    } else {
+        provider_instrument
+    };
     let instrument = spot_normalize::instrument(&provider_instrument)?;
     let rows = (0..row_count)
         .map(|i| {
@@ -628,6 +660,26 @@ async fn retained_source_prerequisite(
             } else {
                 (price, close, volume)
             };
+            if research {
+                return json!([
+                    start,
+                    "100.00000000",
+                    "102.00000000",
+                    "99.00000000",
+                    match i {
+                        20 => "101.20200000",
+                        21 => "100.89900000",
+                        _ => "101.00000000",
+                    },
+                    "2.00000000",
+                    start + stride_ms - 1,
+                    "201.0000000000000000",
+                    3,
+                    "0",
+                    "0",
+                    "0"
+                ]);
+            }
             json!([
                 start,
                 price.to_string(),
@@ -706,12 +758,334 @@ async fn retained_source_prerequisite(
         return Err("retained fixture did not round trip".into());
     }
     drop(wal);
+    let canonical_bars = retained[0]["canonical_facts"]
+        .as_array()
+        .ok_or("missing native facts")?
+        .iter()
+        .map(|fact| fact["canonical_payload"]["payload"]["value"].clone())
+        .collect::<Vec<_>>();
+    let event_axis_ns = retained[0]["canonical_facts"]
+        .as_array()
+        .ok_or("missing native facts")?
+        .iter()
+        .map(|fact| fact["ts_event_ns"].clone())
+        .collect::<Vec<_>>();
     session.close().await?;
     Ok(
-        json!({"schema_version":1,"controlled_external_input":true,"source":{"integration_id":id.value(),"integration_revision_fingerprint":revision,"expected_type_id":TYPE,"source_id":resolved.identity().source_id,"environment":resolved.identity().environment},
+        json!({"schema_version":1,"controlled_external_input":true,"canonical_bars":canonical_bars,"event_axis_ns":event_axis_ns,"source":{"integration_id":id.value(),"integration_revision_fingerprint":revision,"expected_type_id":TYPE,"source_id":resolved.identity().source_id,"environment":resolved.identity().environment},
         "provider_http_fixture":{"exchange_info":{"timezone":"UTC","symbols":[provider_instrument]},"klines":rows},
         "selected_backend_sha256":native_sha,"binding_fingerprint":resolved.binding_fingerprint(),"segment":segment,"wal_root":wal_root,
         "first_event_ns":((start_ms+stride_ms)*1_000_000).to_string(),"last_event_ns":((start_ms+row_count*stride_ms)*1_000_000).to_string(),"protected_start_ns":((start_ms+(row_count+1)*stride_ms)*1_000_000).to_string(),
         "suggested_advice":{"timeframe_minutes":15,"instrument_id":"BTCUSDT.BINANCE","start_at":"2026-01-01T06:00:00Z","development_end_at":"2026-01-03T22:00:00Z","end_at":"2026-01-06T14:00:00Z","protected_start_at":"2026-01-07T00:00:00Z","protected_end_at":"2026-01-09T16:00:00Z","horizon_bars":1,"expected_block_length":12,"replicates":4096,"confidence_bps":9500,"seed":"b".repeat(64)}}),
+    )
+}
+
+// Technical retained-input producer. These values grant no Source, permission,
+// Revision, Dataset materialization or execution authority. The real owners below
+// validate and persist the supplied public Domain records.
+fn fixture_projection(value: &Value) -> Value {
+    match value {
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .filter(|(k, _)| k.as_str() != "schema_version")
+                .map(|(k, v)| (k.clone(), fixture_projection(v)))
+                .collect(),
+        ),
+        Value::Array(values) => Value::Array(values.iter().map(fixture_projection).collect()),
+        _ => value.clone(),
+    }
+}
+fn fixture_fp(value: &Value) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(onlyalpha_metadata_json::fingerprint(
+        &value.to_string(),
+        128 * 1024 * 1024,
+    )?)
+}
+fn fixture_sha(raw: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(raw)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+fn fixture_reference(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use onlyalpha_backend::{
+        application::{
+            command::CommandId,
+            research_dataset::{Dataset, MaterializedDataset},
+        },
+        persistence::{research_dataset::Store as Datasets, research_submission},
+    };
+    use onlyalpha_domain::{
+        base::OnlyDomainModel,
+        market::{OnlyBar, OnlyMarketReferenceTick, OnlyTradeTick},
+        time::{OnlyTimestamp, OnlyUtcDateTime},
+    };
+    use onlyalpha_market_data_construction::OnlyConstructionIdentity;
+    let action = text(v, "action")?;
+    if action == "record-hash" {
+        return Ok(json!({"fingerprint":fixture_fp(&v["row"])?}));
+    }
+    if action == "run-id" {
+        return Ok(
+            json!({"run_id": research_submission::run_id(&CommandId::new(text(v,"command")?)?)}),
+        );
+    }
+    if action == "dataset-read" {
+        let store = Datasets::open(Path::new(text(v, "dataset_root")?), 8192, 8 * 1024 * 1024)?;
+        let materialized = MaterializedDataset::load(&store, text(v, "materialization")?)?;
+        return Ok(
+            json!({"bars":materialized.verified().dataset().bars()?.iter().map(OnlyDomainModel::to_record).collect::<Vec<_>>(),"rows":materialized.verified().dataset().rows(),"lineage":materialized.lineage()}),
+        );
+    }
+    if action == "dataset-reference" {
+        let scope = Scope::from_record(&v["scope"])?;
+        let context = scope.to_record();
+        let construction = OnlyConstructionIdentity::from_record(&context["bar_construction"])?;
+        let binding = json!([[
+            context["instrument_id"],
+            construction.fingerprint(),
+            v["revision"]["fingerprint"],
+            v["seal"]["seal_id"]
+        ]]);
+        let dataset = Dataset::from_bars(
+            &v["definition"],
+            v["bars"].as_array().ok_or("bars")?,
+            &fixture_fp(&binding)?,
+            8192,
+        )?;
+        let mut definition = dataset.definition().clone();
+        definition["bar_semantic"] = fixture_projection(&definition["bar_semantic"]);
+        let instrument = text(&context, "instrument_id")?
+            .parse::<onlyalpha_domain::identifiers::OnlyInstrumentId>()?;
+        definition["instruments"] = json!([fixture_projection(&instrument.to_record())]);
+        let request = fixture_fp(
+            &json!({"definition":definition,"scopes":[fixture_projection(&context)],"constructions":[construction.fingerprint()]}),
+        )?;
+        let lineage = json!({"dataset_snapshot_fingerprint":dataset.snapshot_fingerprint(),"market_data_revision_bindings":[{"source_id":context["source_id"],"instrument_id":context["instrument_id"],"data_kind":"BAR","revision_id":v["revision"]["revision_id"],"revision_fingerprint":v["revision"]["fingerprint"]}],"materializer_id":"onlyalpha.sealed-market-data","materializer_version":"1","request_fingerprint":request});
+        return Ok(
+            json!({"snapshot":dataset.snapshot_fingerprint(),"rows":dataset.rows(),"materialization":format!("dataset-materialization:{}",fixture_fp(&lineage)?),"request":request}),
+        );
+    }
+    if action == "wrong-trade-row" {
+        // Deliberately self-consistent historical projection defect. This is a
+        // fault record, never a MarketData/Source/physical-proof authority.
+        let segment = Segment::from_record(&v["segment"])?;
+        let fact = &v["fact"];
+        let payload = &fact["canonical_payload"]["payload"]["value"];
+        let trade = OnlyTradeTick::from_record(payload)?;
+        if fact["data_kind"] != "TRADE" || fact["segment_id"] != segment.id() {
+            return Err("trade fault fixture relation".into());
+        }
+        let mut row = json!({});
+        for key in [
+            "canonical_fact_id",
+            "source_id",
+            "instrument_id",
+            "segment_id",
+            "capture_session_id",
+            "raw_event_id",
+            "ts_event_ns",
+            "ts_receive_ns",
+            "ts_ingest_ns",
+            "provenance",
+            "quality_state",
+            "canonical_payload_hash",
+            "normalizer_id",
+            "normalizer_version",
+        ] {
+            row[key] = fact[key].clone();
+        }
+        row["segment_content_hash"] = segment.content_hash().into();
+        row["canonical_payload_json"] = onlyalpha_metadata_json::canonical_json(
+            &fact["canonical_payload"].to_string(),
+            128 * 1024 * 1024,
+        )?
+        .into();
+        for key in ["price", "quantity"] {
+            row[key] = payload[key]["value"].clone();
+            row[format!("{key}_precision")] = payload[key]["precision"].clone();
+        }
+        row["provider_sequence"] = payload["sequence"].clone();
+        row["aggressor_side"] = payload["aggressor_side"].clone();
+        row["provider_event_id"] =
+            format!("{{'schema_version': 1, 'value': '{}'}}", trade.trade_id()).into();
+        row["record_hash"] = fixture_fp(&row)?.into();
+        return Ok(row);
+    }
+    if action == "physical-proof-record" {
+        // Test fault publication only. Catalog's original strict parser must
+        // independently accept this record after the controlled SQL mutation.
+        let segment = Segment::from_record(&v["segment"])?;
+        let metadata = segment.metadata_fingerprint()?;
+        let record = segment.to_record();
+        let parts = &v["partitions"];
+        let body = json!([
+            1,
+            segment.id(),
+            segment.content_hash(),
+            metadata,
+            record["raw_count"],
+            record["canonical_count"],
+            parts
+        ]);
+        return Ok(
+            json!({"schema_version":1,"segment_id":segment.id(),"segment_content_hash":segment.content_hash(),"segment_metadata_fingerprint":metadata,"raw_count":record["raw_count"],"canonical_count":record["canonical_count"],"partitions":parts,"fingerprint":fixture_fp(&body)?}),
+        );
+    }
+    let root = Path::new(text(v, "root")?);
+    let id = text(v, "id")?;
+    let mut wal = Wal::new(root, 32 * 1024 * 1024)?;
+    if action == "retained" {
+        let mut bundle = v["bundle"].clone();
+        let template = bundle["canonical_facts"][0]["canonical_payload"].clone();
+        let kind = text(v, "kind")?;
+        let capture = format!("capture-{id}");
+        let evidence = &mut bundle["evidence"];
+        evidence["capture_session_id"] = capture.clone().into();
+        evidence["integration_binding_fingerprint"] = v["binding"].clone();
+        if !matches!(kind, "BAR" | "RAW_BAR") {
+            evidence["bar_construction"] = Value::Null;
+        }
+        if let Some(raw) = v["raw_payload_base64"].as_str() {
+            let raw = STANDARD.decode(raw)?;
+            evidence["payload_base64"] = STANDARD.encode(&raw).into();
+            evidence["raw_sha256"] = fixture_sha(&raw).into();
+        }
+        let raw_id = format!(
+            "raw-event:{}",
+            fixture_fp(
+                &json!({"source_id":evidence["source_id"],"capture_session_id":capture,"stream":evidence["stream"],"provider_event_type":evidence["provider_event_type"],"provider_event_id":evidence["provider_event_id"],"provider_sequence":evidence["provider_sequence"],"ts_event_ns":evidence["ts_event_ns"],"ts_receive_ns":evidence["ts_receive_ns"],"raw_sha256":evidence["raw_sha256"]})
+            )?
+        );
+        evidence["raw_event_id"] = raw_id.clone().into();
+        let mut facts = vec![];
+        for spec in v["updates"].as_array().ok_or("updates")? {
+            let index = spec["index"].as_i64().ok_or("index")?;
+            let mut update = template.clone();
+            let base: OnlyUtcDateTime = "2026-01-01T00:00:00Z".parse()?;
+            let base_ns: i64 = OnlyTimestamp::from_datetime(base)
+                .unix_nanos()
+                .to_string()
+                .parse()?;
+            let event = base_ns
+                .checked_add(
+                    index
+                        .checked_mul(if kind == "BAR" {
+                            60_000_000_000
+                        } else {
+                            1_000_000_000
+                        })
+                        .ok_or("index overflow")?,
+                )
+                .ok_or("event overflow")?;
+            let end = event
+                .checked_add(if kind == "BAR" { 60_000_000_000 } else { 0 })
+                .ok_or("event overflow")?;
+            let timestamp = |ns: i64| -> Result<String, Box<dyn std::error::Error>> {
+                Ok(OnlyTimestamp::from_unix_nanos(ns.into())
+                    .to_datetime_exact()?
+                    .to_string())
+            };
+            let (domain, identity, sequence) = if kind == "BAR" {
+                let mut bar = template["payload"]["value"].clone();
+                for key in ["ts_event", "ts_init", "bar_end"] {
+                    bar[key] = timestamp(end)?.into();
+                }
+                bar["bar_start"] = timestamp(event)?.into();
+                bar["trading_day"] = timestamp(event)?[..10].into();
+                bar["close"]["value"] = spec["close"].as_str().unwrap_or("101.00000000").into();
+                let bar = OnlyBar::from_record(&bar)?;
+                let identity = format!(
+                    "market-fact:bar:{}",
+                    fixture_fp(
+                        &json!({"kind":"BAR","source":"BINANCE_SPOT","instrument":bar.instrument_id().to_json()?,"bar_type":bar.bar_type().to_json()?,"bar_start":bar.bar_start().to_string(),"data_version":"BINANCE_SPOT_V1"})
+                    )?
+                );
+                (bar.to_record(), identity, event / 60_000_000_000)
+            } else {
+                let common = json!({"schema_version":1,"instrument_id":template["payload"]["value"]["bar_type"]["instrument_id"],"ts_event":timestamp(end)?,"ts_init":timestamp(end)?,"sequence":index,"source":"BINANCE_SPOT","price":{"schema_version":1,"value":"100.12000000","precision":8}});
+                let mut tick = common;
+                let identity = if kind == "TRADE" {
+                    tick["quantity"] =
+                        json!({"schema_version":1,"value":"0.01000000","precision":8});
+                    tick["aggressor_side"] = "BUY".into();
+                    tick["trade_id"] = json!({"schema_version":1,"value":index.to_string()});
+                    let tick = OnlyTradeTick::from_record(&tick)?;
+                    let id = format!(
+                        "market-fact:trade:{}",
+                        fixture_fp(
+                            &json!({"kind":"TRADE","source":"BINANCE_SPOT","instrument":tick.instrument_id().to_json()?,"venue_trade_id":tick.trade_id().to_string(),"data_version":"BINANCE_SPOT_V1"})
+                        )?
+                    );
+                    (tick.to_record(), id)
+                } else if kind == "MARKET_REFERENCE" {
+                    tick["reference_kind"] = "VENUE_REFERENCE_PRICE".into();
+                    let tick = OnlyMarketReferenceTick::from_record(&tick)?;
+                    let id = format!(
+                        "market-fact:market_reference:{}",
+                        fixture_fp(
+                            &json!({"kind":"MARKET_REFERENCE","source":"BINANCE_SPOT","instrument":tick.instrument_id().to_json()?,"reference_kind":"VENUE_REFERENCE_PRICE","ts_event":tick.ts_event().to_string(),"data_version":"BINANCE_SPOT_V1"})
+                        )?
+                    );
+                    (tick.to_record(), id)
+                } else {
+                    return Err("unknown canonical family".into());
+                };
+                (identity.0, identity.1, index)
+            };
+            update["update_id"] = identity.clone().into();
+            update["data_type"] = kind.into();
+            update["source_sequence"] = sequence.into();
+            update["ts_event"] = end.into();
+            update["ts_init"] = end.into();
+            update["payload"] = json!({"kind":kind,"value":domain});
+            if kind != "BAR" {
+                update["sequence_scope"] = Value::Null;
+            }
+            if kind == "MARKET_REFERENCE" {
+                update["sequence_semantics"] = "MONOTONIC".into();
+            }
+            facts.push(json!({"canonical_fact_id":identity,"raw_event_id":raw_id,"source_id":evidence["source_id"],"segment_id":id,"capture_session_id":capture,"data_kind":kind,"instrument_id":"BTCUSDT.BINANCE","ts_event_ns":end,"ts_receive_ns":evidence["ts_receive_ns"],"ts_ingest_ns":123,"canonical_payload_hash":fixture_fp(&update)?,"canonical_payload":update,"normalizer_id":"native-reference","normalizer_version":"1","quality_state":"VALID","provenance":evidence["provenance"]}));
+        }
+        bundle["canonical_facts"] = facts.into();
+        wal.create_segment(id, text(v, "at")?)?;
+        wal.append(&bundle.to_string())?;
+        wal.seal(text(v, "at")?)?;
+    } else if action != "read" {
+        return Err("unknown fixture action".into());
+    }
+    let segment = Segment::from_record(&wal.load_segment(id)?)?;
+    let records = wal.read_sealed(id)?;
+    let scope = if segment.to_record()["canonical_count"] == 0 {
+        Value::Null
+    } else {
+        segment.recovery_scope()?.to_record()
+    };
+    let facts = records
+        .iter()
+        .flat_map(|r| {
+            r["canonical_facts"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .cloned()
+        })
+        .collect::<Vec<_>>();
+    let manifest = if scope.is_null() {
+        Value::Null
+    } else {
+        coverage(
+            &Scope::from_record(&scope)?,
+            std::slice::from_ref(&segment),
+            &facts,
+            10_000,
+        )?
+        .to_record()
+    };
+    Ok(
+        json!({"segment":segment.to_record(),"records":records,"scope":scope,"metadata_fingerprint":segment.metadata_fingerprint()?,"manifest":manifest}),
     )
 }

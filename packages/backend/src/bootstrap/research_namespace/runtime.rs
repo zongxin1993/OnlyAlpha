@@ -16,14 +16,14 @@ const UNKNOWN: &str = "RESEARCH_RUNTIME_INITIALIZATION_OUTCOME_UNKNOWN";
 
 #[cfg(test)]
 #[derive(Clone, Copy)]
-pub(crate) enum InitializationFault {
+pub enum InitializationFault {
     Readback,
     Guard,
 }
 #[cfg(test)]
 std::thread_local! { static NEXT_FAULT: std::cell::Cell<Option<InitializationFault>> = const { std::cell::Cell::new(None) }; }
 #[cfg(test)]
-pub(crate) fn fail_initialization_for_test(fault: InitializationFault) {
+pub fn fail_initialization_for_test(fault: InitializationFault) {
     NEXT_FAULT.with(|next| next.set(Some(fault)));
 }
 

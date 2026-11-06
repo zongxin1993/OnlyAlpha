@@ -1,6 +1,6 @@
-"""Real Rust/Python readers over the one existing Product Command authority.
+"""Independent native processes over the existing Product Command authority.
 
-These are persistence/interop proofs, not Shipping Web business acceptance.
+These prove persistence and recovery through real PostgreSQL, not Web acceptance.
 """
 
 from __future__ import annotations
@@ -9,21 +9,14 @@ import json
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import psycopg
 import pytest
 
-from onlyalpha.application.product_command_receipt import (
-    OnlyProductCommandAdmissionV1,
-    OnlyProductCommandId,
-    OnlyProductCommandKind,
-    OnlyProductCommandOutcomeKind,
-    OnlyProductCommandOutcomeRef,
-    OnlyProductCommandReceipt,
-)
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.persistence.postgres.product_command_authority import OnlyPostgresProductCommandAuthority
+from packages.backend.tests.application.support.native_probe import call
+from packages.backend.tests.application.test_schema_postgres import migration_backend as migration_backend
+from packages.backend.tests.application.test_schema_postgres import schema_db as schema_db
 from packages.backend.tests.postgres_link import CommitAckCut
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
@@ -36,42 +29,28 @@ RECEIPT = {**INTENT, "outcome_kind": "RESEARCH_RUN", "outcome_id": RUN, "accepte
 
 def run(probe: Path, op: str, *, no_reply: bool = False, **fields: object) -> dict[str, Any]:
     request = {**RECEIPT, "op": op, **fields}
+    if not no_reply:
+        return call(probe, request)
     result = subprocess.run([str(probe)], input=json.dumps(request), text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
-    if no_reply:
-        assert result.stdout == ""
-        return {}
-    return cast(dict[str, Any], json.loads(result.stdout))
+    assert result.stdout == ""
+    return {}
 
 
-def models() -> tuple[OnlyProductCommandAdmissionV1, OnlyProductCommandReceipt]:
-    admission = OnlyProductCommandAdmissionV1(
-        OnlyProductCommandId(ID), OnlyProductCommandKind.CREATE_RESEARCH_RUN, "a" * 64
-    )
-    return admission, OnlyProductCommandReceipt(
-        admission.command_id,
-        admission.command_kind,
-        admission.command_fingerprint,
-        OnlyProductCommandOutcomeRef(OnlyProductCommandOutcomeKind.RESEARCH_RUN, RUN),
-        NOW,
-    )
-
-
-def test_existing_python_history_is_read_exactly_by_fresh_rust_process(native_probe: Path, postgres_dsn: str) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    owner = OnlyPostgresProductCommandAuthority(postgres_dsn)
-    admission, receipt = models()
+def test_native_history_is_read_exactly_by_independent_native_processes(native_probe: Path, schema_db: str) -> None:
     assert run(native_probe, "binding") == {"state": "NONE"}
-    owner.admit_exact(admission)
+    assert run(native_probe, "load-receipt") == {"state": "NO_RECEIPT"}
+    assert run(native_probe, "admit") == {"result": "CREATED"}
     unknown = run(native_probe, "binding")
     assert unknown["state"] == "ADMITTED_NO_OUTCOME"
+    assert run(native_probe, "load-receipt") == {"state": "NO_RECEIPT"}
     assert unknown["admission"] == {
         "schema_version": 1,
         "command_id": ID,
         "command_kind": INTENT["kind"],
         "command_fingerprint": "a" * 64,
     }
-    owner.put_verified_receipt(receipt)
+    assert run(native_probe, "receipt") == {"result": "CREATED"}
     accepted = run(native_probe, "binding")
     assert accepted == {
         "state": "VERIFIED_ACCEPTED",
@@ -82,55 +61,73 @@ def test_existing_python_history_is_read_exactly_by_fresh_rust_process(native_pr
     assert run(native_probe, "receipt") == {"result": "REUSED"}
 
 
-def test_rust_writes_are_exactly_read_by_existing_python_and_conflicts_cannot_rebind(
-    native_probe: Path, postgres_dsn: str
+def test_native_writes_are_exactly_read_by_fresh_processes_and_conflicts_cannot_rebind(
+    native_probe: Path, schema_db: str
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    owner = OnlyPostgresProductCommandAuthority(postgres_dsn)
-    admission, receipt = models()
     assert run(native_probe, "receipt") == {"error": "PRODUCT_COMMAND_RECEIPT_CORRUPT"}
     assert run(native_probe, "admit") == {"result": "CREATED"}
-    assert owner.load_admission(admission.command_id) == admission
+    assert run(native_probe, "load-admission")["admission"] == {
+        "schema_version": 1,
+        "command_id": ID,
+        "command_kind": INTENT["kind"],
+        "command_fingerprint": "a" * 64,
+    }
     assert run(native_probe, "admit", fingerprint="b" * 64) == {"error": "PRODUCT_COMMAND_CONFLICT"}
     assert run(native_probe, "admit", kind="CREATE_BACKTEST_RUN") == {"error": "PRODUCT_COMMAND_CONFLICT"}
     assert run(native_probe, "receipt") == {"result": "CREATED"}
-    assert owner.load_verified_receipt(admission.command_id) == receipt
+    assert run(native_probe, "load-receipt") == {
+        "state": "VERIFIED_ACCEPTED",
+        "admission": {
+            "schema_version": 1,
+            "command_id": ID,
+            "command_kind": INTENT["kind"],
+            "command_fingerprint": "a" * 64,
+        },
+        "receipt": {"outcome_kind": "RESEARCH_RUN", "outcome_id": RUN, "accepted_at": "2026-08-27T00:00:00Z"},
+    }
     assert run(native_probe, "receipt", outcome_id="00000000-0000-4000-8000-000000000511") == {
         "error": "PRODUCT_COMMAND_CONFLICT"
     }
-    assert owner.load_verified_receipt(admission.command_id) == receipt
+    assert run(native_probe, "load-receipt") == {
+        "state": "VERIFIED_ACCEPTED",
+        "admission": {
+            "schema_version": 1,
+            "command_id": ID,
+            "command_kind": INTENT["kind"],
+            "command_fingerprint": "a" * 64,
+        },
+        "receipt": {"outcome_kind": "RESEARCH_RUN", "outcome_id": RUN, "accepted_at": "2026-08-27T00:00:00Z"},
+    }
     assert run(native_probe, "lost-connection") == {"error": "PRODUCT_COMMAND_AUTHORITY_UNAVAILABLE"}
     assert run(native_probe, "binding")["state"] == "VERIFIED_ACCEPTED"
 
 
 def test_caller_transaction_rolls_back_all_effects_and_lost_response_preserves_same_identity(
-    native_probe: Path, postgres_dsn: str
+    native_probe: Path, schema_db: str
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    with psycopg.connect(postgres_dsn) as connection:
+    with psycopg.connect(schema_db) as connection:
         connection.execute("CREATE TABLE command_atomic_effect(command_id UUID PRIMARY KEY)")
     assert run(native_probe, "rollback") == {"result": "ROLLED_BACK"}
     assert run(native_probe, "binding") == {"state": "NONE"}
-    with psycopg.connect(postgres_dsn) as connection:
+    assert run(native_probe, "load-receipt") == {"state": "NO_RECEIPT"}
+    with psycopg.connect(schema_db) as connection:
         assert connection.execute("SELECT count(*) FROM command_atomic_effect").fetchone() == (0,)
     run(native_probe, "commit-no-reply", no_reply=True)
     assert run(native_probe, "binding")["state"] == "VERIFIED_ACCEPTED"
     assert run(native_probe, "admit") == {"result": "REUSED"}
     assert run(native_probe, "receipt") == {"result": "REUSED"}
-    with psycopg.connect(postgres_dsn) as connection:
+    with psycopg.connect(schema_db) as connection:
         assert connection.execute("SELECT count(*) FROM command_atomic_effect").fetchone() == (1,)
 
 
-def test_existing_stricter_transaction_timeouts_are_never_relaxed(native_probe: Path, postgres_dsn: str) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+def test_existing_stricter_transaction_timeouts_are_never_relaxed(native_probe: Path, schema_db: str) -> None:
     assert run(native_probe, "bounds") == {"statement_timeout": "1s", "lock_timeout": "500ms"}
 
 
 @pytest.mark.parametrize("other_fingerprint", ["a" * 64, "b" * 64])
 def test_two_ready_native_processes_serialize_one_command_identity(
-    native_probe: Path, postgres_dsn: str, other_fingerprint: str
+    native_probe: Path, schema_db: str, other_fingerprint: str
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     children = [
         subprocess.Popen(
             [str(native_probe), "--barrier"],
@@ -161,7 +158,7 @@ def test_two_ready_native_processes_serialize_one_command_identity(
         binding = run(native_probe, "binding")
         assert binding["state"] == "ADMITTED_NO_OUTCOME"
         assert binding["admission"]["command_fingerprint"] in {"a" * 64, other_fingerprint}
-        with psycopg.connect(postgres_dsn) as connection:
+        with psycopg.connect(schema_db) as connection:
             assert connection.execute("SELECT count(*) FROM product_command_admission").fetchone() == (1,)
             assert connection.execute("SELECT count(*) FROM product_command_receipt").fetchone() == (0,)
     finally:
@@ -184,15 +181,12 @@ def test_two_ready_native_processes_serialize_one_command_identity(
     ],
 )
 def test_corrupt_rows_never_become_absence_or_accepted_and_optional_receipt_cannot_hide_admission(
-    native_probe: Path, postgres_dsn: str, damage: str
+    native_probe: Path, schema_db: str, damage: str
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    owner = OnlyPostgresProductCommandAuthority(postgres_dsn)
-    admission, receipt = models()
     if damage != "orphan":
-        owner.admit_exact(admission)
-        owner.put_verified_receipt(receipt)
-    with psycopg.connect(postgres_dsn) as connection:
+        assert run(native_probe, "admit") == {"result": "CREATED"}
+        assert run(native_probe, "receipt") == {"result": "CREATED"}
+    with psycopg.connect(schema_db) as connection:
         if damage == "orphan":
             # Controlled corrupt source row in the guarded disposable test DB;
             # preserve source append-only/delete protections even in this fixture.
@@ -234,6 +228,7 @@ def test_corrupt_rows_never_become_absence_or_accepted_and_optional_receipt_cann
         "PRODUCT_COMMAND_ADMISSION_CORRUPT" if damage == "admission-schema" else "PRODUCT_COMMAND_RECEIPT_CORRUPT"
     )
     assert run(native_probe, "binding") == {"error": expected}
+    assert run(native_probe, "load-receipt") == {"error": expected}
     if damage == "orphan":
         assert run(native_probe, "load-admission") == {"admission": None}
     elif damage == "admission-schema":
@@ -246,25 +241,30 @@ def test_corrupt_rows_never_become_absence_or_accepted_and_optional_receipt_cann
     "accepted_at", ["0001-01-01T00:00:00Z", "1969-12-31T23:59:59.999999Z", "9999-12-31T23:59:59.999999Z"]
 )
 def test_exact_utc_microseconds_roundtrip_at_domain_boundaries(
-    native_probe: Path, postgres_dsn: str, accepted_at: str
+    native_probe: Path, schema_db: str, accepted_at: str
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     assert run(native_probe, "admit") == {"result": "CREATED"}
     assert run(native_probe, "receipt", accepted_at=accepted_at) == {"result": "CREATED"}
     assert run(native_probe, "binding")["receipt"]["accepted_at"] == accepted_at
     expected = datetime.fromisoformat(accepted_at.replace("Z", "+00:00"))
-    receipt = OnlyPostgresProductCommandAuthority(postgres_dsn).load_verified_receipt(OnlyProductCommandId(ID))
-    assert receipt is not None
-    assert receipt.accepted_at == expected
+    receipt = run(native_probe, "load-receipt")
+    assert receipt["state"] == "VERIFIED_ACCEPTED"
+    assert receipt["receipt"]["accepted_at"] == accepted_at
+    with psycopg.connect(schema_db) as connection:
+        stored = connection.execute(
+            "SELECT accepted_at FROM product_command_receipt WHERE command_id=%s", (ID,)
+        ).fetchone()
+    assert stored is not None
+    assert stored[0] == expected
+    assert stored[0].microsecond == expected.microsecond
 
 
 def test_actual_pg_commit_ack_loss_is_uncertain_then_fresh_reader_recovers_same_identity(
-    native_probe: Path, postgres_dsn: str, monkeypatch: pytest.MonkeyPatch
+    native_probe: Path, schema_db: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    with psycopg.connect(postgres_dsn) as connection:
+    with psycopg.connect(schema_db) as connection:
         connection.execute("CREATE TABLE command_atomic_effect(command_id UUID PRIMARY KEY)")
-    with CommitAckCut(postgres_dsn) as fault:
+    with CommitAckCut(schema_db) as fault:
         with monkeypatch.context() as child_configuration:
             child_configuration.setenv("ONLYALPHA_POSTGRES_DSN", fault.dsn)
             assert run(native_probe, "atomic-commit") == {"error": "PRODUCT_COMMAND_AUTHORITY_UNAVAILABLE"}
@@ -272,5 +272,5 @@ def test_actual_pg_commit_ack_loss_is_uncertain_then_fresh_reader_recovers_same_
     assert run(native_probe, "binding")["state"] == "VERIFIED_ACCEPTED"
     assert run(native_probe, "admit") == {"result": "REUSED"}
     assert run(native_probe, "receipt") == {"result": "REUSED"}
-    with psycopg.connect(postgres_dsn) as connection:
+    with psycopg.connect(schema_db) as connection:
         assert connection.execute("SELECT count(*) FROM command_atomic_effect").fetchone() == (1,)

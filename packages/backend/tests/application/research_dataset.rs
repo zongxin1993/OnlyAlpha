@@ -298,42 +298,90 @@ fn native_decimal128_retains_all_38_digits_without_ambient_python_context() {
 #[test]
 fn typed_bars_inverse_preserves_full_domain_records_and_dataset_identity() {
     use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar};
-    let fixture=reference();let d=dataset();
-    let expected=fixture["bars"].as_array().unwrap().iter().map(|row|OnlyBar::from_record(row).unwrap().to_record()).collect::<Vec<_>>();
-    let actual=d.bars().unwrap().iter().map(OnlyDomainModel::to_record).collect::<Vec<_>>();
-    assert_eq!(actual,expected);
-    let roundtrip=Dataset::from_bars(d.definition(),&actual,d.construction_fingerprint(),100).unwrap();
-    assert_eq!(roundtrip.rows(),d.rows());
-    assert_eq!(roundtrip.content_fingerprint(),d.content_fingerprint());
-    assert_eq!(roundtrip.snapshot_fingerprint(),d.snapshot_fingerprint());
-    assert_eq!(actual[1]["close"]["precision"],18);
-    assert_eq!(actual[1]["ts_event"],fixture["bars"][1]["ts_event"]);
+    let fixture = reference();
+    let d = dataset();
+    let expected = fixture["bars"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| OnlyBar::from_record(row).unwrap().to_record())
+        .collect::<Vec<_>>();
+    let actual = d
+        .bars()
+        .unwrap()
+        .iter()
+        .map(OnlyDomainModel::to_record)
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+    let roundtrip =
+        Dataset::from_bars(d.definition(), &actual, d.construction_fingerprint(), 100).unwrap();
+    assert_eq!(roundtrip.rows(), d.rows());
+    assert_eq!(roundtrip.content_fingerprint(), d.content_fingerprint());
+    assert_eq!(roundtrip.snapshot_fingerprint(), d.snapshot_fingerprint());
+    assert_eq!(actual[1]["close"]["precision"], 18);
+    assert_eq!(actual[1]["ts_event"], fixture["bars"][1]["ts_event"]);
 }
 #[test]
 fn typed_bars_inverse_preserves_optional_precision_and_supplied_calendar_context() {
     use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar};
-    let fixture=reference();let mut input=fixture["bars"][0].clone();
-    input["trading_day"]=json!("2025-12-31");input["session_type"]=json!("REGULAR");
-    input["quote_volume"]=json!({"schema_version":1,"value":"201.123456","precision":6});
-    input["open_interest"]=json!({"schema_version":1,"value":"5.1234","precision":4});
-    input["turnover"]=json!({"schema_version":1,"amount":"201.23456789","currency":{"schema_version":1,"code":"USDT","precision":8,"currency_type":"CRYPTO"}});
-    input["trade_count"]=Value::Null;
-    let expected=OnlyBar::from_record(&input).unwrap().to_record();
-    let d=Dataset::from_bars(&fixture["definition"],&[expected.clone()],fixture["construction_fingerprint"].as_str().unwrap(),100).unwrap();
-    let projected=d.bars().unwrap();assert_eq!(projected.len(),1);assert_eq!(projected[0].to_record(),expected);
-    let mut detached=projected[0].to_record();detached["close"]["value"]=json!("1.00000000");
-    assert_eq!(d.bars().unwrap()[0].to_record(),expected);
+    let fixture = reference();
+    let mut input = fixture["bars"][0].clone();
+    input["trading_day"] = json!("2025-12-31");
+    input["session_type"] = json!("REGULAR");
+    input["quote_volume"] = json!({"schema_version":1,"value":"201.123456","precision":6});
+    input["open_interest"] = json!({"schema_version":1,"value":"5.1234","precision":4});
+    input["turnover"] = json!({"schema_version":1,"amount":"201.23456789","currency":{"schema_version":1,"code":"USDT","precision":8,"currency_type":"CRYPTO"}});
+    input["trade_count"] = Value::Null;
+    let expected = OnlyBar::from_record(&input).unwrap().to_record();
+    let d = Dataset::from_bars(
+        &fixture["definition"],
+        &[expected.clone()],
+        fixture["construction_fingerprint"].as_str().unwrap(),
+        100,
+    )
+    .unwrap();
+    let projected = d.bars().unwrap();
+    assert_eq!(projected.len(), 1);
+    assert_eq!(projected[0].to_record(), expected);
+    let mut detached = projected[0].to_record();
+    detached["close"]["value"] = json!("1.00000000");
+    assert_eq!(d.bars().unwrap()[0].to_record(), expected);
 }
 #[test]
 fn verified_parquet_reopen_exposes_the_same_typed_bars_without_metadata_substitution() {
-    use onlyalpha_domain::base::OnlyDomainModel;
     use onlyalpha_backend::persistence::research_dataset::Store;
-    let d=dataset();let root=Temp::new();
-    let store=Store::open(&root.0,100,1024*1024).unwrap();
-    let committed=store.commit(&d,&provenance(),"2026-10-29T00:00:00Z").unwrap();
-    let expected=committed.dataset().bars().unwrap().iter().map(OnlyDomainModel::to_record).collect::<Vec<_>>();
-    drop(store);drop(committed);
-    let reopened=Store::open(&root.0,100,1024*1024).unwrap().load(d.snapshot_fingerprint()).unwrap();
-    assert_eq!(reopened.dataset().bars().unwrap().iter().map(OnlyDomainModel::to_record).collect::<Vec<_>>(),expected);
-    assert_eq!(reopened.dataset().snapshot_fingerprint(),d.snapshot_fingerprint());
+    use onlyalpha_domain::base::OnlyDomainModel;
+    let d = dataset();
+    let root = Temp::new();
+    let store = Store::open(&root.0, 100, 1024 * 1024).unwrap();
+    let committed = store
+        .commit(&d, &provenance(), "2026-10-29T00:00:00Z")
+        .unwrap();
+    let expected = committed
+        .dataset()
+        .bars()
+        .unwrap()
+        .iter()
+        .map(OnlyDomainModel::to_record)
+        .collect::<Vec<_>>();
+    drop(store);
+    drop(committed);
+    let reopened = Store::open(&root.0, 100, 1024 * 1024)
+        .unwrap()
+        .load(d.snapshot_fingerprint())
+        .unwrap();
+    assert_eq!(
+        reopened
+            .dataset()
+            .bars()
+            .unwrap()
+            .iter()
+            .map(OnlyDomainModel::to_record)
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(
+        reopened.dataset().snapshot_fingerprint(),
+        d.snapshot_fingerprint()
+    );
 }

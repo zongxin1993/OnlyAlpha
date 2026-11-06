@@ -1,9 +1,6 @@
 //! Human access to retained factor proposals.
 use crate::{
-    application::{
-        command::CommandId,
-        factor_proposals::ConfirmInput,
-    },
+    application::{command::CommandId, factor_proposals::ConfirmInput},
     persistence::factor_proposals::Proposals,
     security::{
         human_access,

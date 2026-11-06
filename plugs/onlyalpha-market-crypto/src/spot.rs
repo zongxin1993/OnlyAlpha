@@ -520,17 +520,32 @@ impl SpotSimulationPolicy {
         }
         let q = number(&json!(quantity.value().to_string()))?;
         let p = number(&json!(price.value().to_string()))?;
-        if let Some(reason) = self.snapshot.rule_reason(&q, &p)? { return Err(bad(reason)); }
-        let (cluster, profile) = self.execution["profiles"].as_object().expect("validated profile").iter().next().expect("one profile");
+        if let Some(reason) = self.snapshot.rule_reason(&q, &p)? {
+            return Err(bad(reason));
+        }
+        let (cluster, profile) = self.execution["profiles"]
+            .as_object()
+            .expect("validated profile")
+            .iter()
+            .next()
+            .expect("one profile");
         text(&json!(cluster))?;
         sha(&profile["revision"])?;
         let notional = &p * &q;
         let subject = json!({"engine":self.execution["engine"],"runtime":self.execution["runtime"],"account":self.execution["account"],"broker":BROKER,"gateway":self.execution["gateway"],"generation":self.execution["generation"],"runtime_kind":"BACKTEST","cluster":cluster,"revision":profile["revision"],"instrument":"BTCUSDT.BINANCE","market":MARKET,"venue":"BINANCE","instrument_class":"CASH","currency":self.currency.to_record(),"side":"BUY","offset":"OPEN"});
-        let quote = boundary(self.catalog.quote_one_fill(subject, day, time, self.basis(&q, &notional), None))?;
+        let quote = boundary(self.catalog.quote_one_fill(
+            subject,
+            day,
+            time,
+            self.basis(&q, &notional),
+            None,
+        ))?;
         let record = quote.record();
         let charges = exact_money(&record["charges"], &self.currency)?;
         let rebates = exact_money(&record["rebates"], &self.currency)?;
-        Ok(json!({"schema_version":1,"kind":"ANALYTICAL_ESTIMATE","reference_policy":"MODEL_NEXT_OPEN","venue_acceptance_proven":false,"policy_fingerprint":digest(&self.binding),"rules_fingerprint":self.binding["rules_fingerprint"],"execution_price":price.to_record(),"quantity":quantity.to_record(),"context":context,"gross_notional":money(&notional,&self.currency)?.to_record(),"charges":charges.to_record(),"rebates":rebates.to_record(),"fee_quote":record,"fee_quote_fingerprint":quote.fingerprint()}))
+        Ok(
+            json!({"schema_version":1,"kind":"ANALYTICAL_ESTIMATE","reference_policy":"MODEL_NEXT_OPEN","venue_acceptance_proven":false,"policy_fingerprint":digest(&self.binding),"rules_fingerprint":self.binding["rules_fingerprint"],"execution_price":price.to_record(),"quantity":quantity.to_record(),"context":context,"gross_notional":money(&notional,&self.currency)?.to_record(),"charges":charges.to_record(),"rebates":rebates.to_record(),"fee_quote":record,"fee_quote_fingerprint":quote.fingerprint()}),
+        )
     }
     pub fn admission(
         &self,
@@ -659,8 +674,11 @@ impl SpotSimulationPolicy {
 pub use crate::instrument::{InstrumentError, instrument};
 
 /// An explicit UTC continuous cash-market calendar with caller-supplied identity.
-pub fn continuous_calendar(calendar_id: &str, venue_id: &str) -> Result<OnlyTradingCalendar, Error> {
-    boundary(
-    OnlyTradingCalendar::from_record(&json!({"schema_version":1,"calendar_id":{"schema_version":1,"value":calendar_id},"venue_id":{"schema_version":1,"value":venue_id},"timezone":{"schema_version":1,"name":"UTC"},"sessions":[{"schema_version":1,"name":"continuous","opens_at":"00:00:00","closes_at":"00:00:00","session_type":"CONTINUOUS","belongs_to_trading_day_offset":0,"allows_orders":true,"allows_market_data":true}],"holidays":[],"weekend_days":[],"session_profile_id":null,"special_schedules":[],"calendar_version":1,"effective_from":null,"effective_to":null}))
-    )
+pub fn continuous_calendar(
+    calendar_id: &str,
+    venue_id: &str,
+) -> Result<OnlyTradingCalendar, Error> {
+    boundary(OnlyTradingCalendar::from_record(
+        &json!({"schema_version":1,"calendar_id":{"schema_version":1,"value":calendar_id},"venue_id":{"schema_version":1,"value":venue_id},"timezone":{"schema_version":1,"name":"UTC"},"sessions":[{"schema_version":1,"name":"continuous","opens_at":"00:00:00","closes_at":"00:00:00","session_type":"CONTINUOUS","belongs_to_trading_day_offset":0,"allows_orders":true,"allows_market_data":true}],"holidays":[],"weekend_days":[],"session_profile_id":null,"special_schedules":[],"calendar_version":1,"effective_from":null,"effective_to":null}),
+    ))
 }

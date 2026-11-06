@@ -119,88 +119,91 @@ impl DecisionGraph {
         json!({"schema_version":1,"decision_graph_fingerprint":self.graph.fingerprint(),"decision_graph":self.graph.to_record(),"signal_semantics":self.signals})
     }
 }
-pub(super) fn evaluate_graph_columns(graph: &Graph, rows: &Value, numerical: &Value) -> Result<Value> {
-        if rows
-            .to_string()
-            .len()
-            .saturating_add(numerical.to_string().len())
-            > WORK
-        {
-            return Err(UNAVAILABLE);
-        }
-        let rows = rows
-            .as_array()
-            .filter(|r| !r.is_empty() && r.len() <= 8192)
-            .ok_or(INVALID)?;
-        let mut axis = Vec::with_capacity(rows.len());
-        for row in rows {
-            crate::application::private_strategy::exact(row, &["at_ns", "values"])
-                .map_err(|_| INVALID)?;
-            let at = row["at_ns"].as_u64().ok_or(INVALID)?;
-            if axis.last().is_some_and(|previous| *previous >= at) || !row["values"].is_object() {
-                return Err(INVALID);
-            }
-            axis.push(at);
-        }
-        let mut provided = BTreeMap::new();
-        for column in numerical.as_array().ok_or(INVALID)? {
-            crate::application::private_strategy::exact(column, &["node_fingerprint", "values"])
-                .map_err(|_| INVALID)?;
-            let id = column["node_fingerprint"].as_str().ok_or(INVALID)?;
-            if provided.insert(id, column["values"].clone()).is_some() {
-                return Err(INVALID);
-            }
-        }
-        let mut workspace: BTreeMap<String, Value> = BTreeMap::new();
-        for definition in graph.ordered_nodes() {
-            let id = definition.fingerprint();
-            let d = definition.to_record();
-            let values = if d["kind"] == "PREDICATE" {
-                let calculation = PredicateCalculation::from_record(&d).map_err(|_| INVALID)?;
-                let mut output = Vec::with_capacity(rows.len());
-                for (index, row) in rows.iter().enumerate() {
-                    let mut inputs = serde_json::Map::new();
-                    for (name, binding) in d["input_bindings"].as_object().ok_or(INVALID)? {
-                        let value = if let Some(parent) = binding["node_fingerprint"].as_str() {
-                            workspace
-                                .get(parent)
-                                .and_then(|p| p.get(binding["output_name"].as_str()?))
-                                .and_then(|c| c.as_array())
-                                .and_then(|c| c.get(index))
-                                .ok_or(INVALID)?
-                                .clone()
-                        } else {
-                            let source = binding["source"]
-                                .as_str()
-                                .ok_or(INVALID)?
-                                .strip_prefix("bar.")
-                                .ok_or(INVALID)?;
-                            row["values"].get(source).ok_or(INVALID)?.clone()
-                        };
-                        inputs.insert(name.clone(), value);
-                    }
-                    output.push(
-                        calculation
-                            .evaluate(&Value::Object(inputs))
-                            .map_err(|_| INVALID)?["value"]
-                            .clone(),
-                    );
-                }
-                json!({"value":output})
-            } else {
-                provided.remove(id.as_str()).ok_or(INVALID)?
-            };
-            check_columns(&values, &d["outputs"], rows.len())?;
-            workspace.insert(id, values);
-        }
-        if !provided.is_empty() {
+pub(super) fn evaluate_graph_columns(
+    graph: &Graph,
+    rows: &Value,
+    numerical: &Value,
+) -> Result<Value> {
+    if rows
+        .to_string()
+        .len()
+        .saturating_add(numerical.to_string().len())
+        > WORK
+    {
+        return Err(UNAVAILABLE);
+    }
+    let rows = rows
+        .as_array()
+        .filter(|r| !r.is_empty() && r.len() <= 8192)
+        .ok_or(INVALID)?;
+    let mut axis = Vec::with_capacity(rows.len());
+    for row in rows {
+        crate::application::private_strategy::exact(row, &["at_ns", "values"])
+            .map_err(|_| INVALID)?;
+        let at = row["at_ns"].as_u64().ok_or(INVALID)?;
+        if axis.last().is_some_and(|previous| *previous >= at) || !row["values"].is_object() {
             return Err(INVALID);
         }
-        let outputs=workspace.into_iter().map(|(node_fingerprint,values)|json!({"node_fingerprint":node_fingerprint,"values":values})).collect::<Vec<_>>();
-        Ok(
-            json!({"schema_version":1,"graph_fingerprint":graph.fingerprint(),"input_fingerprint":crate::application::factor_content::hash(&json!(rows))?,"axis":axis,"outputs":outputs}),
-        )
-
+        axis.push(at);
+    }
+    let mut provided = BTreeMap::new();
+    for column in numerical.as_array().ok_or(INVALID)? {
+        crate::application::private_strategy::exact(column, &["node_fingerprint", "values"])
+            .map_err(|_| INVALID)?;
+        let id = column["node_fingerprint"].as_str().ok_or(INVALID)?;
+        if provided.insert(id, column["values"].clone()).is_some() {
+            return Err(INVALID);
+        }
+    }
+    let mut workspace: BTreeMap<String, Value> = BTreeMap::new();
+    for definition in graph.ordered_nodes() {
+        let id = definition.fingerprint();
+        let d = definition.to_record();
+        let values = if d["kind"] == "PREDICATE" {
+            let calculation = PredicateCalculation::from_record(&d).map_err(|_| INVALID)?;
+            let mut output = Vec::with_capacity(rows.len());
+            for (index, row) in rows.iter().enumerate() {
+                let mut inputs = serde_json::Map::new();
+                for (name, binding) in d["input_bindings"].as_object().ok_or(INVALID)? {
+                    let value = if let Some(parent) = binding["node_fingerprint"].as_str() {
+                        workspace
+                            .get(parent)
+                            .and_then(|p| p.get(binding["output_name"].as_str()?))
+                            .and_then(|c| c.as_array())
+                            .and_then(|c| c.get(index))
+                            .ok_or(INVALID)?
+                            .clone()
+                    } else {
+                        let source = binding["source"]
+                            .as_str()
+                            .ok_or(INVALID)?
+                            .strip_prefix("bar.")
+                            .ok_or(INVALID)?;
+                        row["values"].get(source).ok_or(INVALID)?.clone()
+                    };
+                    inputs.insert(name.clone(), value);
+                }
+                output.push(
+                    calculation
+                        .evaluate(&Value::Object(inputs))
+                        .map_err(|_| INVALID)?["value"]
+                        .clone(),
+                );
+            }
+            json!({"value":output})
+        } else {
+            provided.remove(id.as_str()).ok_or(INVALID)?
+        };
+        check_columns(&values, &d["outputs"], rows.len())?;
+        workspace.insert(id, values);
+    }
+    if !provided.is_empty() {
+        return Err(INVALID);
+    }
+    let outputs=workspace.into_iter().map(|(node_fingerprint,values)|json!({"node_fingerprint":node_fingerprint,"values":values})).collect::<Vec<_>>();
+    Ok(
+        json!({"schema_version":1,"graph_fingerprint":graph.fingerprint(),"input_fingerprint":crate::application::factor_content::hash(&json!(rows))?,"axis":axis,"outputs":outputs}),
+    )
 }
 
 fn source_semantics(record: &Value, universe: Value, bar_semantic: &Value) -> Result<Value> {
@@ -524,7 +527,7 @@ pub(crate) fn canonical_input_window<'a>(
     bar_ns: u64,
     target_sources: impl IntoIterator<Item = &'a str>,
 ) -> Result<Value> {
-    if bar_ns == 0 || start % bar_ns != 0 || end % bar_ns != 0 || start >= end {
+    if bar_ns == 0 || !start.is_multiple_of(bar_ns) || !end.is_multiple_of(bar_ns) || start >= end {
         return Err(INVALID);
     }
     let mut histories: BTreeMap<String, u64> = BTreeMap::new();

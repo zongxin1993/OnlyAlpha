@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import psycopg
 import pytest
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from psycopg.rows import dict_row
 
-from onlyalpha.persistence.postgres.credentials import OnlyPostgresCredentialAuthority
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-
-from .support.integration import NOW, call
+from .support.native_probe import call
+from .test_schema_postgres import migration_backend as migration_backend
+from .test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 MASTER_KEY = b"k" * 32
@@ -21,9 +24,8 @@ SUBJECT = "b52eb762-34cf-47d4-8cca-56ef93f0d2ac"
 
 
 @pytest.fixture
-def credential_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def credential_db(schema_db: str) -> str:
+    return schema_db
 
 
 def request(action: str, **values: Any) -> dict[str, Any]:
@@ -38,7 +40,33 @@ def digest(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
 
 
-def test_native_create_is_readable_by_original_python_and_metadata_is_secret_free(
+def stored_secret(dsn: str, credential_id: str, generation: int, *, key: bytes = MASTER_KEY) -> str:
+    """Independent AES-GCM reader of the actual stored native envelope.
+
+    This is a test oracle, not a second Credential authority or migration path.
+    The six AAD fields and nonce framing come from security::credentials::Context.
+    """
+    with psycopg.connect(dsn, row_factory=dict_row) as connection:
+        row = connection.execute(
+            "SELECT credential_id::text AS credential_id,credential_kind,subject_id,secret_name,"
+            "generation,key_version,ciphertext FROM public.product_credential WHERE credential_id=%s",
+            (credential_id,),
+        ).fetchone()
+    assert row is not None
+    assert row["generation"] == generation and row["key_version"] == 1
+    context = {
+        field: row[field]
+        for field in ("credential_id", "credential_kind", "subject_id", "secret_name", "generation", "key_version")
+    }
+    aad = json.dumps(context, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    envelope = bytes(row["ciphertext"])
+    assert len(envelope) >= 28
+    plaintext = AESGCM(key).decrypt(envelope[:12], envelope[12:], aad)
+    assert len(envelope) == len(plaintext) + 28
+    return plaintext.decode("utf-8")
+
+
+def test_native_create_is_independently_decryptable_and_metadata_is_secret_free(
     native_probe: Path, credential_db: str
 ) -> None:
     secret = "中文 secret\x00🙂"
@@ -47,8 +75,9 @@ def test_native_create_is_readable_by_original_python_and_metadata_is_secret_fre
     assert metadata["generation"] == metadata["key_version"] == 1
     assert metadata["credential_kind"] == "INTEGRATION_SECRET"
     assert metadata["subject_id"] == SUBJECT and metadata["secret_name"] == "api_key"
-    owner = OnlyPostgresCredentialAuthority(credential_db, MASTER_KEY, now=lambda: NOW)
-    assert owner.read_secret(metadata["credential_id"], 1) == secret
+    assert stored_secret(credential_db, metadata["credential_id"], 1) == secret
+    with pytest.raises(InvalidTag):
+        stored_secret(credential_db, metadata["credential_id"], 1, key=b"q" * 32)
     assert call(native_probe, request("read", credential_id=metadata["credential_id"], generation=1)) == {
         "secret_sha256": digest(secret)
     }
@@ -60,23 +89,26 @@ def test_native_create_is_readable_by_original_python_and_metadata_is_secret_fre
     assert call(native_probe, create()) == {"error": "CREDENTIAL_GENERATION_CONFLICT"}
 
 
-def test_original_python_ciphertext_rotates_natively_without_new_slot_identity(
+def test_native_envelope_rotates_without_new_slot_identity_or_stale_generation_access(
     native_probe: Path, credential_db: str
 ) -> None:
-    owner = OnlyPostgresCredentialAuthority(credential_db, MASTER_KEY, now=lambda: NOW)
-    old = owner.create("INTEGRATION_SECRET", SUBJECT, "api_key", "historical-secret")
-    assert call(native_probe, request("read", credential_id=old.credential_id, generation=1)) == {
+    old = call(native_probe, create("historical-secret"))["metadata"]
+    assert stored_secret(credential_db, old["credential_id"], 1) == "historical-secret"
+    assert call(native_probe, request("read", credential_id=old["credential_id"], generation=1)) == {
         "secret_sha256": digest("historical-secret")
     }
-    updated = call(native_probe, request("rotate", credential_id=old.credential_id, generation=1, secret="new-secret"))[
-        "metadata"
-    ]
-    assert updated["credential_id"] == old.credential_id and updated["generation"] == 2
-    assert owner.read_secret(old.credential_id, 2) == "new-secret"
-    assert call(native_probe, request("read", credential_id=old.credential_id, generation=1)) == {
+    updated = call(
+        native_probe, request("rotate", credential_id=old["credential_id"], generation=1, secret="new-secret")
+    )["metadata"]
+    assert updated["credential_id"] == old["credential_id"] and updated["generation"] == 2
+    assert updated["key_version"] == old["key_version"] == 1
+    for field in ("credential_kind", "subject_id", "secret_name", "created_at"):
+        assert updated[field] == old[field]
+    assert stored_secret(credential_db, old["credential_id"], 2) == "new-secret"
+    assert call(native_probe, request("read", credential_id=old["credential_id"], generation=1)) == {
         "error": "CREDENTIAL_GENERATION_MISMATCH"
     }
-    assert call(native_probe, request("rotate", credential_id=old.credential_id, generation=1, secret="stale")) == {
+    assert call(native_probe, request("rotate", credential_id=old["credential_id"], generation=1, secret="stale")) == {
         "error": "CREDENTIAL_GENERATION_CONFLICT"
     }
     assert call(native_probe, request("read", credential_id=str(uuid4()), generation=1)) == {
@@ -133,7 +165,6 @@ def test_generation_capacity_and_metadata_budget_never_rewrite_or_truncate(
 def test_two_current_generation_writers_have_one_rotation_and_one_stale_conflict(
     native_probe: Path, credential_db: str
 ) -> None:
-    import json
     import subprocess
 
     from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
@@ -187,12 +218,10 @@ def test_two_current_generation_writers_have_one_rotation_and_one_stale_conflict
             results.append(json.loads(stdout))
         assert results[0]["metadata"]["generation"] == 2
         assert results[1] == {"error": "CREDENTIAL_GENERATION_CONFLICT"}
-        assert (
-            OnlyPostgresCredentialAuthority(credential_db, MASTER_KEY, now=lambda: NOW).read_secret(
-                metadata["credential_id"], 2
-            )
-            == "controlled-0"
-        )
+        assert stored_secret(credential_db, metadata["credential_id"], 2) == "controlled-0"
+        assert call(native_probe, request("read", credential_id=metadata["credential_id"], generation=2)) == {
+            "secret_sha256": digest("controlled-0")
+        }
         with psycopg.connect(credential_db) as connection:
             assert connection.execute("SELECT count(*) FROM product_credential").fetchone() == (1,)
     finally:

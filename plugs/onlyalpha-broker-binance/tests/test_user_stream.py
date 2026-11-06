@@ -5,18 +5,6 @@ import queue
 import threading
 from decimal import Decimal
 
-from onlyalpha_broker_binance.private_http import (
-    OnlyBinanceCredentials,
-    only_binance_hmac_sha256,
-)
-from onlyalpha_broker_binance.spot.broker.stream import (
-    OnlyBinanceResolvedOrderIdentity,
-    OnlyBinanceSpotUserStream,
-    OnlyBinanceSpotUserStreamNormalizer,
-    OnlyBinanceThreadedUserStreamTransport,
-    OnlyBinanceUserStreamTrust,
-)
-
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
 from onlyalpha.broker.updates import (
@@ -35,6 +23,17 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency
+from onlyalpha_broker_binance.private_http import (
+    OnlyBinanceCredentials,
+    only_binance_hmac_sha256,
+)
+from onlyalpha_broker_binance.spot.broker.stream import (
+    OnlyBinanceResolvedOrderIdentity,
+    OnlyBinanceSpotUserStream,
+    OnlyBinanceSpotUserStreamNormalizer,
+    OnlyBinanceThreadedUserStreamTransport,
+    OnlyBinanceUserStreamTrust,
+)
 
 
 class _WebSocket:

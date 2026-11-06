@@ -129,7 +129,13 @@ impl AlgorithmProcess {
             uncertain: false,
             failed_hold: None,
         }))));
-        Worker::from_stream(parent, artifact.into(), artifact.into(), control, 8 * 1024 * 1024)
+        Worker::from_stream(
+            parent,
+            artifact.into(),
+            artifact.into(),
+            control,
+            8 * 1024 * 1024,
+        )
     }
     /// Static source resolver. The completion hold is retained until positive join.
     pub fn research_resolution(
@@ -146,7 +152,17 @@ impl AlgorithmProcess {
             completion,
             WorkerRole::Research,
         )?;
-        Ok(super::research_calculations::ResearchProcess::new(worker, image["artifact"].as_str().ok_or(WorkerError::Invalid)?.into(), image["version"].as_str().ok_or(WorkerError::Invalid)?.into()))
+        Ok(super::research_calculations::ResearchProcess::new(
+            worker,
+            image["artifact"]
+                .as_str()
+                .ok_or(WorkerError::Invalid)?
+                .into(),
+            image["version"]
+                .as_str()
+                .ok_or(WorkerError::Invalid)?
+                .into(),
+        ))
     }
     /// Installed numerical factory process, retaining its owning hold to join.
     pub fn trading(
@@ -425,7 +441,12 @@ pub fn describe_native_runtime(version: &str) -> Result<serde_json::Value> {
             image["artifact"].as_str().ok_or(WorkerError::Invalid)?,
         )
         .map_err(|_| WorkerError::Invalid)?;
-    implementations.extend(onlyalpha_calculation_bridge::native_operators::implementation_manifests(image["artifact"].as_str().ok_or(WorkerError::Invalid)?).map_err(|_| WorkerError::Invalid)?);
+    implementations.extend(
+        onlyalpha_calculation_bridge::native_operators::implementation_manifests(
+            image["artifact"].as_str().ok_or(WorkerError::Invalid)?,
+        )
+        .map_err(|_| WorkerError::Invalid)?,
+    );
     Ok(
         serde_json::json!({"schema_version":1,"protocol":"onlyalpha.native.runtime/1","image":image,
         "execution_capabilities":[{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},{"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}],
@@ -492,11 +513,16 @@ mod native_runtime_tests {
             native["execution_capabilities"],
             json!([{"kind":"RESEARCH","contract":"onlyalpha.research.executor/1"},{"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"}])
         );
-        let image=legacy["artifact"].as_str().unwrap();
-        let mut expected=onlyalpha_calculation_bridge::native_predicates::implementation_manifests(image).unwrap();
-        expected.extend(onlyalpha_calculation_bridge::native_operators::implementation_manifests(image).unwrap());
-        assert_eq!(native["implementations"],json!(expected));
-        assert_eq!(native["implementations"].as_array().unwrap().len(),80);
+        let image = legacy["artifact"].as_str().unwrap();
+        let mut expected =
+            onlyalpha_calculation_bridge::native_predicates::implementation_manifests(image)
+                .unwrap();
+        expected.extend(
+            onlyalpha_calculation_bridge::native_operators::implementation_manifests(image)
+                .unwrap(),
+        );
+        assert_eq!(native["implementations"], json!(expected));
+        assert_eq!(native["implementations"].as_array().unwrap().len(), 80);
     }
     #[test]
     fn loaded_image_survives_executable_path_replacement() {

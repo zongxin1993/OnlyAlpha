@@ -1,7 +1,6 @@
 from decimal import Decimal
 
 import pytest
-
 from onlyalpha.domain.enums import (
     OnlyAssetClass,
     OnlyCurrencyType,

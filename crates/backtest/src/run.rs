@@ -16,7 +16,9 @@ pub enum StepAndDeliverError {
 }
 impl std::fmt::Display for StepAndDeliverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self { Self::Step(error) | Self::Delivery(error) => std::fmt::Display::fmt(error, f) }
+        match self {
+            Self::Step(error) | Self::Delivery(error) => std::fmt::Display::fmt(error, f),
+        }
     }
 }
 impl std::error::Error for StepAndDeliverError {}
@@ -207,9 +209,11 @@ impl DerivedStep {
     }
 }
 
+type StepObserver<'a> = &'a mut dyn FnMut(&str, u64, u64) -> Result<(), Error>;
+
 // Historical rederivation never substitutes the current official head, even for an empty suffix.
 enum DeriveSource {
-    RuntimeHead(Option<(Components, Vec<Record>)>),
+    RuntimeHead(Option<Box<(Components, Vec<Record>)>>),
     HistoricalPrefix(usize),
 }
 
@@ -364,7 +368,7 @@ impl<P: Participants> RunLoop<P> {
                 Candidate::from_runtime_head(&self.runtime, self.spec.configuration.clone())?
             }
             DeriveSource::RuntimeHead(Some(head)) => {
-                Candidate::from_ready_head(head, self.spec.configuration.clone())?
+                Candidate::from_ready_head(*head, self.spec.configuration.clone())?
             }
             DeriveSource::HistoricalPrefix(start) => {
                 let records = self.runtime.records()?;
@@ -507,7 +511,7 @@ impl<P: Participants> RunLoop<P> {
         &mut self,
         mut derived: DerivedStep,
         original: &ReplayEntryRef,
-        mut observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
+        mut observer: Option<StepObserver<'_>>,
         observe_delivery: bool,
     ) -> Result<PendingDelivery, Error> {
         derived.verify_plans()?;
@@ -558,10 +562,15 @@ impl<P: Participants> RunLoop<P> {
             self.runtime.save_checkpoint()?;
         }
         let (completed, events) = if observe_delivery && observer.is_none() {
-            let completed = self.runtime.complete_replay_ref_and_pending(&self.steps, original)?;
+            let completed = self
+                .runtime
+                .complete_replay_ref_and_pending(&self.steps, original)?;
             (completed.references, Some(completed.pending_events))
         } else {
-            (self.runtime.complete_replay_ref(&self.steps, original)?, None)
+            (
+                self.runtime.complete_replay_ref(&self.steps, original)?,
+                None,
+            )
         };
         if completed.last().is_none_or(|row| {
             !row.ready()
@@ -589,7 +598,8 @@ impl<P: Participants> RunLoop<P> {
     }
     fn transition(&mut self, kind: &str, outcome: Value) -> Result<(), Error> {
         self.check()?;
-        self.transition_after_check(kind, outcome, None, None, false).map(|_| ())
+        self.transition_after_check(kind, outcome, None, None, false)
+            .map(|_| ())
     }
     fn transition_observed(
         &mut self,
@@ -598,7 +608,8 @@ impl<P: Participants> RunLoop<P> {
         observer: &mut impl FnMut(&str, u64, u64) -> Result<(), Error>,
     ) -> Result<(), Error> {
         self.check()?;
-        self.transition_after_check(kind, outcome, Some(observer), None, false).map(|_| ())
+        self.transition_after_check(kind, outcome, Some(observer), None, false)
+            .map(|_| ())
     }
     // The entry point has just verified the actual prefix. No observer or
     // public call runs between that verification and this continuation.
@@ -606,7 +617,7 @@ impl<P: Participants> RunLoop<P> {
         &mut self,
         kind: &str,
         outcome: Value,
-        mut observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
+        mut observer: Option<StepObserver<'_>>,
         head: Option<(Components, Vec<Record>)>,
         observe_delivery: bool,
     ) -> Result<PendingDelivery, Error> {
@@ -617,7 +628,11 @@ impl<P: Participants> RunLoop<P> {
             return Err(err("EVENT_DRAIN_REQUIRED"));
         }
         self.healthy = false;
-        let derived = self.derive(kind, &outcome, DeriveSource::RuntimeHead(head))?;
+        let derived = self.derive(
+            kind,
+            &outcome,
+            DeriveSource::RuntimeHead(head.map(Box::new)),
+        )?;
         let step = &derived.record;
         if let Some(observer) = observer.as_mut() {
             observer(
@@ -650,7 +665,7 @@ impl<P: Participants> RunLoop<P> {
     }
     fn step_inner(
         &mut self,
-        observer: Option<&mut dyn FnMut(&str, u64, u64) -> Result<(), Error>>,
+        observer: Option<StepObserver<'_>>,
         observe_delivery: bool,
     ) -> Result<(bool, PendingDelivery), Error> {
         if self.state["input_cancelled"] == true
@@ -668,7 +683,8 @@ impl<P: Participants> RunLoop<P> {
         } else {
             "BAR"
         };
-        let events = self.transition_after_check(kind, Value::Null, observer, Some(head), observe_delivery)?;
+        let events =
+            self.transition_after_check(kind, Value::Null, observer, Some(head), observe_delivery)?;
         Ok((true, events))
     }
     /// One synchronous owning step and Event drain. Its final complete source
@@ -679,14 +695,17 @@ impl<P: Participants> RunLoop<P> {
         &mut self,
         consumer: impl FnMut(&Value) -> Result<(), Error>,
     ) -> Result<(bool, usize), StepAndDeliverError> {
-        let (advanced, events) = self.step_inner(None, true).map_err(StepAndDeliverError::Step)?;
+        let (advanced, events) = self
+            .step_inner(None, true)
+            .map_err(StepAndDeliverError::Step)?;
         let delivered = if let Some(events) = events {
             let events = events.map_err(StepAndDeliverError::Delivery)?;
             self.deliver_observed_events(events, consumer)
         } else {
             // Exhausted/cancelled input retains the original independent drain.
             self.deliver(consumer)
-        }.map_err(StepAndDeliverError::Delivery)?;
+        }
+        .map_err(StepAndDeliverError::Delivery)?;
         Ok((advanced, delivered))
     }
     pub fn run(&mut self) -> Result<(), Error> {

@@ -1,8 +1,6 @@
 //! Exact executable-input preflight for the declared input/algorithm ABI.
 //! The owning Run Command retains Human Research authorization.
 mod strategy;
-pub(crate) use strategy::{select as select_strategy_implementations,observed_node as observed_strategy_node};
-pub use strategy::restore_strategy;
 use crate::{
     application::{
         factor_content::hash,
@@ -15,6 +13,10 @@ use crate::{
 use onlyalpha_calculation_bridge::{Cancellation, ChartInstallation, WorkerError};
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
+pub use strategy::restore_strategy;
+pub(crate) use strategy::{
+    observed_node as observed_strategy_node, select as select_strategy_implementations,
+};
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "RESEARCH_EXECUTABLE_INPUT_MISMATCH";
 /// UNKNOWN retains the original owner; callers drain it, never start replacement work.
@@ -113,7 +115,10 @@ impl PreparedInputs {
             &specification.execution_binding,
         )?;
         if generation.fingerprint != expected
-            || specification.authoring_generation_fingerprint.as_ref().is_some_and(|pin| pin != &expected)
+            || specification
+                .authoring_generation_fingerprint
+                .as_ref()
+                .is_some_and(|pin| pin != &expected)
         {
             return Err(INVALID);
         }
@@ -328,7 +333,10 @@ pub fn prepare(
     Ok(PreparedInputs {
         runtime,
         record,
-        authoring_generation: Some(PreparedAuthoringGeneration { provider, fingerprint }),
+        authoring_generation: Some(PreparedAuthoringGeneration {
+            provider,
+            fingerprint,
+        }),
     })
 }
 
@@ -601,7 +609,8 @@ mod proof_tests {
 
     #[test]
     fn authoring_generation_changes_with_verified_provider_and_rejects_foreign_source() {
-        let revision = json!({"revision_fingerprint":"a".repeat(64),"source_sha256":"b".repeat(64)});
+        let revision =
+            json!({"revision_fingerprint":"a".repeat(64),"source_sha256":"b".repeat(64)});
         let mut resolution = json!({
             "algorithm_artifact": "c".repeat(64),
             "source_artifact": {
@@ -610,7 +619,8 @@ mod proof_tests {
                 "source_artifact_fingerprint": "d".repeat(64),
             },
         });
-        let mut provider = json!({"id":"private.factor","version":"1","content_fingerprint":"e".repeat(64)});
+        let mut provider =
+            json!({"id":"private.factor","version":"1","content_fingerprint":"e".repeat(64)});
         let catalog = json!("f".repeat(64));
         let execution = json!({
             "protocol": "onlyalpha.research.executor/1",
@@ -618,18 +628,34 @@ mod proof_tests {
             "executor_artifact_sha256": "1".repeat(64),
             "core_execution_fingerprint": "2".repeat(64),
         });
-        let original =
-            authoring_generation_fingerprint(&revision, &resolution, &provider, &catalog, &execution)
-                .unwrap();
+        let original = authoring_generation_fingerprint(
+            &revision,
+            &resolution,
+            &provider,
+            &catalog,
+            &execution,
+        )
+        .unwrap();
         provider["content_fingerprint"] = json!("3".repeat(64));
-        let changed =
-            authoring_generation_fingerprint(&revision, &resolution, &provider, &catalog, &execution)
-                .unwrap();
+        let changed = authoring_generation_fingerprint(
+            &revision,
+            &resolution,
+            &provider,
+            &catalog,
+            &execution,
+        )
+        .unwrap();
         assert_ne!(original, changed);
         resolution["source_artifact"]["source_sha256"] = json!("4".repeat(64));
         assert!(
-            authoring_generation_fingerprint(&revision, &resolution, &provider, &catalog, &execution)
-                .is_err()
+            authoring_generation_fingerprint(
+                &revision,
+                &resolution,
+                &provider,
+                &catalog,
+                &execution
+            )
+            .is_err()
         );
     }
 

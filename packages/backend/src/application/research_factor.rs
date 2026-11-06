@@ -19,7 +19,13 @@ fn port(name: &str) -> Value {
 fn external(source: &str) -> Value {
     json!({"node_fingerprint":null,"output_name":"value","source":source})
 }
-fn definition(kind: &str, id: &str, semantic_version: &str, inputs: Vec<Value>, bindings: Value) -> Value {
+fn definition(
+    kind: &str,
+    id: &str,
+    semantic_version: &str,
+    inputs: Vec<Value>,
+    bindings: Value,
+) -> Value {
     json!({"schema_version":2,"kind":kind,"type_id":id,"semantic_version":semantic_version,"parameters":{},
         "inputs":inputs,"input_bindings":bindings,"outputs":[port("value")],
         "warmup":{"minimum_observations":1,"ready_condition":"declared inputs are available","pre_ready_output":"NULL","initialization":"UPSTREAM"},
@@ -157,34 +163,76 @@ pub fn compile(
 /// Compile a published immutable Factor with a caller's explicit input binding plan.
 /// A plan is Strategy configuration, not inferred Factor history or execution proof.
 /// The original conversational wrapper still validates its own reviewed preview.
-pub fn compile_revision(published_revision: &Value, dependencies: &Value) -> Result<CompiledFactor> {
-    if published_revision.to_string().len() > 262144 || dependencies.to_string().len() > 65536 { return Err(INVALID); }
+pub fn compile_revision(
+    published_revision: &Value,
+    dependencies: &Value,
+) -> Result<CompiledFactor> {
+    if published_revision.to_string().len() > 262144 || dependencies.to_string().len() > 65536 {
+        return Err(INVALID);
+    }
     validate_revision(published_revision).map_err(|_| "RESEARCH_FACTOR_REVISION_MISMATCH")?;
     // Reconstruct the actual authoring Draft projection solely to retain the
     // existing preparation identity. Nothing is synthesized from a candidate.
-    let mut authored=published_revision.as_object().ok_or(INVALID)?.clone();
-    authored.remove("revision_fingerprint"); authored.remove("source_sha256");
-    let parent=authored.remove("parent_revision_fingerprint").ok_or(INVALID)?;
-    authored.insert("base_revision_fingerprint".into(),parent);
-    let draft=Draft::new(Value::Object(authored)).map_err(|_|INVALID)?;
-    if draft.revision().map_err(|_|INVALID)? != *published_revision || published_revision["semantic_version"]!="1" { return Err(INVALID); }
-    let deps=dependencies.as_object().ok_or(INVALID)?;
-    let inputs=published_revision["input_contract"].as_object().ok_or(INVALID)?;
-    if deps.is_empty() || deps.len()!=inputs.len() || deps.keys().any(|key|!inputs.contains_key(key))
-        || inputs.values().any(|value|value!=&json!({"type":"DECIMAL","missing":true}))
-        || published_revision["output_contract"]!=json!({"value":{"type":"DECIMAL","missing":true}}) { return Err(INVALID); }
+    let mut authored = published_revision.as_object().ok_or(INVALID)?.clone();
+    authored.remove("revision_fingerprint");
+    authored.remove("source_sha256");
+    let parent = authored
+        .remove("parent_revision_fingerprint")
+        .ok_or(INVALID)?;
+    authored.insert("base_revision_fingerprint".into(), parent);
+    let draft = Draft::new(Value::Object(authored)).map_err(|_| INVALID)?;
+    if draft.revision().map_err(|_| INVALID)? != *published_revision
+        || published_revision["semantic_version"] != "1"
+    {
+        return Err(INVALID);
+    }
+    let deps = dependencies.as_object().ok_or(INVALID)?;
+    let inputs = published_revision["input_contract"]
+        .as_object()
+        .ok_or(INVALID)?;
+    if deps.is_empty()
+        || deps.len() != inputs.len()
+        || deps.keys().any(|key| !inputs.contains_key(key))
+        || inputs
+            .values()
+            .any(|value| value != &json!({"type":"DECIMAL","missing":true}))
+        || published_revision["output_contract"]
+            != json!({"value":{"type":"DECIMAL","missing":true}})
+    {
+        return Err(INVALID);
+    }
     let mut nodes = Vec::new();
     let mut bindings = BTreeMap::new();
     let mut columns = BTreeSet::new();
     let mut history = 0;
     for (name, dependency) in deps {
         let input = dependency["input"].as_str().ok_or(INVALID)?;
-        let fields=dependency.as_object().ok_or(INVALID)?;
-        if !["open","high","low","close","volume"].contains(&input) || dependency["closed_only"]!=true { return Err(INVALID); }
+        let fields = dependency.as_object().ok_or(INVALID)?;
+        if !["open", "high", "low", "close", "volume"].contains(&input)
+            || dependency["closed_only"] != true
+        {
+            return Err(INVALID);
+        }
         columns.insert(input.to_owned());
         if let Some(operator) = dependency["operator"].as_str() {
-            if fields.len()!=5 || !["input","operator","semantic_version","period","closed_only"].iter().all(|key|fields.contains_key(*key)) || dependency["semantic_version"]!="2" { return Err(INVALID); }
-            let period = dependency["period"].as_u64().filter(|period|(1..=10000).contains(period)).ok_or(INVALID)?;
+            if fields.len() != 5
+                || ![
+                    "input",
+                    "operator",
+                    "semantic_version",
+                    "period",
+                    "closed_only",
+                ]
+                .iter()
+                .all(|key| fields.contains_key(*key))
+                || dependency["semantic_version"] != "2"
+            {
+                return Err(INVALID);
+            }
+            let period = dependency["period"]
+                .as_u64()
+                .filter(|period| (1..=10000).contains(period))
+                .ok_or(INVALID)?;
             let delayed = operator == "onlyalpha.operator.delay";
             if !delayed && operator != "onlyalpha.operator.rolling_mean" {
                 return Err(INVALID);
@@ -215,7 +263,12 @@ pub fn compile_revision(published_revision: &Value, dependencies: &Value) -> Res
             );
             nodes.push(json!({"definition":d.to_record(),"alias":null}));
         } else {
-            if fields.len()!=2 || !fields.contains_key("input") || !fields.contains_key("closed_only") { return Err(INVALID); }
+            if fields.len() != 2
+                || !fields.contains_key("input")
+                || !fields.contains_key("closed_only")
+            {
+                return Err(INVALID);
+            }
             bindings.insert(name.clone(), external(input));
         }
     }

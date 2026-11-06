@@ -11,7 +11,8 @@ use crate::{
         research_dataset::Store as Datasets,
         research_evidence::Store as Evidence,
         research_execution::{
-            AuthoringClaim, Claim, Failure, FailurePhase, ResearchExecution, RetryDecision, RunState, RunStatus,
+            AuthoringClaim, Claim, Failure, FailurePhase, ResearchExecution, RetryDecision,
+            RunState, RunStatus,
         },
     },
 };
@@ -67,17 +68,55 @@ impl Guard<'_> {
                 .map_err(|_| PreparationError::from("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")),
         }
     }
-    async fn complete(&mut self, run: &VerifiedRun, claim: &mut Claim, completion: &VerifiedCompletion, at: OnlyUtcDateTime) -> Result<RunStatus, PreparationError> {
-        if matches!(run.specification(), NativeSpecification::Strategy(_)) && let Self::Owned(writer) = self {
-            return ResearchExecution::complete_guarded(writer.as_mut().ok_or("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")?, claim, completion, at).await.map_err(Into::into);
+    async fn complete(
+        &mut self,
+        run: &VerifiedRun,
+        claim: &mut Claim,
+        completion: &VerifiedCompletion,
+        at: OnlyUtcDateTime,
+    ) -> Result<RunStatus, PreparationError> {
+        if matches!(run.specification(), NativeSpecification::Strategy(_))
+            && let Self::Owned(writer) = self
+        {
+            return ResearchExecution::complete_guarded(
+                writer
+                    .as_mut()
+                    .ok_or("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")?,
+                claim,
+                completion,
+                at,
+            )
+            .await
+            .map_err(Into::into);
         }
-        ResearchExecution::new(self.client().await?).complete(claim, completion, at).await.map_err(Into::into)
+        ResearchExecution::new(self.client().await?)
+            .complete(claim, completion, at)
+            .await
+            .map_err(Into::into)
     }
-    async fn reconcile(&mut self, run: &VerifiedRun, inspection: &VerifiedInspection, at: OnlyUtcDateTime) -> Result<RunStatus, PreparationError> {
-        if matches!(run.specification(), NativeSpecification::Strategy(_)) && let Self::Owned(writer) = self {
-            return ResearchExecution::reconcile_guarded(writer.as_mut().ok_or("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")?, inspection, at).await.map_err(Into::into);
+    async fn reconcile(
+        &mut self,
+        run: &VerifiedRun,
+        inspection: &VerifiedInspection,
+        at: OnlyUtcDateTime,
+    ) -> Result<RunStatus, PreparationError> {
+        if matches!(run.specification(), NativeSpecification::Strategy(_))
+            && let Self::Owned(writer) = self
+        {
+            return ResearchExecution::reconcile_guarded(
+                writer
+                    .as_mut()
+                    .ok_or("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")?,
+                inspection,
+                at,
+            )
+            .await
+            .map_err(Into::into);
         }
-        ResearchExecution::new(self.client().await?).reconcile(inspection, at).await.map_err(Into::into)
+        ResearchExecution::new(self.client().await?)
+            .reconcile(inspection, at)
+            .await
+            .map_err(Into::into)
     }
 }
 /// Existing direct technical consumer, with no alternate business or execution semantics.
@@ -134,9 +173,14 @@ async fn recover_existing(
             let root = root.to_path_buf();
             let runtime_root = runtime_root.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                Evidence::open(&root)?.with_runtime_root(&runtime_root)?.load_verified(&current)?
-                    .ok_or("RESEARCH_COMPLETION_PROOF_UNAVAILABLE").map(drop)
-            }).await.map_err(|_| "RESEARCH_COMPLETION_PROOF_UNAVAILABLE")??;
+                Evidence::open(&root)?
+                    .with_runtime_root(&runtime_root)?
+                    .load_verified(&current)?
+                    .ok_or("RESEARCH_COMPLETION_PROOF_UNAVAILABLE")
+                    .map(drop)
+            })
+            .await
+            .map_err(|_| "RESEARCH_COMPLETION_PROOF_UNAVAILABLE")??;
         }
         return Ok(Some(status));
     }
@@ -159,10 +203,13 @@ async fn recover_existing(
         let runtime_root = runtime_root.to_path_buf();
         let selected = run.clone();
         let revision = status.revision;
-        let inspection =
-            tokio::task::spawn_blocking(move || Evidence::open(&root)?.with_runtime_root(&runtime_root)?.inspect(selected, revision))
-                .await
-                .map_err(|_| "RESEARCH_CANCELLATION_INSPECTION_UNAVAILABLE")??;
+        let inspection = tokio::task::spawn_blocking(move || {
+            Evidence::open(&root)?
+                .with_runtime_root(&runtime_root)?
+                .inspect(selected, revision)
+        })
+        .await
+        .map_err(|_| "RESEARCH_CANCELLATION_INSPECTION_UNAVAILABLE")??;
         let mut held = access.enter().await;
         return held.reconcile(run, &inspection, now()?).await.map(Some);
     }
@@ -191,7 +238,12 @@ async fn execute_once(
     }
     let authoring = match run.specification() {
         NativeSpecification::Factor(spec) if spec.authoring_generation_fingerprint.is_some() => {
-            Some(AuthoringClaim::verify(&run, &work.inputs, &work.installation, &work.native_version)?)
+            Some(AuthoringClaim::verify(
+                &run,
+                &work.inputs,
+                &work.installation,
+                &work.native_version,
+            )?)
         }
         _ => {
             verify_inputs(&run, &work.inputs)?;
@@ -207,7 +259,9 @@ async fn execute_once(
                 .claim_authoring(&run, proof, &work.worker_id, &work.attempt_id, at)
                 .await?
         } else {
-            execution.claim(&run, &work.worker_id, &work.attempt_id, at).await?
+            execution
+                .claim(&run, &work.worker_id, &work.attempt_id, at)
+                .await?
         }
     };
     drop(authoring);
@@ -225,19 +279,46 @@ async fn execute_once(
     }
     let control = Control::default();
     let child_control = control.clone();
-    let created_at = if matches!(work.run.specification(), NativeSpecification::Strategy(_)) { Some(now()?) } else { None };
+    let created_at = if matches!(work.run.specification(), NativeSpecification::Strategy(_)) {
+        Some(now()?)
+    } else {
+        None
+    };
     let mut job = tokio::task::spawn_blocking(move || {
         let store = Evidence::open(&work.evidence_root)?.with_runtime_root(&work.runtime_root)?;
         match work.run.specification() {
             NativeSpecification::Factor(_) => {
-                let result = research_run_execution::execute(work.run, work.inputs, work.datasets, work.installation, &work.native_version, &child_control)?;
-                store.commit(result).map_err(|_| PreparationError::from("RESEARCH_EVIDENCE_OUTCOME_UNKNOWN"))
+                let result = research_run_execution::execute(
+                    work.run,
+                    work.inputs,
+                    work.datasets,
+                    work.installation,
+                    &work.native_version,
+                    &child_control,
+                )?;
+                store
+                    .commit(result)
+                    .map_err(|_| PreparationError::from("RESEARCH_EVIDENCE_OUTCOME_UNKNOWN"))
             }
             NativeSpecification::Strategy(specification) => {
                 let specification = specification.as_ref().clone();
-                let observation = crate::application::strategy_research::StrategyEvaluation::observe(work.inputs, specification, &work.datasets, Arc::new(work.installation), &work.native_version, &child_control)?;
-                let result = research_run_execution::execute_strategy(work.run, observation, created_at.ok_or("RESEARCH_STRATEGY_TIME_REQUIRED")?)?;
-                store.commit_strategy(result).map_err(|_| PreparationError::from("RESEARCH_EVIDENCE_OUTCOME_UNKNOWN"))
+                let observation =
+                    crate::application::strategy_research::StrategyEvaluation::observe(
+                        work.inputs,
+                        specification,
+                        &work.datasets,
+                        Arc::new(work.installation),
+                        &work.native_version,
+                        &child_control,
+                    )?;
+                let result = research_run_execution::execute_strategy(
+                    work.run,
+                    observation,
+                    created_at.ok_or("RESEARCH_STRATEGY_TIME_REQUIRED")?,
+                )?;
+                store
+                    .commit_strategy(result)
+                    .map_err(|_| PreparationError::from("RESEARCH_EVIDENCE_OUTCOME_UNKNOWN"))
             }
         }
     });

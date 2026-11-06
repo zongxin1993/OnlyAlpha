@@ -876,8 +876,15 @@ pub(crate) fn authoring_child(command: &CommandId, purpose: &str) -> Result<Comm
 
 /// Exact retained Human confirmation for a published Strategy dependency. A
 /// later mutable draft/head is not a replacement for the selected Revision.
-pub(crate) async fn confirmed_strategy_research_input(tx:&Transaction<'_>,proposal:&str,owner:&str,current:bool)->Result<Value> {
-    let confirmed=confirmed_research_input(tx,proposal,owner,false).await?;
-    if current && withdrawn(tx,proposal,owner).await? {return Err("FACTOR_PROPOSAL_STALE");}
+pub(crate) async fn confirmed_strategy_research_input(
+    tx: &Transaction<'_>,
+    proposal: &str,
+    owner: &str,
+    current: bool,
+) -> Result<Value> {
+    let confirmed = confirmed_research_input(tx, proposal, owner, false).await?;
+    if current && withdrawn(tx, proposal, owner).await? {
+        return Err("FACTOR_PROPOSAL_STALE");
+    }
     Ok(confirmed)
 }

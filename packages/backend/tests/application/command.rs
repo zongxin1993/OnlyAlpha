@@ -84,8 +84,14 @@ fn all_existing_command_and_outcome_families_are_supported_without_new_identitie
         ("CREATE_PROPOSAL_GRANT", CommandKind::CreateProposalGrant),
         ("REVOKE_PROPOSAL_GRANT", CommandKind::RevokeProposalGrant),
         ("STAGE_FACTOR_PROPOSAL", CommandKind::StageFactorProposal),
-        ("CONFIRM_FACTOR_PROPOSAL", CommandKind::ConfirmFactorProposal),
-        ("WITHDRAW_FACTOR_PROPOSAL", CommandKind::WithdrawFactorProposal),
+        (
+            "CONFIRM_FACTOR_PROPOSAL",
+            CommandKind::ConfirmFactorProposal,
+        ),
+        (
+            "WITHDRAW_FACTOR_PROPOSAL",
+            CommandKind::WithdrawFactorProposal,
+        ),
     ] {
         assert_eq!(name.parse::<CommandKind>().unwrap(), kind);
     }

@@ -5,7 +5,10 @@ use onlyalpha_domain::{
     value::{OnlyMoney, OnlyPrice},
 };
 use serde_json::{Value, json};
-use std::{collections::{BTreeMap, BTreeSet}, sync::{Arc, OnceLock}};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, OnceLock},
+};
 
 /// Immutable representation of the exact original Position checkpoint.
 /// It contains no execution, Runtime source or Ready authority.
@@ -207,7 +210,8 @@ impl Manager {
         json!({"accounts":accounts,"allocations":allocations})
     }
     pub fn state(&self) -> Value {
-        #[cfg(test)] FULL_STATE_CONSTRUCTIONS.with(|count|count.set(count.get()+1));
+        #[cfg(test)]
+        FULL_STATE_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
         let (accounts, allocations) = self.current_exposure_rows();
         json!({"sequence":self.state.sequence,"now":if self.state.journal.is_empty() {Value::Null} else {json!(self.state.now.to_string())},"accounts":accounts,"allocations":allocations,"history":self.state.history,"reservations":self.state.reservations.values().map(Reservation::record).collect::<Vec<_>>(),"restrictions":self.state.restrictions,"brokers":self.state.brokers,"stale":self.state.stale,"watermarks":self.state.watermarks.iter().map(|(i,(s,t,id))|json!([i,s,t.to_string(),id])).collect::<Vec<_>>(),"receipts":self.state.receipts,"commands":self.state.commands})
     }
@@ -740,5 +744,5 @@ impl Manager {
 }
 
 #[cfg(test)]
-#[path="current_exposure_tests.rs"]
+#[path = "current_exposure_tests.rs"]
 mod current_exposure_tests;

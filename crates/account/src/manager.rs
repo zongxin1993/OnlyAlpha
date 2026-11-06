@@ -10,7 +10,8 @@ pub struct Manager {
     // Rebuildable canonical byte count; neither state nor source authority.
     pub(crate) journal_bytes: usize,
     // Pure canonical encoding of this immutable state, never a source proof.
-    pub(crate) checkpoint_cache: std::sync::OnceLock<std::sync::Arc<crate::recovery::CachedCheckpoint>>,
+    pub(crate) checkpoint_cache:
+        std::sync::OnceLock<std::sync::Arc<crate::recovery::CachedCheckpoint>>,
 }
 impl Manager {
     pub fn new(mut config: Value) -> Result<Self, Error> {
@@ -61,7 +62,9 @@ impl Manager {
     /// Original accepted valuation intents in journal order. This borrowed data
     /// query neither encodes a checkpoint nor supplies a source or Ready proof.
     pub fn valuation_intents(&self) -> impl Iterator<Item = &Value> {
-        self.state.journal.iter()
+        self.state
+            .journal
+            .iter()
             .filter(|command| command["op"] == "VALUATION")
             .map(|command| &command["payload"]["intent"])
     }
@@ -228,14 +231,19 @@ impl Manager {
         for a in aliases {
             candidate.state.semantic.insert(a, sh.clone());
         }
-        candidate.journal_bytes = candidate.journal_bytes
+        candidate.journal_bytes = candidate
+            .journal_bytes
             .checked_add(encoded.len())
             .and_then(|size| size.checked_add(usize::from(!candidate.state.journal.is_empty())))
             .ok_or_else(|| err("ACCOUNT_CHECKPOINT_BOUND"))?;
         candidate.state.journal.push(std::sync::Arc::new(command));
         candidate.state.validate()?;
         if candidate.checkpoint_version == 5 {
-            crate::recovery::check_expanded_size(&candidate.config, &candidate.state(), candidate.journal_bytes)?;
+            crate::recovery::check_expanded_size(
+                &candidate.config,
+                &candidate.state(),
+                candidate.journal_bytes,
+            )?;
         }
         if admission {
             candidate.state.validate_admission()?;

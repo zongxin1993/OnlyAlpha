@@ -83,7 +83,11 @@ afterEach(() => {
 });
 function page() {
     return render(
-        <MemoryRouter initialEntries={[`/strategies/new?factor=${factor}&study=${study}&preparation=${command}`]}>
+        <MemoryRouter
+            initialEntries={[
+                `/strategies/new?factor=${factor}&study=${study}&preparation=${command}`
+            ]}
+        >
             <StrategyWorkflow />
         </MemoryRouter>
     );
@@ -104,7 +108,9 @@ it("routes a fresh Study-only selection to normal manual strategy authoring with
     expect(screen.getByRole("link", { name: "回测记录" })).toHaveAttribute("href", "/backtest");
     expect(screen.queryByRole("button", { name: "准备研究数据" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "开始策略研究" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Fingerprint|Reducer|DTO|Lease|Revision Hash/)).not.toBeInTheDocument();
+    expect(
+        screen.queryByText(/Fingerprint|Reducer|DTO|Lease|Revision Hash/)
+    ).not.toBeInTheDocument();
     expect(api.loadCreationContext).not.toHaveBeenCalled();
     expect(api.saveDefinition).not.toHaveBeenCalled();
     expect(api.prepareResearch).not.toHaveBeenCalled();
@@ -123,14 +129,22 @@ it("retains the original Study-bound saved definition address without reopening 
     });
     vi.mocked(api.saveDefinition).mockResolvedValue(authoring);
     render(
-        <MemoryRouter initialEntries={[`/strategies/${authoring.strategy_id}?factor=${factor}&study=${study}`]}>
+        <MemoryRouter
+            initialEntries={[
+                `/strategies/${authoring.strategy_id}?factor=${factor}&study=${study}`
+            ]}
+        >
             <StrategyWorkflow />
         </MemoryRouter>
     );
     const save = await screen.findByRole("button", { name: "保存策略定义" });
-    await waitFor(() => { expect(save).toBeEnabled(); });
+    await waitFor(() => {
+        expect(save).toBeEnabled();
+    });
     fireEvent.click(save);
-    await waitFor(() => { expect(api.saveDefinition).toHaveBeenCalledExactlyOnceWith(context); });
+    await waitFor(() => {
+        expect(api.saveDefinition).toHaveBeenCalledExactlyOnceWith(context);
+    });
     expect(await screen.findByText("策略定义已保存")).toBeVisible();
     expect(screen.queryByRole("button", { name: "准备研究数据" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "开始策略研究" })).not.toBeInTheDocument();
@@ -224,7 +238,10 @@ it.each(["BLOCKED", "INPUT_PENDING"])(
         });
         expect(await screen.findByText("原研究准备已完成")).toBeVisible();
         expect(screen.queryByRole("button", { name: "开始策略研究" })).not.toBeInTheDocument();
-        expect(screen.getByRole("link", { name: "配置普通回测" })).toHaveAttribute("href", "/strategies/new");
+        expect(screen.getByRole("link", { name: "配置普通回测" })).toHaveAttribute(
+            "href",
+            "/strategies/new"
+        );
         expect(api.prepareResearch).not.toHaveBeenCalled();
         expect(api.confirmResearch).not.toHaveBeenCalled();
     }
@@ -624,7 +641,10 @@ it.each(["creation", "inventory"] as const)(
         if (entry === "creation") {
             expect(await screen.findByRole("heading", { name: "新建回测策略" })).toBeVisible();
             expect(screen.getByRole("combobox", { name: "已保存因子" })).toBeVisible();
-            expect(screen.getByRole("link", { name: "回测记录" })).toHaveAttribute("href", "/backtest");
+            expect(screen.getByRole("link", { name: "回测记录" })).toHaveAttribute(
+                "href",
+                "/backtest"
+            );
             expect(api.loadCreationContext).not.toHaveBeenCalled();
         } else {
             expect(await screen.findByText("BTCUSDT 价量动量")).toBeVisible();
@@ -705,7 +725,10 @@ it.each(["ready", "completed"] as const)(
         expect(screen.queryByRole("button", { name: "开始策略研究" })).not.toBeInTheDocument();
         if (stage === "ready") {
             expect(await screen.findByText("原研究准备已完成")).toBeVisible();
-            const target = new URL(screen.getByRole("link", { name: "配置普通回测" }).getAttribute("href") ?? "", "http://localhost");
+            const target = new URL(
+                screen.getByRole("link", { name: "配置普通回测" }).getAttribute("href") ?? "",
+                "http://localhost"
+            );
             expect(target.pathname).toBe("/backtest/new");
             expect(Object.fromEntries(target.searchParams)).toEqual({
                 strategy_id: authoring.strategy_id,
@@ -715,7 +738,9 @@ it.each(["ready", "completed"] as const)(
             expect(api.loadResearch).not.toHaveBeenCalled();
         } else {
             const freeze = await screen.findByRole("button", { name: "冻结策略" });
-            await waitFor(() => { expect(freeze).toBeEnabled(); });
+            await waitFor(() => {
+                expect(freeze).toBeEnabled();
+            });
             fireEvent.click(freeze);
             await waitFor(() => {
                 expect(api.freezeStrategy).toHaveBeenCalledExactlyOnceWith(completedStrategy);

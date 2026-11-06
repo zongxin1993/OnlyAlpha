@@ -6,9 +6,9 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
-from typing import Any
+from typing import Any, cast
 
-import pyarrow as pa
+import pyarrow as pa  # type: ignore[import-untyped]
 from onlyalpha.algorithm.type_declaration import type_declaration
 from onlyalpha.calculation.decimal_execution import only_decimal_context
 from onlyalpha.calculation.definition import (
@@ -162,7 +162,7 @@ class AuthoringSession:
         definition = self.registry.rematerialize_definition(reference, parameters, bindings)
         # The type-owned resolver may supply omitted defaults. Supplied values
         # must already be normalized and cannot disappear or change identity.
-        actual_parameters = dict(definition.to_dict())["parameters"]
+        actual_parameters = cast(Mapping[str, object], dict(definition.to_dict())["parameters"])
         for name, supplied in request["parameters"].items():
             if name not in actual_parameters or only_canonical_json(actual_parameters[name]) != only_canonical_json(
                 supplied
@@ -178,7 +178,7 @@ class AuthoringSession:
                 "state_capability": trading.state_capability.value,
                 "checkpoint_schema_version": trading.checkpoint_schema_version,
             }
-        result = {
+        result: dict[str, object] = {
             "definition": dict(definition.to_dict()),
             "definition_fingerprint": definition.fingerprint,
             "type_declaration": type_declaration(research.type_definition),
@@ -221,11 +221,11 @@ class AuthoringSession:
         if len(lengths) != 1 or not 1 <= next(iter(lengths)) <= 8192:
             raise ValueError(INVALID)
         count = next(iter(lengths))
-        decoded = {}
+        decoded: dict[str, list[Decimal | None]] = {}
         for port in definition.inputs:
             if port.data_type is not DataType.DECIMAL:
                 raise ValueError(INVALID)
-            values = []
+            values: list[Decimal | None] = []
             for raw in columns[port.name]:
                 if raw is None:
                     if not port.nullable:
@@ -250,7 +250,7 @@ class AuthoringSession:
         arrays = {name: pa.array(values, type=pa.decimal128(38, 18)) for name, values in decoded.items()}
         with localcontext(context):
             outputs = research.provider.execute(definition, arrays)
-        values = self._outputs(definition, outputs, count, arrow=True)
+        output_values = self._outputs(definition, outputs, count, arrow=True)
         trading_values = None
         trading_fingerprint = None
         if request["include_trading"] and trading is not None:
@@ -258,7 +258,7 @@ class AuthoringSession:
                 backend = trading.provider.create(definition, None)
             if getattr(backend, "definition", None) != definition or not callable(getattr(backend, "update", None)):
                 raise ValueError(INVALID)
-            collected = {p.name: [] for p in definition.outputs}
+            collected: dict[str, list[str | None]] = {p.name: [] for p in definition.outputs}
             for i in range(count):
                 with localcontext(context):
                     row = backend.update({name: c[i] for name, c in decoded.items()})
@@ -269,8 +269,8 @@ class AuthoringSession:
                     collected[name].append(c[0])
             trading_values = collected
             trading_fingerprint = trading.implementation_manifest.implementation_fingerprint
-        result = {
-            "values": values,
+        result: dict[str, object] = {
+            "values": output_values,
             "implementation_fingerprint": research.implementation_manifest.implementation_fingerprint,
             "trading_values": trading_values,
             "trading_implementation_fingerprint": trading_fingerprint,
@@ -282,7 +282,7 @@ class AuthoringSession:
     def _outputs(definition: Any, outputs: object, count: int, *, arrow: bool) -> dict[str, list[str | None]]:
         if not isinstance(outputs, Mapping) or set(outputs) != {p.name for p in definition.outputs}:
             raise ValueError("RESEARCH_EVALUATION_OUTPUT_INVALID")
-        result = {}
+        result: dict[str, list[str | None]] = {}
         for port in definition.outputs:
             column = outputs[port.name]
             if arrow:
@@ -291,7 +291,7 @@ class AuthoringSession:
                 column = column.to_pylist()
             if type(column) is not list or len(column) != count or port.data_type is not DataType.DECIMAL:
                 raise ValueError(INVALID)
-            encoded = []
+            encoded: list[str | None] = []
             for value in column:
                 if value is None:
                     if not port.nullable:

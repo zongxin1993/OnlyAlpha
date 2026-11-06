@@ -5,17 +5,6 @@ from importlib import metadata
 from types import SimpleNamespace
 
 import pytest
-from onlyalpha_broker_binance.derivative_orders import only_binance_usdm_order_parameters
-from onlyalpha_market_crypto.derivatives import OnlyBinanceUsdmMarketProductFactory
-from onlyalpha_market_crypto.derivatives.resource_provider import OnlyBinanceUsdmBacktestResourceProvider
-from onlyalpha_plugin_binance.usdm import (
-    OnlyBinanceUsdmDataSource,
-    OnlyBinanceUsdmDataSourceConfig,
-    OnlyBinanceUsdmHistoricalClient,
-    OnlyBinanceUsdmHistoricalNormalizer,
-    OnlyBinanceUsdmReferenceCapture,
-)
-
 from onlyalpha.core.ranges import OnlyTimeRange
 from onlyalpha.data.enums import OnlyMarketDataType
 from onlyalpha.data.historical.models import OnlyHistoricalFactRequest
@@ -41,6 +30,16 @@ from onlyalpha.market.product import (
     OnlyMarketProductVersion,
 )
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine
+from onlyalpha_broker_binance.derivative_orders import only_binance_usdm_order_parameters
+from onlyalpha_market_crypto.derivatives import OnlyBinanceUsdmMarketProductFactory
+from onlyalpha_market_crypto.derivatives.resource_provider import OnlyBinanceUsdmBacktestResourceProvider
+from onlyalpha_plugin_binance.usdm import (
+    OnlyBinanceUsdmDataSource,
+    OnlyBinanceUsdmDataSourceConfig,
+    OnlyBinanceUsdmHistoricalClient,
+    OnlyBinanceUsdmHistoricalNormalizer,
+    OnlyBinanceUsdmReferenceCapture,
+)
 
 INSTRUMENT = OnlyInstrumentId.parse("BTCUSDT-PERP.BINANCE")
 NOW = datetime(2026, 9, 1, 8, 0, 1, tzinfo=UTC)

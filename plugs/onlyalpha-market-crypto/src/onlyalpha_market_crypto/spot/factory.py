@@ -14,6 +14,7 @@ from onlyalpha.plugin.api import (
     OnlyUnsupportedMarketProductVersionError,
     only_identity_fingerprint,
 )
+
 from onlyalpha_market_crypto.spot.compiler import OnlyBinanceSpotPolicyCompiler
 from onlyalpha_market_crypto.spot.config import OnlyBinanceSpotConfig
 from onlyalpha_market_crypto.spot.fee_pack import only_binance_spot_baseline_fee_pack

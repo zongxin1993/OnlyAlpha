@@ -346,11 +346,10 @@ fn common_vector_outputs() {
         ("closed", closed),
         ("rounding", rounding),
     ];
-    let vectors: Vec<Value> =
-        include_str!("../../../test-data/execution/reconciliation-v1.jsonl")
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
+    let vectors: Vec<Value> = include_str!("../../../test-data/execution/reconciliation-v1.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
     assert_eq!(cases.len(), vectors.len());
     let mut outputs = vec![];
     for ((name, h), v) in cases.into_iter().zip(vectors) {

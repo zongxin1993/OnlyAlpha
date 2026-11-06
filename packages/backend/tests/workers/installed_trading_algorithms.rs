@@ -1,7 +1,7 @@
 //! Actual installed arithmetic through the native NodePort, no Runtime admission.
 use onlyalpha_backend::{
     application::{private_strategy::Definition as Strategy, strategy_research::DecisionGraph},
-    workers::{algorithm::describe_native_runtime, trading_nodes::InstalledTradingNodes},
+    workers::algorithm::describe_native_runtime,
 };
 use onlyalpha_calculation::{Definition, product::Definition as ProductDefinition};
 use onlyalpha_calculation_bridge::{
@@ -27,6 +27,7 @@ use std::{
     },
     time::Duration,
 };
+type ProductSetup = (SourceRevision, Program, BTreeMap<String, ProductDefinition>);
 const WORK: usize = 8 * 1024 * 1024;
 const DEADLINE: Duration = Duration::from_secs(10);
 // Compile the same owning port with its private cfg(test) fault points. The
@@ -135,10 +136,7 @@ fn setup(
     Ok((program, definitions))
 }
 // One shared component projection; a public value here is not an authenticated Freeze publication.
-pub(super) fn product_setup(
-    case: &Value,
-    artifact: &str,
-) -> Result<(SourceRevision, Program, BTreeMap<String, ProductDefinition>), Box<dyn Error>> {
+pub(super) fn product_setup(case: &Value, artifact: &str) -> Result<ProductSetup, Box<dyn Error>> {
     let mut strategy = case["strategy"].clone();
     strategy["universe"]["instruments"] = json!(["BTCUSDT.BINANCE"]);
     strategy["calculations"] = case["calculations"]["instances"].clone();
@@ -302,7 +300,7 @@ fn actual_installed_nodes_keep_native_predicates_and_restore_factory_state()
     )?);
     let (program, definitions) = setup(&case, &artifact)?;
     let count = Arc::new(AtomicUsize::new(1));
-    let port = InstalledTradingNodes::new(
+    let port = constructor_port::InstalledTradingNodes::new(
         installation.clone(),
         program.clone(),
         definitions,
@@ -680,7 +678,7 @@ fn trading_capabilities_metadata_observes_actual_installed_registrations_without
     }
     let mut worker = AlgorithmProcess::research_resolution(
         &installation,
-        &program.generation(),
+        program.generation(),
         Box::new(Arc::new(())),
     )?;
     let owner = worker.cancellation()?;
@@ -726,7 +724,7 @@ fn trading_capabilities_metadata_rejects_vector_inputs_and_native_predicates()
     ] {
         let mut worker = AlgorithmProcess::research_resolution(
             &installation,
-            &program.generation(),
+            program.generation(),
             Box::new(Arc::new(())),
         )?;
         let owner = worker.cancellation()?;

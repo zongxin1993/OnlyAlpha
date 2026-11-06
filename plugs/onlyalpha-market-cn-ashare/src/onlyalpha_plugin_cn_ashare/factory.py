@@ -16,6 +16,7 @@ from onlyalpha.plugin.api import (
     OnlyUnsupportedMarketProductVersionError,
     only_identity_fingerprint,
 )
+
 from onlyalpha_plugin_cn_ashare.compiler import OnlyCnAsharePolicyCompiler
 from onlyalpha_plugin_cn_ashare.config import OnlyCnAshareConfig
 from onlyalpha_plugin_cn_ashare.fee_pack import only_cn_a_share_market_fee_pack

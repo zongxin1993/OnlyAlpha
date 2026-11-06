@@ -3,7 +3,7 @@ mod codec;
 mod dictionary_codec;
 mod references;
 mod replay;
-pub use references::{ReplayEntryRef, ReplayCompletion};
+pub use references::{ReplayCompletion, ReplayEntryRef};
 mod readonly;
 pub use readonly::VerifiedReplaySnapshot;
 mod store;

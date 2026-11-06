@@ -9,77 +9,86 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from onlyalpha.application.integration_application import (
-    OnlyIntegrationConfigurationResolver,
+from .support.integration import NOW, call, clear, configured, create_request, edit, publish, replay_request
+from .support.integration_rows import (
+    decoded_record,
+    draft_bindings,
+    draft_row,
+    fixture_record,
+    integration_row,
+    revision_history,
+    revision_row,
 )
-from onlyalpha.application.integration_configuration import OnlyIntegrationId
-from onlyalpha.persistence.postgres.integration_store import OnlyPostgresIntegrationStore
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-
-from .support.integration import MASTER_KEY, NOW, call, clear, configured, create_request, edit, publish, replay_request
+from .test_schema_postgres import migration_backend as migration_backend
+from .test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 
 
 @pytest.fixture
-def integration_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def integration_db(schema_db: str) -> str:
+    return schema_db
 
 
-def test_publish_matches_existing_python_revision_defaults_and_exact_receipt(
+def test_publish_matches_current_native_revision_defaults_and_exact_receipt(
     native_probe: Path, integration_db: str
 ) -> None:
     request, descriptor = configured(native_probe, integration_db)
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    ident = OnlyIntegrationId(request["integration_id"])
-    draft = owner.load_draft(ident)
-    bindings = owner.load_draft_secret_bindings(ident)
-    expected = (
-        OnlyIntegrationConfigurationResolver()
-        .resolve_publication(
-            ident, descriptor, draft.public_configuration_document, draft.probe_configuration_document, bindings
+
+    ident = request["integration_id"]
+    draft = draft_row(integration_db, ident)
+    bindings = draft_bindings(integration_db, ident)
+    expected = decoded_record(
+        fixture_record(
+            native_probe,
+            kind="publication",
+            ident=ident,
+            descriptor=descriptor,
+            public=draft["public_configuration_document"],
+            probe_configuration=draft["probe_configuration_document"],
+            bindings=bindings,
+            created_at=NOW,
+            revision_sequence=1,
         )
-        .to_revision(1, NOW)
     )
     command = publish(request)
     result = call(native_probe, command)
     assert result["replayed"] is False
     assert result["result"]["receipt"]["outcome_kind"] == "INTEGRATION_REVISION"
     fingerprint = result["result"]["receipt"]["outcome_id"]
-    assert fingerprint == expected.revision_fingerprint
-    actual = owner.load_revision(fingerprint)
+    assert fingerprint == expected["revision_fingerprint"]
+    actual = revision_row(integration_db, fingerprint)
     assert actual == expected
-    draft = owner.load_draft(ident)
-    assert draft.draft_version == 4 and draft.base_revision_fingerprint == fingerprint
-    assert dict(draft.public_configuration_document) == {"name": "Controlled name", "timeout_seconds": 10}
-    assert dict(draft.probe_configuration_document or {}) == {"instrument": "BTCUSDT"}
-    assert call(native_probe, replay_request(command)) == dict(result, replayed=True)
+    draft = draft_row(integration_db, ident)
+    assert draft["draft_version"] == 4 and draft["base_revision_fingerprint"] == fingerprint
+    assert dict(draft["public_configuration_document"]) == {"name": "Controlled name", "timeout_seconds": 10}
+    assert dict(draft["probe_configuration_document"] or {}) == {"instrument": "BTCUSDT"}
+    assert call(native_probe, replay_request(command, native_probe)) == dict(result, replayed=True)
 
 
 def test_duplicate_semantic_publication_reuses_original_revision_sequence_time_bytes(
     native_probe: Path, integration_db: str
 ) -> None:
     request, _ = configured(native_probe, integration_db)
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    ident = OnlyIntegrationId(request["integration_id"])
+
+    ident = request["integration_id"]
     first = publish(request)
     accepted = call(native_probe, first)
     assert "error" not in accepted
     fingerprint = accepted["result"]["receipt"]["outcome_id"]
-    before = owner.load_revision(fingerprint)
+    before = revision_row(integration_db, fingerprint)
     second = dict(publish(request, 4), accepted_at="2026-09-21T00:00:00Z")
     reused = call(native_probe, second)
     assert reused["replayed"] is False
     assert reused["result"]["receipt"]["outcome_id"] == fingerprint
-    assert owner.load_revision(fingerprint) == before and len(owner.list_revision_history(ident)) == 1
-    assert owner.load_draft(ident).draft_version == 5
+    assert revision_row(integration_db, fingerprint) == before and len(revision_history(integration_db, ident)) == 1
+    assert draft_row(integration_db, ident)["draft_version"] == 5
     assert call(native_probe, first) == dict(accepted, replayed=True)
     assert call(native_probe, edit(request, version=5, public='{"name":"Later name"}'))["replayed"] is False
     later = call(native_probe, publish(request, 6))
     assert later["result"]["receipt"]["outcome_id"] != fingerprint
-    assert [r.revision_sequence for r in owner.list_revision_history(ident)] == [1, 2]
-    assert call(native_probe, replay_request(first)) == dict(accepted, replayed=True)
+    assert [r["revision_sequence"] for r in revision_history(integration_db, ident)] == [1, 2]
+    assert call(native_probe, replay_request(first, native_probe)) == dict(accepted, replayed=True)
 
 
 @pytest.mark.parametrize("present", [False, True])
@@ -87,8 +96,8 @@ def test_clear_only_mutable_binding_and_keep_credential_and_published_history(
     native_probe: Path, integration_db: str, present: bool
 ) -> None:
     request, _ = configured(native_probe, integration_db)
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    ident = OnlyIntegrationId(request["integration_id"])
+
+    ident = request["integration_id"]
     published = call(native_probe, publish(request))
     assert "error" not in published
     if not present:
@@ -103,8 +112,13 @@ def test_clear_only_mutable_binding_and_keep_credential_and_published_history(
     result = call(native_probe, command)
     assert result["replayed"] is False
     assert result["result"]["receipt"]["outcome_kind"] == "INTEGRATION"
-    assert owner.load_draft(ident).draft_version == version + 1 and owner.load_draft_secret_bindings(ident) == ()
-    assert owner.load_integration(ident).current_revision_fingerprint == published["result"]["receipt"]["outcome_id"]
+    assert (
+        draft_row(integration_db, ident)["draft_version"] == version + 1 and draft_bindings(integration_db, ident) == ()
+    )
+    assert (
+        integration_row(integration_db, ident)["current_revision_fingerprint"]
+        == published["result"]["receipt"]["outcome_id"]
+    )
     with psycopg.connect(integration_db) as connection:
         for table, rows in before.items():
             assert connection.execute(f"SELECT * FROM {table}").fetchall() == rows
@@ -121,10 +135,10 @@ def test_rotated_credential_does_not_invalidate_old_receipt_but_blocks_new_publi
     assert "error" not in accepted
     with psycopg.connect(integration_db) as connection:
         connection.execute("UPDATE product_credential SET generation=2")
-    assert call(native_probe, replay_request(first)) == dict(accepted, replayed=True)
+    assert call(native_probe, replay_request(first, native_probe)) == dict(accepted, replayed=True)
     newer = publish(request, 4)
     assert call(native_probe, newer) == {"error": "INTEGRATION_SECRET_BINDING_INVALID"}
-    assert call(native_probe, replay_request(newer)) == {"result": None}
+    assert call(native_probe, replay_request(newer, native_probe)) == {"result": None}
 
 
 def test_publish_missing_required_secret_never_returns_a_revision(native_probe: Path, integration_db: str) -> None:
@@ -147,8 +161,8 @@ def test_sequence_capacity_only_blocks_new_revision_not_exact_semantic_reuse(
             "UPDATE integration_revision SET revision_sequence=2147483647 WHERE revision_fingerprint=%s", (fingerprint,)
         )
         connection.execute("ALTER TABLE integration_revision ENABLE TRIGGER integration_revision_immutable_trigger")
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    ident = OnlyIntegrationId(request["integration_id"])
+
+    ident = request["integration_id"]
     command = publish(request, 4)
     if not same_configuration:
         assert "error" not in call(native_probe, edit(request, version=4, public='{"name":"New identity"}'))
@@ -169,14 +183,14 @@ def test_sequence_capacity_only_blocks_new_revision_not_exact_semantic_reuse(
     if same_configuration:
         assert result["replayed"] is False
         assert result["result"]["receipt"]["outcome_id"] == fingerprint
-        assert owner.load_draft(ident).draft_version == 5
-        assert owner.load_revision(fingerprint).revision_sequence == 2147483647
+        assert draft_row(integration_db, ident)["draft_version"] == 5
+        assert revision_row(integration_db, fingerprint)["revision_sequence"] == 2147483647
         with psycopg.connect(integration_db) as connection:
             for table in ["integration_revision", "integration_revision_secret_binding"]:
                 assert connection.execute(f"SELECT * FROM {table}").fetchall() == before[table]
     else:
         assert result == {"error": "INTEGRATION_PERSISTENCE_CONFLICT"}
-        assert call(native_probe, replay_request(command)) == {"result": None}
+        assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
         with psycopg.connect(integration_db) as connection:
             for table in tables:
                 assert connection.execute(f"SELECT * FROM {table}").fetchall() == before[table]
@@ -229,7 +243,7 @@ def test_each_publication_and_unlink_failure_rolls_back_all_owning_facts(
             f"CREATE TRIGGER reject_publish_stage BEFORE {event} ON {table} FOR EACH ROW EXECUTE FUNCTION reject_publish_stage()"
         )
     assert call(native_probe, command) == {"error": "INTEGRATION_PERSISTENCE_UNAVAILABLE"}
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
     with psycopg.connect(integration_db) as connection:
         for table in tables:
             assert connection.execute(f"SELECT * FROM {table}").fetchall() == before[table]
@@ -251,7 +265,7 @@ def test_publication_rejects_current_slot_mismatch_without_receipt(
             connection.execute("UPDATE product_credential SET generation=2")
     command = publish(request)
     assert call(native_probe, command) == {"error": "INTEGRATION_SECRET_BINDING_INVALID"}
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
 
 
 @pytest.mark.parametrize("action", ["clear", "publish"])
@@ -260,12 +274,12 @@ def test_pending_admission_never_repeats_secret_or_revision_effect(
 ) -> None:
     request, _ = configured(native_probe, integration_db)
     command = clear(request) if action == "clear" else publish(request)
-    assert call(native_probe, dict(replay_request(command), op="admit")) == {"result": "CREATED"}
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    ident = OnlyIntegrationId(request["integration_id"])
-    before = owner.load_draft(ident)
+    assert call(native_probe, dict(replay_request(command, native_probe), op="admit")) == {"result": "CREATED"}
+
+    ident = request["integration_id"]
+    before = draft_row(integration_db, ident)
     assert call(native_probe, command) == {"error": "PRODUCT_COMMAND_OUTCOME_UNKNOWN"}
-    assert owner.load_draft(ident) == before and owner.list_revision_history(ident) == ()
+    assert draft_row(integration_db, ident) == before and revision_history(integration_db, ident) == ()
 
 
 @pytest.mark.parametrize("action", ["clear", "publish"])
@@ -281,13 +295,13 @@ def test_actual_commit_ack_cut_keeps_one_effect_and_old_receipt(
             config.setenv("ONLYALPHA_POSTGRES_DSN", fault.dsn)
             assert call(native_probe, command) == {"error": "INTEGRATION_PERSISTENCE_UNAVAILABLE"}
         assert fault.done.is_set(), "the actual committed acknowledgement must be cut"
-    recovered = call(native_probe, replay_request(command))
+    recovered = call(native_probe, replay_request(command, native_probe))
     assert recovered["replayed"] is True
     assert call(native_probe, command) == recovered
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    ident = OnlyIntegrationId(request["integration_id"])
-    assert owner.load_draft(ident).draft_version == 4
-    assert len(owner.list_revision_history(ident)) == (1 if action == "publish" else 0)
+
+    ident = request["integration_id"]
+    assert draft_row(integration_db, ident)["draft_version"] == 4
+    assert len(revision_history(integration_db, ident)) == (1 if action == "publish" else 0)
 
 
 @pytest.mark.parametrize("action", ["clear", "publish"])
@@ -337,12 +351,7 @@ def test_same_version_contenders_at_frontier_have_one_committed_effect(
             results.append(json.loads(stdout))
         assert sum("result" in result for result in results) == 1
         assert {"error": "INTEGRATION_DRAFT_VERSION_CONFLICT"} in results
-        assert (
-            OnlyPostgresIntegrationStore(integration_db)
-            .load_draft(OnlyIntegrationId(request["integration_id"]))
-            .draft_version
-            == 4
-        )
+        assert draft_row(integration_db, request["integration_id"])["draft_version"] == 4
     finally:
         for child in children:
             if child.poll() is None:
@@ -355,7 +364,7 @@ def test_only_declared_secret_fields_can_be_cleared(native_probe: Path, integrat
     request, _ = configured(native_probe, integration_db)
     command = clear(request, field=field)
     assert call(native_probe, command) == {"error": "INTEGRATION_SECRET_FIELD_INVALID"}
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
 
 
 def test_corrupt_historical_identity_candidate_is_never_adopted_on_reuse(
@@ -375,7 +384,7 @@ def test_corrupt_historical_identity_candidate_is_never_adopted_on_reuse(
         connection.execute("ALTER TABLE integration_revision ENABLE TRIGGER integration_revision_immutable_trigger")
     command = publish(request, 7)
     assert call(native_probe, command) == {"error": "INTEGRATION_REVISION_CORRUPT"}
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
 
 
 @pytest.mark.parametrize("rows", [0, 1, 2])
@@ -385,7 +394,7 @@ def test_publish_budget_exhaustion_never_becomes_partial_result(
     request, _ = configured(native_probe, integration_db)
     command = dict(publish(request), rows=rows)
     assert call(native_probe, command) == {"error": "INTEGRATION_PERSISTENCE_UNAVAILABLE"}
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
 
 
 @pytest.mark.parametrize("rotated", [False, True])
@@ -393,14 +402,14 @@ def test_clear_validates_remaining_bindings_and_can_unlink_the_invalid_one(
     native_probe: Path, integration_db: str, rotated: bool
 ) -> None:
     request, _ = configured(native_probe, integration_db, extra_secret=True)
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    ident = OnlyIntegrationId(request["integration_id"])
+
+    ident = request["integration_id"]
     if rotated:
         with psycopg.connect(integration_db) as connection:
             connection.execute("UPDATE product_credential SET generation=2 WHERE secret_name='api_secret'")
         rejected = clear(request, 4, field="api_key")
         assert call(native_probe, rejected) == {"error": "INTEGRATION_SECRET_BINDING_INVALID"}
-        assert call(native_probe, replay_request(rejected)) == {"result": None}
+        assert call(native_probe, replay_request(rejected, native_probe)) == {"result": None}
         command = clear(request, 4, field="api_secret")
         remaining = "api_key"
     else:
@@ -408,7 +417,7 @@ def test_clear_validates_remaining_bindings_and_can_unlink_the_invalid_one(
         remaining = "api_secret"
     result = call(native_probe, command)
     assert result["replayed"] is False
-    assert [binding.field_id for binding in owner.load_draft_secret_bindings(ident)] == [remaining]
+    assert [binding["field_id"] for binding in draft_bindings(integration_db, ident)] == [remaining]
     with psycopg.connect(integration_db) as connection:
         assert connection.execute("SELECT count(*) FROM product_credential").fetchone() == (2,)
 
@@ -420,10 +429,6 @@ def test_current_credential_share_lock_is_held_through_publication_commit(
     import subprocess
     from concurrent.futures import ThreadPoolExecutor
 
-    from psycopg.rows import dict_row
-
-    from onlyalpha.persistence.postgres.config import OnlyPostgresOperationalConnectionOptions
-    from onlyalpha.persistence.postgres.credentials import OnlyPostgresCredentialAuthority
     from packages.backend.tests.postgres_link import wait_for_database_lock_barrier
 
     request, _ = configured(native_probe, integration_db)
@@ -454,17 +459,40 @@ def test_current_credential_share_lock_is_held_through_publication_commit(
         assert child.stdout is not None and child.stdin is not None
         ready = json.loads(child.stdout.readline())
         assert ready["ready"] is True
-        with psycopg.connect(
-            OnlyPostgresOperationalConnectionOptions().apply(integration_db), row_factory=dict_row
-        ) as rotating:
-            rotating_pid = rotating.info.backend_pid
-            authority = OnlyPostgresCredentialAuthority(integration_db, MASTER_KEY, now=lambda: NOW)
+        rotation = subprocess.Popen(
+            [str(native_probe), "--pid-barrier"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert rotation.stdout is not None
+            rotation_ready = json.loads(rotation.stdout.readline())
+            assert rotation_ready["ready"] is True
+            rotating_pid = rotation_ready["backend_pid"]
 
             def rotate() -> int:
-                with rotating.transaction():
-                    return authority._rotate_in_transaction(
-                        rotating, credential_id, 1, "controlled-rotated-secret"
-                    ).generation
+                stdout, stderr = rotation.communicate(
+                    input=json.dumps(
+                        {
+                            "op": "credential",
+                            "command_id": str(uuid4()),
+                            "action": "rotate",
+                            "rows": 20,
+                            "work": 100_000,
+                            "credential_id": credential_id,
+                            "generation": 1,
+                            "secret": "controlled-rotated-secret",
+                        }
+                    ),
+                    timeout=20,
+                )
+                assert rotation.returncode == 0, stderr
+                result = json.loads(stdout)
+                assert "error" not in result, result
+                assert result["metadata"]["credential_id"] == credential_id
+                return result["metadata"]["generation"]
 
             with ThreadPoolExecutor(max_workers=1) as pool:
                 with psycopg.connect(integration_db) as gate:
@@ -477,15 +505,19 @@ def test_current_credential_share_lock_is_held_through_publication_commit(
                     )
                     future = pool.submit(rotate)
                     wait_for_database_lock_barrier(
-                        integration_db, child, rotating_pid, ready["backend_pid"], "transactionid"
+                        integration_db, rotation, rotating_pid, ready["backend_pid"], "transactionid"
                     )
                     assert not future.done(), "rotation must remain fenced until publication commits"
                 assert future.result(timeout=20) == 2
+        finally:
+            if rotation.poll() is None:
+                rotation.terminate()
+                rotation.wait(timeout=20)
         stdout, stderr = child.communicate(timeout=20)
         assert child.returncode == 0, stderr
         accepted = json.loads(stdout)
         assert accepted["replayed"] is False
-        assert call(native_probe, replay_request(command)) == dict(accepted, replayed=True)
+        assert call(native_probe, replay_request(command, native_probe)) == dict(accepted, replayed=True)
         assert call(native_probe, publish(request, version + 1)) == {"error": "INTEGRATION_SECRET_BINDING_INVALID"}
     finally:
         if child.poll() is None:

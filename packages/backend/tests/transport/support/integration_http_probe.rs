@@ -1,5 +1,8 @@
+mod frozen_projection_fixture;
 #[path = "http.rs"]
 mod http_support;
+mod integration_fixture;
+mod qualification_fixture;
 // Technical native HTTP/PG probe, never a business acceptance entry.
 use axum::body::{Body, to_bytes};
 use http::Request;
@@ -27,6 +30,21 @@ async fn run() -> Result<(), Box<dyn Error>> {
         return Err("frame too large".into());
     }
     let input: Value = serde_json::from_str(&raw)?;
+    if matches!(
+        input["op"].as_str(),
+        Some("integration-fixture-records" | "integration-fixture-fingerprint")
+    ) {
+        println!("{}", integration_fixture::produce(&input)?);
+        return Ok(());
+    }
+    if input["op"] == "qualification-fixture" {
+        println!("{}", qualification_fixture::produce(&input)?);
+        return Ok(());
+    }
+    if input["op"] == "frozen-projection-fixture" {
+        println!("{}", frozen_projection_fixture::produce(&input)?);
+        return Ok(());
+    }
     if input["op"] == "web-assets" {
         println!("{}", web_assets_probe(&input).await?);
         return Ok(());

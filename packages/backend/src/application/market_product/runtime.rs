@@ -52,7 +52,9 @@ pub struct Resolved {
     pub(super) clock: Arc<dyn Clock>,
 }
 impl Resolver {
-    pub(crate) fn public_transport_trust(&self)->&Trust {&self.trust}
+    pub(crate) fn public_transport_trust(&self) -> &Trust {
+        &self.trust
+    }
     pub fn new(installed: Vec<Installed>, trust: Trust, clock: Arc<dyn Clock>) -> Result<Self> {
         let mut map = BTreeMap::new();
         for entry in installed {
@@ -258,7 +260,10 @@ impl Resolver {
             .ok_or(Error::Corrupt)?
             .to_owned();
         Ok(Resolved {
-            public_configuration: serde_json::value::RawValue::from_string(r.configuration_document.raw().get().to_owned()).map_err(|_|Error::Corrupt)?,
+            public_configuration: serde_json::value::RawValue::from_string(
+                r.configuration_document.raw().get().to_owned(),
+            )
+            .map_err(|_| Error::Corrupt)?,
             selection,
             clock: Arc::clone(&self.clock),
             probe_contract,
@@ -282,7 +287,9 @@ impl Resolver {
     }
 }
 impl Resolved {
-    pub(crate) fn public_configuration(&self)->&serde_json::value::RawValue {&self.public_configuration}
+    pub(crate) fn public_configuration(&self) -> &serde_json::value::RawValue {
+        &self.public_configuration
+    }
     pub fn selection(&self) -> &Selection {
         &self.selection
     }

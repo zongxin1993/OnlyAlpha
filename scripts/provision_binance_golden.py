@@ -23,24 +23,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
-from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment
-from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
-from onlyalpha_broker_binance.private_http import (
-    OnlyBinanceCredentials,
-    OnlyBinancePrivateHttpClient,
-)
-from onlyalpha_plugin_binance.spot.data_source.normalize import only_normalize_rest_kline
-from onlyalpha_plugin_binance.spot.reference.capture import OnlyBinanceSpotReferenceCapture
-from onlyalpha_plugin_binance.usdm import (
-    OnlyBinanceUsdmHistoricalNormalizer,
-    OnlyBinanceUsdmReferenceCapture,
-    only_normalize_binance_usdm_kline,
-)
-from onlyalpha_market_crypto.spot import OnlyBinanceSpotMarketProductFactory, OnlyBinanceSpotReference
-from onlyalpha_market_crypto.spot.resource_provider import OnlyBinanceSpotReferenceResourceProvider
-from onlyalpha_market_crypto.derivatives import OnlyBinanceUsdmMarketProductFactory, OnlyBinanceUsdmPublicMarketReference
-from onlyalpha_market_crypto.derivatives.resource_provider import OnlyBinanceUsdmBacktestResourceProvider
-
 from onlyalpha.application import OnlyCalculationEquivalenceCertificationApplicationService
 from onlyalpha.backtest import (
     OnlyBacktestDeploymentCatalog,
@@ -138,6 +120,26 @@ from onlyalpha.research.definition.model import (
 from onlyalpha.research.definition.resolver import OnlyResearchDefinitionResolver
 from onlyalpha.research.evaluation.definition import OnlyResearchStatisticsDefinition, OnlyResearchStatisticsMethod
 from onlyalpha.runtime.trading.predicate import only_register_trading_predicate_primitives
+from onlyalpha_broker_binance.private_http import (
+    OnlyBinanceCredentials,
+    OnlyBinancePrivateHttpClient,
+)
+from onlyalpha_market_crypto.derivatives import (
+    OnlyBinanceUsdmMarketProductFactory,
+    OnlyBinanceUsdmPublicMarketReference,
+)
+from onlyalpha_market_crypto.derivatives.resource_provider import OnlyBinanceUsdmBacktestResourceProvider
+from onlyalpha_market_crypto.spot import OnlyBinanceSpotMarketProductFactory, OnlyBinanceSpotReference
+from onlyalpha_market_crypto.spot.resource_provider import OnlyBinanceSpotReferenceResourceProvider
+from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment
+from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
+from onlyalpha_plugin_binance.spot.data_source.normalize import only_normalize_rest_kline
+from onlyalpha_plugin_binance.spot.reference.capture import OnlyBinanceSpotReferenceCapture
+from onlyalpha_plugin_binance.usdm import (
+    OnlyBinanceUsdmHistoricalNormalizer,
+    OnlyBinanceUsdmReferenceCapture,
+    only_normalize_binance_usdm_kline,
+)
 
 _SPOT_URL = "https://api.binance.com"
 _USDM_URL = "https://fapi.binance.com"

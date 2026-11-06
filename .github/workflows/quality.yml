@@ -25,11 +25,14 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
+      - run: python scripts/dev_verification.py prepare
       - run: uv run python scripts/test_suite.py release-static
 
   rust-kernel:
@@ -102,22 +105,33 @@ jobs:
             *) echo "Invalid OpenAPI compatibility baseline" >&2; exit 1 ;;
           esac
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
-      - run: uv run python scripts/openapi_contract.py verify --base "${{ steps.baseline.outputs.sha }}"
-      - run: uv run python scripts/market_data_http_contract.py check
-      - run: uv run python scripts/market_data_stream_contract.py check
-      - run: uv run pytest scripts/tests/test_openapi_contract.py -q
+      - run: python scripts/dev_verification.py prepare
+      - run: python scripts/dev_verification.py run -- python scripts/openapi_contract.py verify --base "${{ steps.baseline.outputs.sha }}"
+      - run: python scripts/dev_verification.py run -- python scripts/market_data_http_contract.py check
+      - run: python scripts/dev_verification.py run -- python scripts/market_data_stream_contract.py check
+      - run: python scripts/dev_verification.py run -- python -m pytest scripts/tests/test_openapi_contract.py -q
+
+  python-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - run: python scripts/dev_verification.py prepare
+      - name: Verify the complete current Python and native process contract
+        run: python scripts/dev_verification.py run -- python scripts/test_suite.py python-contract
 
   private-asset-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/test_suite.py private-asset-contract
+          fetch-depth: 0
+      - run: python scripts/dev_verification.py prepare
+      - run: python scripts/dev_verification.py run -- python scripts/test_suite.py private-asset-contract
+      - run: python scripts/dev_verification.py run -- python -m pytest -q packages/backend/tests/workers/test_installed_trading_nodes.py
 
   gateway-protocol:
     runs-on: ubuntu-latest
@@ -166,20 +180,13 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - name: Run one disjoint duration-aware research evaluation shard
+          fetch-depth: 0
+      - run: python scripts/dev_verification.py prepare
+      - name: Run one disjoint current Research ABI shard
         run: >-
-          uv run python scripts/test_suite.py research-evaluation
-          --splits 4
-          --group ${{ matrix.shard }}
-          --splitting-algorithm least_duration
-          --workers 2
-          --dist worksteal
-          --durations-path test-data/test-durations.json
+          python scripts/dev_verification.py run -- python scripts/test_suite.py research-evaluation
+          --splits 4 --group ${{ matrix.shard }} --workers 2 --dist worksteal
           --metrics-path test-results/metrics/research-evaluation-shard-${{ matrix.shard }}.json
       - uses: actions/upload-artifact@v6
         if: always()
@@ -190,81 +197,86 @@ jobs:
 
   research-evaluation-shard-gate:
     if: always() && github.event_name == 'pull_request'
-    needs: [research-evaluation-shards]
+    needs: [research-evaluation-shards, rust-kernel]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v6
         with:
           pattern: research-evaluation-shard-*-metrics
           path: test-results/metrics
           merge-multiple: true
-      - name: Require every shard and prove a complete disjoint union
+      - run: python scripts/dev_verification.py prepare
+      - name: Independently collect the complete current Research ABI lane
+        run: >-
+          python scripts/dev_verification.py run -- python scripts/test_suite.py research-evaluation
+          --collect-only --no-parallel --collection-path test-results/metrics/research-evaluation-nodeids.json
+      - name: Require all shards, native statistics and a complete disjoint union
         env:
           SHARDS_RESULT: ${{ needs.research-evaluation-shards.result }}
+          NATIVE_RESULT: ${{ needs.rust-kernel.result }}
         run: |
           test "$SHARDS_RESULT" = success
+          test "$NATIVE_RESULT" = success
           python scripts/test_topology.py \
             --validate-shards \
             test-results/metrics/research-evaluation-shard-1.json \
             test-results/metrics/research-evaluation-shard-2.json \
             test-results/metrics/research-evaluation-shard-3.json \
             test-results/metrics/research-evaluation-shard-4.json \
-            --expected-duration-path test-data/test-durations.json
+            --expected-nodeids-path test-results/metrics/research-evaluation-nodeids.json \
+            --expected-commit "$GITHUB_SHA"
 
-  pr-lanes:
-    if: always() && github.event_name == 'pull_request'
-    needs: [research-evaluation-shard-gate]
+  native-quality-gate:
+    if: always()
+    needs: [rust-kernel, python-contract, private-asset-contract, database-compose, research-product-certification, native-conformance, research-evaluation-shard-gate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every current native owner and the applicable shard proof
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUST_RESULT: ${{ needs.rust-kernel.result }}
+          PYTHON_RESULT: ${{ needs.python-contract.result }}
+          PRIVATE_RESULT: ${{ needs.private-asset-contract.result }}
+          DATABASE_RESULT: ${{ needs.database-compose.result }}
+          RESEARCH_RESULT: ${{ needs.research-product-certification.result }}
+          CONFORMANCE_RESULT: ${{ needs.native-conformance.result }}
+          SHARD_RESULT: ${{ needs.research-evaluation-shard-gate.result }}
+        run: |
+          test "$RUST_RESULT" = success
+          test "$PYTHON_RESULT" = success
+          test "$PRIVATE_RESULT" = success
+          test "$DATABASE_RESULT" = success
+          test "$RESEARCH_RESULT" = success
+          test "$CONFORMANCE_RESULT" = success
+          if test "$EVENT_NAME" = pull_request; then
+            test "$SHARD_RESULT" = success
+          else
+            test "$SHARD_RESULT" = skipped
+          fi
+
+  native-conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        lane: [strategy, research-definition, research-specification, research-run, research-command, research-execution, research-runtime, research-query, research-artifact, research-result, research-sweep, research-factor, research-job, research-calculation, recovery, sim-recovery, ashare]
+        include:
+          - responsibility: durable-recovery
+            packages: --package onlyalpha-runtime --package onlyalpha-execution --package onlyalpha-order --package onlyalpha-position --package onlyalpha-account --package onlyalpha-risk --package onlyalpha-strategy-ledger
+          - responsibility: simulation-replay
+            packages: --package onlyalpha-backtest --package onlyalpha-strategy --package onlyalpha-calculation-bridge --package onlyalpha-market-data --package onlyalpha-market-data-construction --package onlyalpha-market-crypto --package onlyalpha-backend
+          - responsibility: cn-ashare
+            packages: --package onlyalpha-market-cn-ashare --package onlyalpha-settlement --package onlyalpha-fee --package onlyalpha-margin
     steps:
-      - name: Require complete research evaluation shard gate
-        env:
-          SHARD_GATE_RESULT: ${{ needs.research-evaluation-shard-gate.result }}
-        run: test "$SHARD_GATE_RESULT" = success
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: ${{ matrix.lane }}-metrics
-          path: test-results/metrics/*.json
-
-  main-lanes:
-    if: always() && github.event_name != 'pull_request'
-    needs: [research-evaluation-shard-gate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: [core-full, recovery, sim-recovery, ashare]
-    steps:
-      - name: Require complete research evaluation shard gate
-        env:
-          SHARD_GATE_RESULT: ${{ needs.research-evaluation-shard-gate.result }}
-        run: test "$SHARD_GATE_RESULT" = skipped
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/test_suite.py ${{ matrix.lane }}
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: ${{ matrix.lane }}-metrics
-          path: test-results/metrics/*.json
+          fetch-depth: 0
+      - run: python scripts/dev_verification.py prepare
+      - name: Verify the actual current responsibility owner
+        run: python scripts/dev_verification.py run -- python scripts/rust_kernel_check.py ${{ matrix.packages }}
 
   build:
     runs-on: ubuntu-latest
@@ -282,88 +294,24 @@ jobs:
   research-product-certification:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    services:
-      postgres:
-        image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
-        env:
-          POSTGRES_USER: onlyalpha
-          POSTGRES_PASSWORD: onlyalpha_test
-          POSTGRES_DB: onlyalpha_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U onlyalpha -d onlyalpha_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    env:
-      ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha_test@127.0.0.1:5432/onlyalpha_test
-      ONLYALPHA_POSTGRES_CLIENT_BIN_DIR: /usr/lib/postgresql/18/bin
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: packages/frontend/package-lock.json
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: npm ci
-        working-directory: packages/frontend
-      - run: npx playwright install --with-deps chromium
-        working-directory: packages/frontend
-      - name: Install PostgreSQL 18 client tools
-        run: |
-          sudo install -d /usr/share/postgresql-common/pgdg
-          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | sudo gpg --dearmor --yes -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-18
-      - name: Verify exact PostgreSQL 18 client family
-        run: |
-          test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/pg_dump" --version | awk '{print $3}' | cut -d. -f1)" = "18"
-          test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/pg_restore" --version | awk '{print $3}' | cut -d. -f1)" = "18"
-          test "$("${ONLYALPHA_POSTGRES_CLIENT_BIN_DIR}/psql" --version | awk '{print $3}' | cut -d. -f1)" = "18"
-      - run: uv run python scripts/test_suite.py research-product-certification
+          fetch-depth: 0
+      - run: python scripts/dev_verification.py prepare
+      - name: Verify native Research evidence and Backtest owner continuity
+        run: python scripts/dev_verification.py run -- python scripts/test_suite.py research-product-certification
 
   database-compose:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
-      - name: Validate development Compose model
-        run: docker compose -f deploy/docker-compose.dev.yml config --quiet
-      - name: Boot the canonical development topology
-        run: docker compose -f deploy/docker-compose.dev.yml up -d --build --wait
-      - name: Run containerized real-database acceptance in the same topology
-        run: |
-          docker compose -f deploy/docker-compose.dev.yml --profile test run --rm test \
-          bash -c '
-            set -euo pipefail
-            python scripts/embed_build_provenance.py
-
-            python scripts/test_suite.py research-postgres &
-            postgres_pid=$!
-            python scripts/test_suite.py market-data-clickhouse &
-            clickhouse_pid=$!
-
-            postgres_status=0
-            clickhouse_status=0
-            wait "$postgres_pid" || postgres_status=$?
-            wait "$clickhouse_pid" || clickhouse_status=$?
-
-            test "$postgres_status" -eq 0
-            test "$clickhouse_status" -eq 0
-            python scripts/test_suite.py database-acceptance
-          '
-      - name: Remove the test stack
-        if: always()
-        run: docker compose -f deploy/docker-compose.dev.yml down -v
+        with:
+          fetch-depth: 0
+      - run: python scripts/dev_verification.py prepare
+      - name: Verify current native database owners serially
+        run: python scripts/dev_verification.py run -- python scripts/test_suite.py database --no-parallel
 
   web-product-e2e:
     runs-on: ubuntu-latest
@@ -468,7 +416,7 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, rust-kernel, architecture, openapi-contract, private-asset-contract, gateway-protocol, dependency-audit, pr-lanes, main-lanes, research-product-certification, database-compose, web-product-e2e, build, web]
+    needs: [static, rust-kernel, architecture, openapi-contract, python-contract, private-asset-contract, gateway-protocol, dependency-audit, native-quality-gate, research-product-certification, database-compose, web-product-e2e, build, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
@@ -477,14 +425,14 @@ jobs:
           STATIC_RESULT: ${{ needs.static.result }}
           ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
           OPENAPI_CONTRACT_RESULT: ${{ needs.openapi-contract.result }}
+          PYTHON_CONTRACT_RESULT: ${{ needs.python-contract.result }}
           PRIVATE_ASSET_CONTRACT_RESULT: ${{ needs.private-asset-contract.result }}
           GATEWAY_PROTOCOL_RESULT: ${{ needs.gateway-protocol.result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
-          PR_LANES_RESULT: ${{ needs.pr-lanes.result }}
-          MAIN_LANES_RESULT: ${{ needs.main-lanes.result }}
+          NATIVE_QUALITY_GATE_RESULT: ${{ needs.native-quality-gate.result }}
           RESEARCH_PRODUCT_CERTIFICATION_RESULT: ${{ needs.research-product-certification.result }}
           DATABASE_COMPOSE_RESULT: ${{ needs.database-compose.result }}
           WEB_PRODUCT_E2E_RESULT: ${{ needs.web-product-e2e.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$RUST_KERNEL_RESULT" = success -a "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$PRIVATE_ASSET_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CERTIFICATION_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$WEB_PRODUCT_E2E_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a \( "$PR_LANES_RESULT" = success -o "$PR_LANES_RESULT" = skipped \) -a \( "$MAIN_LANES_RESULT" = success -o "$MAIN_LANES_RESULT" = skipped \)
+        run: test "$RUST_KERNEL_RESULT" = success -a "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$PYTHON_CONTRACT_RESULT" = success -a "$PRIVATE_ASSET_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CERTIFICATION_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$WEB_PRODUCT_E2E_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$NATIVE_QUALITY_GATE_RESULT" = success

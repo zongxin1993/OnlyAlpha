@@ -3,25 +3,16 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
 import psycopg
 
-from onlyalpha.application.integration_application import (
-    _admission,
-    only_integration_secret_commitment,
-)
-from onlyalpha.application.integration_configuration import (
-    OnlyIntegrationId,
-    only_integration_json_document,
-)
-from onlyalpha.application.product_command_receipt import OnlyProductCommandId, OnlyProductCommandKind
-from onlyalpha.persistence.postgres.integration_product_store import OnlyPostgresIntegrationProductStore
-from packages.backend.tests.application.support.integration_configuration_fixture import integration_descriptor as _descriptor
+from .native_probe import call
+
+__all__ = ["call"]
 
 _TABLES = (
     "integration",
@@ -59,70 +50,70 @@ def create_request() -> dict[str, Any]:
     }
 
 
-def call(probe: Path, request: dict[str, Any]) -> dict[str, Any]:
-    result = subprocess.run([str(probe)], input=json.dumps(request), text=True, capture_output=True, timeout=20)
-    assert result.returncode == 0, result.stderr
-    return cast(dict[str, Any], json.loads(result.stdout))
-
-
-def replay_request(request: dict[str, Any]) -> dict[str, Any]:
-    if request["action"] == "create":
-        kind = OnlyProductCommandKind.CREATE_INTEGRATION
-        payload = {k: request[k] for k in ("integration_id", "type_id", "display_name")}
-    elif request["action"] in ("update", "reset", "clear", "publish"):
-        from onlyalpha.application.integration_application import (
-            OnlyUpdateIntegrationDraft,
-            _command_document_identity_json,
-        )
-
-        kind = {
-            "update": OnlyProductCommandKind.UPDATE_INTEGRATION_DRAFT,
-            "reset": OnlyProductCommandKind.RESET_INTEGRATION_DRAFT_CONTRACT,
-            "clear": OnlyProductCommandKind.CLEAR_INTEGRATION_SECRET,
-            "publish": OnlyProductCommandKind.PUBLISH_INTEGRATION_REVISION,
-        }[request["action"]]
-        payload = {"integration_id": request["integration_id"], "expected_draft_version": request["expected_version"]}
-        if request["action"] == "clear":
-            payload["field_id"] = request["field_id"]
-        if request["action"] == "update":
-            command = OnlyUpdateIntegrationDraft(
-                OnlyProductCommandId(request["command_id"]),
-                OnlyIntegrationId(request["integration_id"]),
-                request["expected_version"],
-                json.loads(request["public"]),
-                None if request["probe"] is None else json.loads(request["probe"]),
-            )
-            payload.update(
-                public_configuration_json=_command_document_identity_json(command.public_configuration),
-                probe_configuration_json=_command_document_identity_json(command.probe_configuration),
-            )
-    elif request["action"] == "set-secret":
-        from onlyalpha.application.integration_application import only_integration_secret_commitment
-
-        kind = OnlyProductCommandKind.SET_INTEGRATION_SECRET
-        payload = {
-            "integration_id": request["integration_id"],
-            "expected_draft_version": request["expected_version"],
-            "field_id": request["field_id"],
-            "secret_commitment": only_integration_secret_commitment(
-                b"k" * 32, OnlyIntegrationId(request["integration_id"]), request["field_id"], request["secret"]
-            ),
-        }
-    else:
-        kind = OnlyProductCommandKind.SET_INTEGRATION_LIFECYCLE
-        payload = {
-            "integration_id": request["integration_id"],
-            "expected_lifecycle_state": request["expected"],
-            "lifecycle_state": request["target"],
-        }
-    admission = _admission(OnlyProductCommandId(request["command_id"]), kind, payload)
+def replay_request(request: dict[str, Any], probe: Path) -> dict[str, Any]:
+    admission = call(probe, {"op": "integration-command-fixture", "request": request})
     return {
         "op": "integration-write",
         "action": "replay",
         "command_id": request["command_id"],
         "integration_id": request["integration_id"],
-        "kind": kind.value,
-        "fingerprint": admission.command_fingerprint,
+        **admission,
+    }
+
+
+def descriptor(probe: Path, *, extra_secret: bool = False) -> dict[str, Any]:
+    field = {
+        "advanced": False,
+        "default": None,
+        "description": "",
+        "display_name": "",
+        "enum_values": [],
+        "exclusive_minimum": False,
+        "maximum": None,
+        "minimum": None,
+        "required": False,
+        "secret": False,
+        "value_kind": "STRING",
+    }
+    fields = [
+        {**field, "field_id": "api_key", "required": True, "secret": True, "display_name": "API key"},
+        {**field, "field_id": "name", "required": True, "display_name": "Name"},
+        {
+            **field,
+            "field_id": "timeout_seconds",
+            "value_kind": "DURATION",
+            "default": 10.0,
+            "minimum": 0.1,
+            "display_name": "Timeout",
+        },
+    ]
+    if extra_secret:
+        fields.append({**field, "field_id": "api_secret", "secret": True, "display_name": "Second secret"})
+    contract = {"schema_version": 1, "fields": sorted(fields, key=lambda value: value["field_id"])}
+    probe_contract = {
+        "probe_version": 1,
+        "probe_mode": "DEFAULT_INSTRUMENT",
+        "default_probe_instrument": "BTCUSDT",
+        "user_selectable_probe_instrument": True,
+        "probe_checks": ["REFERENCE_DATA"],
+    }
+    for component in [contract, probe_contract]:
+        component["fingerprint"] = call(
+            probe, {"op": "integration-fixture-fingerprint", "document": json.dumps(component)}
+        )["fingerprint"]
+    return {
+        "schema_version": 1,
+        "type_id": "binance.spot.market_data",
+        "category": "DATA_SOURCE",
+        "display_name": "Binance Spot",
+        "description": "Binance Spot market data",
+        "provider_id": "binance",
+        "implementation_id": "binance",
+        "implementation_version": "1.0.0",
+        "public_api_version": "1.1",
+        "capabilities": ["HISTORICAL_BARS"],
+        "configuration_contract": contract,
+        "probe_contract": probe_contract,
     }
 
 
@@ -140,60 +131,24 @@ def reset(request: dict[str, Any], version: int) -> dict[str, Any]:
     return dict(request, action="reset", command_id=str(uuid4()), expected_version=version)
 
 
-def configured(probe: Path, dsn: str, *, extra_secret: bool = False) -> tuple[dict[str, Any], Any]:
-    descriptor = _descriptor()
-    fields = ["api_key"]
-    if extra_secret:
-        from dataclasses import replace
-
-        from onlyalpha.plugin.integration import (
-            OnlyIntegrationConfigurationContractV1,
-            OnlyIntegrationConfigurationFieldV1,
-            OnlyIntegrationValueKind,
-        )
-
-        descriptor = replace(
-            descriptor,
-            configuration_contract=OnlyIntegrationConfigurationContractV1(
-                fields=descriptor.configuration_contract.fields
-                + (
-                    OnlyIntegrationConfigurationFieldV1(
-                        "api_secret",
-                        OnlyIntegrationValueKind.STRING,
-                        required=False,
-                        secret=True,
-                        display_name="Second secret",
-                    ),
-                )
-            ),
-        )
-        fields.append("api_secret")
+def configured(probe: Path, dsn: str, *, extra_secret: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+    declared = descriptor(probe, extra_secret=extra_secret)
     request = create_request()
-    request.update(
-        type_id=descriptor.type_id.value,
-        descriptor=json.dumps(only_integration_json_document(descriptor.to_dict(include_fingerprint=False))),
-    )
-    assert "error" not in call(probe, request)
-    assert "error" not in call(probe, edit(request, public='{"name":"Controlled name"}'))
-    # Supply pre-existing encrypted slots; secret authoring is not this fixture
-    # user goal. Actual native secret commands have their own tests.
-    ident = OnlyIntegrationId(request["integration_id"])
+    request.update(type_id=declared["type_id"], descriptor=json.dumps(declared))
+    assert "error" not in call(probe, request, dsn=dsn)
+    assert "error" not in call(probe, edit(request, public='{ "name": "Controlled name" }'), dsn=dsn)
+    fields = ["api_key", "api_secret"] if extra_secret else ["api_key"]
     for version, field in enumerate(fields, start=2):
-        secret = "controlled-test-only"
-        admission = _admission(
-            OnlyProductCommandId(str(uuid4())),
-            OnlyProductCommandKind.SET_INTEGRATION_SECRET,
-            {
-                "integration_id": ident.value,
-                "expected_draft_version": version,
-                "field_id": field,
-                "secret_commitment": only_integration_secret_commitment(MASTER_KEY, ident, field, secret),
-            },
+        command = dict(
+            request,
+            action="set-secret",
+            command_id=str(uuid4()),
+            expected_version=version,
+            field_id=field,
+            secret="controlled-test-only",
         )
-        OnlyPostgresIntegrationProductStore(dsn, MASTER_KEY, now=lambda: NOW).set_secret_with_receipt(
-            admission, ident, version, descriptor, field, secret
-        )
-    return request, descriptor
+        assert "error" not in call(probe, command, dsn=dsn)
+    return request, declared
 
 
 def publish(request: dict[str, Any], version: int = 3) -> dict[str, Any]:

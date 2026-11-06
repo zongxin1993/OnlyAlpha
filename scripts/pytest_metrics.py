@@ -45,6 +45,10 @@ _KNOWN_MARKERS = frozenset(
 )
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--onlyalpha-collection-path", type=Path)
+
+
 def pytest_configure(config: pytest.Config) -> None:
     global _started, _instrumented
     _started = time.perf_counter()
@@ -85,6 +89,15 @@ def pytest_testnodedown(node: Any, error: object | None) -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    collection = session.config.getoption("onlyalpha_collection_path")
+    if collection is not None:
+        if not session.config.option.collectonly or exitstatus != 0 or not session.items:
+            raise pytest.UsageError("only a successful nonempty full collection can publish its node ids")
+        nodes = sorted(item.nodeid for item in session.items)
+        if len(nodes) != len(set(nodes)):
+            raise pytest.UsageError("duplicate test identity in collection")
+        collection.parent.mkdir(parents=True, exist_ok=True)
+        collection.write_text(json.dumps(nodes, indent=2) + "\n", encoding="utf-8")
     if hasattr(session.config, "workerinput"):
         session.config.workeroutput["onlyalpha_metrics"] = {  # type: ignore[attr-defined]
             "reports": _reports,

@@ -142,6 +142,7 @@ pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
         );
     }
     if v["evidence_phase"] == "inspect" {
+        eprintln!("[strategy-evidence] phase=historical-display");
         let visible = onlyalpha_backend::transport::host_factor_research::read_strategy_report(
             Path::new(text(v, "research_root")?),
             Path::new(text(v, "runtime_root")?),
@@ -158,7 +159,9 @@ pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
         assert_eq!(visible.start_at, "2025-01-02T12:00:00Z");
         assert_eq!(visible.end_at, "2025-01-03T00:00:00Z");
         assert!(!visible.limitations.is_empty());
+        eprintln!("[strategy-evidence] phase=historical-report");
         let report = evidence.read_report(&run)?;
+        eprintln!("[strategy-evidence] phase=historical-completion");
         let complete = evidence
             .load_verified(&run)?
             .ok_or("missing original complete report")?;
@@ -169,19 +172,23 @@ pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
                 .ok_or("result")?
         );
         drop(complete);
+        eprintln!("[strategy-evidence] phase=historical-seal");
         let _seal = evidence.read_verified_strategy(&run)?;
         drop(_seal);
         let roots: BTreeMap<String, std::path::PathBuf> =
             serde_json::from_value(v["source_roots"].clone())?;
+        eprintln!("[strategy-evidence] phase=historical-novelty-open");
         let novelty = Novelty::new(
             Path::new(text(v, "semantic_root")?),
             Path::new(text(v, "projection_root")?),
             roots,
         )?
         .with_runtime_root(Path::new(text(v, "runtime_root")?))?;
+        eprintln!("[strategy-evidence] phase=historical-projection");
         let projection = novelty
             .refresh_projection(session.client_mut().await?)
             .await?;
+        eprintln!("[strategy-evidence] phase=historical-complete");
         return Ok(
             json!({"run_id":run.run_id(),"report":report,"projection":projection,"backend_pid":pid}),
         );

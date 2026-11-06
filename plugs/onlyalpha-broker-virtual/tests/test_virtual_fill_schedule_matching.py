@@ -2,6 +2,11 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
+from onlyalpha.broker import OnlyBrokerGatewayId
+from onlyalpha.core.clock import OnlyBacktestClock
+from onlyalpha.domain.enums import OnlyOrderStatus
+from onlyalpha.domain.identifiers import OnlyRuntimeId
+from onlyalpha.domain.value import OnlyMoney, OnlyPrice
 from onlyalpha_plugin_broker_virtual import OnlyVirtualBrokerConfig, OnlyVirtualBrokerGateway
 from onlyalpha_plugin_broker_virtual.fill_plan import (
     OnlyVirtualFillDispatchMode,
@@ -9,12 +14,6 @@ from onlyalpha_plugin_broker_virtual.fill_plan import (
     OnlyVirtualFillScheduleMode,
     OnlyVirtualFillScheduleStepSpec,
 )
-
-from onlyalpha.broker import OnlyBrokerGatewayId
-from onlyalpha.core.clock import OnlyBacktestClock
-from onlyalpha.domain.enums import OnlyOrderStatus
-from onlyalpha.domain.identifiers import OnlyRuntimeId
-from onlyalpha.domain.value import OnlyMoney, OnlyPrice
 from tests.support.virtual_broker import ACCOUNT, CNY, START, bar, order
 
 

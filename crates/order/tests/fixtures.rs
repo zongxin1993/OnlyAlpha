@@ -191,10 +191,8 @@ fn frozen_order_fee_fixtures_match_native_owners() {
     broker_request.account_id = Some("account".parse().unwrap());
     let broker = json!({"request":OnlyOrderRequest::new(broker_request).unwrap().to_record()});
     assert_eq!(
-        serde_json::from_str::<Value>(include_str!(
-            "../../../test-data/broker/domain-inputs.json"
-        ))
-        .unwrap(),
+        serde_json::from_str::<Value>(include_str!("../../../test-data/broker/domain-inputs.json"))
+            .unwrap(),
         broker
     );
 

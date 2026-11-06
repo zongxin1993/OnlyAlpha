@@ -112,18 +112,16 @@ def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
     }
 
 
-def installed_trading_case(
-    tmp_path: Path, selector: str, *, release: bool = True, build_timeout: int | None = 120
-) -> str:
+def build_installed_trading_binary(
+    *, release: bool = True, build_timeout: int | None = 120
+) -> tuple[Path, dict[str, str]]:
     from scripts.build_algorithm_sdk import ROOT
     from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
 
-    installed = installed_trading_environment(ROOT, tmp_path)
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
     environment = compiler_environment(os.environ, ROOT / "test-results/rust-kernel/target")
     environment["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(environment["CARGO_HOME"]))
-    environment.update(installed)
     built = subprocess.run(
         [
             "cargo",
@@ -133,7 +131,7 @@ def installed_trading_case(
             "--target",
             target,
             "-j1",
-            *(["--release"] if release else ["--config", "profile.dev.package.onlyalpha-backend.debug=0"]),
+            *(["--release"] if release else []),
             "-p",
             "onlyalpha-backend",
             "--test",
@@ -159,10 +157,21 @@ def installed_trading_case(
         and record.get("executable")
     ]
     assert len(executables) == 1
+    return Path(executables[0]), environment
+
+
+def installed_trading_case(
+    tmp_path: Path, selector: str, *, release: bool = True, build_timeout: int | None = 120
+) -> str:
+    from scripts.build_algorithm_sdk import ROOT
+
+    installed = installed_trading_environment(ROOT, tmp_path)
+    binary, environment = build_installed_trading_binary(release=release, build_timeout=build_timeout)
+    environment.update(installed)
     # Exercise the actual selected ELF under the same 128 MiB Shipping guard.
     # Debug-only sections are removed from this isolated test copy.
     executable = tmp_path / "installed-trading-tests"
-    shutil.copyfile(executables[0], executable)
+    shutil.copyfile(binary, executable)
     subprocess.run(["strip", "--strip-all", str(executable)], check=True, timeout=30)
     executable.chmod(0o500)
     assert executable.stat().st_size <= 128 * 1024 * 1024

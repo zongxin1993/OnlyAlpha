@@ -56,6 +56,14 @@ fn typed_instruments_keep_flat_schema_and_exact_increment_rules() {
             .to_string(),
         "1.05"
     );
+    let quantity = OnlyQuantity::new("199".parse().unwrap(), 0).unwrap();
+    assert_eq!(
+        instrument
+            .specification()
+            .quantize_quantity(&quantity, onlyalpha_domain::numeric::OnlyRoundingMode::Down)
+            .unwrap(),
+        quantity
+    );
     let mut record = instrument.to_record();
     record["model_type"] = "UnknownInstrument".into();
     assert!(OnlyInstrument::from_record(&record).is_err());

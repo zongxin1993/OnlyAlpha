@@ -740,7 +740,8 @@ it("focus reproof followed by color-only editor confirmation does not reevaluate
         );
     });
     await user.click(screen.getByRole("button", { name: "编辑 SMA" }));
-    await user.click(screen.getByRole("button", { name: "红色" }));
+    const series = required(sample.capability.presentation.series[0]);
+    await user.click(screen.getByRole("button", { name: `${series.label} 红色` }));
     await user.click(screen.getByRole("button", { name: "应用" }));
     await waitFor(() => {
         expect(screen.getByTestId("chart-study-instance")).toHaveAttribute(

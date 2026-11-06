@@ -142,8 +142,22 @@ pub(crate) fn round(n: &BigDecimal, q: &BigDecimal, mode: &str) -> Result<BigDec
     Ok(BigDecimal::from(units) * q)
 }
 const ANALYTICAL_SUBJECT_FIELDS: &[&str] = &[
-    "engine", "runtime", "account", "broker", "gateway", "generation", "runtime_kind",
-    "cluster", "revision", "instrument", "market", "venue", "instrument_class", "currency", "side", "offset",
+    "engine",
+    "runtime",
+    "account",
+    "broker",
+    "gateway",
+    "generation",
+    "runtime_kind",
+    "cluster",
+    "revision",
+    "instrument",
+    "market",
+    "venue",
+    "instrument_class",
+    "currency",
+    "side",
+    "offset",
 ];
 pub(crate) fn scope(v: &Value) -> Result<(), Error> {
     let mut keys = ANALYTICAL_SUBJECT_FIELDS.to_vec();

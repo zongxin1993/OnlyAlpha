@@ -24,6 +24,7 @@ from onlyalpha.domain.enums import OnlyAdjustmentType
 from onlyalpha.domain.instrument import OnlyInstrument
 from onlyalpha.domain.market import OnlyBarType
 from onlyalpha.market_data.durable.performance import only_market_data_phase
+
 from onlyalpha_plugin_binance.common.http import OnlyBinancePublicHttpClient
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 

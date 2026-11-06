@@ -698,7 +698,6 @@ fn trade_identity_is_unique_across_producer_ports_and_orders() {
     assert_eq!(m.checkpoint(), cp);
 }
 
-
 fn analytical_spot_fixture() -> (Value, Value, Value) {
     let mut catalog = catalog();
     for schedule in catalog["schedules"].as_array_mut().unwrap() {
@@ -709,7 +708,8 @@ fn analytical_spot_fixture() -> (Value, Value, Value) {
         if schedule["namespace"] == "MARKET" {
             schedule["scope"]["market"] = json!("BINANCE_SPOT_MODEL");
             schedule["scope"]["venue"] = json!("BINANCE");
-            schedule["rules"][0]["terms"] = json!([{"kind":"RATE","basis":"NOTIONAL","amount":"0.001"}]);
+            schedule["rules"][0]["terms"] =
+                json!([{"kind":"RATE","basis":"NOTIONAL","amount":"0.001"}]);
         } else {
             schedule["rules"][0]["terms"] = json!([{"kind":"FIXED","amount":"0"}]);
         }
@@ -718,8 +718,10 @@ fn analytical_spot_fixture() -> (Value, Value, Value) {
     subject["market"] = json!("BINANCE_SPOT_MODEL");
     subject["venue"] = json!("BINANCE");
     subject["instrument"] = json!("BTCUSDT.BINANCE");
-    subject["currency"] = json!({"schema_version":1,"code":"USDT","precision":8,"currency_type":"CRYPTO"});
-    let basis = json!({"notional":"1000.20123456","quantity":"0.01","contracts":null,"currency":"USDT"});
+    subject["currency"] =
+        json!({"schema_version":1,"code":"USDT","precision":8,"currency_type":"CRYPTO"});
+    let basis =
+        json!({"notional":"1000.20123456","quantity":"0.01","contracts":null,"currency":"USDT"});
     (catalog, subject, basis)
 }
 
@@ -729,13 +731,25 @@ fn analytical_quote_matches_the_actual_whole_fill_fee_without_order_or_trade_ide
     let catalog = Catalog::new(configuration).unwrap();
     let before = catalog.record();
     let binding = catalog.bind(order_subject.clone(), 1).unwrap();
-    let actual = catalog.assess(&binding, 1, "actual-whole-fill", 1000_u64, basis.clone(), basis.clone(), None).unwrap();
+    let actual = catalog
+        .assess(
+            &binding,
+            1,
+            "actual-whole-fill",
+            1000_u64,
+            basis.clone(),
+            basis.clone(),
+            None,
+        )
+        .unwrap();
     let mut owner = manager();
     let application = owner.apply(&actual).unwrap();
     let checkpoint = owner.checkpoint();
     let mut quote_subject = order_subject;
     quote_subject.as_object_mut().unwrap().remove("order");
-    let quote = catalog.quote_one_fill(quote_subject.clone(), 1, 1000_u64, basis.clone(), None).unwrap();
+    let quote = catalog
+        .quote_one_fill(quote_subject.clone(), 1, 1000_u64, basis.clone(), None)
+        .unwrap();
     let record = quote.record();
     assert_eq!(record["kind"], "ANALYTICAL_ESTIMATE");
     assert_eq!(record["catalog"], catalog.record());
@@ -752,7 +766,13 @@ fn analytical_quote_matches_the_actual_whole_fill_fee_without_order_or_trade_ide
     }
     assert_eq!(catalog.record(), before);
     assert_eq!(owner.checkpoint(), checkpoint);
-    assert_eq!(catalog.quote_one_fill(quote_subject, 1, 1000_u64, basis, None).unwrap().fingerprint(), quote.fingerprint());
+    assert_eq!(
+        catalog
+            .quote_one_fill(quote_subject, 1, 1000_u64, basis, None)
+            .unwrap()
+            .fingerprint(),
+        quote.fingerprint()
+    );
 }
 
 #[test]
@@ -760,29 +780,67 @@ fn analytical_quote_binds_catalog_day_time_scope_and_currency_and_rejects_execut
     let (configuration, mut subject, basis) = analytical_spot_fixture();
     subject.as_object_mut().unwrap().remove("order");
     let catalog = Catalog::new(configuration.clone()).unwrap();
-    let first = catalog.quote_one_fill(subject.clone(), 1, 1000_u64, basis.clone(), None).unwrap();
-    assert_ne!(first.fingerprint(), catalog.quote_one_fill(subject.clone(), 2, 1000_u64, basis.clone(), None).unwrap().fingerprint());
-    assert_ne!(first.fingerprint(), catalog.quote_one_fill(subject.clone(), 1, 1001_u64, basis.clone(), None).unwrap().fingerprint());
+    let first = catalog
+        .quote_one_fill(subject.clone(), 1, 1000_u64, basis.clone(), None)
+        .unwrap();
+    assert_ne!(
+        first.fingerprint(),
+        catalog
+            .quote_one_fill(subject.clone(), 2, 1000_u64, basis.clone(), None)
+            .unwrap()
+            .fingerprint()
+    );
+    assert_ne!(
+        first.fingerprint(),
+        catalog
+            .quote_one_fill(subject.clone(), 1, 1001_u64, basis.clone(), None)
+            .unwrap()
+            .fingerprint()
+    );
     for field in ["order", "trade"] {
         let mut invalid = subject.clone();
         invalid[field] = json!("invented");
-        assert!(catalog.quote_one_fill(invalid, 1, 1000_u64, basis.clone(), None).is_err());
+        assert!(
+            catalog
+                .quote_one_fill(invalid, 1, 1000_u64, basis.clone(), None)
+                .is_err()
+        );
     }
     let mut foreign = subject.clone();
     foreign["account"] = json!("other-account");
-    assert!(catalog.quote_one_fill(foreign, 1, 1000_u64, basis.clone(), None).is_err());
+    assert!(
+        catalog
+            .quote_one_fill(foreign, 1, 1000_u64, basis.clone(), None)
+            .is_err()
+    );
     let mut bad_basis = basis.clone();
     bad_basis["currency"] = json!("USD");
-    assert!(catalog.quote_one_fill(subject.clone(), 1, 1000_u64, bad_basis, None).is_err());
+    assert!(
+        catalog
+            .quote_one_fill(subject.clone(), 1, 1000_u64, bad_basis, None)
+            .is_err()
+    );
     let mut wrong_precision = subject.clone();
     wrong_precision["currency"]["precision"] = json!(2);
-    assert!(catalog.quote_one_fill(wrong_precision, 1, 1000_u64, basis.clone(), None).is_err());
+    assert!(
+        catalog
+            .quote_one_fill(wrong_precision, 1, 1000_u64, basis.clone(), None)
+            .is_err()
+    );
     let mut altered = configuration.clone();
     altered["schedules"][0]["rules"][0]["terms"][0]["amount"] = json!("0.002");
-    let next = Catalog::new(altered).unwrap().quote_one_fill(subject.clone(), 1, 1000_u64, basis.clone(), None).unwrap();
+    let next = Catalog::new(altered)
+        .unwrap()
+        .quote_one_fill(subject.clone(), 1, 1000_u64, basis.clone(), None)
+        .unwrap();
     assert_eq!(next.record()["charges"], "2.00040247");
     assert_ne!(first.fingerprint(), next.fingerprint());
     let mut expired = configuration;
     expired["schedules"][0]["to"] = json!(2);
-    assert!(Catalog::new(expired).unwrap().quote_one_fill(subject, 2, 1000_u64, basis, None).is_err());
+    assert!(
+        Catalog::new(expired)
+            .unwrap()
+            .quote_one_fill(subject, 2, 1000_u64, basis, None)
+            .is_err()
+    );
 }

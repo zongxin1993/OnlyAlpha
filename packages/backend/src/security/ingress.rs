@@ -267,9 +267,7 @@ impl Mode {
             (Self::Developer(access), Proof::Human(session)) => {
                 access.check_session(session).is_ok()
             }
-            (Self::Developer(access), Proof::Bootstrap) => {
-                access.check_active().is_ok()
-            }
+            (Self::Developer(access), Proof::Bootstrap) => access.check_active().is_ok(),
             _ => false,
         }
     }

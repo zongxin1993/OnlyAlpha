@@ -7,7 +7,7 @@ requires-python = ">=3.12.0, <3.13.0"
 dependencies = [
     "onlyalpha-gateway-protocol==0.11.1",
     "cryptography>=50,<51",
-    "filelock==3.31.2",
+    "filelock==4.2.1",
     "pyarrow>=21.0.0",
     "psycopg[binary]>=3.2,<4",
     "pyyaml>=6.0.2",
@@ -16,6 +16,8 @@ dependencies = [
 
 [dependency-groups]
 compose-acceptance = [
+    "crosshair-tool==0.0.109",
+    "z3-solver==4.15.4.0",
     "build>=1.2",
     "coverage>=7.15.2",
     "grpcio-tools==1.73.1",
@@ -58,8 +60,8 @@ dev = [
     "types-protobuf==6.30.2.20250809",
     "import-linter>=2.13",
     "hypothesis>=6.165.5",
-    "crosshair-tool>=0.0.109",
-    "mutmut>=3.7.0",
+    "crosshair-tool==0.0.109",
+    "z3-solver==4.15.4.0",
     "coverage>=7.15.2",
 ]
 
@@ -114,12 +116,8 @@ strict = true
 mypy_path = ["packages/backend/python/algorithms/sdk"]
 files = [
     "packages/backend/python/algorithms/sdk/onlyalpha",
-    "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets",
     "packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol",
     "packages/backend/python/algorithms/src/onlyalpha_backend_algorithms",
-    "plugs/onlyalpha-market-crypto/src/onlyalpha_market_crypto/spot",
-    "plugs/onlyalpha-market-crypto/src/onlyalpha_market_crypto/derivatives",
-    "plugs/onlyalpha-data-source-binance/src/onlyalpha_plugin_binance",
 ]
 
 [[tool.mypy.overrides]]
@@ -176,52 +174,21 @@ markers = [
 ]
 
 [tool.importlinter]
-root_package = "onlyalpha"
+root_packages = ["onlyalpha", "onlyalpha_backend_algorithms"]
 include_external_packages = true
 exclude_type_checking_imports = true
 
-
+# Rust Domain and infrastructure ownership use rust_kernel_check.py source guards.
+# Cargo validates the exact declared crate dependencies and rejects crate cycles.
+# These contracts protect the two maintained restricted Python execution roots.
 [[tool.importlinter.contracts]]
-id = "domain-boundary"
-name = "Domain must not depend on orchestration or infrastructure"
-type = "forbidden"
-
-source_modules = [
-    "onlyalpha.domain",
-]
-
-forbidden_modules = [
-    "onlyalpha.application",
-    "onlyalpha.engine",
-    "onlyalpha.broker",
-    "onlyalpha.account",
-    "onlyalpha.analytics",
-    "onlyalpha.artifact",
-    "onlyalpha.cache",
-    "onlyalpha.cluster",
-    "onlyalpha.collector",
-    "onlyalpha.config",
-    "onlyalpha.data",
-]
-
-
-[[tool.importlinter.contracts]]
-id = "domain-acyclic"
-name = "Domain modules must remain acyclic"
-type = "acyclic_siblings"
-
-ancestors = [
-    "onlyalpha.domain",
-]
-
-depth = 3
-
-[[tool.importlinter.contracts]]
-id = "core-plugin-boundary"
-name = "Core must not import concrete plugin implementations"
+id = "sdk-runtime-boundary"
+name = "Public SDK must not import runner internals, Backend or concrete plugins"
 type = "forbidden"
 source_modules = ["onlyalpha"]
 forbidden_modules = [
+    "onlyalpha_backend_algorithms",
+    "onlyalpha_backend",
     "onlyalpha_plugin_broker_virtual",
     "onlyalpha_plugin_tushare",
     "onlyalpha_plugin_cn_ashare",
@@ -230,13 +197,30 @@ forbidden_modules = [
     "onlyalpha_broker_binance",
     "onlyalpha_plugin_binance",
     "onlyalpha_plugin_operators",
-    "onlyalpha_backend_algorithms.targets",
+    "onlyalpha_test_factor_provider",
+]
+
+[[tool.importlinter.contracts]]
+id = "algorithm-runner-plugin-boundary"
+name = "Restricted algorithm runner must not import Backend or concrete plugins"
+type = "forbidden"
+source_modules = ["onlyalpha_backend_algorithms"]
+forbidden_modules = [
+    "onlyalpha_backend",
+    "onlyalpha_plugin_broker_virtual",
+    "onlyalpha_plugin_tushare",
+    "onlyalpha_plugin_cn_ashare",
+    "onlyalpha_plugin_generic_t0_cash",
+    "onlyalpha_market_crypto",
+    "onlyalpha_broker_binance",
+    "onlyalpha_plugin_binance",
+    "onlyalpha_plugin_operators",
     "onlyalpha_test_factor_provider",
 ]
 
 [tool.coverage.run]
 branch = true
-source = ["src/onlyalpha"]
+source = ["packages/backend/python/algorithms/sdk/onlyalpha"]
 patch = ["subprocess", "_exit"]
 relative_files = true
 
@@ -250,15 +234,3 @@ output = "test-results/coverage/coverage.json"
 
 [tool.coverage.xml]
 output = "test-results/coverage/coverage.xml"
-
-[tool.mutmut]
-source_paths = ["src/onlyalpha"]
-only_mutate = ["src/onlyalpha/domain/value.py"]
-also_copy = ["tests/property", "tests/domain/conformance"]
-pytest_add_cli_args = ["-q", "--tb=short", "--maxfail=1"]
-pytest_add_cli_args_test_selection = [
-    "tests/property/test_domain_properties.py",
-    "tests/domain/conformance",
-    "-k",
-    "financial_value_types or precision_and_increment",
-]

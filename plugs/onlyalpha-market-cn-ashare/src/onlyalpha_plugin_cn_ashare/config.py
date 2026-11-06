@@ -9,6 +9,7 @@ from onlyalpha.plugin.api import (
     OnlyCanonicalMarketProductConfig,
     OnlyInvalidMarketProductConfigurationError,
 )
+
 from onlyalpha_plugin_cn_ashare.reference import OnlyCnAshareInstrumentReference
 
 

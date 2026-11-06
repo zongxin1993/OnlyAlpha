@@ -2,13 +2,13 @@
 //! selected implementation owns mathematics, never business authority.
 mod native_indicators;
 mod worker_sandbox;
-pub use native_indicators::run_worker as run_native_worker;
 use crate::application::market_product::{
     self, Application, Authorized, HistoryContext, PreviewSource, Resolved, SendFence,
     WindowRequest,
 };
 use crate::application::source_access::{Permission, Session};
 use crate::persistence::market_data::Storage;
+pub use native_indicators::run_worker as run_native_worker;
 use onlyalpha_calculation::product::{Definition, TypeDeclaration};
 use onlyalpha_calculation_bridge::{Cancellation, ProcessState, Worker};
 use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBarSemantic};
@@ -194,7 +194,8 @@ impl ChartQuery {
     }
 
     pub fn with_native_executable(native_executable: std::path::PathBuf) -> Result<Self> {
-        let native_executable = std::fs::File::open(native_executable).map_err(|_| Error::Unavailable)?;
+        let native_executable =
+            std::fs::File::open(native_executable).map_err(|_| Error::Unavailable)?;
         let native_invocation = native_indicators::worker_invocation(&native_executable)?;
         Ok(Self {
             native_invocation,
@@ -248,12 +249,19 @@ impl ChartQuery {
     }
 
     fn project_capability(
-        invocation: &Value, row: &Value, provider: &Value, content: &str, generation: &str, members: &[String],
+        invocation: &Value,
+        row: &Value,
+        provider: &Value,
+        content: &str,
+        generation: &str,
+        members: &[String],
     ) -> Result<Value> {
         let d = &row["descriptor"];
         let m = &row["implementation"];
         let projection = json!({"domain":"onlyalpha.chart-study.capability-projection","schema_version":2,"source_kind":"CHART_STUDY_TRANSIENT","authority":"DISPLAY_ONLY","publication_status":"NOT_A_RESEARCH_RESULT","descriptor":d,"backend":"RESEARCH","implementation":m,"invocation":invocation,"provider_manifest":provider,"provider_content_fingerprint":content,"catalog_generation_fingerprint":generation,"readiness_contract_versions":[1],"output_members":members,"supported_shape":"TIME_SERIES/BAR_FIELDS","input_support":{"instrument_policy":"EXACT_SOURCE_CATALOG","resolution_mode":"VERIFIED_NATIVE_OR_DERIVED","bar_formation":"FIXED_DURATION","alignment":"UTC_24X7","closed_only":false,"preview_mode":"OWNING_STREAM_SNAPSHOT","coverage_policy":"COMPLETE_VERIFIED_WINDOW"},"finite_initialization":"PARTIAL_WINDOW_AT_EXPLICIT_FINITE_START","limits":{"max_input_rows":2000,"max_period":10000,"max_concurrent_invocations":Self::MAX_CONCURRENT_INVOCATIONS},"numeric_binding":row["numeric_binding"],"presentation":row["support"]});
-        Ok(json!({"kind":"INDICATOR","type_id":d["type_id"],"semantic_version":d["semantic_version"],"descriptor":d,"descriptor_fingerprint":fp(d)?,"backend":"RESEARCH","implementation_fingerprint":row["implementation_fingerprint"],"provider_id":provider["provider_id"],"provider_version":provider["provider_version"],"provider_content_fingerprint":content,"catalog_generation_fingerprint":generation,"readiness_contract_version":1,"execution_shape":"TIME_SERIES","output_members":members,"limits":projection["limits"],"numeric_execution_binding":row["numeric_binding"],"invocation_implementation_fingerprint":invocation["implementation_fingerprint"],"presentation":row["support"],"capability_projection":projection,"capability_projection_fingerprint":fp(&projection)?}))
+        Ok(
+            json!({"kind":"INDICATOR","type_id":d["type_id"],"semantic_version":d["semantic_version"],"descriptor":d,"descriptor_fingerprint":fp(d)?,"backend":"RESEARCH","implementation_fingerprint":row["implementation_fingerprint"],"provider_id":provider["provider_id"],"provider_version":provider["provider_version"],"provider_content_fingerprint":content,"catalog_generation_fingerprint":generation,"readiness_contract_version":1,"execution_shape":"TIME_SERIES","output_members":members,"limits":projection["limits"],"numeric_execution_binding":row["numeric_binding"],"invocation_implementation_fingerprint":invocation["implementation_fingerprint"],"presentation":row["support"],"capability_projection":projection,"capability_projection_fingerprint":fp(&projection)?}),
+        )
     }
     pub fn capabilities(&self, session: &Session) -> Result<Value> {
         self.capabilities_before(session, Instant::now() + Duration::from_secs(10))
@@ -511,16 +519,26 @@ impl ChartQuery {
     }
     fn compose(&self, end: Instant) -> Result<Composition> {
         remaining(end)?;
-        let permit = self.slot.clone().try_acquire_owned().map_err(|_| Error::Capacity)?;
+        let permit = self
+            .slot
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::Capacity)?;
         let mut active = self.active.lock().map_err(|_| Error::Unavailable)?;
-        if self.is_closed() || active.iter().any(|control| control.state() == ProcessState::Uncertain) {
+        if self.is_closed()
+            || active
+                .iter()
+                .any(|control| control.state() == ProcessState::Uncertain)
+        {
             return Err(Error::Unavailable);
         }
         active.retain(|control| control.state() != ProcessState::Joined);
         remaining(end)?;
         let artifact = &self.native_invocation["resources"][0]["byte_sha256"];
         let mut worker = crate::workers::algorithm::AlgorithmProcess::native_chart(
-            &self.native_executable, text(artifact)?, Box::new(permit),
+            &self.native_executable,
+            text(artifact)?,
+            Box::new(permit),
         )?;
         active.push(worker.cancellation()?);
         drop(active);
@@ -536,11 +554,7 @@ impl ChartQuery {
             entries,
         })
     }
-    fn resolve_calculation(
-        &self,
-        c: &Value,
-        composition: &Composition,
-    ) -> Result<Calculation> {
+    fn resolve_calculation(&self, c: &Value, composition: &Composition) -> Result<Calculation> {
         exact(
             c,
             &[
@@ -891,7 +905,9 @@ impl Calculation {
             call["op"] = json!("EXECUTE");
             call["inputs"] = json!(columns);
             call["input_fingerprint"] = json!(input);
-            let value = composition.worker()?.exchange_chart(call, remaining(end)?)?;
+            let value = composition
+                .worker()?
+                .exchange_chart(call, remaining(end)?)?;
             execution_result(
                 &value,
                 &self.declaration,
@@ -904,14 +920,7 @@ impl Calculation {
             let outputs = &value["outputs"];
             for name in &self.selected {
                 let points = (0..closed_count)
-                    .map(|index| {
-                        point(
-                            &outputs[name],
-                            index,
-                            &bars[index]["bar_start_ns"],
-                            false,
-                        )
-                    })
+                    .map(|index| point(&outputs[name], index, &bars[index]["bar_start_ns"], false))
                     .collect::<Result<Vec<_>>>()?;
                 series.push(json!({"output_name":name,"points":points}));
             }
@@ -1153,7 +1162,6 @@ mod tests {
         assert!(!super::utc_continuous_calendar(&calendar));
     }
 }
-
 
 mod temporary;
 pub use temporary::PreparedTemporaryBatch;

@@ -14,8 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
-from psycopg.conninfo import conninfo_to_dict
-
 from onlyalpha.output import OnlyUserDataLayout
 from onlyalpha.persistence.postgres import (
     ONLYALPHA_POSTGRES_CLIENT_MAJOR,
@@ -35,6 +33,8 @@ from onlyalpha.research.operations.deployment import (
     OnlyResearchSemanticStoreIdentity,
 )
 from onlyalpha.research.run import OnlyResearchRunId
+from psycopg.conninfo import conninfo_to_dict
+
 from scripts.database_guard import assert_test_database
 
 ONLYALPHA_POSTGRES_CLIENT_BIN_DIR_ENV = "ONLYALPHA_POSTGRES_CLIENT_BIN_DIR"

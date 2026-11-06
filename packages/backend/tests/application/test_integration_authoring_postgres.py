@@ -9,19 +9,17 @@ from uuid import uuid4
 
 import pytest
 
-from onlyalpha.application.integration_configuration import OnlyIntegrationId, only_integration_json_document
-from onlyalpha.persistence.postgres.integration_store import OnlyPostgresIntegrationStore
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-
 from .support.integration import call, create_request, edit, owning_facts, publish, reset
+from .support.integration_rows import draft_row, revision_row
+from .test_schema_postgres import migration_backend as migration_backend
+from .test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 
 
 @pytest.fixture
-def integration_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def integration_db(schema_db: str) -> str:
+    return schema_db
 
 
 def command(probe: Path, action: str) -> dict[str, Any]:
@@ -104,12 +102,12 @@ def test_publication_validates_the_same_default_filled_configuration_it_commits(
     assert owning_facts(integration_db) == before
     accepted = call(native_probe, dict(request, validator="require-defaults"))
     assert "error" not in accepted
-    owner = OnlyPostgresIntegrationStore(integration_db)
-    revision = owner.load_revision(accepted["result"]["receipt"]["outcome_id"])
-    public = only_integration_json_document(revision.configuration_document)
+
+    revision = revision_row(integration_db, accepted["result"]["receipt"]["outcome_id"])
+    public = revision["configuration_document"]
     assert public["count"] == 5 and public["ratio"] == 1.5 and public["choice"] == "a" and public["flag"] is True
-    draft = owner.load_draft(OnlyIntegrationId(request["integration_id"]))
-    assert only_integration_json_document(draft.public_configuration_document) == public
+    draft = draft_row(integration_db, request["integration_id"])
+    assert draft["public_configuration_document"] == public
 
 
 def test_draft_validates_the_normalized_candidate_instead_of_original_float_spelling(
@@ -124,8 +122,8 @@ def test_draft_validates_the_normalized_candidate_instead_of_original_float_spel
     assert owning_facts(integration_db) == before
     accepted = call(native_probe, dict(request, validator="require-normalized"))
     assert "error" not in accepted
-    draft = OnlyPostgresIntegrationStore(integration_db).load_draft(OnlyIntegrationId(request["integration_id"]))
-    assert only_integration_json_document(draft.public_configuration_document) == {"count": 7, "ratio": 0}
+    draft = draft_row(integration_db, request["integration_id"])
+    assert draft["public_configuration_document"] == {"count": 7, "ratio": 0}
 
 
 @pytest.mark.parametrize("action", ["update", "publish"])
@@ -208,8 +206,8 @@ def test_actual_draft_row_lock_spans_provider_validation_and_same_candidate_comm
         assert process.returncode == 0, stderr
         accepted = json.loads(stdout)
         assert accepted["replayed"] is False
-        draft = OnlyPostgresIntegrationStore(integration_db).load_draft(OnlyIntegrationId(request["integration_id"]))
-        assert only_integration_json_document(draft.public_configuration_document) == candidate
+        draft = draft_row(integration_db, request["integration_id"])
+        assert draft["public_configuration_document"] == candidate
     finally:
         if process.poll() is None:
             process.kill()
@@ -223,8 +221,6 @@ def test_stored_descriptor_scalar_kind_is_proved_even_when_all_metadata_fingerpr
 ) -> None:
     import psycopg
 
-    from onlyalpha.canonical import only_canonical_fingerprint
-
     request = command(native_probe, action)
     with psycopg.connect(integration_db) as connection:
         row = connection.execute(
@@ -236,7 +232,9 @@ def test_stored_descriptor_scalar_kind_is_proved_even_when_all_metadata_fingerpr
         text = json.dumps(descriptor)
         assert text.count('"default": 2.0') == 1
         changed = text.replace('"default": 2.0', '"default": ' + replacement)
-        assert only_canonical_fingerprint(json.loads(changed)) == row[0]
+        assert (
+            call(native_probe, {"op": "integration-fixture-fingerprint", "document": changed})["fingerprint"] == row[0]
+        )
         connection.execute(
             "UPDATE integration_draft SET type_descriptor_document=%s::json WHERE integration_id=%s::uuid",
             (changed, request["integration_id"]),

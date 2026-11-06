@@ -1,15 +1,14 @@
 from decimal import Decimal
 
 import pytest
+from onlyalpha.broker import OnlyBoundedBrokerInboundQueue
+from onlyalpha.domain.enums import OnlyOrderSide
+from onlyalpha.domain.value import OnlyPrice
 from onlyalpha_plugin_broker_virtual import (
     OnlyFixedLatencyModel,
     OnlyFixedSlippageModel,
     OnlyVirtualBrokerScheduler,
 )
-
-from onlyalpha.broker import OnlyBoundedBrokerInboundQueue
-from onlyalpha.domain.enums import OnlyOrderSide
-from onlyalpha.domain.value import OnlyPrice
 
 
 def test_slippage_and_latency_are_independent_exact_models() -> None:

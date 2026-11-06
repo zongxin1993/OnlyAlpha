@@ -250,9 +250,11 @@ it("fixes the generated strategy identity in the ordinary URL before the first S
     page();
     await select(first.name);
     await screen.findByDisplayValue(draft.description);
-    expect(screen.getByRole("status", { name: "当前页面" })).toHaveTextContent(
-        `/strategies/new?strategy_id=${draft.strategy_id}`
-    );
+    await waitFor(() => {
+        expect(screen.getByRole("status", { name: "当前页面" })).toHaveTextContent(
+            `/strategies/new?strategy_id=${draft.strategy_id}`
+        );
+    });
     expect(api.saveManualDefinition).not.toHaveBeenCalled();
     expect(api.loadManualContext).toHaveBeenCalledOnce();
 });

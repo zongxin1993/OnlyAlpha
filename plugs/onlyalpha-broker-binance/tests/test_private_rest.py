@@ -4,21 +4,6 @@ from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from onlyalpha_broker_binance.private_http import (
-    OnlyBinanceCredentials,
-    OnlyBinanceDispatchKnowledge,
-    OnlyBinanceHttpResponse,
-    OnlyBinancePrivateHttpClient,
-    OnlyBinancePrivateRequestError,
-    only_binance_hmac_sha256,
-)
-from onlyalpha_broker_binance.spot.broker.codec import only_binance_client_order_id
-from onlyalpha_broker_binance.spot.broker.normalize import (
-    only_normalize_binance_spot_balances,
-    only_normalize_binance_spot_order,
-)
-from onlyalpha_broker_binance.spot.broker.rest import OnlyBinanceSpotPrivateRestClient
-
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerRequestId
 from onlyalpha.broker.models import OnlyBrokerCancelRequest, OnlyBrokerOrderRequest
 from onlyalpha.domain.enums import (
@@ -38,6 +23,20 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyPrice, OnlyQuantity
+from onlyalpha_broker_binance.private_http import (
+    OnlyBinanceCredentials,
+    OnlyBinanceDispatchKnowledge,
+    OnlyBinanceHttpResponse,
+    OnlyBinancePrivateHttpClient,
+    OnlyBinancePrivateRequestError,
+    only_binance_hmac_sha256,
+)
+from onlyalpha_broker_binance.spot.broker.codec import only_binance_client_order_id
+from onlyalpha_broker_binance.spot.broker.normalize import (
+    only_normalize_binance_spot_balances,
+    only_normalize_binance_spot_order,
+)
+from onlyalpha_broker_binance.spot.broker.rest import OnlyBinanceSpotPrivateRestClient
 
 
 class _Transport:

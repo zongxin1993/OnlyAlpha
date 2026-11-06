@@ -26,6 +26,7 @@ from onlyalpha.plugin.api import (
     OnlyTradingSessionModel,
     only_identity_fingerprint,
 )
+
 from onlyalpha_market_crypto.spot.reference import OnlyBinanceSpotReference
 
 _IMMEDIATE = OnlySettlementRule(OnlySettlementTiming.IMMEDIATE)

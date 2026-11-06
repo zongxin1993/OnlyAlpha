@@ -7,17 +7,60 @@ import os
 import subprocess
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres import OnlyPostgresResearchDeploymentStore
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
 from packages.backend.tests.application.test_factor_proposals_postgres import grant as factor_grant
-from scripts.database import _initialize_deployment
 from scripts.native_http_contract import native_executable
 
+from .support.native_probe import call
+from .test_schema_postgres import migration_backend as migration_backend
+from .test_schema_postgres import schema_db as schema_db
+
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
+
+
+@pytest.fixture(autouse=True)
+def native_schema(schema_db: str) -> None:
+    # The existing native migration fixture owns schema admission.
+    assert schema_db
+
+
+def assert_binding(probe: Path, dsn: str, expected: str) -> None:
+    # SQL supplies independent actual storage evidence; Rust validates the
+    # complete singleton and exact namespace pairing in a read-only transaction.
+    with psycopg.connect(dsn) as db:
+        assert db.execute(
+            "SELECT singleton,semantic_store_id::text FROM public.research_deployment_semantic_store_binding"
+        ).fetchall() == [(True, expected)]
+    assert call(probe, {"op": "deployment", "command_id": str(uuid4()), "local_id": expected}, dsn=dsn) == {
+        "compatible": True
+    }
+
+
+def _initialize_deployment(dsn: str, user_data_root: Path, native_backend: Path | None = None) -> str:
+    # Only the Shipping CLI may initialize and bind the namespace.
+    if native_backend is None:
+        raise RuntimeError("RESEARCH_NAMESPACE_NATIVE_BACKEND_REQUIRED")
+    result = subprocess.run(
+        [
+            str(native_backend),
+            "--initialize-research-deployment",
+            str(user_data_root),
+            str(Path(__file__).resolve().parents[4] / "database/postgres/migrations"),
+        ],
+        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": dsn},
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    payload = json.loads(result.stdout)
+    assert set(payload) == {"schema_version", "semantic_store_id"}
+    assert payload["schema_version"] == 1 and isinstance(payload["semantic_store_id"], str)
+    return payload["semantic_store_id"]
 
 
 @pytest.fixture(scope="session")
@@ -42,9 +85,8 @@ def project(probe: Path, root: Path) -> dict[str, Any]:
 def test_formal_operator_fresh_and_restart_use_the_same_bound_identity_and_actual_pg_history(
     initializer_backend, native_probe, postgres_dsn, tmp_path
 ):
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     identity = _initialize_deployment(postgres_dsn, tmp_path, initializer_backend)
-    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+    assert_binding(native_probe, postgres_dsn, identity)
     before = (tmp_path / "research/.onlyalpha-semantic-store.json").read_bytes()
     assert _initialize_deployment(postgres_dsn, tmp_path, initializer_backend) == identity
     assert (tmp_path / "research/.onlyalpha-semantic-store.json").read_bytes() == before
@@ -74,11 +116,10 @@ def test_formal_operator_fresh_and_restart_use_the_same_bound_identity_and_actua
 
 @pytest.mark.parametrize("missing", ["results/.source-cut.lock", "search-provenance"])
 def test_partial_namespace_is_not_repaired_or_given_a_second_semantic_identity(
-    initializer_backend, postgres_dsn, tmp_path, missing
+    native_probe: Path, initializer_backend, postgres_dsn, tmp_path, missing
 ):
     import shutil
 
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     identity = _initialize_deployment(postgres_dsn, tmp_path, initializer_backend)
     path = tmp_path / "research" / missing
     if path.is_dir():
@@ -88,24 +129,25 @@ def test_partial_namespace_is_not_repaired_or_given_a_second_semantic_identity(
     with pytest.raises(subprocess.CalledProcessError):
         _initialize_deployment(postgres_dsn, tmp_path, initializer_backend)
     assert not path.exists()
-    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+    assert_binding(native_probe, postgres_dsn, identity)
 
 
-def test_missing_bound_namespace_cannot_be_reinitialized_as_empty(initializer_backend, postgres_dsn, tmp_path):
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+def test_missing_bound_namespace_cannot_be_reinitialized_as_empty(
+    native_probe: Path, initializer_backend, postgres_dsn, tmp_path
+):
     identity = _initialize_deployment(postgres_dsn, tmp_path, initializer_backend)
     original = tmp_path / "retained-research"
     (tmp_path / "research").rename(original)
-    with pytest.raises(RuntimeError, match="EXISTING_HISTORY_UNAVAILABLE"):
+    with pytest.raises(subprocess.CalledProcessError) as unavailable:
         _initialize_deployment(postgres_dsn, tmp_path, initializer_backend)
+    assert unavailable.value.stderr.strip() == "IMMUTABLE_JSON_UNAVAILABLE"
     assert not (tmp_path / "research").exists()
-    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+    assert_binding(native_probe, postgres_dsn, identity)
 
 
 def test_nonempty_unsupported_source_is_unavailable_and_never_an_empty_cut(
     initializer_backend, native_probe, postgres_dsn, tmp_path
 ):
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     _initialize_deployment(postgres_dsn, tmp_path, initializer_backend)
     extended = extension(initializer_backend, postgres_dsn, tmp_path)
     assert extended.returncode == 0, extended.stdout + extended.stderr
@@ -118,10 +160,9 @@ def test_nonempty_unsupported_source_is_unavailable_and_never_an_empty_cut(
     assert (path / "manifest.json").read_bytes() == retained
 
 
-def test_published_files_before_db_binding_resume_the_original_namespace(initializer_backend, postgres_dsn, tmp_path):
-    from onlyalpha.research.operations.deployment import OnlyResearchDeploymentError, OnlyResearchDeploymentErrorCode
-
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+def test_published_files_before_db_binding_resume_the_original_namespace(
+    native_probe: Path, initializer_backend, postgres_dsn, tmp_path
+):
     result = subprocess.run(
         [str(initializer_backend), "--initialize-fresh-research-namespace", str(tmp_path)],
         check=True,
@@ -130,16 +171,17 @@ def test_published_files_before_db_binding_resume_the_original_namespace(initial
         timeout=30,
     )
     original = json.loads(result.stdout)["semantic_store_id"]
-    with pytest.raises(OnlyResearchDeploymentError) as missing:
-        OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()
-    assert missing.value.code is OnlyResearchDeploymentErrorCode.DEPLOYMENT_BINDING_MISSING
+    with psycopg.connect(postgres_dsn) as db:
+        assert db.execute("SELECT * FROM public.research_deployment_semantic_store_binding").fetchall() == []
+    assert call(
+        native_probe, {"op": "deployment", "command_id": str(uuid4()), "local_id": original}, dsn=postgres_dsn
+    ) == {"error": "DEPLOYMENT_BINDING_MISSING"}
     before = (tmp_path / "research/.onlyalpha-semantic-store.json").read_bytes()
     assert _initialize_deployment(postgres_dsn, tmp_path, initializer_backend) == original
     assert (tmp_path / "research/.onlyalpha-semantic-store.json").read_bytes() == before
 
 
 def test_operator_without_selected_binary_cannot_create_python_fallback_namespace(postgres_dsn, tmp_path, monkeypatch):
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     monkeypatch.delenv("ONLYALPHA_NATIVE_ARTIFACT_ROOT", raising=False)
     with pytest.raises(RuntimeError, match="NATIVE_BACKEND_REQUIRED"):
         _initialize_deployment(postgres_dsn, tmp_path)
@@ -154,7 +196,7 @@ def strategy_extension_backend() -> Path:
 
 @pytest.fixture(scope="session")
 def strategy_extension_probe() -> Path:
-    from packages.backend.tests.application.test_market_storage_postgres_clickhouse import _build_market_probe
+    from packages.backend.tests.application.support.native_research_market_fixture import _build_market_probe
 
     return _build_market_probe(release=True)
 
@@ -205,11 +247,14 @@ def existing_files(root: Path) -> dict[str, tuple[int, bytes]]:
 
 
 def test_explicit_strategy_extension_preserves_the_original_bound_profile_and_every_existing_file(
-    strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path
+    native_probe: Path,
+    strategy_extension_backend: Path,
+    strategy_extension_probe: Path,
+    postgres_dsn: str,
+    tmp_path: Path,
 ) -> None:
     from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     identity = original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
     # Opaque unrelated bytes prove that extension cannot reset the user-data root.
     # They are not fabricated model settings, scientific reports or read grants;
@@ -255,14 +300,18 @@ def test_explicit_strategy_extension_preserves_the_original_bound_profile_and_ev
             ).fetchall()
             == binding
         )
-    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+    assert_binding(native_probe, postgres_dsn, identity)
 
 
 @pytest.mark.parametrize("missing", ["results/.source-cut.lock", "qualification-decisions/.source-cut.lock"])
 def test_strategy_extension_refuses_to_repair_any_original_owner(
-    strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path, missing: str
+    native_probe: Path,
+    strategy_extension_backend: Path,
+    strategy_extension_probe: Path,
+    postgres_dsn: str,
+    tmp_path: Path,
+    missing: str,
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     identity = original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
     original = tmp_path / "research" / missing
     original.unlink()
@@ -271,13 +320,12 @@ def test_strategy_extension_refuses_to_repair_any_original_owner(
     assert denied.returncode != 0
     assert existing_files(tmp_path) == before and not original.exists()
     assert not (tmp_path / "research" / STRATEGY_EXTENSION).exists()
-    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+    assert_binding(native_probe, postgres_dsn, identity)
 
 
 def test_strategy_extension_does_not_hide_or_copy_an_unsupported_legacy_qualification_fact(
     strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
     locator = "a" * 64
     retained = tmp_path / "research/qualification-decisions/sha256/aa" / locator / "manifest.json"
@@ -294,7 +342,6 @@ def test_strategy_extension_does_not_hide_or_copy_an_unsupported_legacy_qualific
 def test_strategy_extension_cannot_bypass_an_existing_physical_node_writer(
     strategy_extension_backend: Path, strategy_extension_probe: Path, postgres_dsn: str, tmp_path: Path
 ) -> None:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
     before = existing_files(tmp_path)
     # An adversarial real PostgreSQL lock only denies acquisition; it grants no
@@ -312,7 +359,6 @@ def test_a_committed_extension_never_recreates_a_lost_canonical_decision_owner(
 ) -> None:
     import shutil
 
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
     original_namespace_v1(strategy_extension_probe, postgres_dsn, tmp_path)
     completed = extension(strategy_extension_backend, postgres_dsn, tmp_path)
     assert completed.returncode == 0, completed.stdout + completed.stderr
@@ -340,7 +386,6 @@ def manual_extension(backend: Path, dsn: str, root: Path) -> subprocess.Complete
 
 
 def prepare_manual_extension_base(backend: Path, probe: Path, dsn: str, root: Path) -> str:
-    OnlyPostgresMigrationAuthority(dsn).migrate()
     identity = original_namespace_v1(probe, dsn, root)
     completed = extension(backend, dsn, root)
     assert completed.returncode == 0, completed.stdout + completed.stderr
@@ -391,7 +436,7 @@ def test_explicit_manual_backtest_extension_preserves_original_namespace_and_ret
     replay = manual_extension(initializer_backend, postgres_dsn, tmp_path)
     assert replay.returncode == 0, replay.stdout + replay.stderr
     assert existing_files(tmp_path) == complete
-    assert str(OnlyPostgresResearchDeploymentStore(postgres_dsn).load_semantic_store_id()) == identity
+    assert_binding(native_probe, postgres_dsn, identity)
 
 
 @pytest.mark.parametrize("partial", ["parent", "owner", "lock", "rows", "complete"])

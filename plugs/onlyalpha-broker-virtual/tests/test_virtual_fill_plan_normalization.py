@@ -1,6 +1,8 @@
 from decimal import Decimal
 
 import pytest
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyVenueOrderId
+from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha_plugin_broker_virtual.fill_plan import (
     OnlyVirtualFillDispatchMode,
     OnlyVirtualFillScheduleMode,
@@ -9,9 +11,6 @@ from onlyalpha_plugin_broker_virtual.fill_plan import (
     only_virtual_fill_plan_from_checkpoint,
     only_virtual_fill_plan_to_checkpoint,
 )
-
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyVenueOrderId
-from onlyalpha.domain.value import OnlyQuantity
 
 
 def _plan(

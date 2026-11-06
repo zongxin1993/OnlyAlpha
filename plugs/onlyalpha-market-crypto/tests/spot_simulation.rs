@@ -191,11 +191,18 @@ fn actual_fill_assessment_preserves_exact_2bp_price_and_fee_rounding() {
         .unwrap();
     assert_eq!(fill["charge_target"], "1.00020123");
     // Decimal zero retains its canonical native representation (for example 0E-8).
-    let currency = onlyalpha_domain::value::OnlyCurrency::from_record(&configuration()["currency"]).unwrap();
+    let currency =
+        onlyalpha_domain::value::OnlyCurrency::from_record(&configuration()["currency"]).unwrap();
     let rebate = onlyalpha_domain::value::OnlyMoney::new(
-        fill["rebate_target"].as_str().unwrap().parse().unwrap(), currency.clone(),
-    ).unwrap();
-    assert_eq!(rebate.amount(), &"0".parse::<onlyalpha_domain::numeric::OnlyDecimal>().unwrap());
+        fill["rebate_target"].as_str().unwrap().parse().unwrap(),
+        currency.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        rebate.amount(),
+        &"0".parse::<onlyalpha_domain::numeric::OnlyDecimal>()
+            .unwrap()
+    );
     assert_eq!(rebate.currency(), &currency);
     assert_eq!(rebate.currency().precision(), 8);
     assert_eq!(fill["gross_notional"]["amount"], "1000.20123456");
@@ -297,7 +304,6 @@ fn model_instrument_uses_snapshot_money_precision_without_rewriting_the_original
     );
 }
 
-
 #[test]
 fn analytical_entry_quote_reuses_the_exact_policy_and_actual_whole_fill_fee() {
     use onlyalpha_domain::numeric::{OnlyDecimal, only_multiply};
@@ -307,7 +313,9 @@ fn analytical_entry_quote_reuses_the_exact_policy_and_actual_whole_fill_fee() {
     let multiplier: OnlyDecimal = "1.0002".parse().unwrap();
     let reference = OnlyPrice::new(only_multiply(&open, &multiplier).unwrap(), 6).unwrap();
     let quantity = quantity("0.01000");
-    let quote = policy.analytical_entry_quote(&reference, &quantity, &context()).unwrap();
+    let quote = policy
+        .analytical_entry_quote(&reference, &quantity, &context())
+        .unwrap();
     assert_eq!(quote["kind"], "ANALYTICAL_ESTIMATE");
     assert_eq!(quote["policy_fingerprint"], onlyalpha_fee::digest(&before));
     assert_eq!(quote["rules_fingerprint"], before["rules_fingerprint"]);
@@ -319,23 +327,40 @@ fn analytical_entry_quote_reuses_the_exact_policy_and_actual_whole_fill_fee() {
     assert_eq!(quote["charges"]["currency"], configuration()["currency"]);
     assert_eq!(quote["fee_quote"]["kind"], "ANALYTICAL_ESTIMATE");
     assert_eq!(quote["fee_quote"]["day"], context()["day_index"]);
-    assert_eq!(quote["fee_quote_fingerprint"], onlyalpha_fee::digest(&quote["fee_quote"]));
+    assert_eq!(
+        quote["fee_quote_fingerprint"],
+        onlyalpha_fee::digest(&quote["fee_quote"])
+    );
     for key in ["order", "trade", "contract", "binding", "application"] {
         assert!(quote.get(key).is_none(), "{key}");
         assert!(quote["fee_quote"].get(key).is_none(), "fee_quote {key}");
-        assert!(quote["fee_quote"]["subject"].get(key).is_none(), "subject {key}");
+        assert!(
+            quote["fee_quote"]["subject"].get(key).is_none(),
+            "subject {key}"
+        );
     }
     let mut actual_order = order("BUY");
-    let admission = policy.admission(&actual_order, &reference, &context()).unwrap();
-    for (dst, src) in [("fee_policy_binding", "binding"), ("fee_estimate", "estimate"), ("funding_plan", "funding")] {
+    let admission = policy
+        .admission(&actual_order, &reference, &context())
+        .unwrap();
+    for (dst, src) in [
+        ("fee_policy_binding", "binding"),
+        ("fee_estimate", "estimate"),
+        ("funding_plan", "funding"),
+    ] {
         actual_order[dst] = admission["contract"][src].clone();
     }
     let mut fill_context = context();
     fill_context["trade"] = json!("actual-whole-fill");
-    let actual_fill = policy.fill(&actual_order, &reference, &quantity, &fill_context).unwrap();
+    let actual_fill = policy
+        .fill(&actual_order, &reference, &quantity, &fill_context)
+        .unwrap();
     assert_eq!(quote["gross_notional"], actual_fill["gross_notional"]);
     assert_eq!(quote["charges"]["amount"], actual_fill["charge_target"]);
-    assert_eq!(quote["fee_quote"]["components"], actual_fill["native_fee_assessment"]["components"]);
+    assert_eq!(
+        quote["fee_quote"]["components"],
+        actual_fill["native_fee_assessment"]["components"]
+    );
     assert_eq!(policy.binding(), before);
 }
 
@@ -351,17 +376,38 @@ fn analytical_entry_quote_refuses_missing_context_and_binds_changed_rules_or_day
     let mut day = context();
     day["day_index"] = json!(2);
     let later = policy.analytical_entry_quote(&p, &q, &day).unwrap();
-    assert_ne!(first["fee_quote_fingerprint"], later["fee_quote_fingerprint"]);
+    assert_ne!(
+        first["fee_quote_fingerprint"],
+        later["fee_quote_fingerprint"]
+    );
     let mut changed_context = context();
     changed_context["cause"] = json!("d".repeat(64));
-    let later = policy.analytical_entry_quote(&p, &q, &changed_context).unwrap();
+    let later = policy
+        .analytical_entry_quote(&p, &q, &changed_context)
+        .unwrap();
     assert_ne!(onlyalpha_fee::digest(&first), onlyalpha_fee::digest(&later));
-    assert!(policy.analytical_entry_quote(&price("100.000000"), &q, &context()).is_err());
-    assert!(policy.analytical_entry_quote(&p, &quantity("0.01000100"), &context()).is_err());
+    assert!(
+        policy
+            .analytical_entry_quote(&price("100.000000"), &q, &context())
+            .is_err()
+    );
+    assert!(
+        policy
+            .analytical_entry_quote(&p, &quantity("0.01000100"), &context())
+            .is_err()
+    );
     let mut raw = symbol();
     raw["filters"][3]["minNotional"] = json!("20.00000000");
-    let changed = SpotRuleSnapshot::capture(raw, OnlyTimestamp::from_unix_nanos(100.into()), "technical-fixture").unwrap();
-    let other = SpotSimulationPolicy::new(changed, configuration()).unwrap().analytical_entry_quote(&p, &q, &context()).unwrap();
+    let changed = SpotRuleSnapshot::capture(
+        raw,
+        OnlyTimestamp::from_unix_nanos(100.into()),
+        "technical-fixture",
+    )
+    .unwrap();
+    let other = SpotSimulationPolicy::new(changed, configuration())
+        .unwrap()
+        .analytical_entry_quote(&p, &q, &context())
+        .unwrap();
     assert_eq!(first["charges"], other["charges"]);
     assert_ne!(first["rules_fingerprint"], other["rules_fingerprint"]);
     assert_ne!(first["policy_fingerprint"], other["policy_fingerprint"]);

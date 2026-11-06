@@ -11,6 +11,7 @@ from enum import StrEnum
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 CANONICAL_DURATION_PATH = ROOT / "test-data" / "test-durations.json"
 
 
@@ -37,6 +38,7 @@ WORKSPACE_TESTS = workspace_test_paths()
 
 class OnlyTestLane(StrEnum):
     ARCHITECTURE = "architecture"
+    PYTHON_CONTRACT = "python-contract"
     KERNEL = "kernel"
     STRATEGY = "strategy"
     CALCULATION = "calculation"
@@ -54,6 +56,7 @@ class OnlyTestLane(StrEnum):
     RESEARCH_POSTGRES = "research-postgres"
     MARKET_DATA_CLICKHOUSE = "market-data-clickhouse"
     DATABASE_ACCEPTANCE = "database-acceptance"
+    DATABASE = "database"
     RESEARCH_PRODUCT_CERTIFICATION = "research-product-certification"
     RESEARCH_RUNTIME = "research-runtime"
     RESEARCH_JOB = "research-job"
@@ -95,8 +98,79 @@ class Lane:
 
 
 LANES = {
+    OnlyTestLane.PYTHON_CONTRACT: Lane(
+        (
+            "packages/backend/python/algorithms/tests",
+            "packages/backend/python/gateway_protocol/tests",
+            "packages/backend/tests/transport/test_authoring_session_protocol.py",
+            "packages/backend/tests/transport/test_trading_algorithm_session.py",
+            "packages/backend/tests/transport/test_trading_algorithm_transport.py",
+            "packages/backend/tests/transport/test_chart_algorithm_closure.py",
+            "packages/backend/tests/transport/test_native_web_assets.py",
+            "packages/backend/tests/transport/test_native_process_startup.py",
+            "packages/backend/tests/workers/test_installed_trading_nodes.py",
+            "packages/backend/tests/application/test_research_algorithm_execution.py",
+        ),
+        "not (external or postgres or clickhouse)",
+        "0",
+        "no",
+        40,
+        timeout_seconds=180,
+    ),
+    OnlyTestLane.DATABASE: Lane(
+        (
+            "packages/backend/tests/application/test_schema_postgres.py",
+            "packages/backend/tests/application/test_command_postgres.py",
+            "packages/backend/tests/application/test_private_factor_authoring_postgres.py",
+            "packages/backend/tests/application/test_research_namespace_postgres.py",
+            "packages/backend/tests/application/test_credential_postgres.py",
+            "packages/backend/tests/application/test_deployment_postgres.py",
+            "packages/backend/tests/application/test_integration_postgres.py",
+            "packages/backend/tests/application/test_integration_commands_postgres.py",
+            "packages/backend/tests/application/test_integration_draft_postgres.py",
+            "packages/backend/tests/application/test_integration_publish_postgres.py",
+            "packages/backend/tests/application/test_integration_secret_postgres.py",
+            "packages/backend/tests/application/test_integration_authoring_postgres.py",
+            "packages/backend/tests/application/test_integration_effect_postgres.py",
+            "packages/backend/tests/application/test_watchlist_postgres.py",
+            "packages/backend/tests/application/test_clickhouse_schema.py",
+            "packages/backend/tests/application/test_runtime_registry_operator.py",
+            "packages/backend/tests/application/test_backtest_evidence_operator.py",
+            "packages/backend/tests/application/test_factor_proposals_postgres.py",
+            "packages/backend/tests/application/test_factor_studies_postgres.py",
+            "packages/backend/tests/application/test_private_strategy_authoring_postgres.py",
+            "packages/backend/tests/application/test_workspace_postgres.py",
+            "packages/backend/tests/application/test_runtime_installation_postgres.py",
+            "packages/backend/tests/application/test_authoring_generation_postgres.py",
+            "packages/backend/tests/application/test_research_input_admission_storage.py",
+            "packages/backend/tests/application/test_market_storage_postgres_clickhouse.py",
+            "packages/backend/tests/application/test_research_preparation_installation.py",
+            "packages/backend/tests/application/test_research_algorithm_execution.py",
+            "packages/backend/tests/application/test_native_market_source_application.py",
+            "packages/backend/tests/transport/test_native_startup_storage.py",
+            "packages/backend/tests/transport/test_native_integration_queries.py",
+            "packages/backend/tests/transport/test_native_frozen_strategy.py",
+            "packages/backend/tests/transport/test_native_node_authority.py",
+            "packages/backend/tests/transport/test_native_qualification_policy.py",
+            "packages/backend/tests/transport/test_native_strategy_projection.py",
+        ),
+        "postgres or clickhouse",
+        "0",
+        "no",
+        40,
+        timeout_seconds=900,
+    ),
     OnlyTestLane.ARCHITECTURE: Lane(
-        ("scripts/tests/test_dependency_audit_contract.py", "scripts/tests/test_test_topology_contract.py"),
+        (
+            "scripts/tests/test_dependency_audit_contract.py",
+            "scripts/tests/test_test_topology_contract.py",
+            "scripts/tests/test_current_ci_entrypoints.py",
+            "scripts/tests/test_dev_verification_prepare.py",
+            "scripts/tests/test_dev_verification_git_inputs.py",
+            "scripts/tests/test_current_coverage_contract.py",
+            "scripts/tests/test_domain_mutation.py",
+            "scripts/tests/test_import_owner_boundaries.py",
+        ),
         "architecture",
         "0",
         "no",
@@ -175,13 +249,12 @@ LANES = {
     ),
     OnlyTestLane.RESEARCH_EVALUATION: Lane(
         (
-            "tests/research/evaluation",
             "packages/backend/python/algorithms/tests",
-            "tests/architecture/test_research_evaluation_boundaries.py",
-            "tests/research/factor/test_indicator_identity_regression.py",
+            "packages/backend/tests/application/test_research_algorithm_execution.py",
+            "packages/backend/tests/transport/test_authoring_session_protocol.py",
         ),
-        "not external",
-        "4",
+        "not (external or postgres or clickhouse)",
+        "2",
         "worksteal",
     ),
     OnlyTestLane.RESEARCH_RESULT: Lane(
@@ -282,11 +355,11 @@ LANES = {
     ),
     OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION: Lane(
         (
-            "tests/certification/research_product",
-            "tests/certification/integration_runtime",
-            "tests/architecture/test_research_deployment_boundaries.py",
+            "packages/backend/tests/application/test_strategy_research_evidence.py",
+            "packages/backend/tests/application/test_manual_backtest_validation.py",
+            "packages/backend/tests/application/test_strategy_freeze_commands.py",
         ),
-        "postgres or not external",
+        "postgres",
         "0",
         "no",
         40,
@@ -337,13 +410,11 @@ LANES = {
     ),
     OnlyTestLane.PRIVATE_ASSET_CONTRACT: Lane(
         (
-            "tests/quant_assets/test_private_asset_contract_conformance.py",
             "packages/backend/python/algorithms/tests",
-            "tests/quant_assets/test_private_factor_native_execution.py",
-            "tests/quant_assets/test_private_asset_example_seed.py",
-            "tests/architecture/test_private_asset_contract_parity.py",
+            "packages/backend/tests/transport/test_authoring_session_protocol.py",
+            "packages/backend/tests/transport/test_trading_algorithm_session.py",
         ),
-        "not external",
+        "not (external or postgres or clickhouse)",
         "0",
         "no",
     ),
@@ -409,68 +480,35 @@ RELEASE_STATIC_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("uv", "run", "ruff", "format", "--check", "packages", "scripts"),
     ("uv", "run", "mypy"),
     (
-        "uv",
+        "python",
+        "scripts/dev_verification.py",
         "run",
-        "mypy",
-        "--config-file",
-        "plugs/onlyalpha-broker-virtual/pyproject.toml",
-        "plugs/onlyalpha-broker-virtual/src/onlyalpha_plugin_broker_virtual",
+        "--",
+        "python",
+        "scripts/rust_kernel_check.py",
+        "--package",
+        "onlyalpha-broker",
+        "--package",
+        "onlyalpha-market-crypto",
+        "--package",
+        "onlyalpha-market-cn-ashare",
+        "--package",
+        "onlyalpha-data-source-tushare",
+        "--package",
+        "onlyalpha-data-source-binance",
     ),
-    (
-        "uv",
-        "run",
-        "mypy",
-        "--config-file",
-        "plugs/onlyalpha-plugin-generic-t0-cash/pyproject.toml",
-        "plugs/onlyalpha-plugin-generic-t0-cash/src/onlyalpha_plugin_generic_t0_cash",
-    ),
-    (
-        "uv",
-        "run",
-        "mypy",
-        "--config-file",
-        "plugs/onlyalpha-market-cn-ashare/pyproject.toml",
-        "plugs/onlyalpha-market-cn-ashare/src/onlyalpha_plugin_cn_ashare",
-    ),
-    (
-        "uv",
-        "run",
-        "mypy",
-        "--config-file",
-        "plugs/onlyalpha-data-source-tushare/pyproject.toml",
-        "plugs/onlyalpha-data-source-tushare/src/onlyalpha_plugin_tushare",
-    ),
+    ("python", "scripts/rust_kernel_check.py", "--source-check"),
     ("uv", "run", "lint-imports"),
     ("uv", "run", "python", "scripts/version_sync.py", "check"),
 )
 BUILD_COMMAND = ("uv", "build", "--all-packages")
 RELEASE_LANES = (
-    OnlyTestLane.KERNEL,
-    OnlyTestLane.STRATEGY,
-    OnlyTestLane.RESEARCH_DEFINITION,
-    OnlyTestLane.RESEARCH_SPECIFICATION,
-    OnlyTestLane.RESEARCH_RUN,
-    OnlyTestLane.RESEARCH_COMMAND,
-    OnlyTestLane.RESEARCH_EXECUTION,
-    OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION,
-    OnlyTestLane.RESEARCH_POSTGRES,
-    OnlyTestLane.MARKET_DATA_CLICKHOUSE,
-    OnlyTestLane.RESEARCH_RUNTIME,
-    OnlyTestLane.RESEARCH_QUERY,
-    OnlyTestLane.RESEARCH_ARTIFACT,
-    OnlyTestLane.RESEARCH_RESULT,
-    OnlyTestLane.RESEARCH_EVALUATION,
-    OnlyTestLane.RESEARCH_SWEEP,
-    OnlyTestLane.RESEARCH_FACTOR,
-    OnlyTestLane.RESEARCH_JOB,
-    OnlyTestLane.RESEARCH_CALCULATION,
-    OnlyTestLane.CALCULATION,
-    OnlyTestLane.RESEARCH_DATASET,
+    OnlyTestLane.ARCHITECTURE,
+    OnlyTestLane.PYTHON_CONTRACT,
     OnlyTestLane.PRIVATE_ASSET_CONTRACT,
-    OnlyTestLane.CORE_FULL,
-    OnlyTestLane.RECOVERY,
-    OnlyTestLane.SIM_RECOVERY,
-    OnlyTestLane.ASHARE,
+    OnlyTestLane.RESEARCH_EVALUATION,
+    OnlyTestLane.DATABASE,
+    OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION,
 )
 
 
@@ -520,29 +558,108 @@ def selected_workers(
 
 
 def release(args: argparse.Namespace) -> int:
+    if (
+        args.coverage
+        or args.splits is not None
+        or args.group is not None
+        or args.collect_only
+        or args.collection_path is not None
+        or args.store_durations
+        or args.clean_durations
+    ):
+        raise ValueError(
+            "release requires complete current owners; lane measurement and shard options are not supported"
+        )
     code = execute_release_check(OnlyReleaseCheck.STATIC)
     if code:
         return code
-    for check in (
-        OnlyReleaseCheck.RUST_KERNEL,
-        OnlyReleaseCheck.WEB_STATIC,
-        OnlyReleaseCheck.WEB_UNIT,
-        OnlyReleaseCheck.WEB_BUILD,
-        OnlyReleaseCheck.WEB_E2E,
-    ):
+    for check in (OnlyReleaseCheck.RUST_KERNEL,):
         for command in release_check_commands(check):
-            code = run(list(command))
+            code = run(["python", "scripts/dev_verification.py", "run", "--", *command])
             if code:
                 return code
     for lane in RELEASE_LANES:
-        code = execute(lane, args)
+        code = run(
+            [
+                "python",
+                "scripts/dev_verification.py",
+                "run",
+                "--",
+                "python",
+                "scripts/test_suite.py",
+                lane.value,
+                "--no-parallel",
+            ]
+        )
         if code:
             return code
+    for check in (OnlyReleaseCheck.WEB_STATIC, OnlyReleaseCheck.WEB_UNIT, OnlyReleaseCheck.WEB_BUILD):
+        for command in release_check_commands(check):
+            code = run(["python", "scripts/dev_verification.py", "run", "--", *command])
+            if code:
+                return code
+    code = run(["bash", "deploy/run-web-e2e.sh"])
+    if code:
+        return code
     return run(list(BUILD_COMMAND))
+
+
+def prepare_native_test_artifacts(name: OnlyTestLane) -> None:
+    """Compile this owner's actual fixtures before starting its test-case budgets."""
+    if name is OnlyTestLane.DATABASE:
+        from packages.backend.tests.application.conftest import build_native_probe
+        from packages.backend.tests.transport.conftest import build_integration_http_probe
+        from scripts.native_http_contract import native_executable
+
+        build_native_probe(release=False)
+        build_native_probe(release=True)
+        native_executable(release=False)
+        native_executable(release=True)
+        build_integration_http_probe()
+    elif name is OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION:
+        from packages.backend.tests.application.conftest import build_native_probe
+        from packages.backend.tests.application.test_strategy_research_evidence import (
+            _build_strategy_evidence_owner_binary,
+        )
+        from scripts.native_http_contract import native_executable
+
+        build_native_probe(release=False)
+        build_native_probe(release=True)
+        native_executable(release=True)
+        _build_strategy_evidence_owner_binary(release=False, build_timeout=None)
+        _build_strategy_evidence_owner_binary(release=True, build_timeout=None)
+        _build_strategy_evidence_owner_binary(release=True, build_timeout=None, target_name="backtest_owner_probe")
+    elif name in {OnlyTestLane.PRIVATE_ASSET_CONTRACT, OnlyTestLane.PYTHON_CONTRACT}:
+        from packages.backend.tests.workers.test_installed_trading_nodes import build_installed_trading_binary
+
+        if name is OnlyTestLane.PYTHON_CONTRACT:
+            from packages.backend.tests.transport.conftest import build_integration_http_probe
+            from scripts.native_http_contract import native_executable
+
+            # These actual offline consumers keep their original child/build
+            # budgets; first Rust compilation precedes pytest's scenario timers.
+            native_executable(release=True)
+            build_integration_http_probe()
+        # The Private Asset job also invokes this same installed-node owner next.
+        build_installed_trading_binary(release=True, build_timeout=None)
 
 
 def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     lane = LANES[name]
+    if args.coverage and name in {
+        OnlyTestLane.RESEARCH_EVALUATION,
+        OnlyTestLane.PRIVATE_ASSET_CONTRACT,
+        OnlyTestLane.RESEARCH_PRODUCT_CERTIFICATION,
+        OnlyTestLane.DATABASE,
+        OnlyTestLane.PYTHON_CONTRACT,
+    }:
+        raise ValueError(
+            "the current native owner has no admitted Python coverage measurement; Rust coverage must not be reported by pytest"
+        )
+    if args.collect_only and (args.splits is not None or args.coverage):
+        raise ValueError("collection proof requires the unsplit lane without coverage")
+    if (args.collection_path is not None) != args.collect_only:
+        raise ValueError("--collect-only requires exactly one --collection-path")
     if args.group is not None and args.splits is None:
         print("--group requires --splits", file=sys.stderr)
         return 2
@@ -592,6 +709,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
         "-p",
         "scripts.pytest_metrics",
     ]
+    if args.collect_only:
+        command.extend(["--collect-only", "--onlyalpha-collection-path", str(args.collection_path)])
     if lane.prefilter_marker is not None:
         command.extend(
             [
@@ -706,7 +825,7 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     metric_path = (
         Path(args.metrics_path)
         if args.metrics_path is not None
-        else ROOT / "test-results" / "metrics" / f"{name.value}.json"
+        else ROOT / "test-results" / "metrics" / f"{name.value}{'-collection' if args.collect_only else ''}.json"
     )
     if not metric_path.is_absolute():
         metric_path = ROOT / metric_path
@@ -719,6 +838,8 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
             "ONLYALPHA_TEST_DIST": dist if workers != "0" else "no",
         }
     )
+    if not args.collect_only:
+        prepare_native_test_artifacts(name)
     code = run(command, env)
     if args.coverage:
         coverage_path = (
@@ -860,6 +981,8 @@ def main() -> int:
     parser.add_argument("--clean-durations", action="store_true")
     parser.add_argument("--metrics-path", type=Path)
     parser.add_argument("--no-parallel", action="store_true")
+    parser.add_argument("--collect-only", action="store_true")
+    parser.add_argument("--collection-path", type=Path)
     parser.add_argument(
         "--coverage",
         action="store_true",

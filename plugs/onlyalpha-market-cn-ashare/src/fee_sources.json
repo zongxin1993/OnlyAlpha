@@ -1,0 +1,74 @@
+[
+  {
+    "source_id": "PRC-NPC:STAMP-TAX-LAW:2021",
+    "issuer": "全国人民代表大会常务委员会",
+    "document_id": "中华人民共和国主席令第八十九号",
+    "publication_date": "2021-06-10",
+    "effective_date": "2022-07-01",
+    "official_locator": "https://fgk.chinatax.gov.cn/zcfgk/c100009/c5193058/content.html",
+    "normalized_interpretation": "普通人民币 A 股证券交易印花税按成交金额向出让方征收。",
+    "supporting_source_ids": [
+      "CSDC:SH-SETTLEMENT-INTERFACE:V3.102",
+      "CSDC:SZ-SETTLEMENT-INTERFACE:V5.17"
+    ]
+  },
+  {
+    "source_id": "MOF-STA:ANNOUNCEMENT-2023-39:1",
+    "issuer": "财政部、国家税务总局",
+    "document_id": "财政部 税务总局公告2023年第39号",
+    "publication_date": "2023-08-27",
+    "effective_date": "2023-08-28",
+    "official_locator": "https://jx.mof.gov.cn/xxgk/zhengcefagui/202309/t20230904_3905337.htm",
+    "normalized_interpretation": "自 2023-08-28 起证券交易印花税减半至 0.5‰。",
+    "supporting_source_ids": [
+      "PRC-NPC:STAMP-TAX-LAW:2021",
+      "CSDC:SH-SETTLEMENT-INTERFACE:V3.102",
+      "CSDC:SZ-SETTLEMENT-INTERFACE:V5.17"
+    ]
+  },
+  {
+    "source_id": "CSDC:SSE-FEE-TABLE:2025-06-30",
+    "issuer": "中国证券登记结算有限责任公司",
+    "document_id": "上海市场证券登记结算业务收费及代收税费一览表",
+    "publication_date": "2025-06-30",
+    "effective_date": "2025-06-30",
+    "official_locator": "https://www.chinaclear.cn/zdjs/fbzyls/service_tlist.shtml",
+    "normalized_interpretation": "上海市场 A 股交易过户费按成交金额 0.01‰ 向买卖双方收取。",
+    "supporting_source_ids": [
+      "CSDC:SH-SETTLEMENT-INTERFACE:V3.102"
+    ]
+  },
+  {
+    "source_id": "CSDC:SZSE-FEE-TABLE:2025-06-30",
+    "issuer": "中国证券登记结算有限责任公司",
+    "document_id": "深圳市场证券登记结算业务收费及代收税费一览表",
+    "publication_date": "2025-06-30",
+    "effective_date": "2025-06-30",
+    "official_locator": "https://www.chinaclear.cn/zdjs/fbzyls/service_tlist.shtml",
+    "normalized_interpretation": "深圳市场普通 A 股交易过户费按成交金额 0.01‰ 向买卖双方收取。",
+    "supporting_source_ids": [
+      "CSDC:SH-SETTLEMENT-INTERFACE:V3.102",
+      "CSDC:SZ-SETTLEMENT-INTERFACE:V5.17"
+    ]
+  },
+  {
+    "source_id": "CSDC:SH-SETTLEMENT-INTERFACE:V3.102",
+    "issuer": "中国证券登记结算有限责任公司上海分公司",
+    "document_id": "登记结算数据接口规范 V3.102",
+    "publication_date": "2026-07-17",
+    "effective_date": "2026-07-17",
+    "official_locator": "https://www.chinaclear.cn/zdjs/jshsc/",
+    "normalized_interpretation": "费用金额按人民币分精度传输。",
+    "supporting_source_ids": []
+  },
+  {
+    "source_id": "CSDC:SZ-SETTLEMENT-INTERFACE:V5.17",
+    "issuer": "中国证券登记结算有限责任公司深圳分公司",
+    "document_id": "登记结算数据接口规范 Ver5.17",
+    "publication_date": "2026-02-02",
+    "effective_date": "2026-02-02",
+    "official_locator": "https://www.chinaclear.cn/zdjs/jszsc/",
+    "normalized_interpretation": "费用金额字段为两位小数人民币金额。",
+    "supporting_source_ids": []
+  }
+]

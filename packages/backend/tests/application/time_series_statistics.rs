@@ -360,6 +360,6 @@ fn excluded_forecast_tail_and_trimmed_edges_preserve_contiguous_inference() {
 
 mod research_runtime;
 
-mod research_specification;
 #[path = "research_namespace.rs"]
 mod research_namespace;
+mod research_specification;

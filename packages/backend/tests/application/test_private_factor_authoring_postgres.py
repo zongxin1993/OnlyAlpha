@@ -10,7 +10,8 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from .test_schema_postgres import migration_backend as migration_backend
+from .test_schema_postgres import schema_db as schema_db
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 
@@ -35,9 +36,8 @@ def draft(factor_id: str) -> dict[str, object]:
 
 
 @pytest.fixture
-def database(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def database(schema_db: str) -> str:
+    return schema_db
 
 
 def call(probe: Path, factor_id: str, action: str, **values):

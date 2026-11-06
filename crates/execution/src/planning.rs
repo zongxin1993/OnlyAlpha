@@ -4,11 +4,7 @@ use onlyalpha_domain::{base::OnlyDomainModel, execution::OnlyOrderRequest, value
 use serde_json::{Value, json};
 use std::sync::Arc;
 impl Components {
-    pub fn prepare<S: crate::Store>(&self, store: &S, input: &Value) -> Result<Prepared, Error> {
-        self.ready_source(store)?;
-        if self.pending.is_some() {
-            return Err(err("EXECUTION_PENDING"));
-        }
+    fn validate_planning_input(&self, input: &Value) -> Result<u64, Error> {
         row(
             input,
             &[
@@ -68,6 +64,14 @@ impl Components {
         {
             return Err(err("EXECUTION_INPUT_ALIAS"));
         }
+        Ok(n)
+    }
+    pub fn prepare<S: crate::Store>(&self, store: &S, input: &Value) -> Result<Prepared, Error> {
+        self.ready_source(store)?;
+        if self.pending.is_some() {
+            return Err(err("EXECUTION_PENDING"));
+        }
+        let n = self.validate_planning_input(input)?;
         let before = self.payload_hashes()?;
         let mut candidate = self.clone_data();
         candidate.invalidate_payloads();
@@ -82,8 +86,10 @@ impl Components {
             "TERMINAL" => candidate.terminal(input)?,
             _ => return Err(err("EXECUTION_OPERATION")),
         };
-        Arc::make_mut(&mut candidate.meta)["inputs"][text(&input["input_id"])?] = json!(hash(input));
-        Arc::make_mut(&mut candidate.meta)["sources"][text(&input["source_ref"])?] = json!(hash(input));
+        Arc::make_mut(&mut candidate.meta)["inputs"][text(&input["input_id"])?] =
+            json!(hash(input));
+        Arc::make_mut(&mut candidate.meta)["sources"][text(&input["source_ref"])?] =
+            json!(hash(input));
         Arc::make_mut(&mut candidate.meta)["last_runtime_sequence"] = json!(n);
         Arc::make_mut(&mut candidate.meta)["transactions"][self
             .sequence
@@ -158,13 +164,17 @@ impl Components {
         Ok(o.snapshot.map(|s| s.to_record()).unwrap_or(Value::Null))
     }
     pub(crate) fn account_apply(&mut self, c: &Value) -> Result<(), Error> {
-        if boundary(Arc::make_mut(&mut self.account).apply(c))?.status != onlyalpha_account::Status::Applied {
+        if boundary(Arc::make_mut(&mut self.account).apply(c))?.status
+            != onlyalpha_account::Status::Applied
+        {
             return Err(err("EXECUTION_ACCOUNT_NOT_APPLIED"));
         }
         Ok(())
     }
     pub(crate) fn ledger_apply(&mut self, c: &Value) -> Result<(), Error> {
-        if boundary(Arc::make_mut(&mut self.ledger).apply(c))?.status != onlyalpha_strategy_ledger::Status::Applied {
+        if boundary(Arc::make_mut(&mut self.ledger).apply(c))?.status
+            != onlyalpha_strategy_ledger::Status::Applied
+        {
             return Err(err("EXECUTION_LEDGER_NOT_APPLIED"));
         }
         Ok(())
@@ -193,19 +203,56 @@ impl Components {
         }
         Ok(r.clone())
     }
-    fn validate_whole_fill_contract(&self, request: &Value, fee: &Value, contract: &Value) -> Result<(), Error> {
-        row(contract, &["kind","maximum_fill_count","model_fingerprint","model","fee_estimate_assumptions_fingerprint"])?;
+    fn validate_whole_fill_contract(
+        &self,
+        request: &Value,
+        fee: &Value,
+        contract: &Value,
+    ) -> Result<(), Error> {
+        row(
+            contract,
+            &[
+                "kind",
+                "maximum_fill_count",
+                "model_fingerprint",
+                "model",
+                "fee_estimate_assumptions_fingerprint",
+            ],
+        )?;
         let model = &contract["model"];
-        row(model, &["kind","runtime_kind","maximum_fill_count","configuration_fingerprint","policy_fingerprint"])?;
-        for value in [&contract["model_fingerprint"],&contract["fee_estimate_assumptions_fingerprint"],&model["configuration_fingerprint"],&model["policy_fingerprint"]] { fp(value)?; }
-        if self.config["runtime_kind"] != "BACKTEST" || request["order_type"] != "MARKET"
-            || contract["kind"] != "BACKTEST_WHOLE_FILL" || contract["maximum_fill_count"] != 1
-            || model["kind"] != "GUARANTEED_WHOLE_FILL" || model["runtime_kind"] != "BACKTEST"
-            || model["maximum_fill_count"] != 1 || model["configuration_fingerprint"] != hash(&self.config)
+        row(
+            model,
+            &[
+                "kind",
+                "runtime_kind",
+                "maximum_fill_count",
+                "configuration_fingerprint",
+                "policy_fingerprint",
+            ],
+        )?;
+        for value in [
+            &contract["model_fingerprint"],
+            &contract["fee_estimate_assumptions_fingerprint"],
+            &model["configuration_fingerprint"],
+            &model["policy_fingerprint"],
+        ] {
+            fp(value)?;
+        }
+        if self.config["runtime_kind"] != "BACKTEST"
+            || request["order_type"] != "MARKET"
+            || contract["kind"] != "BACKTEST_WHOLE_FILL"
+            || contract["maximum_fill_count"] != 1
+            || model["kind"] != "GUARANTEED_WHOLE_FILL"
+            || model["runtime_kind"] != "BACKTEST"
+            || model["maximum_fill_count"] != 1
+            || model["configuration_fingerprint"] != hash(&self.config)
             || model["policy_fingerprint"] != request["metadata"]["replay_policy"]
             || contract["model_fingerprint"] != hash(model)
-            || contract["fee_estimate_assumptions_fingerprint"] != fee["estimate"]["assumptions_fingerprint"]
-        { return Err(err("EXECUTION_WHOLE_FILL_CONTRACT")); }
+            || contract["fee_estimate_assumptions_fingerprint"]
+                != fee["estimate"]["assumptions_fingerprint"]
+        {
+            return Err(err("EXECUTION_WHOLE_FILL_CONTRACT"));
+        }
         Ok(())
     }
     fn economic_source(&mut self, family: &str, proof: &Value) -> Result<(), Error> {
@@ -218,31 +265,51 @@ impl Components {
     }
     /// Reuse the exact canonical admission against an original retained
     /// checkpoint, without a Store, transaction, Event or grant escaping. This
-    /// verifies the no-ADMIT branch; success means a missing retained fact.
-    pub fn admission_risk_denied(
+    /// verifies the no-ADMIT branch: Some is a proved business rejection;
+    /// None means admissible input still requires its missing retained fact.
+    pub fn admission_rejection(
         configuration: &Value,
         checkpoint: &Value,
         input: &Value,
-    ) -> Result<bool, Error> {
+    ) -> Result<Option<Error>, Error> {
         if input["op"] != "ADMIT" || checkpoint["config"] != *configuration {
             return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
         }
-        for field in ["engine", "runtime", "account", "gateway", "generation", "runtime_kind"] {
+        for field in [
+            "engine",
+            "runtime",
+            "account",
+            "gateway",
+            "generation",
+            "runtime_kind",
+        ] {
             if input[field] != configuration[field] {
                 return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
             }
         }
         let cluster = text(&input["cluster"])?;
         if input["revision"] != configuration["profiles"][cluster]["revision"]
-            || input["revision"].is_null() {
+            || input["revision"].is_null()
+        {
             return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
         }
         let mut candidate = Self::new(configuration.clone())?;
         candidate.restore(checkpoint, &hash(checkpoint))?;
+        if candidate.pending.is_some() {
+            return Err(err("EXECUTION_PENDING"));
+        }
+        candidate.validate_planning_input(input)?;
         candidate.invalidate_payloads();
         match candidate.admit(input) {
-            Ok(()) => Ok(false),
-            Err(error) if error.0 == "EXECUTION_RISK_DENIED" => Ok(true),
+            Ok(()) => Ok(None),
+            Err(error)
+                if matches!(
+                    error.0.as_str(),
+                    "EXECUTION_RISK_DENIED" | "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+                ) =>
+            {
+                Ok(Some(error))
+            }
             Err(error) => Err(error),
         }
     }
@@ -253,8 +320,17 @@ impl Components {
             Some(2) => true,
             _ => return Err(err("EXECUTION_ADMISSION_SCHEMA")),
         };
-        let mut fields = vec!["request", "fee_contract", "fee_budget", "market", "order", "collateral"];
-        if whole_fill { fields.push("settlement_fill_contract"); }
+        let mut fields = vec![
+            "request",
+            "fee_contract",
+            "fee_budget",
+            "market",
+            "order",
+            "collateral",
+        ];
+        if whole_fill {
+            fields.push("settlement_fill_contract");
+        }
         let mut shape = p.clone();
         shape["schema_version"] = json!(1);
         row(&shape, &fields)?;
@@ -366,12 +442,30 @@ impl Components {
         }
         let mut settlement_owner = self.settlement_owner()?;
         let settlement_scope = json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"runtime_kind":input["runtime_kind"],"cluster":input["cluster"],"revision":input["revision"],"instrument":inst,"request":r["request_id"]["value"]});
-        let quantity_precision = u8::try_from(uint(&spec["quantity_precision"])?).map_err(|_|err("EXECUTION_QUANTITY_PRECISION"))?;
+        let quantity_precision = u8::try_from(uint(&spec["quantity_precision"])?)
+            .map_err(|_| err("EXECUTION_QUANTITY_PRECISION"))?;
         if whole_fill {
-            self.validate_whole_fill_contract(r, &p["fee_contract"], &p["settlement_fill_contract"])?;
-            boundary(settlement_owner.admit_whole_fill_order(settlement_scope,order,side,text(&r["quantity"]["value"])?,quantity_precision,&p["settlement_fill_contract"]))?;
+            self.validate_whole_fill_contract(
+                r,
+                &p["fee_contract"],
+                &p["settlement_fill_contract"],
+            )?;
+            boundary(settlement_owner.admit_whole_fill_order(
+                settlement_scope,
+                order,
+                side,
+                text(&r["quantity"]["value"])?,
+                quantity_precision,
+                &p["settlement_fill_contract"],
+            ))?;
         } else {
-            boundary(settlement_owner.admit_order(settlement_scope,order,side,text(&r["quantity"]["value"])?,quantity_precision))?;
+            boundary(settlement_owner.admit_order(
+                settlement_scope,
+                order,
+                side,
+                text(&r["quantity"]["value"])?,
+                quantity_precision,
+            ))?;
         }
         Arc::make_mut(&mut self.meta)["settlement_authority"] = settlement_owner.checkpoint();
         self.economic_source("markets", &p["market"])?;
@@ -438,7 +532,16 @@ impl Components {
         self.order_apply(&fc)?;
         let reserve = json!({"schema_version":1,"reservation":order,"order":order,"amount":money(&(&cash_requirement+&fee),self.precision)?});
         if buy {
-            self.account_apply(&self.command(input, "RESERVE", reserve.clone(), 2))?;
+            // Only this actual new-risk RESERVE can produce the distinct
+            // Execution rejection. Source/restore/codec errors retain their codes.
+            self.account_apply(&self.command(input, "RESERVE", reserve.clone(), 2))
+                .map_err(|error| {
+                    if error.0 == "ACCOUNT_JOURNAL_BOUND" {
+                        err("EXECUTION_ACCOUNT_CAPACITY_DENIED")
+                    } else {
+                        error
+                    }
+                })?;
             self.ledger_apply(&self.ledger_command(input, "RESERVE", reserve, 2))?;
         } else {
             self.position_apply(&self.command(input,"RESERVE",json!({"schema_version":1,"instrument":inst,"cluster":cluster,"order":order,"quantity":quantity.to_plain_string()}),2))?;
@@ -464,7 +567,9 @@ impl Components {
             3,
         ))?;
         let mut relation = json!({"cluster":cluster,"revision":input["revision"],"instrument":inst,"side":side,"request":r,"fee_contract":p["fee_contract"]});
-        if whole_fill { relation["settlement_fill_contract"] = p["settlement_fill_contract"].clone(); }
+        if whole_fill {
+            relation["settlement_fill_contract"] = p["settlement_fill_contract"].clone();
+        }
         Arc::make_mut(&mut self.meta)["orders"][order] = relation;
         self.admit_collateral(input)?;
         Ok(())
@@ -577,11 +682,22 @@ impl Components {
         row(p, &fields)?;
         let order = id(&p["order"])?;
         if let Some(contract) = relation.get("settlement_fill_contract") {
-            self.validate_whole_fill_contract(&relation["request"], &relation["fee_contract"], contract)?;
+            self.validate_whole_fill_contract(
+                &relation["request"],
+                &relation["fee_contract"],
+                contract,
+            )?;
             if self.meta["settlement_authority"]["orders"][order]["fill_contract"] != *contract
-                || nonnegative(&p["quantity"])? != nonnegative(&relation["request"]["quantity"]["value"])?
-                || self.meta["settlement_authority"]["instructions"].as_object().ok_or_else(||err("EXECUTION_SETTLEMENT_STATE"))?.values().any(|v|v["instruction"]["input"]["order"]==order)
-            { return Err(err("EXECUTION_WHOLE_FILL_QUANTITY_OR_COUNT")); }
+                || nonnegative(&p["quantity"])?
+                    != nonnegative(&relation["request"]["quantity"]["value"])?
+                || self.meta["settlement_authority"]["instructions"]
+                    .as_object()
+                    .ok_or_else(|| err("EXECUTION_SETTLEMENT_STATE"))?
+                    .values()
+                    .any(|v| v["instruction"]["input"]["order"] == order)
+            {
+                return Err(err("EXECUTION_WHOLE_FILL_QUANTITY_OR_COUNT"));
+            }
         }
         let cluster = text(&input["cluster"])?;
         let inst = text(&relation["instrument"])?;
@@ -770,7 +886,8 @@ impl Components {
         if self.meta["marks"][cluster].is_null() {
             Arc::make_mut(&mut self.meta)["marks"][cluster] = json!({});
         }
-        Arc::make_mut(&mut self.meta)["marks"][cluster][inst] = json!(mark.normalized().to_plain_string());
+        Arc::make_mut(&mut self.meta)["marks"][cluster][inst] =
+            json!(mark.normalized().to_plain_string());
         let position_state = self.position.state();
         let mut new_market = BigDecimal::zero();
         let mut total_cost = BigDecimal::zero();

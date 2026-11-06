@@ -25,6 +25,7 @@ from onlyalpha.plugin.api import (
     OnlyTradingSessionModel,
     only_identity_fingerprint,
 )
+
 from onlyalpha_plugin_generic_t0_cash.reference import OnlyGenericT0CashReference
 
 _IMMEDIATE = OnlySettlementRule(OnlySettlementTiming.IMMEDIATE)

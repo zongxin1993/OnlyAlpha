@@ -210,11 +210,17 @@ impl Host {
     pub(crate) fn wake_backtest_after_commit(&self) -> bool {
         self.backtest_wake.get().is_some_and(|wake| wake.notify())
     }
-    pub(crate) async fn backtest_worker_status(&self) -> Option<crate::workers::backtest_worker::Status> {
-        self.backtest.lock().await.as_ref().map(|service|service.status())
+    pub(crate) async fn backtest_worker_status(
+        &self,
+    ) -> Option<crate::workers::backtest_worker::Status> {
+        self.backtest
+            .lock()
+            .await
+            .as_ref()
+            .map(|service| service.status())
     }
     /// Check only a new submission, after inspecting its original Command.
-    pub(crate) async fn require_backtest_worker(&self) -> Result<(),Failure> {
+    pub(crate) async fn require_backtest_worker(&self) -> Result<(), Failure> {
         crate::transport::host_backtest::require_worker(self.backtest_worker_status().await)
     }
     /// Call after durable submission commit; this carries no execution permission.
@@ -231,7 +237,9 @@ impl Host {
             .map(|service| service.status())
     }
     pub(crate) fn stop_research_admission(&self) {
-        if let Some(wake) = self.backtest_wake.get() { wake.stop(); }
+        if let Some(wake) = self.backtest_wake.get() {
+            wake.stop();
+        }
         if let Some(wake) = self.research_wake.get() {
             wake.stop();
         }
@@ -392,31 +400,43 @@ impl Host {
         }
 
         if path == "/api/v2/strategy-workflows" || path.starts_with("/api/v2/strategy-workflows/") {
-            return self.strategy_workflows(request,&human,deadline).await;
+            return self.strategy_workflows(request, &human, deadline).await;
         }
         if path == "/api/v2/strategy-freezes" || path.starts_with("/api/v2/strategy-freezes/") {
-            return self.strategy_freeze_command(request,human,deadline).await;
+            return self.strategy_freeze_command(request, human, deadline).await;
         }
-        if path=="/api/v2/qualification-policies"||path.starts_with("/api/v2/qualification-policies/")
-            ||path.starts_with("/api/v2/qualification-decisions/")||path.starts_with("/api/v2/strategies/") {
-            return self.qualification_product(request,human,deadline).await;
+        if path == "/api/v2/qualification-policies"
+            || path.starts_with("/api/v2/qualification-policies/")
+            || path.starts_with("/api/v2/qualification-decisions/")
+            || path.starts_with("/api/v2/strategies/")
+        {
+            return self.qualification_product(request, human, deadline).await;
         }
         if path == "/api/v2/strategy-creation-context" {
-            return self.strategy_creation_context(request,&human,deadline).await;
+            return self
+                .strategy_creation_context(request, &human, deadline)
+                .await;
         }
         if path.starts_with("/api/v2/factor-proposal") {
             return self.factor_proposals(request, human, deadline).await;
         }
-        if path.starts_with("/api/v2/factor-study-preparation") || path.starts_with("/api/v2/research/strategy-preparations") || path.starts_with("/api/v2/backtest/preparations") {
+        if path.starts_with("/api/v2/factor-study-preparation")
+            || path.starts_with("/api/v2/research/strategy-preparations")
+            || path.starts_with("/api/v2/backtest/preparations")
+        {
             return self
                 .research_preparation_command(request, human, deadline)
                 .await;
         }
         if path == "/api/v2/backtest/strategy-context" {
-            return self.manual_backtest_strategy_context(request, &human, deadline).await;
+            return self
+                .manual_backtest_strategy_context(request, &human, deadline)
+                .await;
         }
         if path == "/api/v2/backtest/creation-context" {
-            return self.backtest_creation_context_v2(request, human, deadline).await;
+            return self
+                .backtest_creation_context_v2(request, human, deadline)
+                .await;
         }
         if path == "/api/v2/backtest/runs" || path.starts_with("/api/v2/backtest/runs/") {
             return self.backtest_product(request, human, deadline).await;
@@ -674,9 +694,9 @@ impl Host {
                         &session,
                         &mut store,
                         Self::identity(snapshot, &reference)?,
-                        onlyalpha_data_source_binance::spot_source::spot_calendar().map_err(|_| {
-                            Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE")
-                        })?,
+                        onlyalpha_data_source_binance::spot_source::spot_calendar().map_err(
+                            |_| Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE"),
+                        )?,
                         instrument,
                         &semantic,
                     )
@@ -772,9 +792,9 @@ impl Host {
                         &session,
                         &mut store,
                         Self::identity(snapshot, &reference)?,
-                        onlyalpha_data_source_binance::spot_source::spot_calendar().map_err(|_| {
-                            Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE")
-                        })?,
+                        onlyalpha_data_source_binance::spot_source::spot_calendar().map_err(
+                            |_| Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE"),
+                        )?,
                         &query,
                     )
                     .await?

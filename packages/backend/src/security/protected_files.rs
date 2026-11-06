@@ -332,25 +332,99 @@ mod evidence_artifact_budget_tests {
     use std::os::unix::fs::PermissionsExt;
     #[test]
     fn native_evidence_artifact_budget_does_not_widen_history_assets_or_executables() {
-        let mut random=[0u8;16];getrandom::fill(&mut random).unwrap();
-        let root=std::env::temp_dir().canonicalize().unwrap().join(format!("use_test-evidence-budget-{}",random.iter().map(|b|format!("{b:02x}")).collect::<String>()));
-        std::fs::create_dir(&root).unwrap();std::fs::set_permissions(&root,std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).unwrap();
+        let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "use_test-evidence-budget-{}",
+            random
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         // Transport bytes only: a large canonical replay trace can exceed the
         // old 8 MiB history limit without becoming an executable or a grant.
-        let path=root.join("artifact");let file=std::fs::File::create(&path).unwrap();file.set_len(8*1024*1024+1).unwrap();
-        std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o600)).unwrap();let selected=open_directory(&root).unwrap();
-        for policy in [FilePolicy::Asset,FilePolicy::HistoryDocument] {
-            assert_eq!(read_file_at(&selected,OsStr::new("artifact"),policy,128*1024*1024).unwrap_err(),ReadError::Unavailable);
+        let path = root.join("artifact");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(8 * 1024 * 1024 + 1).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let selected = open_directory(&root).unwrap();
+        for policy in [FilePolicy::Asset, FilePolicy::HistoryDocument] {
+            assert_eq!(
+                read_file_at(&selected, OsStr::new("artifact"), policy, 128 * 1024 * 1024)
+                    .unwrap_err(),
+                ReadError::Unavailable
+            );
         }
-        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::Executable,128*1024*1024).unwrap_err(),ReadError::Invalid);
-        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,128*1024*1024).unwrap().len(),8*1024*1024+1);
-        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,1024).unwrap_err(),ReadError::Unavailable);
-        file.set_len(128*1024*1024+1).unwrap();
-        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,usize::MAX).unwrap_err(),ReadError::Unavailable);
-        file.set_len(1).unwrap();std::fs::hard_link(&path,root.join("alias")).unwrap();
-        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,1024).unwrap_err(),ReadError::Invalid);
-        std::fs::remove_file(root.join("alias")).unwrap();std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o622)).unwrap();
-        assert_eq!(read_file_at(&selected,OsStr::new("artifact"),FilePolicy::EvidenceArtifact,1024).unwrap_err(),ReadError::Invalid);
-        drop(selected);drop(file);std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            read_file_at(
+                &selected,
+                OsStr::new("artifact"),
+                FilePolicy::Executable,
+                128 * 1024 * 1024
+            )
+            .unwrap_err(),
+            ReadError::Invalid
+        );
+        assert_eq!(
+            read_file_at(
+                &selected,
+                OsStr::new("artifact"),
+                FilePolicy::EvidenceArtifact,
+                128 * 1024 * 1024
+            )
+            .unwrap()
+            .len(),
+            8 * 1024 * 1024 + 1
+        );
+        assert_eq!(
+            read_file_at(
+                &selected,
+                OsStr::new("artifact"),
+                FilePolicy::EvidenceArtifact,
+                1024
+            )
+            .unwrap_err(),
+            ReadError::Unavailable
+        );
+        file.set_len(128 * 1024 * 1024 + 1).unwrap();
+        assert_eq!(
+            read_file_at(
+                &selected,
+                OsStr::new("artifact"),
+                FilePolicy::EvidenceArtifact,
+                usize::MAX
+            )
+            .unwrap_err(),
+            ReadError::Unavailable
+        );
+        file.set_len(1).unwrap();
+        std::fs::hard_link(&path, root.join("alias")).unwrap();
+        assert_eq!(
+            read_file_at(
+                &selected,
+                OsStr::new("artifact"),
+                FilePolicy::EvidenceArtifact,
+                1024
+            )
+            .unwrap_err(),
+            ReadError::Invalid
+        );
+        std::fs::remove_file(root.join("alias")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o622)).unwrap();
+        assert_eq!(
+            read_file_at(
+                &selected,
+                OsStr::new("artifact"),
+                FilePolicy::EvidenceArtifact,
+                1024
+            )
+            .unwrap_err(),
+            ReadError::Invalid
+        );
+        drop(selected);
+        drop(file);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

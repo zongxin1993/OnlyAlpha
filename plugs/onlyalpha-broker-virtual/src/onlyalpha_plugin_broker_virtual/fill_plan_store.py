@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from onlyalpha.domain.identifiers import OnlyOrderId
+
 from onlyalpha_plugin_broker_virtual.fill_plan import (
     OnlyVirtualFillPlanStatus,
     OnlyVirtualOrderFillPlan,

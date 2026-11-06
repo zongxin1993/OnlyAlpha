@@ -1,6 +1,6 @@
 use crate::{Manager, manager::CachedCheckpoint, model::*};
-use std::sync::Arc;
 use serde_json::{Value, json};
+use std::sync::Arc;
 impl Manager {
     fn cached_checkpoint(&self) -> Result<&CachedCheckpoint, Error> {
         if let Some(checkpoint) = self.checkpoint_cache.get() {
@@ -16,11 +16,19 @@ impl Manager {
         }));
         let bytes = serde_json::to_vec(record.as_ref())?;
         let fingerprint = digest(&bytes);
-        let checkpoint = CachedCheckpoint { bytes, fingerprint, record };
+        let checkpoint = CachedCheckpoint {
+            bytes,
+            fingerprint,
+            record,
+        };
         let _ = self.checkpoint_cache.set(Arc::new(checkpoint));
         // Shared readers see the same immutable owner. Either this reader or
         // another successful set has now initialized the representation.
-        Ok(self.checkpoint_cache.get().expect("checkpoint was initialized").as_ref())
+        Ok(self
+            .checkpoint_cache
+            .get()
+            .expect("checkpoint was initialized")
+            .as_ref())
     }
 
     pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
@@ -32,7 +40,10 @@ impl Manager {
     /// immutable data grants no Runtime source, Ready or execution authority.
     pub fn checkpoint_record(&self) -> Result<(Arc<Value>, String), Error> {
         let checkpoint = self.cached_checkpoint()?;
-        Ok((Arc::clone(&checkpoint.record), checkpoint.fingerprint.clone()))
+        Ok((
+            Arc::clone(&checkpoint.record),
+            checkpoint.fingerprint.clone(),
+        ))
     }
     pub fn restore(&mut self, bytes: &[u8], expected: &str) -> Result<(), Error> {
         fp(&json!(expected))?;

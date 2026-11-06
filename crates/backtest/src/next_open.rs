@@ -545,6 +545,12 @@ impl NativeReplay {
         let command = self.request(c, &identity, &ctx, "ADMIT", payload);
         match c.apply(&command) {
             Ok(()) => (),
+            Err(e) if e.0 == "EXECUTION_ACCOUNT_CAPACITY_DENIED" => {
+                output["status"] = json!("REJECTED");
+                output["reason"] = json!("ACCOUNT_JOURNAL_BOUND");
+                self.pending = Value::Null;
+                return Ok(output);
+            }
             Err(e) if e.0 == "EXECUTION_RISK_DENIED" => {
                 let before = c.state()?;
                 let principal =

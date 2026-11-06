@@ -35,15 +35,26 @@ pub(crate) enum ResearchInputOutcome {
     Pending(Value),
     Unavailable(Value),
 }
-#[derive(Clone,Copy)]
-pub(crate) struct DatasetEventWindow { start:u64,end:u64,bar:u64 }
+#[derive(Clone, Copy)]
+pub(crate) struct DatasetEventWindow {
+    start: u64,
+    end: u64,
+    bar: u64,
+}
 impl DatasetEventWindow {
-    pub(crate) fn factor(window:&crate::application::research_factor::InputWindow)->Result<Self,&'static str> {
-        let bar=window.to_record()["bar_ns"].as_str().ok_or(INVALID)?.parse().map_err(|_|INVALID)?;
-        Self::new(window.dataset_start_ns(),window.dataset_end_ns(),bar)
+    pub(crate) fn factor(
+        window: &crate::application::research_factor::InputWindow,
+    ) -> Result<Self, &'static str> {
+        let bar = window.to_record()["bar_ns"]
+            .as_str()
+            .ok_or(INVALID)?
+            .parse()
+            .map_err(|_| INVALID)?;
+        Self::new(window.dataset_start_ns(), window.dataset_end_ns(), bar)
     }
-    pub(crate) fn new(start:u64,end:u64,bar:u64)->Result<Self,&'static str> {
-        acquisition_bounds(start,end,bar)?;Ok(Self{start,end,bar})
+    pub(crate) fn new(start: u64, end: u64, bar: u64) -> Result<Self, &'static str> {
+        acquisition_bounds(start, end, bar)?;
+        Ok(Self { start, end, bar })
     }
 }
 pub(crate) struct ResearchInputRequest<'a> {
@@ -140,9 +151,7 @@ impl Host {
         {
             return Err(fail(INVALID));
         }
-        let (start, end) =
-            acquisition_bounds(window.start, window.end, bar)
-                .map_err(fail)?;
+        let (start, end) = acquisition_bounds(window.start, window.end, bar).map_err(fail)?;
         let raw = json!({"source_reference":{"integration_id":source.integration_id,
             "integration_revision_fingerprint":source.integration_revision_fingerprint,"expected_type_id":source.expected_type_id},
             "instrument_id":source.instrument_id,"bar_semantic":semantic.to_record(),

@@ -4,15 +4,6 @@ from decimal import Decimal
 from importlib import metadata
 
 import pytest
-from onlyalpha_market_crypto.spot.capability import OnlyBinanceSpotCompatibilityStatus
-from onlyalpha_market_crypto.spot.factory import OnlyBinanceSpotMarketProductFactory
-from onlyalpha_market_crypto.spot.reference import (
-    OnlyBinanceSpotReference,
-    OnlyBinanceSpotReferenceAuthority,
-    OnlyBinanceSpotRule,
-)
-from onlyalpha_market_crypto.spot.resource_provider import OnlyBinanceSpotReferenceResourceProvider
-
 from onlyalpha.backtest import only_load_backtest_market_product_resources
 from onlyalpha.market.runtime_rules import OnlyMarketRuleEngine, OnlyPreTradeMarketContext
 from onlyalpha.plugin.api import (
@@ -29,6 +20,14 @@ from onlyalpha.plugin.api import (
     OnlyOrderSide,
     OnlyTradingDay,
 )
+from onlyalpha_market_crypto.spot.capability import OnlyBinanceSpotCompatibilityStatus
+from onlyalpha_market_crypto.spot.factory import OnlyBinanceSpotMarketProductFactory
+from onlyalpha_market_crypto.spot.reference import (
+    OnlyBinanceSpotReference,
+    OnlyBinanceSpotReferenceAuthority,
+    OnlyBinanceSpotRule,
+)
+from onlyalpha_market_crypto.spot.resource_provider import OnlyBinanceSpotReferenceResourceProvider
 
 
 def _authority(*, observed_at: datetime = datetime(2026, 8, 28, 12, tzinfo=UTC)) -> OnlyBinanceSpotReferenceAuthority:

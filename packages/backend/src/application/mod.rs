@@ -34,12 +34,12 @@ pub mod research_run_execution;
 
 pub mod strategy_research;
 
-pub mod backtest_run;
 pub mod backtest_preparation;
+pub mod backtest_run;
 pub(crate) mod strategy_validation;
 
-pub mod strategy_promotion;
 pub mod qualification;
+pub mod strategy_promotion;
 
 #[cfg(test)]
 #[path = "../../tests/application/backtest_preparation.rs"]

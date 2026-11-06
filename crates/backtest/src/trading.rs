@@ -28,16 +28,24 @@ pub struct Trading<C: NodePort> {
 }
 /// One canonical transport derivation for actual BAR valuation and its original
 /// read-only journal consumer. Values confer no execution permission.
+struct BarOperation<'a> {
+    kind: &'a str,
+    payload: Value,
+    cause: &'a str,
+}
 fn bar_request(
     binding: &Value,
     input: &MarketInput,
     now: u64,
     sequence: usize,
-    op: &str,
-    payload: Value,
-    cause: &str,
+    operation: BarOperation<'_>,
     day_index: Value,
 ) -> Value {
+    let BarOperation {
+        kind: op,
+        payload,
+        cause,
+    } = operation;
     let config = &binding["policy"]["execution"];
     let program = &binding["program"];
     let n = sequence as u64 + 1;
@@ -114,9 +122,11 @@ pub(crate) fn valuation_input(
         input,
         now,
         c.sequence(),
-        "VALUATION",
-        payload,
-        &input.identity(),
+        BarOperation {
+            kind: "VALUATION",
+            payload,
+            cause: &input.identity(),
+        },
         day_index,
     )))
 }
@@ -290,9 +300,11 @@ impl<C: NodePort> Trading<C> {
             input,
             self.now,
             c.records().len(),
-            op,
-            payload,
-            cause,
+            BarOperation {
+                kind: op,
+                payload,
+                cause,
+            },
             day_index,
         ))
     }
@@ -572,6 +584,9 @@ impl<C: NodePort> Participants for Trading<C> {
                                 self.world = self.exchange("SUBMIT", json!({"request":broker}))?;
                                 c.apply(&self.request(c,input,"SUBMISSION",json!({"schema_version":1,"order":order,"outcome":"DISPATCHED"}),&hash(d))?)?;
                                 self.apply_updates(c, input, &hash(d))?;
+                            }
+                            Err(e) if e.0 == "EXECUTION_ACCOUNT_CAPACITY_DENIED" => {
+                                policy["admission_rejection"] = json!("ACCOUNT_JOURNAL_BOUND");
                             }
                             Err(e) if e.0 == "EXECUTION_RISK_DENIED" => {
                                 policy["risk_denied"] = json!(true);

@@ -99,7 +99,8 @@ impl Components {
         for m in p["marks"].as_array().expect("validated marks") {
             let i = text(&m["instrument"])?;
             Arc::make_mut(&mut self.meta)["valuation_marks"][i] = m.clone();
-            Arc::make_mut(&mut self.meta)["valuation_sources"][text(&m["source_ref"])?] = json!(hash(m));
+            Arc::make_mut(&mut self.meta)["valuation_sources"][text(&m["source_ref"])?] =
+                json!(hash(m));
             // Keep fill consumers' cached marks aligned with this account-wide valuation.
             for cluster in &clusters {
                 if !self.meta["marks"][cluster][i].is_null() {

@@ -84,7 +84,9 @@ def test_native_authoring_run_rejects_incomplete_binding_before_attempt(schema_d
         with pytest.raises(psycopg.errors.RaiseException, match="NATIVE_FACTOR_RESEARCH_RELATION_CORRUPT"):
             with connection.transaction():
                 connection.execute(statement, (run, "b" * 64, json.dumps(complete), "c" * 64))
-        assert connection.execute("SELECT count(*) FROM research_run_attempt WHERE run_id=%s", (run,)).fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM research_run_attempt WHERE run_id=%s", (run,)).fetchone() == (
+            0,
+        )
 
 
 def test_schema_migration_respects_existing_operator_lock(migration_backend: Path, postgres_dsn: str) -> None:

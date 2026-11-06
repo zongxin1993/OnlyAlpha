@@ -61,67 +61,198 @@ fn result(r: &Runtime) -> Value {
 // they construct no opaque reference, prepared origin or publication grant.
 // Reuse the actual private pure codecs in this test binary; these modules
 // expose no Runtime/source proof, planned Prepared or publication capability.
-#[path="../src/codec.rs"] mod codec;
-#[path="../src/dictionary_codec.rs"] mod dictionary_codec;
-fn test_frame(value:&Value,summary:Value)->String {
- use base64::Engine;use std::io::Write;
- let bytes=value.to_string().into_bytes();let mut encoder=flate2::write::ZlibEncoder::new(Vec::new(),flate2::Compression::fast());encoder.write_all(&bytes).unwrap();
- json!({"schema_version":1,"codec":"ZLIB_CANONICAL_JSON_V1","logical_sha256":digest(&bytes),"logical_size":bytes.len(),"summary":summary,"data":base64::engine::general_purpose::STANDARD.encode(encoder.finish().unwrap())}).to_string()
+#[path = "../src/codec.rs"]
+mod codec;
+#[path = "../src/dictionary_codec.rs"]
+mod dictionary_codec;
+fn test_frame(value: &Value, summary: Value) -> String {
+    use base64::Engine;
+    use std::io::Write;
+    let bytes = value.to_string().into_bytes();
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+    encoder.write_all(&bytes).unwrap();
+    json!({"schema_version":1,"codec":"ZLIB_CANONICAL_JSON_V1","logical_sha256":digest(&bytes),"logical_size":bytes.len(),"summary":summary,"data":base64::engine::general_purpose::STANDARD.encode(encoder.finish().unwrap())}).to_string()
 }
-fn test_logical(raw:&str)->Value {
- use base64::Engine;use std::io::Read;
- let value:Value=serde_json::from_str(raw).unwrap();
- if value["codec"]==dictionary_codec::NAME{let n=value["summary"]["index"].as_u64().unwrap();let f=dictionary_codec::inspect(raw,&digest(raw.as_bytes()),n).unwrap();assert!(f.basis.is_none());return dictionary_codec::decode_anchor(&f).unwrap().0;}
- if value["codec"]!="ZLIB_CANONICAL_JSON_V1"{return value;}
- let compressed=base64::engine::general_purpose::STANDARD.decode(value["data"].as_str().unwrap()).unwrap();let mut bytes=Vec::new();flate2::read::ZlibDecoder::new(&compressed[..]).take(8*1024*1024+1).read_to_end(&mut bytes).unwrap();assert!(bytes.len()<=8*1024*1024);assert_eq!(digest(&bytes),value["logical_sha256"].as_str().unwrap());serde_json::from_slice(&bytes).unwrap()
+fn test_logical(raw: &str) -> Value {
+    use base64::Engine;
+    use std::io::Read;
+    let value: Value = serde_json::from_str(raw).unwrap();
+    if value["codec"] == dictionary_codec::NAME {
+        let n = value["summary"]["index"].as_u64().unwrap();
+        let f = dictionary_codec::inspect(raw, &digest(raw.as_bytes()), n).unwrap();
+        assert!(f.basis.is_none());
+        return dictionary_codec::decode_anchor(&f).unwrap().0;
+    }
+    if value["codec"] != "ZLIB_CANONICAL_JSON_V1" {
+        return value;
+    }
+    let compressed = base64::engine::general_purpose::STANDARD
+        .decode(value["data"].as_str().unwrap())
+        .unwrap();
+    let mut bytes = Vec::new();
+    flate2::read::ZlibDecoder::new(&compressed[..])
+        .take(8 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .unwrap();
+    assert!(bytes.len() <= 8 * 1024 * 1024);
+    assert_eq!(digest(&bytes), value["logical_sha256"].as_str().unwrap());
+    serde_json::from_slice(&bytes).unwrap()
 }
-fn test_dictionary_anchor(db:&rusqlite::Connection,n:u64)->Option<dictionary_codec::Anchor> {
- let base=dictionary_codec::anchor_sequence(n).unwrap();if base==n{return None;}
- let (raw,physical):(String,String)=db.query_row("SELECT payload,digest FROM records WHERE sequence=?1",[i64::try_from(base).unwrap()],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
- let frame=dictionary_codec::inspect(&raw,&physical,base).unwrap();
- Some(dictionary_codec::decode_anchor(&frame).unwrap().1)
+fn test_dictionary_anchor(db: &rusqlite::Connection, n: u64) -> Option<dictionary_codec::Anchor> {
+    let base = dictionary_codec::anchor_sequence(n).unwrap();
+    if base == n {
+        return None;
+    }
+    let (raw, physical): (String, String) = db
+        .query_row(
+            "SELECT payload,digest FROM records WHERE sequence=?1",
+            [i64::try_from(base).unwrap()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let frame = dictionary_codec::inspect(&raw, &physical, base).unwrap();
+    Some(dictionary_codec::decode_anchor(&frame).unwrap().1)
 }
-fn test_record(db:&rusqlite::Connection,n:i64)->Value {
- let version:i64=db.pragma_query_value(None,"user_version",|row|row.get(0)).unwrap();
- let raw:String=db.query_row("SELECT payload FROM records WHERE sequence=?1",[n],|r|r.get(0)).unwrap();let value:Value=serde_json::from_str(&raw).unwrap();
- let prepared=if version==4 {
-  let physical:String=db.query_row("SELECT digest FROM records WHERE sequence=?1",[n],|row|row.get(0)).unwrap();let sequence=u64::try_from(n).unwrap();
-  let frame=dictionary_codec::inspect(&raw,&physical,sequence).unwrap();
-  let input_id:String=db.query_row("SELECT input_id FROM records WHERE sequence=?1",[n],|row|row.get(0)).unwrap();
-  assert_eq!(frame.summary,json!({"kind":"EXECUTION_PREPARED","sequence":n,"input_id":input_id}));
-  let anchor=test_dictionary_anchor(db,sequence);dictionary_codec::decode(&frame,anchor.as_ref()).unwrap()
- }else if value["codec"]=="ZLIB_CANONICAL_JSON_V1" {test_logical(&raw)}else{return value;};
- let (ready,delivered):(i64,i64)=db.query_row("SELECT ready,delivered FROM records WHERE sequence=?1",[n],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
- json!({"schema_version":1,"prepared":prepared,"ready":ready==1,"delivered":delivered==1})
+fn test_record(db: &rusqlite::Connection, n: i64) -> Value {
+    let version: i64 = db
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    let raw: String = db
+        .query_row("SELECT payload FROM records WHERE sequence=?1", [n], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let value: Value = serde_json::from_str(&raw).unwrap();
+    let prepared = if version == 4 {
+        let physical: String = db
+            .query_row("SELECT digest FROM records WHERE sequence=?1", [n], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let sequence = u64::try_from(n).unwrap();
+        let frame = dictionary_codec::inspect(&raw, &physical, sequence).unwrap();
+        let input_id: String = db
+            .query_row(
+                "SELECT input_id FROM records WHERE sequence=?1",
+                [n],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            frame.summary,
+            json!({"kind":"EXECUTION_PREPARED","sequence":n,"input_id":input_id})
+        );
+        let anchor = test_dictionary_anchor(db, sequence);
+        dictionary_codec::decode(&frame, anchor.as_ref()).unwrap()
+    } else if value["codec"] == "ZLIB_CANONICAL_JSON_V1" {
+        test_logical(&raw)
+    } else {
+        return value;
+    };
+    let (ready, delivered): (i64, i64) = db
+        .query_row(
+            "SELECT ready,delivered FROM records WHERE sequence=?1",
+            [n],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    json!({"schema_version":1,"prepared":prepared,"ready":ready==1,"delivered":delivered==1})
 }
-fn test_update_dictionary_record(db:&rusqlite::Connection,n:i64,value:&Value,anchor:Option<&dictionary_codec::Anchor>)->String {
- let input_id:String=db.query_row("SELECT input_id FROM records WHERE sequence=?1",[n],|row|row.get(0)).unwrap();
- let raw=dictionary_codec::encode(&value["prepared"],json!({"kind":"EXECUTION_PREPARED","sequence":n,"input_id":input_id}),u64::try_from(n).unwrap(),anchor).unwrap();
- db.execute("UPDATE records SET payload=?1,digest=?2,ready=?3,delivered=?4 WHERE sequence=?5",rusqlite::params![&raw,digest(raw.as_bytes()),i64::from(value["ready"]==true),i64::from(value["delivered"]==true),n]).unwrap();raw
+fn test_update_dictionary_record(
+    db: &rusqlite::Connection,
+    n: i64,
+    value: &Value,
+    anchor: Option<&dictionary_codec::Anchor>,
+) -> String {
+    let input_id: String = db
+        .query_row(
+            "SELECT input_id FROM records WHERE sequence=?1",
+            [n],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let raw = dictionary_codec::encode(
+        &value["prepared"],
+        json!({"kind":"EXECUTION_PREPARED","sequence":n,"input_id":input_id}),
+        u64::try_from(n).unwrap(),
+        anchor,
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE records SET payload=?1,digest=?2,ready=?3,delivered=?4 WHERE sequence=?5",
+        rusqlite::params![
+            &raw,
+            digest(raw.as_bytes()),
+            i64::from(value["ready"] == true),
+            i64::from(value["delivered"] == true),
+            n
+        ],
+    )
+    .unwrap();
+    raw
 }
-fn test_replace_record(db:&rusqlite::Connection,n:i64,value:&Value) {
- let version:i64=db.pragma_query_value(None,"user_version",|r|r.get(0)).unwrap();
- if version==4 {
-  let sequence=u64::try_from(n).unwrap();let base=dictionary_codec::anchor_sequence(sequence).unwrap();
-  if sequence==base {
-   // Capture every complete original dependent before changing its anchor.
-   // Re-encoding their physical base pins preserves their original logical
-   // bytes so the intended semantic adversary reaches the owning verifier.
-   let indices=db.prepare("SELECT sequence FROM records WHERE sequence>?1 AND sequence<=?2 ORDER BY sequence").unwrap().query_map(rusqlite::params![n,n.checked_add(15).unwrap()],|row|row.get::<_,i64>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
-   let dependents=indices.into_iter().map(|index|(index,test_record(db,index))).collect::<Vec<_>>();
-   let raw=test_update_dictionary_record(db,n,value,None);
-   let frame=dictionary_codec::inspect(&raw,&digest(raw.as_bytes()),sequence).unwrap();let anchor=dictionary_codec::decode_anchor(&frame).unwrap().1;
-   for (index,original) in dependents {test_update_dictionary_record(db,index,&original,Some(&anchor));}
-  }else{
-   let anchor=test_dictionary_anchor(db,sequence).unwrap();test_update_dictionary_record(db,n,value,Some(&anchor));
-  }
- }else if version==3{let raw=test_frame(&value["prepared"],json!({"kind":"EXECUTION_PREPARED","sequence":n,"input_id":value["prepared"]["input"]["input_id"]}));db.execute("UPDATE records SET payload=?1,digest=?2,ready=?3,delivered=?4 WHERE sequence=?5",rusqlite::params![&raw,digest(raw.as_bytes()),i64::from(value["ready"]==true),i64::from(value["delivered"]==true),n]).unwrap();}
- else{db.execute("UPDATE records SET payload=?1,digest=?2 WHERE sequence=?3",rusqlite::params![value.to_string(),hash(value),n]).unwrap();}
+fn test_replace_record(db: &rusqlite::Connection, n: i64, value: &Value) {
+    let version: i64 = db
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap();
+    if version == 4 {
+        let sequence = u64::try_from(n).unwrap();
+        let base = dictionary_codec::anchor_sequence(sequence).unwrap();
+        if sequence == base {
+            // Capture every complete original dependent before changing its anchor.
+            // Re-encoding their physical base pins preserves their original logical
+            // bytes so the intended semantic adversary reaches the owning verifier.
+            let indices=db.prepare("SELECT sequence FROM records WHERE sequence>?1 AND sequence<=?2 ORDER BY sequence").unwrap().query_map(rusqlite::params![n,n.checked_add(15).unwrap()],|row|row.get::<_,i64>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+            let dependents = indices
+                .into_iter()
+                .map(|index| (index, test_record(db, index)))
+                .collect::<Vec<_>>();
+            let raw = test_update_dictionary_record(db, n, value, None);
+            let frame = dictionary_codec::inspect(&raw, &digest(raw.as_bytes()), sequence).unwrap();
+            let anchor = dictionary_codec::decode_anchor(&frame).unwrap().1;
+            for (index, original) in dependents {
+                test_update_dictionary_record(db, index, &original, Some(&anchor));
+            }
+        } else {
+            let anchor = test_dictionary_anchor(db, sequence).unwrap();
+            test_update_dictionary_record(db, n, value, Some(&anchor));
+        }
+    } else if version == 3 {
+        let raw = test_frame(
+            &value["prepared"],
+            json!({"kind":"EXECUTION_PREPARED","sequence":n,"input_id":value["prepared"]["input"]["input_id"]}),
+        );
+        db.execute(
+            "UPDATE records SET payload=?1,digest=?2,ready=?3,delivered=?4 WHERE sequence=?5",
+            rusqlite::params![
+                &raw,
+                digest(raw.as_bytes()),
+                i64::from(value["ready"] == true),
+                i64::from(value["delivered"] == true),
+                n
+            ],
+        )
+        .unwrap();
+    } else {
+        db.execute(
+            "UPDATE records SET payload=?1,digest=?2 WHERE sequence=?3",
+            rusqlite::params![value.to_string(), hash(value), n],
+        )
+        .unwrap();
+    }
 }
-fn test_step_frame(step:&Value)->String{let n=step["index"].as_u64().unwrap();assert_eq!(dictionary_codec::anchor_sequence(n).unwrap(),n);dictionary_codec::encode(step,json!({"kind":"REPLAY_STEP","index":step["index"],"previous":step["previous"],"execution_start":step["execution_start"],"input_fingerprints":step["inputs"].as_array().unwrap().iter().map(hash).collect::<Vec<_>>()}),n,None).unwrap()}
-fn legacy_fixture_runtime(root:&Root)->Runtime {
- let created=Runtime::create(&root.0,config(),&artifact()).unwrap();drop(created);let db=rusqlite::Connection::open(root.db()).unwrap();
- db.execute_batch("DROP TABLE records; CREATE TABLE records (sequence INTEGER PRIMARY KEY CHECK(sequence>0), input_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, digest TEXT NOT NULL) STRICT; PRAGMA user_version=2;").unwrap();drop(db);Runtime::open(&root.0,config(),&artifact()).unwrap()
+fn test_step_frame(step: &Value) -> String {
+    let n = step["index"].as_u64().unwrap();
+    assert_eq!(dictionary_codec::anchor_sequence(n).unwrap(), n);
+    dictionary_codec::encode(step,json!({"kind":"REPLAY_STEP","index":step["index"],"previous":step["previous"],"execution_start":step["execution_start"],"input_fingerprints":step["inputs"].as_array().unwrap().iter().map(hash).collect::<Vec<_>>()}),n,None).unwrap()
+}
+fn legacy_fixture_runtime(root: &Root) -> Runtime {
+    let created = Runtime::create(&root.0, config(), &artifact()).unwrap();
+    drop(created);
+    let db = rusqlite::Connection::open(root.db()).unwrap();
+    db.execute_batch("DROP TABLE records; CREATE TABLE records (sequence INTEGER PRIMARY KEY CHECK(sequence>0), input_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, digest TEXT NOT NULL) STRICT; PRAGMA user_version=2;").unwrap();
+    drop(db);
+    Runtime::open(&root.0, config(), &artifact()).unwrap()
 }
 #[test]
 fn exact_reopen_and_missing_store_are_distinct() {
@@ -166,16 +297,22 @@ fn exact_reopen_and_missing_store_are_distinct() {
 fn fork_ready_copies_the_actual_head_without_mutating_official_owners_or_history() {
     let root = Root::new();
     let mut runtime = Runtime::create(&root.0, config(), &artifact()).unwrap();
-    for value in inputs().into_iter().take(3) { runtime.apply(&value).unwrap(); }
+    for value in inputs().into_iter().take(3) {
+        runtime.apply(&value).unwrap();
+    }
     let official_state = runtime.state().unwrap();
     let official_records = runtime.records().unwrap();
     let original_bytes = fs::read(root.db()).unwrap();
     let (mut isolated, records) = runtime.fork_ready().unwrap();
     assert_eq!(records, official_records);
-    let mut memory = MemoryStore::default(); memory.rows = records;
+    let mut memory = MemoryStore::default();
+    memory.rows = records;
     let mut rebuilt = Components::new(config()).unwrap();
     onlyalpha_execution::recover(&mut memory, &mut rebuilt).unwrap();
-    assert_eq!(isolated.checkpoint().unwrap(), rebuilt.checkpoint().unwrap());
+    assert_eq!(
+        isolated.checkpoint().unwrap(),
+        rebuilt.checkpoint().unwrap()
+    );
     let next = inputs().pop().unwrap();
     let planned = isolated.prepare(&memory, &next).unwrap();
     coordinate(&mut memory, &mut isolated, &planned).unwrap();
@@ -496,7 +633,7 @@ fn rehashed_fact_scope_source_leaf_and_owner_mutations_are_not_recovery_evidence
         }
         drop(r);
         let db = rusqlite::Connection::open(p.db()).unwrap();
-        let mut v=test_record(&db,4);
+        let mut v = test_record(&db, 4);
         let prepared = &mut v["prepared"];
         match mutation {
             0 => prepared["input"]["generation"] = json!("d".repeat(64)),
@@ -512,7 +649,7 @@ fn rehashed_fact_scope_source_leaf_and_owner_mutations_are_not_recovery_evidence
         prepared.as_object_mut().unwrap().remove("payload_hash");
         prepared["payload_hash"] = json!(hash(prepared));
         let last = hash(prepared);
-        test_replace_record(&db,4,&v);
+        test_replace_record(&db, 4, &v);
         db.execute("UPDATE state SET last_hash=?1", [last]).unwrap();
         drop(db);
         let before = fs::read(p.db()).unwrap();
@@ -564,7 +701,7 @@ fn regression_live_reader_revalidates_causal_source_after_a_rehashed_row_change(
     r.state().unwrap();
     r.records().unwrap();
     let mut db = rusqlite::Connection::open(p.db()).unwrap();
-    let mut v=test_record(&db,4);
+    let mut v = test_record(&db, 4);
     let prepared = &mut v["prepared"];
     prepared["input"]["source_ref"] = json!("changed-after-open");
     let id = format!("ETX-{}", hash(&prepared["input"]));
@@ -574,14 +711,17 @@ fn regression_live_reader_revalidates_causal_source_after_a_rehashed_row_change(
     prepared["payload_hash"] = json!(hash(prepared));
     let last = hash(prepared);
     let tx = db.transaction().unwrap();
-    test_replace_record(&tx,4,&v);
+    test_replace_record(&tx, 4, &v);
     tx.execute("UPDATE state SET last_hash=?1", [last]).unwrap();
     tx.commit().unwrap();
     drop(db);
     assert!(r.state().is_err());
     assert!(r.records().is_err());
     assert!(r.pending_events().is_err());
-    assert!(r.fork_ready().is_err(), "a prior healthy observation cannot authorize a stale head fork");
+    assert!(
+        r.fork_ready().is_err(),
+        "a prior healthy observation cannot authorize a stale head fork"
+    );
     assert!(r.recover().is_err());
 }
 
@@ -653,7 +793,7 @@ fn foreign_history_commit_intent_is_rejected_before_destination_mutation() {
 #[test]
 fn explicit_schema_migration_retains_exact_history_and_checkpoint() {
     let p = Root::new();
-    let mut r=legacy_fixture_runtime(&p);
+    let mut r = legacy_fixture_runtime(&p);
     for v in inputs() {
         r.apply(&v).unwrap();
     }
@@ -665,8 +805,12 @@ fn explicit_schema_migration_retains_exact_history_and_checkpoint() {
     let db = rusqlite::Connection::open(p.db()).unwrap();
     db.execute_batch("DROP TABLE replay_steps; DROP TABLE replay_binding; PRAGMA user_version=1;")
         .unwrap();
+    // Retained schema1 fixtures can use the original 4 KiB physical layout.
+    db.pragma_update(None, "page_size", 4096).unwrap();
+    db.execute_batch("VACUUM").unwrap();
     drop(db);
     let old = fs::read(p.db()).unwrap();
+    assert_eq!(&old[16..18], &[16, 0]);
     assert!(Runtime::open(&p.0, config(), &artifact()).is_err());
     assert_eq!(old, fs::read(p.db()).unwrap());
     let mut foreign = config();
@@ -676,6 +820,7 @@ fn explicit_schema_migration_retains_exact_history_and_checkpoint() {
     let migrated = SqliteStore::migrate(&p.0, config(), &artifact()).unwrap();
     assert_eq!(migrated.head().unwrap(), 4);
     drop(migrated);
+    assert_eq!(&fs::read(p.db()).unwrap()[16..18], &[16, 0]);
     let mut current = Runtime::open(&p.0, config(), &artifact()).unwrap();
     assert_eq!(current.state().unwrap(), state);
     assert_eq!(current.save_checkpoint().unwrap(), cp);
@@ -683,126 +828,366 @@ fn explicit_schema_migration_retains_exact_history_and_checkpoint() {
     assert_eq!(result(&current), expected);
     drop(current);
     let bytes = fs::read(p.db()).unwrap();
+    assert_eq!(&bytes[16..18], &[16, 0]);
     assert!(SqliteStore::migrate(&p.0, config(), &artifact()).is_err());
     assert_eq!(bytes, fs::read(p.db()).unwrap());
 }
 
 // Lower Store/Execution source proof only. The synthetic driver envelope below
 // grants no Strategy, concrete native producer, Product Run or CompletionProof.
-fn recorded_replay(p:&Root)->(Value,Value,Value) {
-    let cfg=config();let mut runtime=Runtime::create(&p.0,cfg.clone(),&artifact()).unwrap();
-    let participant=json!({"schema_version":1,"configuration":hash(&cfg),"generation":cfg["generation"],"initial_ns":"0","strategies":{"cluster":"revision"},"sources":["a".repeat(64)],"opening_profile":{"schema_version":1,"kind":"OPEN_CLOSE_V1"}});
-    let work=hash(&json!({"work_id":"readonly-technical-work","configuration":cfg,"artifact":artifact(),"driver_artifact":artifact(),"input_pin":"c".repeat(64),"participants":participant,"initial_ns":"0"}));
-    let binding=json!({"schema_version":2,"configuration":hash(&cfg),"kernel_artifact":artifact(),"driver_artifact":artifact(),"work_id":"readonly-technical-work","participants":participant,"work":work,"input_pin":"c".repeat(64),"program":hash(&participant),"initial_state":{"clock_ns":"0"}});
+fn recorded_replay(p: &Root) -> (Value, Value, Value) {
+    let cfg = config();
+    let mut runtime = Runtime::create(&p.0, cfg.clone(), &artifact()).unwrap();
+    let participant = json!({"schema_version":1,"configuration":hash(&cfg),"generation":cfg["generation"],"initial_ns":"0","strategies":{"cluster":"revision"},"sources":["a".repeat(64)],"opening_profile":{"schema_version":1,"kind":"OPEN_CLOSE_V1"}});
+    let work = hash(
+        &json!({"work_id":"readonly-technical-work","configuration":cfg,"artifact":artifact(),"driver_artifact":artifact(),"input_pin":"c".repeat(64),"participants":participant,"initial_ns":"0"}),
+    );
+    let binding = json!({"schema_version":2,"configuration":hash(&cfg),"kernel_artifact":artifact(),"driver_artifact":artifact(),"work_id":"readonly-technical-work","participants":participant,"work":work,"input_pin":"c".repeat(64),"program":hash(&participant),"initial_state":{"clock_ns":"0"}});
     runtime.bind_replay(&binding).unwrap();
-    let step=json!({"schema_version":1,"index":1,"previous":hash(&binding),"execution_start":0,"cause":{"kind":"TECHNICAL_EXECUTION_SOURCE"},"inputs":inputs(),"state":{"status":"TERMINATED"}});
+    let step = json!({"schema_version":1,"index":1,"previous":hash(&binding),"execution_start":0,"cause":{"kind":"TECHNICAL_EXECUTION_SOURCE"},"inputs":inputs(),"state":{"status":"TERMINATED"}});
     runtime.prepare_replay(&step).unwrap();
-    for input in inputs(){runtime.apply(&input).unwrap();}
-    runtime.save_checkpoint().unwrap();runtime.complete_replay(1).unwrap();
-    for n in 1..=inputs().len(){runtime.acknowledge(n as u64).unwrap();}
-    let state=runtime.state().unwrap();let result=result(&runtime);drop(runtime);(binding,state,result)
+    for input in inputs() {
+        runtime.apply(&input).unwrap();
+    }
+    runtime.save_checkpoint().unwrap();
+    runtime.complete_replay(1).unwrap();
+    for n in 1..=inputs().len() {
+        runtime.acknowledge(n as u64).unwrap();
+    }
+    let state = runtime.state().unwrap();
+    let result = result(&runtime);
+    drop(runtime);
+    (binding, state, result)
 }
 #[test]
 fn readonly_replay_snapshot_reads_existing_ready_owning_source_without_any_write() {
     use onlyalpha_runtime::VerifiedReplaySnapshot;
     use std::os::unix::fs::MetadataExt;
-    let p=Root::new();let (binding,state,expected)=recorded_replay(&p);
-    let before=(fs::metadata(p.db()).unwrap().ino(),fs::read(p.db()).unwrap());
-    let observed=VerifiedReplaySnapshot::read(&p.0,config(),&artifact()).unwrap();observed.verify_cut().unwrap();
-    assert_eq!(observed.binding(),&binding);assert_eq!(observed.state(),&state);assert_eq!(observed.records().len(),4);assert_eq!(observed.refs().len(),1);
-    assert_eq!(observed.backtest_result(&manifest(),&json!({"schema_version":1,"status":"COMPLETED","reason":null})).unwrap().record(),expected);
-    assert_eq!((fs::metadata(p.db()).unwrap().ino(),fs::read(p.db()).unwrap()),before);
-    assert_eq!(fs::read_dir(&p.0).unwrap().count(),1);drop(observed);
-    let missing=Root::new();assert!(VerifiedReplaySnapshot::read(&missing.0,config(),&artifact()).is_err());assert!(!missing.db().exists());
+    let p = Root::new();
+    let (binding, state, expected) = recorded_replay(&p);
+    let before = (
+        fs::metadata(p.db()).unwrap().ino(),
+        fs::read(p.db()).unwrap(),
+    );
+    let observed = VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).unwrap();
+    observed.verify_cut().unwrap();
+    assert_eq!(observed.binding(), &binding);
+    assert_eq!(observed.state(), &state);
+    assert_eq!(observed.records().len(), 4);
+    assert_eq!(observed.refs().len(), 1);
+    assert_eq!(
+        observed
+            .backtest_result(
+                &manifest(),
+                &json!({"schema_version":1,"status":"COMPLETED","reason":null})
+            )
+            .unwrap()
+            .record(),
+        expected
+    );
+    assert_eq!(
+        (
+            fs::metadata(p.db()).unwrap().ino(),
+            fs::read(p.db()).unwrap()
+        ),
+        before
+    );
+    assert_eq!(fs::read_dir(&p.0).unwrap().count(), 1);
+    drop(observed);
+    let missing = Root::new();
+    assert!(VerifiedReplaySnapshot::read(&missing.0, config(), &artifact()).is_err());
+    assert!(!missing.db().exists());
 }
 #[test]
 fn readonly_replay_snapshot_rejects_stale_source_in_place_replacement_links_and_sidecars() {
     use onlyalpha_runtime::VerifiedReplaySnapshot;
-    use std::os::unix::fs::{MetadataExt,symlink};
-    let p=Root::new();recorded_replay(&p);let original=(fs::metadata(p.db()).unwrap().ino(),fs::read(p.db()).unwrap());
-    let observed=VerifiedReplaySnapshot::read(&p.0,config(),&artifact()).unwrap();
+    use std::os::unix::fs::{MetadataExt, symlink};
+    let p = Root::new();
+    recorded_replay(&p);
+    let original = (
+        fs::metadata(p.db()).unwrap().ino(),
+        fs::read(p.db()).unwrap(),
+    );
+    let observed = VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).unwrap();
     // A direct SQL fault bypasses the owning lease deliberately. The retained
     // read proof must consult the actual source, not an old connection's pages.
-    let db=rusqlite::Connection::open(p.db()).unwrap();
-    let (n,raw):(i64,String)=db.query_row("SELECT sequence,payload FROM checkpoints ORDER BY sequence DESC LIMIT 1",[],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
-    let mut changed:Value=serde_json::from_str(&raw).unwrap();changed["source"]=json!("f".repeat(64));
-    db.execute("UPDATE checkpoints SET payload=?1,digest=?2 WHERE sequence=?3",rusqlite::params![changed.to_string(),hash(&changed),n]).unwrap();drop(db);
-    let damaged=fs::read(p.db()).unwrap();assert!(observed.verify_cut().is_err());assert_eq!(fs::read(p.db()).unwrap(),damaged);drop(observed);fs::write(p.db(),&original.1).unwrap();
-    let observed=VerifiedReplaySnapshot::read(&p.0,config(),&artifact()).unwrap();let retained=p.0.join("retained.sqlite3");fs::rename(p.db(),&retained).unwrap();fs::write(p.db(),&original.1).unwrap();
-    assert!(observed.verify_cut().is_err(),"a byte-equal replacement inode is not the original owning source");drop(observed);fs::remove_file(p.db()).unwrap();fs::rename(&retained,p.db()).unwrap();
-    let alias=p.0.join("alias.sqlite3");fs::hard_link(p.db(),&alias).unwrap();assert!(VerifiedReplaySnapshot::read(&p.0,config(),&artifact()).is_err());fs::remove_file(alias).unwrap();
-    fs::rename(p.db(),&retained).unwrap();symlink(&retained,p.db()).unwrap();assert!(VerifiedReplaySnapshot::read(&p.0,config(),&artifact()).is_err());fs::remove_file(p.db()).unwrap();fs::rename(retained,p.db()).unwrap();
-    for name in ["runtime.sqlite3-wal","runtime.sqlite3-shm","runtime.sqlite3-journal"] {
-        let path=p.0.join(name);fs::write(&path,b"unresolved").unwrap();let before=fs::read(p.db()).unwrap();
-        assert!(VerifiedReplaySnapshot::read(&p.0,config(),&artifact()).is_err());assert_eq!(fs::read(p.db()).unwrap(),before);assert_eq!(fs::read(&path).unwrap(),b"unresolved");fs::remove_file(path).unwrap();
+    let db = rusqlite::Connection::open(p.db()).unwrap();
+    let (n, raw): (i64, String) = db
+        .query_row(
+            "SELECT sequence,payload FROM checkpoints ORDER BY sequence DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let mut changed: Value = serde_json::from_str(&raw).unwrap();
+    changed["source"] = json!("f".repeat(64));
+    db.execute(
+        "UPDATE checkpoints SET payload=?1,digest=?2 WHERE sequence=?3",
+        rusqlite::params![changed.to_string(), hash(&changed), n],
+    )
+    .unwrap();
+    drop(db);
+    let damaged = fs::read(p.db()).unwrap();
+    assert!(observed.verify_cut().is_err());
+    assert_eq!(fs::read(p.db()).unwrap(), damaged);
+    drop(observed);
+    fs::write(p.db(), &original.1).unwrap();
+    let observed = VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).unwrap();
+    let retained = p.0.join("retained.sqlite3");
+    fs::rename(p.db(), &retained).unwrap();
+    fs::write(p.db(), &original.1).unwrap();
+    assert!(
+        observed.verify_cut().is_err(),
+        "a byte-equal replacement inode is not the original owning source"
+    );
+    drop(observed);
+    fs::remove_file(p.db()).unwrap();
+    fs::rename(&retained, p.db()).unwrap();
+    let alias = p.0.join("alias.sqlite3");
+    fs::hard_link(p.db(), &alias).unwrap();
+    assert!(VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).is_err());
+    fs::remove_file(alias).unwrap();
+    fs::rename(p.db(), &retained).unwrap();
+    symlink(&retained, p.db()).unwrap();
+    assert!(VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).is_err());
+    fs::remove_file(p.db()).unwrap();
+    fs::rename(retained, p.db()).unwrap();
+    for name in [
+        "runtime.sqlite3-wal",
+        "runtime.sqlite3-shm",
+        "runtime.sqlite3-journal",
+    ] {
+        let path = p.0.join(name);
+        fs::write(&path, b"unresolved").unwrap();
+        let before = fs::read(p.db()).unwrap();
+        assert!(VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).is_err());
+        assert_eq!(fs::read(p.db()).unwrap(), before);
+        assert_eq!(fs::read(&path).unwrap(), b"unresolved");
+        fs::remove_file(path).unwrap();
     }
-    let mut trailing=original.1.clone();trailing.extend_from_slice(b"unanchored tail");fs::write(p.db(),&trailing).unwrap();
-    assert!(VerifiedReplaySnapshot::read(&p.0,config(),&artifact()).is_err());assert_eq!(fs::read(p.db()).unwrap(),trailing);fs::write(p.db(),&original.1).unwrap();
-    assert_eq!(fs::metadata(p.db()).unwrap().ino(),original.0);
+    let mut trailing = original.1.clone();
+    trailing.extend_from_slice(b"unanchored tail");
+    fs::write(p.db(), &trailing).unwrap();
+    assert!(VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).is_err());
+    assert_eq!(fs::read(p.db()).unwrap(), trailing);
+    fs::write(p.db(), &original.1).unwrap();
+    assert_eq!(fs::metadata(p.db()).unwrap().ino(), original.0);
 }
 #[test]
 fn readonly_replay_snapshot_refuses_unready_or_unacknowledged_source_instead_of_recovering_it() {
     use onlyalpha_runtime::VerifiedReplaySnapshot;
-    for fault in ["ready","delivered","checkpoint","step"] {
-        let p=Root::new();recorded_replay(&p);let db=rusqlite::Connection::open(p.db()).unwrap();
-        if fault=="checkpoint" {db.execute("DELETE FROM checkpoints",[]).unwrap();}
-        else if fault=="step" {db.execute("UPDATE replay_steps SET ready=0",[]).unwrap();}
-        else {
-            let n:i64=db.query_row("SELECT max(sequence) FROM records",[],|row|row.get(0)).unwrap();let mut row=test_record(&db,n);row["delivered"]=json!(false);if fault=="ready"{row["ready"]=json!(false);}test_replace_record(&db,n,&row);
+    for fault in ["ready", "delivered", "checkpoint", "step"] {
+        let p = Root::new();
+        recorded_replay(&p);
+        let db = rusqlite::Connection::open(p.db()).unwrap();
+        if fault == "checkpoint" {
+            db.execute("DELETE FROM checkpoints", []).unwrap();
+        } else if fault == "step" {
+            db.execute("UPDATE replay_steps SET ready=0", []).unwrap();
+        } else {
+            let n: i64 = db
+                .query_row("SELECT max(sequence) FROM records", [], |row| row.get(0))
+                .unwrap();
+            let mut row = test_record(&db, n);
+            row["delivered"] = json!(false);
+            if fault == "ready" {
+                row["ready"] = json!(false);
+            }
+            test_replace_record(&db, n, &row);
         }
-        drop(db);let damaged=fs::read(p.db()).unwrap();assert!(VerifiedReplaySnapshot::read(&p.0,config(),&artifact()).is_err(),"{fault}");assert_eq!(fs::read(p.db()).unwrap(),damaged);
+        drop(db);
+        let damaged = fs::read(p.db()).unwrap();
+        assert!(
+            VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).is_err(),
+            "{fault}"
+        );
+        assert_eq!(fs::read(p.db()).unwrap(), damaged);
     }
 }
 
 #[test]
 fn replay_projection_keeps_complete_large_state_and_observes_fresh_flags() {
-    let root=Root::new();recorded_replay(&root);
-    let connection=rusqlite::Connection::open(root.db()).unwrap();
-    let raw:String=connection.query_row("SELECT payload FROM replay_steps WHERE sequence=1",[],|row|row.get(0)).unwrap();
-    let mut step=test_logical(&raw);
-    step["state"]["opaque_owner_state"]=json!({"nested":{"rows":["a".repeat(16384),"b".repeat(16384)],"decimal":"0.000000000001","null":null},"ordering":[3,2,1]});
-    let encoded=test_step_frame(&step);let identity=hash(&step);
-    connection.execute("UPDATE replay_steps SET payload=?1,digest=?2 WHERE sequence=1",rusqlite::params![&encoded,digest(encoded.as_bytes())]).unwrap();
-    connection.execute("UPDATE replay_binding SET last_hash=?1 WHERE singleton=1",[identity]).unwrap();drop(connection);
-    let runtime=Runtime::open(&root.0,config(),&artifact()).unwrap();
-    assert_eq!(runtime.replay_steps().unwrap(),vec![json!({"step":step,"ready":true})]);
-    let connection=rusqlite::Connection::open(root.db()).unwrap();connection.execute("UPDATE replay_steps SET ready=0 WHERE sequence=1",[]).unwrap();drop(connection);
-    assert_eq!(runtime.replay_steps().unwrap(),vec![json!({"step":step,"ready":false})]);
+    let root = Root::new();
+    recorded_replay(&root);
+    let connection = rusqlite::Connection::open(root.db()).unwrap();
+    let raw: String = connection
+        .query_row(
+            "SELECT payload FROM replay_steps WHERE sequence=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut step = test_logical(&raw);
+    step["state"]["opaque_owner_state"] = json!({"nested":{"rows":["a".repeat(16384),"b".repeat(16384)],"decimal":"0.000000000001","null":null},"ordering":[3,2,1]});
+    let encoded = test_step_frame(&step);
+    let identity = hash(&step);
+    connection
+        .execute(
+            "UPDATE replay_steps SET payload=?1,digest=?2 WHERE sequence=1",
+            rusqlite::params![&encoded, digest(encoded.as_bytes())],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE replay_binding SET last_hash=?1 WHERE singleton=1",
+            [identity],
+        )
+        .unwrap();
+    drop(connection);
+    let runtime = Runtime::open(&root.0, config(), &artifact()).unwrap();
+    assert_eq!(
+        runtime.replay_steps().unwrap(),
+        vec![json!({"step":step,"ready":true})]
+    );
+    let connection = rusqlite::Connection::open(root.db()).unwrap();
+    connection
+        .execute("UPDATE replay_steps SET ready=0 WHERE sequence=1", [])
+        .unwrap();
+    drop(connection);
+    assert_eq!(
+        runtime.replay_steps().unwrap(),
+        vec![json!({"step":step,"ready":false})]
+    );
 }
 #[test]
 fn replay_projection_revalidates_full_state_canonical_hash_head_and_input_mapping() {
-    for fault in ["state-hash","noncanonical","journal-head","journal-last","ready-flag","execution-input"] {
-        let root=Root::new();recorded_replay(&root);
-        let runtime=Runtime::open(&root.0,config(),&artifact()).unwrap();assert_eq!(runtime.replay_steps().unwrap().len(),1);
-        let connection=rusqlite::Connection::open(root.db()).unwrap();
-        let (raw,digest):(String,String)=connection.query_row("SELECT payload,digest FROM replay_steps WHERE sequence=1",[],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
+    for fault in [
+        "state-hash",
+        "noncanonical",
+        "journal-head",
+        "journal-last",
+        "ready-flag",
+        "execution-input",
+    ] {
+        let root = Root::new();
+        recorded_replay(&root);
+        let runtime = Runtime::open(&root.0, config(), &artifact()).unwrap();
+        assert_eq!(runtime.replay_steps().unwrap().len(), 1);
+        let connection = rusqlite::Connection::open(root.db()).unwrap();
+        let (raw, digest): (String, String) = connection
+            .query_row(
+                "SELECT payload,digest FROM replay_steps WHERE sequence=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
         match fault {
-            "state-hash"=>{let mut step=test_logical(&raw);step["state"]["changed_nested_tail"]=json!([{"value":"changed"}]);connection.execute("UPDATE replay_steps SET payload=?1 WHERE sequence=1",[test_step_frame(&step)]).unwrap();},
-            "noncanonical"=>{let raw=format!(" {raw}");let digest=onlyalpha_execution::digest(raw.as_bytes());connection.execute("UPDATE replay_steps SET payload=?1,digest=?2 WHERE sequence=1",rusqlite::params![raw,digest]).unwrap();},
-            "journal-head"=>{connection.execute("UPDATE replay_binding SET head=2 WHERE singleton=1",[]).unwrap();},
-            "journal-last"=>{connection.execute("UPDATE replay_binding SET last_hash=?1 WHERE singleton=1",["a".repeat(64)]).unwrap();},
-            "ready-flag"=>{connection.execute_batch("PRAGMA ignore_check_constraints=ON; UPDATE replay_steps SET ready=2 WHERE sequence=1").unwrap();},
-            _=>{let mut step=test_logical(&raw);step["inputs"][0]["input_id"]=json!("another-input");let logical=hash(&step);let encoded=test_step_frame(&step);connection.execute("UPDATE replay_steps SET payload=?1,digest=?2 WHERE sequence=1",rusqlite::params![&encoded,onlyalpha_execution::digest(encoded.as_bytes())]).unwrap();connection.execute("UPDATE replay_binding SET last_hash=?1 WHERE singleton=1",[logical]).unwrap();},
+            "state-hash" => {
+                let mut step = test_logical(&raw);
+                step["state"]["changed_nested_tail"] = json!([{"value":"changed"}]);
+                connection
+                    .execute(
+                        "UPDATE replay_steps SET payload=?1 WHERE sequence=1",
+                        [test_step_frame(&step)],
+                    )
+                    .unwrap();
+            }
+            "noncanonical" => {
+                let raw = format!(" {raw}");
+                let digest = onlyalpha_execution::digest(raw.as_bytes());
+                connection
+                    .execute(
+                        "UPDATE replay_steps SET payload=?1,digest=?2 WHERE sequence=1",
+                        rusqlite::params![raw, digest],
+                    )
+                    .unwrap();
+            }
+            "journal-head" => {
+                connection
+                    .execute("UPDATE replay_binding SET head=2 WHERE singleton=1", [])
+                    .unwrap();
+            }
+            "journal-last" => {
+                connection
+                    .execute(
+                        "UPDATE replay_binding SET last_hash=?1 WHERE singleton=1",
+                        ["a".repeat(64)],
+                    )
+                    .unwrap();
+            }
+            "ready-flag" => {
+                connection.execute_batch("PRAGMA ignore_check_constraints=ON; UPDATE replay_steps SET ready=2 WHERE sequence=1").unwrap();
+            }
+            _ => {
+                let mut step = test_logical(&raw);
+                step["inputs"][0]["input_id"] = json!("another-input");
+                let logical = hash(&step);
+                let encoded = test_step_frame(&step);
+                connection
+                    .execute(
+                        "UPDATE replay_steps SET payload=?1,digest=?2 WHERE sequence=1",
+                        rusqlite::params![
+                            &encoded,
+                            onlyalpha_execution::digest(encoded.as_bytes())
+                        ],
+                    )
+                    .unwrap();
+                connection
+                    .execute(
+                        "UPDATE replay_binding SET last_hash=?1 WHERE singleton=1",
+                        [logical],
+                    )
+                    .unwrap();
+            }
         }
-        drop(connection);assert!(runtime.replay_steps().is_err(),"{fault}; old row digest was {digest}");
+        drop(connection);
+        assert!(
+            runtime.replay_steps().is_err(),
+            "{fault}; old row digest was {digest}"
+        );
     }
 }
 
-
 #[test]
 fn schema4_anchor_fault_fixture_preserves_dependent_logical_bytes_and_reaches_original_guard() {
- let root=Root::new();let mut runtime=Runtime::create(&root.0,config(),&artifact()).unwrap();
- for input in inputs(){runtime.apply(&input).unwrap();}
- let original=runtime.records().unwrap().iter().map(|record|record.record()).collect::<Vec<_>>();drop(runtime);
- let db=rusqlite::Connection::open(root.db()).unwrap();
- assert_eq!(db.pragma_query_value(None,"user_version",|row|row.get::<_,i64>(0)).unwrap(),4);
- for n in 1..=4 {assert_eq!(test_record(&db,n),original[n as usize-1],"fixture decoder must return the complete logical Record rather than its physical envelope");}
- let mut bad=original[0].clone();bad["prepared"]["payload_hash"]=json!("f".repeat(64));
- test_replace_record(&db,1,&bad);
- assert_eq!(test_record(&db,1),bad);
- for n in 2..=4 {assert_eq!(test_record(&db,n),original[n as usize-1],"all original dependent logical bytes and flags survive the anchor's physical re-encoding");}
- drop(db);let before=fs::read(root.db()).unwrap();
- let error=Runtime::open(&root.0,config(),&artifact()).err().expect("changed payload hash must fail original logical verification");
- assert!(error.0.contains("EXECUTION_PAYLOAD_HASH"),"the semantic adversary was masked by a dictionary/format refusal: {error}");
- assert_eq!(fs::read(root.db()).unwrap(),before,"a denied historical observation cannot repair the original source");
+    let root = Root::new();
+    let mut runtime = Runtime::create(&root.0, config(), &artifact()).unwrap();
+    for input in inputs() {
+        runtime.apply(&input).unwrap();
+    }
+    let original = runtime
+        .records()
+        .unwrap()
+        .iter()
+        .map(|record| record.record())
+        .collect::<Vec<_>>();
+    drop(runtime);
+    let db = rusqlite::Connection::open(root.db()).unwrap();
+    assert_eq!(
+        db.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        4
+    );
+    for n in 1..=4 {
+        assert_eq!(
+            test_record(&db, n),
+            original[n as usize - 1],
+            "fixture decoder must return the complete logical Record rather than its physical envelope"
+        );
+    }
+    let mut bad = original[0].clone();
+    bad["prepared"]["payload_hash"] = json!("f".repeat(64));
+    test_replace_record(&db, 1, &bad);
+    assert_eq!(test_record(&db, 1), bad);
+    for n in 2..=4 {
+        assert_eq!(
+            test_record(&db, n),
+            original[n as usize - 1],
+            "all original dependent logical bytes and flags survive the anchor's physical re-encoding"
+        );
+    }
+    drop(db);
+    let before = fs::read(root.db()).unwrap();
+    let error = Runtime::open(&root.0, config(), &artifact())
+        .err()
+        .expect("changed payload hash must fail original logical verification");
+    assert!(
+        error.0.contains("EXECUTION_PAYLOAD_HASH"),
+        "the semantic adversary was masked by a dictionary/format refusal: {error}"
+    );
+    assert_eq!(
+        fs::read(root.db()).unwrap(),
+        before,
+        "a denied historical observation cannot repair the original source"
+    );
 }

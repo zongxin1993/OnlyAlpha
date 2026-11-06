@@ -2,6 +2,8 @@ from dataclasses import replace
 from decimal import Decimal
 
 import pytest
+from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyVenueOrderId
+from onlyalpha.domain.value import OnlyQuantity
 from onlyalpha_plugin_broker_virtual.fill_plan import (
     OnlyVirtualFillDispatchMode,
     OnlyVirtualFillPlanStatus,
@@ -9,9 +11,6 @@ from onlyalpha_plugin_broker_virtual.fill_plan import (
     only_create_virtual_order_fill_plan,
 )
 from onlyalpha_plugin_broker_virtual.fill_plan_store import OnlyVirtualFillPlanStore
-
-from onlyalpha.domain.identifiers import OnlyAccountId, OnlyOrderId, OnlyVenueOrderId
-from onlyalpha.domain.value import OnlyQuantity
 
 
 def _plan(order_id: str = "order"):

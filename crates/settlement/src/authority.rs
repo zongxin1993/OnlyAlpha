@@ -66,9 +66,18 @@ impl Authority {
         precision: u8,
         contract: &Value,
     ) -> Result<(), Error> {
-        if self.config["runtime_kind"] != "BACKTEST" { return Err(err("SETTLEMENT_WHOLE_FILL_RUNTIME")); }
+        if self.config["runtime_kind"] != "BACKTEST" {
+            return Err(err("SETTLEMENT_WHOLE_FILL_RUNTIME"));
+        }
         validate_whole_fill_contract(contract)?;
-        self.admit_with_contract(scope_value, order, side, quantity, precision, Some(contract))
+        self.admit_with_contract(
+            scope_value,
+            order,
+            side,
+            quantity,
+            precision,
+            Some(contract),
+        )
     }
     #[allow(clippy::too_many_arguments)]
     fn admit_with_contract(
@@ -97,7 +106,9 @@ impl Authority {
             .map(|v| v["ordinal"].clone())
             .unwrap_or_else(|| json!(self.orders.len() + 1));
         let mut value = json!({"ordinal":ordinal,"order":order,"scope":scope_value,"side":side,"quantity":amount,"precision":precision});
-        if let Some(contract) = contract { value["fill_contract"] = contract.clone(); }
+        if let Some(contract) = contract {
+            value["fill_contract"] = contract.clone();
+        }
         bounded(&value, 2048)?;
         if let Some(old) = self.orders.get(order) {
             return if *old == value {
@@ -134,9 +145,16 @@ impl Authority {
                     .ok_or_else(|| err("SETTLEMENT_ORDER_OVERFILL"))?;
             }
             let future_slots = if order.get("fill_contract").is_some() {
-                if count == 0 { 1 } else if count == 1 && remaining == 0 { 0 }
-                else { return Err(err("SETTLEMENT_WHOLE_FILL_COUNT")); }
-            } else { remaining };
+                if count == 0 {
+                    1
+                } else if count == 1 && remaining == 0 {
+                    0
+                } else {
+                    return Err(err("SETTLEMENT_WHOLE_FILL_COUNT"));
+                }
+            } else {
+                remaining
+            };
             slots = slots
                 .checked_add(future_slots)
                 .ok_or_else(|| err("SETTLEMENT_ADMISSION_CAPACITY"))?;
@@ -198,7 +216,10 @@ impl Authority {
         }
         if order.get("fill_contract").is_some()
             && (number(&input["quantity"])? != number(&order["quantity"])?
-                || self.instructions.values().any(|v| v["instruction"]["input"]["order"] == input["order"]))
+                || self
+                    .instructions
+                    .values()
+                    .any(|v| v["instruction"]["input"]["order"] == input["order"]))
         {
             return Err(err("SETTLEMENT_WHOLE_FILL_QUANTITY_OR_COUNT"));
         }
@@ -343,7 +364,15 @@ impl Authority {
         Ok(())
     }
     pub fn checkpoint(&self) -> Value {
-        let version = if self.orders.values().any(|v| v.get("fill_contract").is_some()) { 2 } else { 1 };
+        let version = if self
+            .orders
+            .values()
+            .any(|v| v.get("fill_contract").is_some())
+        {
+            2
+        } else {
+            1
+        };
         json!({"schema_version":version,"config":self.config,"capacity":self.capacity,"orders":self.orders,"instructions":self.instructions})
     }
 
@@ -383,9 +412,12 @@ impl Authority {
             .ok_or_else(|| err("SETTLEMENT_CHECKPOINT_ORDERS"))?;
         let mut ordered = Vec::new();
         for (key, value) in orders {
-            let mut order_fields = vec!["ordinal", "order", "scope", "side", "quantity", "precision"];
+            let mut order_fields =
+                vec!["ordinal", "order", "scope", "side", "quantity", "precision"];
             if value.get("fill_contract").is_some() {
-                if v["schema_version"] != 2 { return Err(err("SETTLEMENT_CHECKPOINT_WHOLE_FILL_SCHEMA")); }
+                if v["schema_version"] != 2 {
+                    return Err(err("SETTLEMENT_CHECKPOINT_WHOLE_FILL_SCHEMA"));
+                }
                 order_fields.push("fill_contract");
             }
             fields(value, &order_fields)?;
@@ -404,9 +436,22 @@ impl Authority {
             let precision = u8::try_from(uint(&value["precision"])?)
                 .map_err(|_| err("SETTLEMENT_QUANTITY_PRECISION"))?;
             if let Some(contract) = value.get("fill_contract") {
-                fresh.admit_whole_fill_order(value["scope"].clone(), key, text(&value["side"])?, text(&value["quantity"])?, precision, contract)?;
+                fresh.admit_whole_fill_order(
+                    value["scope"].clone(),
+                    key,
+                    text(&value["side"])?,
+                    text(&value["quantity"])?,
+                    precision,
+                    contract,
+                )?;
             } else {
-                fresh.admit_order(value["scope"].clone(), key, text(&value["side"])?, text(&value["quantity"])?, precision)?;
+                fresh.admit_order(
+                    value["scope"].clone(),
+                    key,
+                    text(&value["side"])?,
+                    text(&value["quantity"])?,
+                    precision,
+                )?;
             }
             if fresh.orders[key] != *value {
                 return Err(err("SETTLEMENT_CHECKPOINT_ORDER_CANONICAL"));
@@ -481,14 +526,40 @@ fn maturity_body(
 
 fn validate_whole_fill_contract(contract: &Value) -> Result<(), Error> {
     bounded(contract, 1024)?;
-    fields(contract, &["schema_version","kind","maximum_fill_count","model_fingerprint","model","fee_estimate_assumptions_fingerprint"])?;
+    fields(
+        contract,
+        &[
+            "schema_version",
+            "kind",
+            "maximum_fill_count",
+            "model_fingerprint",
+            "model",
+            "fee_estimate_assumptions_fingerprint",
+        ],
+    )?;
     let model = &contract["model"];
-    fields(model, &["schema_version","kind","runtime_kind","maximum_fill_count","configuration_fingerprint","policy_fingerprint"])?;
-    if contract["schema_version"] != 1 || contract["kind"] != "BACKTEST_WHOLE_FILL"
-        || contract["maximum_fill_count"] != 1 || model["schema_version"] != 1
-        || model["kind"] != "GUARANTEED_WHOLE_FILL" || model["runtime_kind"] != "BACKTEST"
-        || model["maximum_fill_count"] != 1 || contract["model_fingerprint"] != digest(model)
-    { return Err(err("SETTLEMENT_WHOLE_FILL_CONTRACT")); }
+    fields(
+        model,
+        &[
+            "schema_version",
+            "kind",
+            "runtime_kind",
+            "maximum_fill_count",
+            "configuration_fingerprint",
+            "policy_fingerprint",
+        ],
+    )?;
+    if contract["schema_version"] != 1
+        || contract["kind"] != "BACKTEST_WHOLE_FILL"
+        || contract["maximum_fill_count"] != 1
+        || model["schema_version"] != 1
+        || model["kind"] != "GUARANTEED_WHOLE_FILL"
+        || model["runtime_kind"] != "BACKTEST"
+        || model["maximum_fill_count"] != 1
+        || contract["model_fingerprint"] != digest(model)
+    {
+        return Err(err("SETTLEMENT_WHOLE_FILL_CONTRACT"));
+    }
     fingerprint(&model["configuration_fingerprint"])?;
     fingerprint(&model["policy_fingerprint"])?;
     fingerprint(&contract["model_fingerprint"])?;

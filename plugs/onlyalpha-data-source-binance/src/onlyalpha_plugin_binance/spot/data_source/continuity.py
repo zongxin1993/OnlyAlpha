@@ -8,6 +8,7 @@ from collections.abc import Callable
 from onlyalpha.data.enums import OnlyDataSequenceSemantics, OnlyMarketDataConnectionState
 from onlyalpha.data.models import OnlyMarketDataInboundUpdate
 from onlyalpha.data.processor import OnlyMarketDataDeduplicator, OnlyMarketDataSequenceTracker
+
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 
 type OnlyRecoveryLoader = Callable[[OnlyMarketDataInboundUpdate, int, int], tuple[OnlyMarketDataInboundUpdate, ...]]

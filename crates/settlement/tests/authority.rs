@@ -2,10 +2,7 @@ use onlyalpha_domain::{base::OnlyDomainModel, calendar::OnlyTradingCalendar};
 use onlyalpha_settlement::*;
 use serde_json::{Value, json};
 fn fixture() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../test-data/settlement/common-v1.json"
-    ))
-    .unwrap()
+    serde_json::from_str(include_str!("../../../test-data/settlement/common-v1.json")).unwrap()
 }
 fn config() -> Value {
     let v = fixture();

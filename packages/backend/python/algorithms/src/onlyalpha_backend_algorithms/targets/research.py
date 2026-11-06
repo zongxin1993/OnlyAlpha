@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from decimal import Decimal, localcontext
 
 import pyarrow as pa  # type: ignore[import-untyped]
-
 from onlyalpha.calculation import OnlyCalculationDefinition, OnlyCalculationKind
 
 _DECIMAL = pa.decimal128(38, 12)

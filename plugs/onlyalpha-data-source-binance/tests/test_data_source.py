@@ -9,19 +9,6 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from onlyalpha_plugin_binance.errors import OnlyBinanceError
-from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
-from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
-from onlyalpha_plugin_binance.spot.data_source.normalize import (
-    only_normalize_reference_price,
-    only_normalize_rest_kline,
-    only_normalize_rest_trade,
-    only_normalize_ws_kline,
-    only_normalize_ws_trade,
-)
-from onlyalpha_plugin_binance.spot.data_source.resource import OnlyBinanceSpotDataSource
-from onlyalpha_plugin_binance.spot.data_source.websocket import OnlyBinanceWebSocketTransport
-
 from onlyalpha.cache.historical import OnlyHistoricalCacheService, OnlyParquetHistoricalCacheStore
 from onlyalpha.config.models import OnlyDataSourceCoverageConfig
 from onlyalpha.core.clock import OnlyBacktestClock
@@ -54,6 +41,18 @@ from onlyalpha.market_data.durable import (
 from onlyalpha.plugin.capabilities import OnlyDataSourceCapabilities
 from onlyalpha.plugin.data_source import OnlyDataSourceCreateRequest
 from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
+from onlyalpha_plugin_binance.errors import OnlyBinanceError
+from onlyalpha_plugin_binance.spot.data_source.config import OnlyBinanceSpotDataSourceConfig
+from onlyalpha_plugin_binance.spot.data_source.factory import OnlyBinanceSpotDataSourceFactory
+from onlyalpha_plugin_binance.spot.data_source.normalize import (
+    only_normalize_reference_price,
+    only_normalize_rest_kline,
+    only_normalize_rest_trade,
+    only_normalize_ws_kline,
+    only_normalize_ws_trade,
+)
+from onlyalpha_plugin_binance.spot.data_source.resource import OnlyBinanceSpotDataSource
+from onlyalpha_plugin_binance.spot.data_source.websocket import OnlyBinanceWebSocketTransport
 
 
 def _bar_type() -> tuple[OnlyInstrument, OnlyBarType]:

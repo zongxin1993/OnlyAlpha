@@ -3,7 +3,6 @@ from collections.abc import Mapping, Sequence
 from datetime import time as wall_time
 
 from onlyalpha.canonical import only_canonical_fingerprint
-
 from onlyalpha.domain.calendar import OnlyTradingCalendar, OnlyTradingSession
 from onlyalpha.domain.enums import OnlySessionType
 from onlyalpha.domain.identifiers import OnlyCalendarId, OnlyInstrumentId, OnlyVenueId

@@ -26,6 +26,7 @@ from onlyalpha.plugin.api import (
     OnlyTradingSessionModel,
     only_identity_fingerprint,
 )
+
 from onlyalpha_plugin_cn_ashare.reference import OnlyCnAshareBoard, OnlyCnAshareInstrumentReference
 
 _PRICE_LIMITS: dict[str, dict[tuple[OnlyCnAshareBoard, bool], Decimal]] = {

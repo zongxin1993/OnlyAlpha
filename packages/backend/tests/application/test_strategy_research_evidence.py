@@ -23,19 +23,19 @@ import psycopg
 import pytest
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 
-from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
+from packages.backend.tests.application.support.native_research_market_fixture import (
     ROOT,
     _build_market_probe,
     probe,
     strategy_preparation_case,
 )
-from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
+from packages.backend.tests.application.support.native_research_market_fixture import (
     database as database,
 )
-from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
+from packages.backend.tests.application.support.native_research_market_fixture import (
     native_environment_case as native_environment_case,
 )
-from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
+from packages.backend.tests.application.support.native_research_market_fixture import (
     native_research_executor as native_research_executor,
 )
 
@@ -51,7 +51,9 @@ def market_probe() -> Path:
 
 
 @functools.cache
-def _build_strategy_evidence_owner_binary(*, release: bool = False) -> Path:
+def _build_strategy_evidence_owner_binary(
+    *, release: bool = False, build_timeout: int | None = 120, target_name: str = "strategy_freeze_postgres"
+) -> Path:
     from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
 
     target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
@@ -64,14 +66,14 @@ def _build_strategy_evidence_owner_binary(*, release: bool = False) -> Path:
             "test",
             "--frozen",
             "--offline",
-            *(["--release"] if release else ["--config", "profile.dev.package.onlyalpha-backend.debug=0"]),
+            *(["--release"] if release else []),
             "--target",
             target,
             "-j1",
             "-p",
             "onlyalpha-backend",
             "--test",
-            "strategy_freeze_postgres",
+            target_name,
             "--no-run",
             "--message-format=json",
         ],
@@ -79,7 +81,7 @@ def _build_strategy_evidence_owner_binary(*, release: bool = False) -> Path:
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=build_timeout,
     )
     assert built.returncode == 0, built.stdout + built.stderr
     binaries = [
@@ -87,9 +89,7 @@ def _build_strategy_evidence_owner_binary(*, release: bool = False) -> Path:
         for line in built.stdout.splitlines()
         if line.startswith("{")
         for row in [json.loads(line)]
-        if row.get("reason") == "compiler-artifact"
-        and row["target"]["name"] == "strategy_freeze_postgres"
-        and row.get("executable")
+        if row.get("reason") == "compiler-artifact" and row["target"]["name"] == target_name and row.get("executable")
     ]
     assert len(binaries) == 1
     return Path(binaries[0])
@@ -98,6 +98,30 @@ def _build_strategy_evidence_owner_binary(*, release: bool = False) -> Path:
 @pytest.fixture(scope="session")
 def strategy_evidence_owner_binary() -> Path:
     return _build_strategy_evidence_owner_binary(release=True)
+
+
+@pytest.fixture(scope="session")
+def backtest_fault_probe() -> Path:
+    # The canonical lane compiles this exact target before launching pytest.
+    # The session fixture only resolves the already-built current frozen target.
+    return _build_strategy_evidence_owner_binary(release=True, target_name="backtest_owner_probe")
+
+
+@pytest.fixture(scope="module")
+def backtest_fault_environment(tmp_path_factory: pytest.TempPathFactory, backtest_fault_probe: Path) -> dict[str, Any]:
+    from packages.backend.tests.application.test_manual_backtest_validation import _release
+
+    root = tmp_path_factory.mktemp("native-backtest-owner") / "release"
+    executable, artifact, _ = _release(backtest_fault_probe, root)
+    vector = json.loads((ROOT / "packages/backend/tests/application/fixtures/research_factor.json").read_text())
+    return {
+        "root": root,
+        "runtime": root.parent / "runtime",
+        "executable": executable,
+        "artifact": artifact,
+        "vector": vector,
+        "next": 0,
+    }
 
 
 def owner(binary: Path, dsn: str, root: Path, phase: str, request: dict[str, Any]) -> dict[str, Any]:
@@ -149,30 +173,155 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    from onlyalpha.calculation.equivalence import (
-        OnlyCalculationEquivalenceEvidenceV2Store,
-        only_required_calculation_equivalence_profile,
-    )
-    from onlyalpha.research.calculation.execution_evidence import OnlyResearchCalculationExecutionEvidenceStore
-    from onlyalpha.research.calculation.result import OnlyResearchCalculationResultManifest
-    from onlyalpha.research.calculation.result_identity import (
-        only_research_calculation_arrow_schema_payload,
-        only_research_calculation_partition_fingerprint,
-        only_research_calculation_result_content_fingerprint,
-        only_research_calculation_result_fingerprint,
-    )
-    from onlyalpha.research.evaluation.result import OnlyResearchStatisticsResultManifest
-    from onlyalpha.research.evaluation.result_identity import (
-        only_research_statistics_result_content_fingerprint,
-        only_research_statistics_result_fingerprint,
-    )
-    from onlyalpha.research.result.result import OnlyResearchResultManifest
+    # These independent wire-identity checks retain the old expected formulas.
+    # The later original-Run inspect also exercises the current Rust physical reader.
+    def arrow_schema_payload(schema):
+        fields = []
+        for field in schema:
+            if pa.types.is_int64(field.type):
+                kind = {"kind": "INTEGER", "bit_width": 64, "signed": True}
+            elif pa.types.is_boolean(field.type):
+                kind = {"kind": "BOOLEAN"}
+            elif pa.types.is_string(field.type):
+                kind = {"kind": "STRING"}
+            elif pa.types.is_decimal128(field.type):
+                kind = {
+                    "kind": "DECIMAL",
+                    "bit_width": 128,
+                    "precision": field.type.precision,
+                    "scale": field.type.scale,
+                }
+            else:
+                raise AssertionError(f"unsupported formal calculation column {field.type}")
+            fields.append({"name": field.name, "data_type": kind, "nullable": field.nullable})
+        return fields
+
+    def partition_fingerprint(node, instrument, table):
+        from decimal import Decimal
+
+        rows = [
+            {key: format(value, "f") if isinstance(value, Decimal) else value for key, value in row.items()}
+            for row in table.to_pylist()
+        ]
+        header = {
+            "schema_version": 1,
+            "node_fingerprint": node,
+            "instrument_id": instrument,
+            "arrow_schema": arrow_schema_payload(table.schema),
+            "row_count": len(rows),
+        }
+        digest = hashlib.sha256()
+        for value in [header, *rows]:
+            encoded = only_canonical_json(value).encode()
+            digest.update(len(encoded).to_bytes(8, "big"))
+            digest.update(encoded)
+        return digest.hexdigest()
+
+    def calculation_content(partitions):
+        records = [
+            {
+                "node_fingerprint": node,
+                "instrument_id": instrument,
+                "row_count": count,
+                "semantic_fingerprint": semantic,
+                "arrow_schema": list(schema),
+            }
+            for node, instrument, count, semantic, schema in partitions
+        ]
+        records.sort(key=lambda item: (item["node_fingerprint"], item["instrument_id"]))
+        return only_canonical_fingerprint({"schema_version": 1, "partitions": records})
+
+    def read_signed(path, key, domain):
+        value = json.loads(path.read_bytes())
+        assert path.read_text() == only_canonical_json(value)
+        identity = dict(value)
+        fingerprint = identity.pop(key)
+        identity["domain"] = domain
+        assert only_canonical_fingerprint(identity) == fingerprint
+        return value
+
+    def required_profile(definition):
+        cases = {
+            "FLAT_SEQUENCE",
+            "NEGATIVE_SLOPE_SEQUENCE",
+            "POSITIVE_SLOPE_SEQUENCE",
+            "QUANTIZATION_BOUNDARY",
+            "WARMUP_AND_STEADY_STATE",
+            "ZERO_BOUNDARY",
+        }
+        if any(port.nullable for port in definition.inputs):
+            cases.add("NULLABLE_INPUT_SEMANTICS")
+        if any(port.data_type.value == "BOOLEAN" for port in definition.inputs):
+            cases.add("BOOLEAN_TRUTH_NULL_SEMANTICS")
+        if len(definition.outputs) > 1:
+            cases.add("MULTI_OUTPUT_ALIGNMENT")
+        ordered = sorted(cases)
+        fingerprint = only_canonical_fingerprint(
+            {
+                "domain": "onlyalpha.calculation.equivalence-certification-profile",
+                "schema_version": 1,
+                "profile_id": "ONLYALPHA_P9_CALCULATION_EQUIVALENCE_V2",
+                "cases": ordered,
+                "comparison_contract": "EXACT_TYPED_ORDERED_ROWS_V1",
+            }
+        )
+        return ordered, fingerprint
+
+    def exact_fields(value, fields):
+        assert type(value) is dict and set(value) == set(fields)
 
     plan_fp = report["research_result_plan_fingerprint"]
     result_path = root / "results/sha256" / plan_fp[:2] / plan_fp / "manifest.json"
     result = json.loads(result_path.read_bytes())
-    parsed = OnlyResearchResultManifest.from_dict(result)
-    assert parsed.to_dict() == result and result["schema_version"] == 2
+    assert result_path.read_text() == only_canonical_json(result)
+    exact_fields(
+        result,
+        [
+            "schema_version",
+            "plan",
+            "research_result_plan_fingerprint",
+            "dataset_snapshot_fingerprint",
+            "statistics_results",
+            "research_result_content_fingerprint",
+            "research_result_fingerprint",
+            "created_at",
+            "calculation_results",
+        ],
+    )
+    exact_fields(
+        result["plan"],
+        [
+            "schema_version",
+            "dataset_snapshot_fingerprint",
+            "statistics_fingerprints",
+            "calculations",
+            "candidates",
+            "published_series",
+            "signals",
+        ],
+    )
+    assert result["plan"]["schema_version"] == 2
+    assert result["plan"]["dataset_snapshot_fingerprint"] == result["dataset_snapshot_fingerprint"]
+    assert result["schema_version"] == 2
+    assert only_canonical_fingerprint(result["plan"]) == plan_fp == result["research_result_plan_fingerprint"]
+    result_content = only_canonical_fingerprint(
+        {
+            "schema_version": 2,
+            "statistics_results": result["statistics_results"],
+            "calculation_results": result["calculation_results"],
+        }
+    )
+    assert result_content == result["research_result_content_fingerprint"]
+    assert (
+        only_canonical_fingerprint(
+            {
+                "schema_version": 2,
+                "research_result_plan_fingerprint": plan_fp,
+                "research_result_content_fingerprint": result_content,
+            }
+        )
+        == result["research_result_fingerprint"]
+    )
     assert result["research_result_fingerprint"] == report["research_result_fingerprint"]
     assert (
         not {"specification", "evaluation_subject", "native_image", "runtime_generation_fingerprint", "producer"}
@@ -198,17 +347,59 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
         return value["value"]
 
     for reference in result["calculation_results"]:
+        exact_fields(reference, ["calculation_fingerprint", "calculation_result_fingerprint"])
         logical = reference["calculation_fingerprint"]
+        assert logical not in calculations
         leaf = root / "calculation-results/sha256" / logical[:2] / logical
         manifest = json.loads((leaf / "manifest.json").read_bytes())
         all_paths.append(leaf / "manifest.json")
-        assert OnlyResearchCalculationResultManifest.from_dict(manifest).to_dict() == manifest
+        assert (leaf / "manifest.json").read_text() == only_canonical_json(manifest)
+        exact_fields(
+            manifest,
+            [
+                "schema_version",
+                "calculation_fingerprint",
+                "dataset_snapshot_fingerprint",
+                "calculation_graph_fingerprint",
+                "calculation_graph",
+                "result_content_fingerprint",
+                "calculation_result_fingerprint",
+                "partition_count",
+                "total_row_count",
+                "partitions",
+                "created_at",
+            ],
+        )
         assert manifest["schema_version"] == 1
+        assert manifest["calculation_fingerprint"] == logical
+        assert (
+            only_canonical_fingerprint(
+                {
+                    "schema_version": 1,
+                    "dataset_snapshot_fingerprint": manifest["dataset_snapshot_fingerprint"],
+                    "calculation_graph_fingerprint": manifest["calculation_graph_fingerprint"],
+                    "backend": "RESEARCH",
+                }
+            )
+            == logical
+        )
         assert manifest["calculation_result_fingerprint"] == reference["calculation_result_fingerprint"]
         assert manifest["dataset_snapshot_fingerprint"] == result["dataset_snapshot_fingerprint"]
         partitions = []
         keys = []
         for index, part in enumerate(manifest["partitions"]):
+            exact_fields(
+                part,
+                [
+                    "node_fingerprint",
+                    "instrument_id",
+                    "row_count",
+                    "arrow_schema",
+                    "semantic_fingerprint",
+                    "relative_path",
+                    "byte_sha256",
+                ],
+            )
             path = leaf / part["relative_path"]
             assert part["relative_path"] == f"data/p-{index:06d}.parquet"
             assert path.read_bytes()[:4] == path.read_bytes()[-4:] == b"PAR1"
@@ -216,13 +407,11 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
             table = pq.read_table(path)
             assert table.num_rows == part["row_count"] == 740
             assert table.schema.field(0) == pa.field("ts_event_ns", pa.int64(), nullable=False)
-            assert list(only_research_calculation_arrow_schema_payload(table.schema)) == part["arrow_schema"]
+            assert list(arrow_schema_payload(table.schema)) == part["arrow_schema"]
             assert table.column("ts_event_ns").to_pylist() == observed["axis"]
             for name, values in outputs[part["node_fingerprint"]].items():
                 assert table.column(name).to_pylist() == [decoded(value) for value in values]
-            semantic = only_research_calculation_partition_fingerprint(
-                part["node_fingerprint"], part["instrument_id"], table
-            )
+            semantic = partition_fingerprint(part["node_fingerprint"], part["instrument_id"], table)
             assert semantic == part["semantic_fingerprint"]
             partitions.append(
                 (
@@ -239,13 +428,17 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
         from onlyalpha.calculation.graph import OnlyCalculationGraphDefinition
 
         graph = OnlyCalculationGraphDefinition.from_dict(manifest["calculation_graph"])
+        assert graph.fingerprint == manifest["calculation_graph_fingerprint"]
         assert sorted(node.fingerprint for node in graph.nodes) == sorted(node for node, _instrument in keys)
         definitions.update({node.fingerprint: node.definition for node in graph.nodes})
         assert len({instrument for _node, instrument in keys}) == 1
-        content = only_research_calculation_result_content_fingerprint(tuple(partitions))
+        content = calculation_content(partitions)
         assert content == manifest["result_content_fingerprint"]
         assert (
-            only_research_calculation_result_fingerprint(logical, content) == manifest["calculation_result_fingerprint"]
+            only_canonical_fingerprint(
+                {"schema_version": 1, "calculation_fingerprint": logical, "result_content_fingerprint": content}
+            )
+            == manifest["calculation_result_fingerprint"]
         )
         assert len(manifest["partitions"]) == manifest["partition_count"]
         assert manifest["total_row_count"] == 740 * manifest["partition_count"]
@@ -258,24 +451,55 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
             pa.field("status", pa.string(), nullable=False),
         ]
     )
+    statistic_ids = set()
     for reference in result["statistics_results"]:
+        exact_fields(reference, ["statistics_fingerprint", "statistics_result_fingerprint"])
         logical = reference["statistics_fingerprint"]
+        assert logical not in statistic_ids
+        statistic_ids.add(logical)
         leaf = root / "statistics-results/sha256" / logical[:2] / logical
         manifest = json.loads((leaf / "manifest.json").read_bytes())
         all_paths.append(leaf / "manifest.json")
-        assert OnlyResearchStatisticsResultManifest.from_dict(manifest).to_dict() == manifest
+        assert (leaf / "manifest.json").read_text() == only_canonical_json(manifest)
         assert manifest["schema_version"] == 1
+        exact_fields(
+            manifest,
+            [
+                "schema_version",
+                "statistics_fingerprint",
+                "plan",
+                "feature_calculation_result_fingerprint",
+                "target_calculation_result_fingerprint",
+                "dataset_snapshot_fingerprint",
+                "result_content_fingerprint",
+                "statistics_result_fingerprint",
+                "row_count",
+                "arrow_schema",
+                "data_byte_sha256",
+                "created_at",
+            ],
+        )
+        assert manifest["statistics_fingerprint"] == logical
+        assert manifest["dataset_snapshot_fingerprint"] == result["dataset_snapshot_fingerprint"]
+        assert only_canonical_fingerprint(manifest["plan"]) == logical
         assert manifest["statistics_result_fingerprint"] == reference["statistics_result_fingerprint"]
-        assert manifest["feature_calculation_result_fingerprint"] in [
-            c["calculation_result_fingerprint"] for c in calculations.values()
-        ]
-        assert manifest["target_calculation_result_fingerprint"] in [
-            c["calculation_result_fingerprint"] for c in calculations.values()
-        ]
+        exact_fields(manifest["plan"], ["schema_version", "feature", "target", "definition"])
+        assert manifest["plan"]["schema_version"] == 1
+        for role in ("feature", "target"):
+            selector = manifest["plan"][role]
+            exact_fields(selector, ["calculation_fingerprint", "node_fingerprint", "output_name"])
+            calculation = calculations[selector["calculation_fingerprint"]]
+            assert manifest[role + "_calculation_result_fingerprint"] == calculation["calculation_result_fingerprint"]
+            selected_graph = OnlyCalculationGraphDefinition.from_dict(calculation["calculation_graph"])
+            assert selector["node_fingerprint"] in {node.fingerprint for node in selected_graph.nodes}
+            definition = definitions[selector["node_fingerprint"]]
+            assert selector["output_name"] in {port.name for port in definition.outputs}
+
         path = leaf / "data.parquet"
         assert hashlib.sha256(path.read_bytes()).hexdigest() == manifest["data_byte_sha256"]
         table = pq.read_table(path)
         assert table.schema == expected_schema
+        assert arrow_schema_payload(table.schema) == manifest["arrow_schema"]
         rows = table.to_pylist()
         assert len(rows) == manifest["row_count"] == 740
         assert rows == next(
@@ -288,37 +512,207 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
             and row["status"] == "INSUFFICIENT_OBSERVATIONS"
             for row in rows
         )
-        content = only_research_statistics_result_content_fingerprint(tuple(rows))
+        content = only_canonical_fingerprint({"schema_version": 1, "rows": rows})
         assert content == manifest["result_content_fingerprint"]
         assert (
-            only_research_statistics_result_fingerprint(logical, content) == manifest["statistics_result_fingerprint"]
+            only_canonical_fingerprint(
+                {"schema_version": 1, "statistics_fingerprint": logical, "result_content_fingerprint": content}
+            )
+            == manifest["statistics_result_fingerprint"]
         )
         assert not {"confidence_interval", "bootstrap", "native_time_series"} & manifest.keys()
         all_paths.append(path)
+    assert result["plan"]["statistics_fingerprints"] == sorted(statistic_ids)
+    expected_calculations = [
+        {"calculation_fingerprint": identity, "graph_fingerprint": manifest["calculation_graph_fingerprint"]}
+        for identity, manifest in sorted(calculations.items())
+    ]
+    for reference in result["plan"]["calculations"]:
+        exact_fields(reference, ["calculation_fingerprint", "graph_fingerprint"])
+    assert result["plan"]["calculations"] == expected_calculations
+    assert len(calculations) == 2
+    assert statistic_ids == {item["statistics_fingerprint"] for item in observed["statistics"]}
     assert len(report["calculation_execution_evidence_fingerprints"]) == 2
     for identity in report["calculation_execution_evidence_fingerprints"]:
-        execution = OnlyResearchCalculationExecutionEvidenceStore(root).load_verified(identity)
-        assert execution.evidence_fingerprint == identity
-        assert execution.calculation_fingerprint in calculations
-        all_paths.append(root / "calculation-execution-evidence/sha256" / identity[:2] / identity / "manifest.json")
-    equivalence = OnlyCalculationEquivalenceEvidenceV2Store(root)
+        path = root / "calculation-execution-evidence/sha256" / identity[:2] / identity / "manifest.json"
+        execution = read_signed(path, "evidence_fingerprint", "onlyalpha.research.calculation-execution-evidence")
+        exact_fields(
+            execution,
+            [
+                "schema_version",
+                "calculation_fingerprint",
+                "dataset_snapshot_fingerprint",
+                "calculation_graph_fingerprint",
+                "calculation_result_fingerprint",
+                "result_content_fingerprint",
+                "research_implementation_bindings",
+                "execution_contract_version",
+                "evidence_fingerprint",
+            ],
+        )
+        assert execution["schema_version"] == 1
+        assert execution["execution_contract_version"] == "RESEARCH_CALCULATION_EXECUTION_V1"
+        assert execution["evidence_fingerprint"] == identity
+        calculation = calculations[execution["calculation_fingerprint"]]
+        for field in (
+            "dataset_snapshot_fingerprint",
+            "calculation_graph_fingerprint",
+            "calculation_result_fingerprint",
+            "result_content_fingerprint",
+        ):
+            assert execution[field] == calculation[field]
+        graph = OnlyCalculationGraphDefinition.from_dict(calculation["calculation_graph"])
+        expected_bindings = []
+        for node in graph.ordered_nodes:
+            reference = {
+                "kind": node.definition.kind.value,
+                "type_id": node.definition.type_id,
+                "semantic_version": node.definition.semantic_version,
+            }
+            prepared = report["prepared_inputs"]
+            if node.definition.kind.value == "PREDICATE":
+                manifests = prepared["native_implementations"]
+            else:
+                resolved = [
+                    item
+                    for item in prepared["algorithm_resolution"]["nodes"]
+                    if item["definition_fingerprint"] == node.fingerprint
+                ]
+                assert len(resolved) == 1 and resolved[0]["definition"] == node.definition.to_dict()
+                manifests = resolved[0]["implementations"]
+            implementations = [
+                item
+                for item in manifests
+                if item["backend_kind"] == "RESEARCH" and item["calculation_type_reference"] == reference
+            ]
+            assert len(implementations) == 1
+            expected_bindings.append(
+                {
+                    "node_fingerprint": node.fingerprint,
+                    "research_implementation_fingerprint": implementations[0]["implementation_fingerprint"],
+                }
+            )
+        for binding in execution["research_implementation_bindings"]:
+            exact_fields(binding, ["node_fingerprint", "research_implementation_fingerprint"])
+        expected_bindings.sort(key=lambda binding: binding["node_fingerprint"])
+        assert execution["research_implementation_bindings"] == expected_bindings
+        all_paths.append(path)
     assert report["equivalence_evidence_fingerprints"] == sorted(set(report["equivalence_evidence_fingerprints"]))
     for identity in report["equivalence_evidence_fingerprints"]:
-        actual = equivalence.load_verified(identity)
-        assert actual.evidence_fingerprint == identity
-        assert actual.research_output_fingerprint == actual.trading_output_fingerprint
-        assert actual.certification_profile_id == "ONLYALPHA_P9_CALCULATION_EQUIVALENCE_V2"
+        actual = read_signed(
+            root / "calculation-equivalence/evidence-v2/sha256" / identity[:2] / identity / "manifest.json",
+            "evidence_fingerprint",
+            "onlyalpha.calculation.equivalence-evidence",
+        )
+        exact_fields(
+            actual,
+            [
+                "schema_version",
+                "calculation_node_fingerprint",
+                "calculation_type_reference",
+                "research_implementation_fingerprint",
+                "trading_implementation_fingerprint",
+                "equivalence_contract_version",
+                "certification_profile_id",
+                "certification_profile_fingerprint",
+                "corpus_fingerprint",
+                "research_output_fingerprint",
+                "trading_output_fingerprint",
+                "comparison_fingerprint",
+                "verdict",
+                "evidence_fingerprint",
+            ],
+        )
+        assert actual["schema_version"] == 2 and actual["verdict"] == "EQUIVALENT"
+        assert actual["equivalence_contract_version"] == "P9_CALCULATION_EQUIVALENCE_V2"
+        assert actual["evidence_fingerprint"] == identity
+        definition = definitions[actual["calculation_node_fingerprint"]]
+        assert actual["calculation_type_reference"] == {
+            "kind": definition.kind.value,
+            "type_id": definition.type_id,
+            "semantic_version": definition.semantic_version,
+        }
+        assert actual["research_output_fingerprint"] == actual["trading_output_fingerprint"]
+        assert actual["certification_profile_id"] == "ONLYALPHA_P9_CALCULATION_EQUIVALENCE_V2"
         witness = next(
             node
             for node in observed["node_profiles"]
-            if node["node_fingerprint"] == actual.calculation_node_fingerprint
+            if node["node_fingerprint"] == actual["calculation_node_fingerprint"]
         )
-        required = only_required_calculation_equivalence_profile(definitions[actual.calculation_node_fingerprint])
-        assert witness["profile_covered_cases"] == list(required.cases)
-        assert actual.certification_profile_fingerprint == required.profile_fingerprint
-        assert [case["case_id"] for case in witness["cases"]] == list(required.cases)
-        assert witness["research_implementation_fingerprint"] == actual.research_implementation_fingerprint
-        assert witness["trading_implementation_fingerprint"] == actual.trading_implementation_fingerprint
+        exact_fields(
+            witness,
+            [
+                "node_fingerprint",
+                "research_implementation_fingerprint",
+                "trading_implementation_fingerprint",
+                "cases",
+                "profile_covered_cases",
+            ],
+        )
+        required_cases, required_fingerprint = required_profile(definition)
+        assert witness["profile_covered_cases"] == required_cases
+        assert actual["certification_profile_fingerprint"] == required_fingerprint
+        assert [case["case_id"] for case in witness["cases"]] == required_cases
+        assert witness["research_implementation_fingerprint"] == actual["research_implementation_fingerprint"]
+        assert witness["trading_implementation_fingerprint"] == actual["trading_implementation_fingerprint"]
+        from onlyalpha.calculation.definition import only_calculation_scalar_from_dict, only_calculation_scalar_to_dict
+
+        def typed_row(row, ports):
+            exact_fields(row, [port.name for port in ports])
+            for port in ports:
+                value = row[port.name]
+                assert only_calculation_scalar_to_dict(only_calculation_scalar_from_dict(value)) == value
+                assert (value["type"] == "NULL" and port.nullable) or value["type"] == port.data_type.value
+
+        corpus = []
+        for case in witness["cases"]:
+            exact_fields(case, ["case_id", "inputs", "research_outputs", "trading_outputs"])
+            assert definition.warmup.minimum_observations + 2 <= len(case["inputs"]) <= 8192
+            assert len(case["inputs"]) == len(case["research_outputs"]) == len(case["trading_outputs"])
+            for row in case["inputs"]:
+                typed_row(row, definition.inputs)
+            for row in [*case["research_outputs"], *case["trading_outputs"]]:
+                typed_row(row, definition.outputs)
+            corpus.append(
+                {
+                    "case_id": case["case_id"],
+                    "inputs": {port.name: [row[port.name] for row in case["inputs"]] for port in definition.inputs},
+                    "bars": [],
+                }
+            )
+        assert (
+            only_canonical_fingerprint(
+                {
+                    "domain": "onlyalpha.calculation.equivalence-corpus",
+                    "schema_version": 2,
+                    "calculation_node_fingerprint": actual["calculation_node_fingerprint"],
+                    "certification_profile_fingerprint": required_fingerprint,
+                    "cases": corpus,
+                }
+            )
+            == actual["corpus_fingerprint"]
+        )
+        comparison = {
+            field: actual[field]
+            for field in [
+                "calculation_node_fingerprint",
+                "research_implementation_fingerprint",
+                "trading_implementation_fingerprint",
+                "equivalence_contract_version",
+                "certification_profile_fingerprint",
+                "corpus_fingerprint",
+                "research_output_fingerprint",
+                "trading_output_fingerprint",
+            ]
+        }
+        comparison.update(
+            {
+                "domain": "onlyalpha.calculation.equivalence-comparison",
+                "schema_version": 2,
+                "comparison": "EXACT_TYPED_ORDERED_ROWS",
+            }
+        )
+        assert only_canonical_fingerprint(comparison) == actual["comparison_fingerprint"]
         for role in ["research", "trading"]:
             rows = []
             for case in witness["cases"]:
@@ -328,14 +722,17 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
                     {"case_id": case["case_id"], "ordinal": ordinal, "outputs": value}
                     for ordinal, value in enumerate(case[role + "_outputs"])
                 )
-            assert only_canonical_fingerprint(
-                {
-                    "domain": "onlyalpha.calculation.equivalence-output",
-                    "schema_version": 2,
-                    "calculation_node_fingerprint": actual.calculation_node_fingerprint,
-                    "rows": rows,
-                }
-            ) == getattr(actual, role + "_output_fingerprint")
+            assert (
+                only_canonical_fingerprint(
+                    {
+                        "domain": "onlyalpha.calculation.equivalence-output",
+                        "schema_version": 2,
+                        "calculation_node_fingerprint": actual["calculation_node_fingerprint"],
+                        "rows": rows,
+                    }
+                )
+                == actual[role + "_output_fingerprint"]
+            )
         all_paths.append(
             root / "calculation-equivalence/evidence-v2/sha256" / identity[:2] / identity / "manifest.json"
         )
@@ -348,6 +745,79 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
         }
     )
     return result, all_paths
+
+
+def verify_public_science_rejects_rebound_facts(root: Path, report: dict[str, Any]) -> None:
+    """The independent reader must reject canonical but false retained evidence."""
+    from copy import deepcopy
+
+    def reject_changed_manifest(path: Path, field: str) -> None:
+        original = path.read_bytes()
+        changed = json.loads(original)
+        changed[field] = "0" * 64 if changed[field] != "0" * 64 else "1" * 64
+        try:
+            path.write_text(only_canonical_json(changed))
+            with pytest.raises(AssertionError):
+                verify_public_science(root, report)
+        finally:
+            path.write_bytes(original)
+        assert path.read_bytes() == original
+
+    plan = report["research_result_plan_fingerprint"]
+    result_path = root / "results/sha256" / plan[:2] / plan / "manifest.json"
+    result = json.loads(result_path.read_bytes())
+    reject_changed_manifest(result_path, "research_result_plan_fingerprint")
+    for tree, refs, field in [
+        ("calculation-results", "calculation_results", "calculation_fingerprint"),
+        ("statistics-results", "statistics_results", "statistics_fingerprint"),
+    ]:
+        logical = result[refs][0][field]
+        reject_changed_manifest(root / tree / "sha256" / logical[:2] / logical / "manifest.json", field)
+
+    # Re-sign and relocate the forged document so canonical/hash/path checks all
+    # pass. Only the reader's own shape or cross-fact checks may reject it.
+    for tree, refs, domain, field, value in [
+        (
+            "calculation-execution-evidence",
+            "calculation_execution_evidence_fingerprints",
+            "onlyalpha.research.calculation-execution-evidence",
+            "calculation_result_fingerprint",
+            "0" * 64,
+        ),
+        (
+            "calculation-equivalence/evidence-v2",
+            "equivalence_evidence_fingerprints",
+            "onlyalpha.calculation.equivalence-evidence",
+            "unexpected_test_field",
+            True,
+        ),
+    ]:
+        original_id = report[refs][0]
+        original_path = root / tree / "sha256" / original_id[:2] / original_id / "manifest.json"
+        original = original_path.read_bytes()
+        changed = json.loads(original)
+        changed[field] = value
+        identity = {key: item for key, item in changed.items() if key != "evidence_fingerprint"}
+        identity["domain"] = domain
+        forged_id = only_canonical_fingerprint(identity)
+        assert forged_id != original_id
+        changed["evidence_fingerprint"] = forged_id
+        target = root / tree / "sha256" / forged_id[:2] / forged_id / "manifest.json"
+        assert not target.parent.exists()
+        prefix_existed = target.parent.parent.exists()
+        target.parent.mkdir(parents=True)
+        try:
+            target.write_text(only_canonical_json(changed))
+            forged_report = deepcopy(report)
+            forged_report[refs] = sorted(forged_id if item == original_id else item for item in report[refs])
+            with pytest.raises(AssertionError):
+                verify_public_science(root, forged_report)
+        finally:
+            target.unlink(missing_ok=True)
+            target.parent.rmdir()
+            if not prefix_existed:
+                target.parent.parent.rmdir()
+        assert original_path.read_bytes() == original
 
 
 @pytest.mark.parametrize(
@@ -364,6 +834,15 @@ def verify_public_science(root: Path, report: dict[str, Any]) -> tuple[dict[str,
         "worker-deferred-guard",
         "qualification-product",
         "backtest-native",
+        "backtest-owner:full-interval-evidence",
+        "backtest-owner:pause-cancel",
+        "backtest-owner:queued-cancel",
+        "backtest-owner:shutdown-resume",
+        "backtest-owner:running-cancel",
+        "backtest-owner:crash-recover",
+        "backtest-owner:lost-guard",
+        "backtest-owner:cleanup-busy",
+        "backtest-owner:windows",
     ],
 )
 def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
@@ -374,8 +853,14 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
     strategy_evidence_owner_binary: Path,
     tmp_path: Path,
     mode: str,
+    request: pytest.FixtureRequest,
 ) -> None:
     from packages.backend.tests.postgres_link import wait_no_advisory_locks
+
+    if mode.startswith("backtest-owner:"):
+        native_environment_case = request.getfixturevalue("backtest_fault_environment")
+        market_probe = native_environment_case["executable"]
+        strategy_evidence_owner_binary = native_environment_case["executable"]
 
     command = str(uuid4())
     digest = bytearray(
@@ -386,7 +871,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
     semantic = tmp_path / "use_test_strategy_semantic"
     semantic.mkdir(mode=0o700)
     provisioned = None
-    if mode == "backtest-native":
+    if mode == "backtest-native" or mode.startswith("backtest-owner:"):
         # Fresh Infrastructure must precede all factor/strategy/Research work.
         provisioned = probe(
             native_environment_case["executable"],
@@ -403,16 +888,12 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         tmp_path,
         "evaluate",
         work_id=run_id,
-        runtime_root=semantic / "runtime" if mode == "backtest-native" else None,
+        runtime_root=semantic / "runtime" if mode == "backtest-native" or mode.startswith("backtest-owner:") else None,
         first_bar_start=datetime(2025, 1, 2, 11, 39, tzinfo=UTC),
-        fresh_runtime=mode != "backtest-native",
+        fresh_runtime=mode != "backtest-native" and not mode.startswith("backtest-owner:"),
     )
-    from onlyalpha.domain.time import OnlyTimestamp
-
-    expected_first = OnlyTimestamp.from_datetime(datetime(2025, 1, 2, 11, 40, tzinfo=UTC)).to_unix_nanos()
-    assert [OnlyTimestamp.from_datetime(update.payload.bar.ts_event).to_unix_nanos() for update in case["updates"]] == [
-        expected_first + minute * 60_000_000_000 for minute in range(740)
-    ]
+    expected_first = int(datetime(2025, 1, 2, 11, 40, tzinfo=UTC).timestamp()) * 1_000_000_000
+    assert case["axis_ns"] == [expected_first + minute * 60_000_000_000 for minute in range(740)]
     executable, arguments = case["selected"], case["arguments"]
     if provisioned is None:
         provisioned = probe(executable, database, "strategy-evidence-provision", semantic_root=str(semantic))
@@ -575,6 +1056,8 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         == submitted["prepared_inputs"]["execution_binding"]["executor_artifact_sha256"]
     )
     result, evidence_paths = verify_public_science(research, report)
+    if mode == "normal":
+        verify_public_science_rejects_rebound_facts(research, report)
     # Different current code image and unavailable installed SDK cannot erase
     # verified historical bytes or grant the released work for execution.
     different = tmp_path / "use_test_other_current_image"
@@ -747,7 +1230,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         exercise_backtest_preparation_queue(
             strategy_evidence_owner_binary, postgres_dsn, research, common, frozen, report, evidence_paths
         )
-    if mode == "backtest-native":
+    if mode == "backtest-native" or mode.startswith("backtest-owner:"):
         from packages.backend.tests.application.backtest_native_host import exercise_native_backtest_host
 
         exercise_native_backtest_host(
@@ -760,6 +1243,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
             market_probe,
             database,
             tmp_path / "use_test_backtest_native",
+            owner_fault=mode.removeprefix("backtest-owner:") if mode.startswith("backtest-owner:") else None,
         )
     if mode == "qualification-product":
         from packages.backend.tests.application.qualification_product_owner import exercise_qualification_product

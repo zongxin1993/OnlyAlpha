@@ -1,6 +1,8 @@
 use bigdecimal::BigDecimal;
 use onlyalpha_domain::{
-    base::OnlyDomainModel, instrument::OnlyInstrument, numeric::{OnlyDecimal, only_quantize},
+    base::OnlyDomainModel,
+    instrument::OnlyInstrument,
+    numeric::{OnlyDecimal, only_quantize},
     value::{OnlyPrice, OnlyQuantity},
 };
 use serde_json::{Value, json};
@@ -13,7 +15,10 @@ pub enum InstrumentError {
 }
 impl std::fmt::Display for InstrumentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self { Self::Shape => "BINANCE_PUBLIC_RESPONSE_SHAPE_INVALID", Self::TooLarge => "BINANCE_PUBLIC_RESPONSE_TOO_LARGE" })
+        f.write_str(match self {
+            Self::Shape => "BINANCE_PUBLIC_RESPONSE_SHAPE_INVALID",
+            Self::TooLarge => "BINANCE_PUBLIC_RESPONSE_TOO_LARGE",
+        })
     }
 }
 type Result<T> = std::result::Result<T, InstrumentError>;
@@ -41,7 +46,11 @@ fn number(v: &Value) -> Result<BigDecimal> {
 }
 fn positive(v: &Value) -> Result<BigDecimal> {
     let n = number(v)?;
-    if n <= 0 { Err(InstrumentError::Shape) } else { Ok(n) }
+    if n <= 0 {
+        Err(InstrumentError::Shape)
+    } else {
+        Ok(n)
+    }
 }
 fn precision(v: &BigDecimal) -> Result<u8> {
     u8::try_from(v.normalized().as_bigint_and_exponent().1.max(0))
@@ -54,7 +63,9 @@ fn decimal(v: &BigDecimal) -> Result<OnlyDecimal> {
 }
 fn fixed(v: &BigDecimal, p: u8) -> Result<OnlyDecimal> {
     let v = decimal(v)?;
-    let q = format!("1E-{p}").parse().map_err(|_| InstrumentError::Shape)?;
+    let q = format!("1E-{p}")
+        .parse()
+        .map_err(|_| InstrumentError::Shape)?;
     let out = only_quantize(&v, &q).map_err(|_| InstrumentError::Shape)?;
     if out != v {
         return Err(InstrumentError::Shape);

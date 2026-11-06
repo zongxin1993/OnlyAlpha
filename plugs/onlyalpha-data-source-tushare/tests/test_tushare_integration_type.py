@@ -1,8 +1,7 @@
 import pytest
+from onlyalpha.plugin.integration import OnlyIntegrationCategory
 from onlyalpha_plugin_tushare.data_source.factory import OnlyTushareDataSourceFactory
 from onlyalpha_plugin_tushare.errors import OnlyTushareError
-
-from onlyalpha.plugin.integration import OnlyIntegrationCategory
 
 
 def test_tushare_declares_non_binance_market_data_and_semantic_token_requirement() -> None:

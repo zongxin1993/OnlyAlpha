@@ -1,10 +1,9 @@
 import re
 from collections.abc import Mapping
 
-from onlyalpha_plugin_cn_ashare import OnlyCnAshareInstrumentReference
-
 from onlyalpha.domain.identifiers import OnlyInstrumentId
 from onlyalpha.domain.instrument import OnlyEquity, OnlyETF, OnlyInstrument
+from onlyalpha_plugin_cn_ashare import OnlyCnAshareInstrumentReference
 
 from ..errors import OnlyTushareError
 

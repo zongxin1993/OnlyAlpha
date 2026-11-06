@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 
+from onlyalpha.plugin.api import only_identity_fingerprint
 from onlyalpha_market_crypto.spot.reference import OnlyBinanceSpotReferenceAuthority
 
-from onlyalpha.plugin.api import only_identity_fingerprint
 from onlyalpha_plugin_binance.common.environment import OnlyBinanceEnvironment
 from onlyalpha_plugin_binance.spot.reference.client import OnlyBinanceSpotReferenceClient
 from onlyalpha_plugin_binance.spot.reference.normalize import only_normalize_binance_spot_reference

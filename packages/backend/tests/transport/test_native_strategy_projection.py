@@ -13,15 +13,12 @@ from typing import Any
 
 import psycopg
 import pytest
-
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
-from onlyalpha.persistence.postgres.strategy_store import OnlyPostgresStrategyStore
-from onlyalpha.research.operations.deployment import OnlyResearchSemanticStoreId
-from onlyalpha.strategy.freeze import OnlyStrategyFreezeRecord
-from onlyalpha.strategy.freeze_relation import OnlyStrategyFreezeRelation
-from packages.backend.tests.transport.frozen_strategy_fixture import call, pair
+
+from packages.backend.tests.application.test_schema_postgres import migration_backend as migration_backend
+from packages.backend.tests.application.test_schema_postgres import schema_db as schema_db
 from packages.backend.tests.postgres_link import CommitAckCut, wait_for_database_lock_barrier, wait_no_advisory_locks
+from packages.backend.tests.transport.frozen_strategy_fixture import call
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(120)]
 NAMESPACE = "11111111-1111-4111-8111-111111111111"
@@ -29,9 +26,8 @@ NOW = datetime(2026, 10, 22, tzinfo=UTC)
 
 
 @pytest.fixture
-def prepared(postgres_dsn: str, tmp_path: Path) -> tuple[Path, str, str, dict[str, Any]]:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    with psycopg.connect(postgres_dsn) as conn:
+def prepared(schema_db: str, integration_http_probe: Path, tmp_path: Path) -> tuple[Path, str, str, dict[str, Any]]:
+    with psycopg.connect(schema_db) as conn:
         conn.execute(
             "INSERT INTO public.research_deployment_semantic_store_binding(singleton,semantic_store_id) VALUES(TRUE,%s)",
             (NAMESPACE,),
@@ -43,7 +39,18 @@ def prepared(postgres_dsn: str, tmp_path: Path) -> tuple[Path, str, str, dict[st
     )
     repo = Path(__file__).resolve().parents[4]
     row = json.loads((repo / "test-data/strategy/product-sources-v1.jsonl").read_text().splitlines()[0])
-    identity, relation = pair(root, row["record"])
+    produced = call(integration_http_probe, op="frozen-projection-fixture", source=row["record"])
+    identity = produced["strategy_fingerprint"]
+    relation = produced["relation"]["relation_fingerprint"]
+    assert identity == row["record"]["strategy_fingerprint"]
+    assert produced["frozen"]["revision"] == row["record"]
+    for tree, fingerprint, manifest in (
+        ("frozen-revisions", identity, produced["frozen"]),
+        ("freeze-relations", relation, produced["relation"]),
+    ):
+        target = root / "strategy" / tree / "sha256" / fingerprint[:2] / fingerprint
+        target.mkdir(parents=True)
+        (target / "manifest.json").write_text(only_canonical_json(manifest))
     document = json.loads(
         (root / "strategy/freeze-relations/sha256" / relation[:2] / relation / "manifest.json").read_text()
     )
@@ -69,12 +76,25 @@ def test_current_history_reconstructs_only_projections_and_survives_fresh_proces
     before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("manifest.json")}
     outcome = reconcile(integration_http_probe, root)
     assert outcome["reconciled"] is True and outcome["error"] is None and outcome["session_error"] is None, outcome
-    reader = OnlyPostgresStrategyStore(postgres_dsn, OnlyResearchSemanticStoreId(NAMESPACE))
-    row = reader.find_freeze_relation(
-        document["candidate_fingerprint"], document["research_result_fingerprint"], identity
+    with psycopg.connect(postgres_dsn) as conn:
+        row = conn.execute(
+            "SELECT freeze_record_fingerprint,actor,created_at,schema_version,candidate_fingerprint,"
+            "research_result_fingerprint,strategy_fingerprint,admission_evidence_fingerprint,"
+            "research_execution_evidence_fingerprints,equivalence_evidence_fingerprints "
+            "FROM public.strategy_freeze_record WHERE candidate_fingerprint=%s AND research_result_fingerprint=%s AND strategy_fingerprint=%s",
+            (document["candidate_fingerprint"], document["research_result_fingerprint"], identity),
+        ).fetchone()
+    assert row is not None and row[0] == relation
+    assert row[1] == "onlyalpha-semantic-reconciler" and row[2] == NOW
+    assert row[3:] == (
+        4,
+        document["candidate_fingerprint"],
+        document["research_result_fingerprint"],
+        identity,
+        document["admission_evidence_fingerprint"],
+        document["research_execution_evidence_fingerprints"],
+        document["equivalence_evidence_fingerprints"],
     )
-    assert row is not None and row.record_fingerprint == relation
-    assert row.actor == "onlyalpha-semantic-reconciler" and row.created_at == NOW
     with psycopg.connect(postgres_dsn) as conn:
         assert conn.execute(
             "SELECT created_at FROM public.strategy_catalog WHERE strategy_fingerprint=%s", (identity,)
@@ -89,21 +109,14 @@ def test_existing_exact_audit_and_catalog_metadata_are_preserved(
     integration_http_probe: Path, postgres_dsn: str, prepared: tuple[Path, str, str, dict[str, Any]]
 ) -> None:
     root, identity, _, document = prepared
-    writer = OnlyPostgresStrategyStore(postgres_dsn, OnlyResearchSemanticStoreId(NAMESPACE))
-    writer.ensure_strategy(identity, 1)
-    writer.append_freeze_record(
-        OnlyStrategyFreezeRecord(
-            document["candidate_fingerprint"],
-            document["research_result_fingerprint"],
-            tuple(document["research_execution_evidence_fingerprints"]),
-            identity,
-            document["admission_evidence_fingerprint"],
-            tuple(document["equivalence_evidence_fingerprints"]),
-            "original human",
-            NOW,
-            "original audit",
+    # The actual owning reconciler produces valid existing projections. Only
+    # historical audit/catalog metadata is varied as controlled test input.
+    assert reconcile(integration_http_probe, root)["reconciled"] is True
+    with psycopg.connect(postgres_dsn) as conn:
+        conn.execute(
+            "UPDATE public.strategy_freeze_record SET actor=%s,created_at=%s,comment=%s",
+            ("original human", NOW, "original audit"),
         )
-    )
     with psycopg.connect(postgres_dsn) as conn:
         conn.execute("UPDATE public.strategy_catalog SET display_name='original name',catalog_family='original family'")
     first = snapshot(postgres_dsn)
@@ -115,7 +128,12 @@ def test_dangling_projection_never_recreates_missing_immutable_history(
     integration_http_probe: Path, postgres_dsn: str, prepared: tuple[Path, str, str, dict[str, Any]]
 ) -> None:
     root, identity, _, _ = prepared
-    OnlyPostgresStrategyStore(postgres_dsn, OnlyResearchSemanticStoreId(NAMESPACE)).ensure_strategy(identity, 1)
+    with psycopg.connect(postgres_dsn) as conn:
+        # Controlled dangling catalog precondition; no immutable history is repaired.
+        conn.execute(
+            "INSERT INTO public.strategy_catalog(strategy_fingerprint,semantic_namespace_id,schema_version) VALUES(%s,%s,1)",
+            (identity, NAMESPACE),
+        )
     path = root / "strategy/frozen-revisions/sha256" / identity[:2] / identity / "manifest.json"
     path.unlink()
     path.parent.rmdir()
@@ -300,18 +318,15 @@ def test_contradictory_physical_relations_reject_before_effects(
     integration_http_probe: Path, postgres_dsn: str, prepared: tuple[Path, str, str, dict[str, Any]]
 ) -> None:
     root, _, _, document = prepared
-    relation = OnlyStrategyFreezeRelation.from_dict(document)
-    changed = OnlyStrategyFreezeRelation(
-        relation.strategy_fingerprint,
-        relation.candidate_fingerprint,
-        relation.research_result_fingerprint,
-        relation.research_execution_evidence_fingerprints,
-        "0" * 64,
-        relation.equivalence_evidence_fingerprints,
-    )
-    target = root / "strategy/freeze-relations/sha256" / changed.relation_fingerprint[:2] / changed.relation_fingerprint
+    changed = call(
+        integration_http_probe,
+        op="frozen-projection-fixture",
+        relation={**document, "admission_evidence_fingerprint": "0" * 64},
+    )["relation"]
+    fingerprint = changed["relation_fingerprint"]
+    target = root / "strategy/freeze-relations/sha256" / fingerprint[:2] / fingerprint
     target.mkdir(parents=True)
-    (target / "manifest.json").write_text(only_canonical_json(changed.to_dict()))
+    (target / "manifest.json").write_text(only_canonical_json(changed))
     assert reconcile(integration_http_probe, root)["error"] == "STRATEGY_PROJECTION_CONFLICT"
     assert snapshot(postgres_dsn) == [[], []]
 

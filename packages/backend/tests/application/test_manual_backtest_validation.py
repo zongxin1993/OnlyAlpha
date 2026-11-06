@@ -21,11 +21,11 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
+from packages.backend.tests.application.support.native_research_market_fixture import (
     ROOT,
     strategy_preparation_case,
 )
-from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
+from packages.backend.tests.application.support.native_research_market_fixture import (
     database as database,
 )
 from packages.backend.tests.application.test_strategy_research_evidence import (
@@ -34,10 +34,10 @@ from packages.backend.tests.application.test_strategy_research_evidence import (
 from packages.backend.tests.application.test_strategy_research_evidence import (
     market_probe as market_probe,
 )
+from packages.backend.tests.postgres_link import wait_no_advisory_locks
 from scripts.build_algorithm_sdk import install
 from scripts.dev_verification import source_inputs
 from scripts.embed_build_provenance import resolve_build_provenance_bytes
-from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse, pytest.mark.timeout(600)]
 AT = "2026-11-02T00:00:00Z"
@@ -138,7 +138,7 @@ def actual_manual_environment(
     )
     arguments = case["arguments"]
     assert arguments["strategy_context"] is None
-    assert len(case["updates"]) == 740
+    assert len(case["bars"]) == 740
     research = semantic / "research"
     common = {
         **arguments,

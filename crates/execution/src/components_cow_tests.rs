@@ -46,9 +46,14 @@ fn forks_share_immutable_owners_and_each_install_mutates_only_its_branch() {
     for selected in 0..6 {
         let mut fork = source.clone_data();
         assert_eq!(shared_owners(&source, &fork), [true; 6]);
-        fork.install_payload(selected, &donor_images[selected]).unwrap();
+        fork.install_payload(selected, &donor_images[selected])
+            .unwrap();
         for (index, shared) in shared_owners(&source, &fork).into_iter().enumerate() {
-            assert_eq!(shared, index != selected, "installed owner {selected}, checked {index}");
+            assert_eq!(
+                shared,
+                index != selected,
+                "installed owner {selected}, checked {index}"
+            );
         }
         fork.sequence = 77;
         fork.pending = Some(("local-only".into(), selected));
@@ -95,8 +100,14 @@ fn typed_completion_reuses_exact_codec_and_cold_partial_recovery_keeps_original_
     let candidate_image = after.payloads().unwrap();
     coordinate(&mut hot.store, &mut hot.components, &prepared).unwrap();
     assert_eq!(shared_owners(&hot.components, after), [true; 6]);
-    assert!(Arc::ptr_eq(&candidate_image, &hot.components.payloads().unwrap()));
-    assert_eq!(hot.components.payloads().unwrap().as_ref(), &original_images(&hot.components));
+    assert!(Arc::ptr_eq(
+        &candidate_image,
+        &hot.components.payloads().unwrap()
+    ));
+    assert_eq!(
+        hot.components.payloads().unwrap().as_ref(),
+        &original_images(&hot.components)
+    );
     assert_eq!(prepared.encode().unwrap(), encoded);
     let expected = hot.components.checkpoint().unwrap();
 
@@ -124,15 +135,25 @@ fn typed_completion_reuses_exact_codec_and_cold_partial_recovery_keeps_original_
         assert!(!cold.has_validated_transition_data());
         pending.store.rows[0] = cold_record;
         for index in 0..installed {
-            pending.components.install_projection(&pending.store, &cold, index).unwrap();
+            pending
+                .components
+                .install_projection(&pending.store, &cold, index)
+                .unwrap();
         }
         let checkpoint = pending.components.checkpoint().unwrap();
         let mut recovered = Components::new(config()).unwrap();
         recovered.restore(&checkpoint, &hash(&checkpoint)).unwrap();
         assert_eq!(recovered.checkpoint().unwrap(), checkpoint);
         recover(&mut pending.store, &mut recovered).unwrap();
-        assert_eq!(recovered.checkpoint().unwrap(), expected, "partial prefix {installed}");
-        assert_eq!(recovered.payloads().unwrap().as_ref(), &original_images(&recovered));
+        assert_eq!(
+            recovered.checkpoint().unwrap(),
+            expected,
+            "partial prefix {installed}"
+        );
+        assert_eq!(
+            recovered.payloads().unwrap().as_ref(),
+            &original_images(&recovered)
+        );
     }
     let removed = hot.store.rows.pop().unwrap();
     assert!(hot.components.state(&hot.store).is_err());
@@ -146,7 +167,14 @@ fn codec_adoption_requires_all_owner_pointers_and_complete_matching_values_and_h
     let history = Harness::new(config()).unwrap();
     let prepared = history.prepare(&open(1, "BUY")).unwrap();
     let after = prepared.typed_after().unwrap();
-    for fault in ["value", "hash", "length", "owner-pointer", "metadata-pointer", "missing"] {
+    for fault in [
+        "value",
+        "hash",
+        "length",
+        "owner-pointer",
+        "metadata-pointer",
+        "missing",
+    ] {
         let mut donor = after.clone_data();
         let mut receiver = after.clone_data();
         receiver.invalidate_payloads();
@@ -161,17 +189,25 @@ fn codec_adoption_requires_all_owner_pointers_and_complete_matching_values_and_h
                 match fault {
                     "value" => values[0]["state"]["foreign"] = json!(true),
                     "hash" => hashes[0] = "f".repeat(64),
-                    _ => { values.pop(); }
+                    _ => {
+                        values.pop();
+                    }
                 }
                 donor.payload_cache.set((Arc::new(values), hashes)).unwrap();
             }
         }
         assert!(!receiver.reuse_typed_payloads(&prepared, &donor), "{fault}");
         assert!(receiver.payload_cache.get().is_none(), "{fault}");
-        assert_eq!(receiver.payloads().unwrap().as_ref(), &original_images(&receiver));
+        assert_eq!(
+            receiver.payloads().unwrap().as_ref(),
+            &original_images(&receiver)
+        );
     }
     let mut receiver = after.clone_data();
     receiver.invalidate_payloads();
     assert!(receiver.reuse_typed_payloads(&prepared, after));
-    assert!(Arc::ptr_eq(&receiver.payloads().unwrap(), &after.payloads().unwrap()));
+    assert!(Arc::ptr_eq(
+        &receiver.payloads().unwrap(),
+        &after.payloads().unwrap()
+    ));
 }

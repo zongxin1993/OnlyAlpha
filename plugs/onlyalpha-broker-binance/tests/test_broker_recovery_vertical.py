@@ -5,17 +5,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from onlyalpha_broker_binance.private_http import (
-    OnlyBinanceDispatchKnowledge,
-    OnlyBinancePrivateRequestError,
-)
-from onlyalpha_broker_binance.spot.broker.codec import only_binance_client_order_id
-from onlyalpha_broker_binance.spot.broker.discovery import (
-    OnlyBinanceOrderPresenceClassifier,
-    OnlyBinanceSpotVenueDiscovery,
-)
-from onlyalpha_broker_binance.spot.broker.gateway import OnlyBinanceSpotBrokerGateway
-
 from onlyalpha.broker.enums import OnlyBrokerConnectionState, OnlyBrokerOperationStatus
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerRequestId
 from onlyalpha.broker.inbound import OnlyBoundedBrokerInboundQueue
@@ -58,6 +47,16 @@ from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuant
 from onlyalpha.order.execution.models import OnlyExecutionSubmissionOutcome
 from onlyalpha.order.id_generator import OnlySequenceClientOrderIdGenerator, OnlySequenceOrderIdGenerator
 from onlyalpha.order.manager import OnlyOrderManager
+from onlyalpha_broker_binance.private_http import (
+    OnlyBinanceDispatchKnowledge,
+    OnlyBinancePrivateRequestError,
+)
+from onlyalpha_broker_binance.spot.broker.codec import only_binance_client_order_id
+from onlyalpha_broker_binance.spot.broker.discovery import (
+    OnlyBinanceOrderPresenceClassifier,
+    OnlyBinanceSpotVenueDiscovery,
+)
+from onlyalpha_broker_binance.spot.broker.gateway import OnlyBinanceSpotBrokerGateway
 
 
 class _AcceptedThenLostRest:

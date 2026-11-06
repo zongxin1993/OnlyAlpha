@@ -36,6 +36,7 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyMoney, OnlyPrice, OnlyQuantity
+
 from onlyalpha_broker_binance.errors import OnlyBinanceSchemaError
 from onlyalpha_broker_binance.private_http import (
     OnlyBinanceCredentials,

@@ -21,8 +21,8 @@ use crate::{
     transport::host_research_inputs::DatasetEventWindow,
     workers::backtest::PreparedNextOpen,
 };
-use onlyalpha_domain::time::OnlyUtcDateTime;
 use onlyalpha_data_source_binance::spot_rest::PublicRest;
+use onlyalpha_domain::time::OnlyUtcDateTime;
 use onlyalpha_market_crypto::spot::SpotRuleSnapshot;
 use std::{io::Write as _, os::fd::AsFd};
 /// An absent future Run does not settle the original durable confirmation.
@@ -161,11 +161,13 @@ impl Host {
             frozen,
             decisions,
             &config.runtime_root,
-            text(selected, "strategy_fingerprint")?,
-            text(selected, "freeze_relation_fingerprint")?,
-            text(selected, "qualification_decision_fingerprint")?,
-            text(selected, "promotion_fingerprint")?,
-            64 * 1024 * 1024,
+            strategy_promotion::SelectedBacktestAdmission {
+                strategy: text(selected, "strategy_fingerprint")?,
+                relation: text(selected, "freeze_relation_fingerprint")?,
+                decision: text(selected, "qualification_decision_fingerprint")?,
+                promotion: text(selected, "promotion_fingerprint")?,
+                max_work: 64 * 1024 * 1024,
+            },
         )
         .await?;
         tx.commit().await.map_err(|_| INVALID)?;
@@ -305,10 +307,12 @@ impl Host {
             &namespace,
             frozen,
             decision,
-            &subject,
-            text(&published, "freeze_relation_fingerprint")?,
-            promotion.fingerprint(),
-            64 * 1024 * 1024,
+            strategy_promotion::BacktestAdmissionSelection {
+                strategy: &subject,
+                relation: text(&published, "freeze_relation_fingerprint")?,
+                promotion: promotion.fingerprint(),
+                max_work: 64 * 1024 * 1024,
+            },
         )
         .await
         .map_err(Into::into)
@@ -755,12 +759,14 @@ impl Host {
             &prepared,
             &datasets,
             &acquired.materialized,
-            &acquired.selection,
-            &resolution,
-            &request,
-            &native,
-            &binding,
-            &rule_record,
+            crate::persistence::research_preparation::BacktestReadyResolution {
+                source_selection: &acquired.selection,
+                algorithm_resolution: &resolution,
+                algorithm_resolution_request: &request,
+                native_implementations: &native,
+                backtest_binding: &binding,
+                rules_response: &rule_record,
+            },
         )?;
         ready.verify_cut()?;
         proof.verify_cut()?;
@@ -1385,3 +1391,6 @@ impl Host {
 #[cfg(test)]
 #[path = "../../tests/transport/backtest_preparation_window.rs"]
 mod window_tests;
+
+#[cfg(test)]
+pub use window_tests::run_owner_scenario;

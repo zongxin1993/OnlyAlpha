@@ -8,7 +8,9 @@ from typing import Any
 import psycopg
 import pytest
 
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+from .test_schema_postgres import migration_backend, schema_db
+
+__all__ = ["migration_backend", "schema_db"]
 
 from .support.integration import (
     call,
@@ -27,9 +29,8 @@ pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout
 
 
 @pytest.fixture
-def effect_db(postgres_dsn: str) -> str:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
-    return postgres_dsn
+def effect_db(schema_db: str) -> str:
+    return schema_db
 
 
 @pytest.mark.parametrize(
@@ -108,7 +109,7 @@ def test_an_accepted_receipt_requires_the_actual_complete_command_effect(
         else "INTEGRATION_PERSISTENCE_CONFLICT"
     )
     assert call(native_probe, command) == {"error": expected}
-    assert call(native_probe, replay_request(command)) == {"result": None}
+    assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
     assert owning_facts(effect_db) == before
 
 
@@ -136,7 +137,7 @@ def test_publish_reuse_validates_actual_stored_types_without_rewriting_history(
     result = call(native_probe, command)
     if stored_number.startswith('"'):
         assert result == {"error": "INTEGRATION_REVISION_CORRUPT"}
-        assert call(native_probe, replay_request(command)) == {"result": None}
+        assert call(native_probe, replay_request(command, native_probe)) == {"result": None}
         assert owning_facts(effect_db) == before
     else:
         assert result["replayed"] is False

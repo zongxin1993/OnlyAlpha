@@ -871,26 +871,60 @@ fn raw_derived_margin_projection_is_not_an_authorable_command() {
 #[test]
 fn memory_clone_isolates_fill_cash_fees_and_reservation_history() {
     let mut original = manager();
-    assert_eq!(original.apply(&reserve("clone-reserve", "600.00", 1)).unwrap().status, Status::Applied);
-    let first = trade("clone-first", Some("clone-reserve"), "BUY", "200.00", ("1.00", "0.00"), 2, false);
+    assert_eq!(
+        original
+            .apply(&reserve("clone-reserve", "600.00", 1))
+            .unwrap()
+            .status,
+        Status::Applied
+    );
+    let first = trade(
+        "clone-first",
+        Some("clone-reserve"),
+        "BUY",
+        "200.00",
+        ("1.00", "0.00"),
+        2,
+        false,
+    );
     assert_eq!(original.apply(&first).unwrap().status, Status::Applied);
     let before = original.checkpoint().unwrap();
     let mut branch = original.clone();
     assert_eq!(branch.checkpoint().unwrap(), before);
 
-    let terminal = trade("clone-terminal", Some("clone-reserve"), "BUY", "100.00", ("1.00", "0.00"), 3, true);
+    let terminal = trade(
+        "clone-terminal",
+        Some("clone-reserve"),
+        "BUY",
+        "100.00",
+        ("1.00", "0.00"),
+        3,
+        true,
+    );
     assert_eq!(branch.apply(&terminal).unwrap().status, Status::Applied);
     assert_eq!(branch.snapshot()["cash"], "698.00");
     assert_eq!(branch.snapshot()["fees"], "2.00");
-    assert_eq!(branch.reservation("clone-reserve").unwrap()["released"], "298.00");
+    assert_eq!(
+        branch.reservation("clone-reserve").unwrap()["released"],
+        "298.00"
+    );
     assert_eq!(original.snapshot()["cash"], "799.00");
-    assert_eq!(original.reservation("clone-reserve").unwrap()["remaining"], "399.00");
+    assert_eq!(
+        original.reservation("clone-reserve").unwrap()["remaining"],
+        "399.00"
+    );
     assert_eq!(original.checkpoint().unwrap(), before);
     assert_eq!(original.apply(&terminal).unwrap().status, Status::Applied);
     assert_eq!(original.checkpoint().unwrap(), branch.checkpoint().unwrap());
 
     let branch_before = branch.checkpoint().unwrap();
-    assert_eq!(original.apply(&reserve("original-only", "10.00", 4)).unwrap().status, Status::Applied);
+    assert_eq!(
+        original
+            .apply(&reserve("original-only", "10.00", 4))
+            .unwrap()
+            .status,
+        Status::Applied
+    );
     assert_eq!(original.snapshot()["reserved"], "10.00");
     assert_eq!(branch.snapshot()["reserved"], "0.00");
     assert!(branch.reservation("original-only").is_none());

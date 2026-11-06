@@ -19,9 +19,10 @@ from typing import Any
 
 import psycopg
 import pytest
-
 from onlyalpha.canonical import only_canonical_json
-from onlyalpha.persistence.postgres.migration import OnlyPostgresMigrationAuthority
+
+from packages.backend.tests.application.test_schema_postgres import DEFAULT_MIGRATION_ROOT, migrate
+from scripts.native_http_contract import native_executable
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.timeout(300)]
 NAMESPACE = "11111111-1111-4111-8111-111111111111"
@@ -31,7 +32,8 @@ COMMAND = "00000000-0000-4000-8000-000000000702"
 
 @pytest.fixture
 def freeze_database(postgres_dsn: str, tmp_path: Path) -> tuple[str, Path, dict[str, Any]]:
-    OnlyPostgresMigrationAuthority(postgres_dsn).migrate()
+    migrated = migrate(native_executable(), postgres_dsn, DEFAULT_MIGRATION_ROOT)
+    assert migrated.returncode == 0, migrated.stderr
     repo = Path(__file__).resolve().parents[4]
     fixture = json.loads((repo / "packages/backend/tests/application/fixtures/frozen_strategy.json").read_text())
     relation = fixture["relation"]
@@ -95,8 +97,6 @@ def run_freeze_owner(freeze_database: tuple[str, Path, dict[str, Any]]) -> Calla
             "test",
             "--frozen",
             "--offline",
-            "--config",
-            "profile.dev.package.onlyalpha-backend.debug=0",
             "--target",
             target,
             "-j1",

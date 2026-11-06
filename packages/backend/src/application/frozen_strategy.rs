@@ -69,27 +69,85 @@ impl FreezeRelation {
         }
         let v: Value = serde_json::from_str(raw).map_err(|_| Error::Corrupt)?;
         match v["schema_version"].as_u64() {
-            Some(1)=>{
-                exact(&v,&["schema_version","strategy_fingerprint","candidate_fingerprint","research_result_fingerprint",
-                    "research_execution_evidence_fingerprints","admission_evidence_fingerprint","equivalence_evidence_fingerprints","relation_fingerprint"])?;
-                for key in ["strategy_fingerprint","candidate_fingerprint","research_result_fingerprint","admission_evidence_fingerprint","relation_fingerprint"] {sha(&v[key])?;}
-                for key in ["research_execution_evidence_fingerprints","equivalence_evidence_fingerprints"] {
-                    let rows=v[key].as_array().filter(|a|!a.is_empty()).ok_or(Error::Corrupt)?;
-                    let mut previous=None;
-                    for row in rows {let current=sha(row)?;if previous.is_some_and(|p|p>=current){return Err(Error::Corrupt);}previous=Some(current);}
+            Some(1) => {
+                exact(
+                    &v,
+                    &[
+                        "schema_version",
+                        "strategy_fingerprint",
+                        "candidate_fingerprint",
+                        "research_result_fingerprint",
+                        "research_execution_evidence_fingerprints",
+                        "admission_evidence_fingerprint",
+                        "equivalence_evidence_fingerprints",
+                        "relation_fingerprint",
+                    ],
+                )?;
+                for key in [
+                    "strategy_fingerprint",
+                    "candidate_fingerprint",
+                    "research_result_fingerprint",
+                    "admission_evidence_fingerprint",
+                    "relation_fingerprint",
+                ] {
+                    sha(&v[key])?;
                 }
-            },
-            Some(2)=>{
-                exact(&v,&["schema_version","strategy_fingerprint","origin","relation_fingerprint"])?;
-                sha(&v["strategy_fingerprint"])?;sha(&v["relation_fingerprint"])?;
-                let origin=&v["origin"];
-                exact(origin,&["kind","preparation_command_id","strategy_validation_fingerprint","private_strategy_id","private_strategy_revision_fingerprint"])?;
-                if origin["kind"]!="MANUAL_BACKTEST" || origin["preparation_command_id"].as_str().is_none_or(|s|!crate::application::command::uuid4(s)){return Err(Error::Corrupt);}
-                sha(&origin["strategy_validation_fingerprint"])?;sha(&origin["private_strategy_revision_fingerprint"])?;
-                let id=crate::application::private_strategy::name(&origin["private_strategy_id"]).map_err(|_|Error::Corrupt)?;
-                crate::application::private_assets::id(id,"STRATEGY").map_err(|_|Error::Corrupt)?;
-            },
-            _=>return Err(Error::Corrupt),
+                for key in [
+                    "research_execution_evidence_fingerprints",
+                    "equivalence_evidence_fingerprints",
+                ] {
+                    let rows = v[key]
+                        .as_array()
+                        .filter(|a| !a.is_empty())
+                        .ok_or(Error::Corrupt)?;
+                    let mut previous = None;
+                    for row in rows {
+                        let current = sha(row)?;
+                        if previous.is_some_and(|p| p >= current) {
+                            return Err(Error::Corrupt);
+                        }
+                        previous = Some(current);
+                    }
+                }
+            }
+            Some(2) => {
+                exact(
+                    &v,
+                    &[
+                        "schema_version",
+                        "strategy_fingerprint",
+                        "origin",
+                        "relation_fingerprint",
+                    ],
+                )?;
+                sha(&v["strategy_fingerprint"])?;
+                sha(&v["relation_fingerprint"])?;
+                let origin = &v["origin"];
+                exact(
+                    origin,
+                    &[
+                        "kind",
+                        "preparation_command_id",
+                        "strategy_validation_fingerprint",
+                        "private_strategy_id",
+                        "private_strategy_revision_fingerprint",
+                    ],
+                )?;
+                if origin["kind"] != "MANUAL_BACKTEST"
+                    || origin["preparation_command_id"]
+                        .as_str()
+                        .is_none_or(|s| !crate::application::command::uuid4(s))
+                {
+                    return Err(Error::Corrupt);
+                }
+                sha(&origin["strategy_validation_fingerprint"])?;
+                sha(&origin["private_strategy_revision_fingerprint"])?;
+                let id = crate::application::private_strategy::name(&origin["private_strategy_id"])
+                    .map_err(|_| Error::Corrupt)?;
+                crate::application::private_assets::id(id, "STRATEGY")
+                    .map_err(|_| Error::Corrupt)?;
+            }
+            _ => return Err(Error::Corrupt),
         }
         let mut semantic = v.clone();
         let m = semantic.as_object_mut().ok_or(Error::Corrupt)?;
@@ -188,11 +246,23 @@ impl FrozenStore {
             .ok_or(Error::Missing)
     }
     /// Bounded immutable history for a Product read; no publication capability.
-    pub(crate) fn relations_verified(&self,subject:&str,max_work:usize)->Result<Vec<FreezeRelation>,Error> {
-        if !is_sha256_hex(subject){return Err(Error::Corrupt);}
-        let inventory=self.read_all(max_work)?;
-        if !inventory.revisions.contains_key(subject){return Err(Error::Missing);}
-        Ok(inventory.relations.into_values().filter(|r|r.strategy_fingerprint()==subject).collect())
+    pub(crate) fn relations_verified(
+        &self,
+        subject: &str,
+        max_work: usize,
+    ) -> Result<Vec<FreezeRelation>, Error> {
+        if !is_sha256_hex(subject) {
+            return Err(Error::Corrupt);
+        }
+        let inventory = self.read_all(max_work)?;
+        if !inventory.revisions.contains_key(subject) {
+            return Err(Error::Missing);
+        }
+        Ok(inventory
+            .relations
+            .into_values()
+            .filter(|r| r.strategy_fingerprint() == subject)
+            .collect())
     }
     pub(crate) fn namespace(
         &self,
@@ -412,19 +482,59 @@ mod freeze_publication_tests {
     #[test]
     fn exact_reads_budget_both_immutable_trees_without_raising_document_caps() {
         use std::os::fd::AsFd;
-        let root=CutRoot::new();
-        let fixture:Value=serde_json::from_str(include_str!("../../tests/application/fixtures/frozen_strategy.json")).unwrap();
-        let strategy=fixture["source"]["strategy_fingerprint"].as_str().unwrap();
-        let relation=fixture["relation"]["relation_fingerprint"].as_str().unwrap();
-        for (tree,id,value) in [("frozen-revisions",strategy,&fixture["manifest"]),("freeze-relations",relation,&fixture["relation"])] {
-            let path=root.0.join("strategy").join(tree).join("sha256").join(&id[..2]).join(id);
-            std::fs::create_dir_all(&path).unwrap();std::fs::write(path.join("manifest.json"),serde_json::to_vec(value).unwrap()).unwrap();
+        let root = CutRoot::new();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../tests/application/fixtures/frozen_strategy.json"
+        ))
+        .unwrap();
+        let strategy = fixture["source"]["strategy_fingerprint"].as_str().unwrap();
+        let relation = fixture["relation"]["relation_fingerprint"]
+            .as_str()
+            .unwrap();
+        for (tree, id, value) in [
+            ("frozen-revisions", strategy, &fixture["manifest"]),
+            ("freeze-relations", relation, &fixture["relation"]),
+        ] {
+            let path = root
+                .0
+                .join("strategy")
+                .join(tree)
+                .join("sha256")
+                .join(&id[..2])
+                .join(id);
+            std::fs::create_dir_all(&path).unwrap();
+            std::fs::write(
+                path.join("manifest.json"),
+                serde_json::to_vec(value).unwrap(),
+            )
+            .unwrap();
         }
-        let descriptor=protected_files::open_directory(&root.0).unwrap();let store=FrozenStore::open(descriptor.as_fd()).unwrap();
-        assert_eq!(store.load_verified(strategy,DOCUMENT_WORK).unwrap_err(),Error::Unavailable);
-        assert_eq!(store.load_relation_verified(relation,DOCUMENT_WORK).unwrap_err(),Error::Unavailable);
-        assert_eq!(store.load_verified(strategy,64*1024*1024).unwrap().to_record(),fixture["source"]);
-        assert_eq!(store.load_relation_verified(relation,64*1024*1024).unwrap().to_record(),fixture["relation"]);
+        let descriptor = protected_files::open_directory(&root.0).unwrap();
+        let store = FrozenStore::open(descriptor.as_fd()).unwrap();
+        assert_eq!(
+            store.load_verified(strategy, DOCUMENT_WORK).unwrap_err(),
+            Error::Unavailable
+        );
+        assert_eq!(
+            store
+                .load_relation_verified(relation, DOCUMENT_WORK)
+                .unwrap_err(),
+            Error::Unavailable
+        );
+        assert_eq!(
+            store
+                .load_verified(strategy, 64 * 1024 * 1024)
+                .unwrap()
+                .to_record(),
+            fixture["source"]
+        );
+        assert_eq!(
+            store
+                .load_relation_verified(relation, 64 * 1024 * 1024)
+                .unwrap()
+                .to_record(),
+            fixture["relation"]
+        );
     }
     #[test]
     fn substituted_evidence_cut_cannot_derive_a_publication_plan() {
@@ -447,7 +557,7 @@ mod freeze_publication_tests {
 
 /// A publication plan borrows its owning evidence cut through the durable handoff.
 /// SourceRevision parsing alone is deliberately insufficient to create this value.
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
 enum PlanEvidence<'a> {
     Research(&'a crate::persistence::research_evidence::VerifiedStrategyResearch),
     Manual(&'a crate::persistence::strategy_validation::VerifiedValidation),
@@ -479,7 +589,10 @@ impl<'evidence> FrozenPlan<'evidence> {
         semantic["domain"] = json!("onlyalpha.strategy.freeze-relation");
         record["relation_fingerprint"] = json!(record_fingerprint(&semantic));
         let relation = FreezeRelation::from_json(&record.to_string(), DOCUMENT_WORK)?;
-        let plan = Self { evidence:PlanEvidence::Research(evidence), relation };
+        let plan = Self {
+            evidence: PlanEvidence::Research(evidence),
+            relation,
+        };
         if serde_json::to_vec(&plan.manifest())
             .map_err(|_| Error::Corrupt)?
             .len()
@@ -489,27 +602,52 @@ impl<'evidence> FrozenPlan<'evidence> {
         }
         Ok(plan)
     }
-    pub(crate) fn from_validation(evidence:&'evidence crate::persistence::strategy_validation::VerifiedValidation)->Result<Self,Error> {
-        evidence.verify_cut().map_err(|_|Error::Authority)?;
-        let mut record=json!({"schema_version":2,"strategy_fingerprint":evidence.source_revision().fingerprint(),
+    pub(crate) fn from_validation(
+        evidence: &'evidence crate::persistence::strategy_validation::VerifiedValidation,
+    ) -> Result<Self, Error> {
+        evidence.verify_cut().map_err(|_| Error::Authority)?;
+        let mut record = json!({"schema_version":2,"strategy_fingerprint":evidence.source_revision().fingerprint(),
             "origin":{"kind":"MANUAL_BACKTEST","preparation_command_id":evidence.preparation_command_id(),
                 "strategy_validation_fingerprint":evidence.fingerprint(),"private_strategy_id":evidence.private_strategy_id(),
                 "private_strategy_revision_fingerprint":evidence.private_strategy_revision_fingerprint()}});
-        let mut semantic=record.clone();semantic["domain"]=json!("onlyalpha.strategy.freeze-relation");
-        record["relation_fingerprint"]=json!(record_fingerprint(&semantic));
-        let relation=FreezeRelation::from_json(&record.to_string(),DOCUMENT_WORK)?;
-        let plan=Self{evidence:PlanEvidence::Manual(evidence),relation};
-        if serde_json::to_vec(&plan.manifest()).map_err(|_|Error::Corrupt)?.len()>DOCUMENT_WORK{return Err(Error::Unavailable);}
+        let mut semantic = record.clone();
+        semantic["domain"] = json!("onlyalpha.strategy.freeze-relation");
+        record["relation_fingerprint"] = json!(record_fingerprint(&semantic));
+        let relation = FreezeRelation::from_json(&record.to_string(), DOCUMENT_WORK)?;
+        let plan = Self {
+            evidence: PlanEvidence::Manual(evidence),
+            relation,
+        };
+        if serde_json::to_vec(&plan.manifest())
+            .map_err(|_| Error::Corrupt)?
+            .len()
+            > DOCUMENT_WORK
+        {
+            return Err(Error::Unavailable);
+        }
         Ok(plan)
     }
-    pub(crate) fn research_evidence(&self)->Option<&'evidence crate::persistence::research_evidence::VerifiedStrategyResearch> {
-        match self.evidence {PlanEvidence::Research(v)=>Some(v),PlanEvidence::Manual(_)=>None}
+    pub(crate) fn research_evidence(
+        &self,
+    ) -> Option<&'evidence crate::persistence::research_evidence::VerifiedStrategyResearch> {
+        match self.evidence {
+            PlanEvidence::Research(v) => Some(v),
+            PlanEvidence::Manual(_) => None,
+        }
     }
-    pub(crate) fn manual_evidence(&self)->Option<&'evidence crate::persistence::strategy_validation::VerifiedValidation> {
-        match self.evidence {PlanEvidence::Manual(v)=>Some(v),PlanEvidence::Research(_)=>None}
+    pub(crate) fn manual_evidence(
+        &self,
+    ) -> Option<&'evidence crate::persistence::strategy_validation::VerifiedValidation> {
+        match self.evidence {
+            PlanEvidence::Manual(v) => Some(v),
+            PlanEvidence::Research(_) => None,
+        }
     }
     pub(crate) fn revision(&self) -> &SourceRevision {
-        match self.evidence {PlanEvidence::Research(v)=>v.source_revision(),PlanEvidence::Manual(v)=>v.source_revision()}
+        match self.evidence {
+            PlanEvidence::Research(v) => v.source_revision(),
+            PlanEvidence::Manual(v) => v.source_revision(),
+        }
     }
     pub(crate) fn relation(&self) -> &FreezeRelation {
         &self.relation
@@ -518,7 +656,11 @@ impl<'evidence> FrozenPlan<'evidence> {
         json!({"schema_version":1,"strategy_fingerprint":self.revision().fingerprint(),"revision":self.revision().to_record()})
     }
     pub(crate) fn verify_cut(&self) -> Result<(), Error> {
-        match self.evidence {PlanEvidence::Research(v)=>v.verify_cut(),PlanEvidence::Manual(v)=>v.verify_cut()}.map_err(|_|Error::Authority)
+        match self.evidence {
+            PlanEvidence::Research(v) => v.verify_cut(),
+            PlanEvidence::Manual(v) => v.verify_cut(),
+        }
+        .map_err(|_| Error::Authority)
     }
 }
 impl FrozenStore {
@@ -610,34 +752,66 @@ impl FrozenStore {
 #[cfg(test)]
 mod manual_relation_tests {
     use super::*;
-    fn relation()->Value {json!({"schema_version":2,"strategy_fingerprint":"a".repeat(64),
+    fn relation() -> Value {
+        json!({"schema_version":2,"strategy_fingerprint":"a".repeat(64),
         "origin":{"kind":"MANUAL_BACKTEST","preparation_command_id":"00000000-0000-4000-8000-000000008881",
             "strategy_validation_fingerprint":"b".repeat(64),"private_strategy_id":"private.strategy.btc_momentum",
             "private_strategy_revision_fingerprint":"c".repeat(64)},
-        "relation_fingerprint":"b1c4d481c5e43e25debbaec6eec94e26e317f9acef4787780d011e120af6f81a"})}
-    fn resign(value:&mut Value){let mut identity=value.clone();identity.as_object_mut().unwrap().remove("relation_fingerprint");identity["domain"]=json!("onlyalpha.strategy.freeze-relation");value["relation_fingerprint"]=json!(record_fingerprint(&identity));}
+        "relation_fingerprint":"b1c4d481c5e43e25debbaec6eec94e26e317f9acef4787780d011e120af6f81a"})
+    }
+    fn resign(value: &mut Value) {
+        let mut identity = value.clone();
+        identity
+            .as_object_mut()
+            .unwrap()
+            .remove("relation_fingerprint");
+        identity["domain"] = json!("onlyalpha.strategy.freeze-relation");
+        value["relation_fingerprint"] = json!(record_fingerprint(&identity));
+    }
     #[test]
     fn manual_relation_binds_the_original_validation_without_fabricated_research() {
-        let raw=relation();let parsed=FreezeRelation::from_json(&raw.to_string(),64*1024*1024).unwrap();
-        assert_eq!(parsed.fingerprint(),"b1c4d481c5e43e25debbaec6eec94e26e317f9acef4787780d011e120af6f81a");
-        assert_eq!(parsed.to_record(),raw);
-        let mut another=raw.clone();another["origin"]["preparation_command_id"]=json!("00000000-0000-4000-8000-000000008882");resign(&mut another);
-        assert_ne!(FreezeRelation::from_json(&another.to_string(),64*1024*1024).unwrap().fingerprint(),parsed.fingerprint());
+        let raw = relation();
+        let parsed = FreezeRelation::from_json(&raw.to_string(), 64 * 1024 * 1024).unwrap();
+        assert_eq!(
+            parsed.fingerprint(),
+            "b1c4d481c5e43e25debbaec6eec94e26e317f9acef4787780d011e120af6f81a"
+        );
+        assert_eq!(parsed.to_record(), raw);
+        let mut another = raw.clone();
+        another["origin"]["preparation_command_id"] = json!("00000000-0000-4000-8000-000000008882");
+        resign(&mut another);
+        assert_ne!(
+            FreezeRelation::from_json(&another.to_string(), 64 * 1024 * 1024)
+                .unwrap()
+                .fingerprint(),
+            parsed.fingerprint()
+        );
         assert!(raw.get("research_result_fingerprint").is_none());
     }
     #[test]
     fn rehashed_manual_relation_rejects_wrong_identity_or_origin_fields() {
         for index in 0..8 {
-            let mut raw=relation();match index {
-                0=>raw["origin"]["kind"]=json!("RESEARCH"),
-                1=>raw["origin"]["preparation_command_id"]=json!("b".repeat(64)),
-                2=>raw["origin"]["private_strategy_id"]=json!("private.factor.btc_momentum"),
-                3=>raw["origin"]["strategy_validation_fingerprint"]=json!("latest"),
-                4=>raw["origin"]["private_strategy_revision_fingerprint"]=json!("latest"),
-                5=>raw["research_result_fingerprint"]=json!("d".repeat(64)),
-                6=>raw["origin"]["approved"]=json!(true),
-                _=>{raw["origin"].as_object_mut().unwrap().remove("private_strategy_id");},
-            }resign(&mut raw);assert!(FreezeRelation::from_json(&raw.to_string(),64*1024*1024).is_err(),"mutation {index}");
+            let mut raw = relation();
+            match index {
+                0 => raw["origin"]["kind"] = json!("RESEARCH"),
+                1 => raw["origin"]["preparation_command_id"] = json!("b".repeat(64)),
+                2 => raw["origin"]["private_strategy_id"] = json!("private.factor.btc_momentum"),
+                3 => raw["origin"]["strategy_validation_fingerprint"] = json!("latest"),
+                4 => raw["origin"]["private_strategy_revision_fingerprint"] = json!("latest"),
+                5 => raw["research_result_fingerprint"] = json!("d".repeat(64)),
+                6 => raw["origin"]["approved"] = json!(true),
+                _ => {
+                    raw["origin"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("private_strategy_id");
+                }
+            }
+            resign(&mut raw);
+            assert!(
+                FreezeRelation::from_json(&raw.to_string(), 64 * 1024 * 1024).is_err(),
+                "mutation {index}"
+            );
         }
     }
 }
@@ -646,70 +820,182 @@ mod manual_relation_tests {
 /// its exact immutable Frozen relation and the first stored Strategy encoding.
 /// Parsing a SourceRevision, relation JSON or an APPROVED DTO grants no proof.
 pub(crate) struct VerifiedManualBacktestEvidence {
-    validation:std::sync::Arc<crate::persistence::strategy_validation::VerifiedValidation>,
-    source:SourceRevision,relation:FreezeRelation,frozen:FrozenStore,
-    namespace:crate::bootstrap::deployment::SemanticStoreId,
-    files:Vec<crate::persistence::research_evidence::strategy::physical::Witness>,
+    validation: std::sync::Arc<crate::persistence::strategy_validation::VerifiedValidation>,
+    source: SourceRevision,
+    relation: FreezeRelation,
+    frozen: FrozenStore,
+    namespace: crate::bootstrap::deployment::SemanticStoreId,
+    files: Vec<crate::persistence::research_evidence::strategy::physical::Witness>,
 }
 impl VerifiedManualBacktestEvidence {
-    pub(crate) fn validation(&self)->&std::sync::Arc<crate::persistence::strategy_validation::VerifiedValidation> {&self.validation}
-    pub(crate) fn validated_calculations(&self)->std::result::Result<&Value,&'static str> {
-        self.verify_cut()?;Ok(&self.validation.record()["prepared_inputs"])
+    pub(crate) fn validation(
+        &self,
+    ) -> &std::sync::Arc<crate::persistence::strategy_validation::VerifiedValidation> {
+        &self.validation
     }
-    pub(crate) fn subject_strategy_fingerprint(&self)->&str {self.source.fingerprint()}
-    pub(crate) fn validation_fingerprint(&self)->&str {self.validation.fingerprint()}
-    pub(crate) fn freeze_relation_fingerprint(&self)->&str {self.relation.fingerprint()}
-    pub(crate) fn preparation_command_id(&self)->&str {self.validation.preparation_command_id()}
-    pub(crate) fn source_locks(&self)->Vec<std::sync::Arc<crate::security::immutable_json::SourceLock>> {self.validation.source_locks()}
-    pub(crate) fn verify_cut(&self)->std::result::Result<(),&'static str> {
+    pub(crate) fn validated_calculations(&self) -> std::result::Result<&Value, &'static str> {
+        self.verify_cut()?;
+        Ok(&self.validation.record()["prepared_inputs"])
+    }
+    pub(crate) fn subject_strategy_fingerprint(&self) -> &str {
+        self.source.fingerprint()
+    }
+    pub(crate) fn validation_fingerprint(&self) -> &str {
+        self.validation.fingerprint()
+    }
+    pub(crate) fn freeze_relation_fingerprint(&self) -> &str {
+        self.relation.fingerprint()
+    }
+    pub(crate) fn preparation_command_id(&self) -> &str {
+        self.validation.preparation_command_id()
+    }
+    pub(crate) fn source_locks(
+        &self,
+    ) -> Vec<std::sync::Arc<crate::security::immutable_json::SourceLock>> {
+        self.validation.source_locks()
+    }
+    pub(crate) fn verify_cut(&self) -> std::result::Result<(), &'static str> {
         self.validation.verify_cut()?;
-        if self.files.is_empty()||self.frozen.namespace().map_err(|e|e.code())?!=self.namespace{return Err("STRATEGY_CORRUPT");}
-        for witness in &self.files {witness.verify()?;}
+        if self.files.is_empty() || self.frozen.namespace().map_err(|e| e.code())? != self.namespace
+        {
+            return Err("STRATEGY_CORRUPT");
+        }
+        for witness in &self.files {
+            witness.verify()?;
+        }
         self.validation.verify_cut()
     }
-    pub(crate) async fn require_running_parent_in_transaction(&self,tx:&tokio_postgres::Transaction<'_>,namespace:&crate::bootstrap::deployment::SemanticStoreId,actor:&str)->std::result::Result<(),&'static str> {
-        if namespace!=&self.namespace{return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");}
+    pub(crate) async fn require_running_parent_in_transaction(
+        &self,
+        tx: &tokio_postgres::Transaction<'_>,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        actor: &str,
+    ) -> std::result::Result<(), &'static str> {
+        if namespace != &self.namespace {
+            return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");
+        }
         self.verify_cut()?;
-        crate::persistence::research_preparation::require_running_manual_backtest_parent(tx,namespace,&self.validation,actor).await?;
+        crate::persistence::research_preparation::require_running_manual_backtest_parent(
+            tx,
+            namespace,
+            &self.validation,
+            actor,
+        )
+        .await?;
         self.verify_cut()
     }
-    pub(crate) async fn verify_in_transaction(&self,tx:&tokio_postgres::Transaction<'_>,namespace:&crate::bootstrap::deployment::SemanticStoreId)->std::result::Result<(),&'static str> {
-        if namespace!=&self.namespace{return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");}
-        self.verify_cut()?;self.validation.verify_in_transaction(tx,namespace).await?;self.verify_cut()
+    pub(crate) async fn verify_in_transaction(
+        &self,
+        tx: &tokio_postgres::Transaction<'_>,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    ) -> std::result::Result<(), &'static str> {
+        if namespace != &self.namespace {
+            return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");
+        }
+        self.verify_cut()?;
+        self.validation.verify_in_transaction(tx, namespace).await?;
+        self.verify_cut()
     }
 }
 impl FrozenStore {
     /// The Validation reader already retains its exact publication barriers.
     /// No additional lock is acquired, including while Source owns an EX cut.
-    pub(crate) fn read_verified_manual(&self,validation:std::sync::Arc<crate::persistence::strategy_validation::VerifiedValidation>,relation_id:&str,max_work:usize)->Result<VerifiedManualBacktestEvidence,Error> {
-        use crate::{persistence::research_evidence::strategy::physical::{document,exact_files},security::immutable_json::Directory};
-        use std::{os::fd::AsFd,path::Path};
-        validation.verify_cut().map_err(|_|Error::Authority)?;
-        let plan=FrozenPlan::from_validation(&validation)?;
-        if plan.relation().fingerprint()!=relation_id{return Err(Error::Corrupt);}
-        let source=self.load_verified(plan.revision().fingerprint(),max_work)?;
-        let relation=self.load_relation_verified(relation_id,max_work)?;
-        if relation!=*plan.relation(){return Err(Error::Corrupt);}
-        let namespace=self.namespace().map_err(|_|Error::Authority)?;
-        if validation.record()["prepared_inputs"]["semantic_store_id"]!=namespace.value(){return Err(Error::Authority);}
-        let locks=validation.source_locks();
-        let owner=locks.iter().find(|lock|lock.directory.path.ends_with(Path::new("backtest/strategy-validation"))).ok_or(Error::Authority)?;
-        let path=owner.directory.path.parent().and_then(Path::parent).ok_or(Error::Corrupt)?.to_path_buf();
+    pub(crate) fn read_verified_manual(
+        &self,
+        validation: std::sync::Arc<crate::persistence::strategy_validation::VerifiedValidation>,
+        relation_id: &str,
+        max_work: usize,
+    ) -> Result<VerifiedManualBacktestEvidence, Error> {
+        use crate::{
+            persistence::research_evidence::strategy::physical::{document, exact_files},
+            security::immutable_json::Directory,
+        };
+        use std::{os::fd::AsFd, path::Path};
+        validation.verify_cut().map_err(|_| Error::Authority)?;
+        let plan = FrozenPlan::from_validation(&validation)?;
+        if plan.relation().fingerprint() != relation_id {
+            return Err(Error::Corrupt);
+        }
+        let source = self.load_verified(plan.revision().fingerprint(), max_work)?;
+        let relation = self.load_relation_verified(relation_id, max_work)?;
+        if relation != *plan.relation() {
+            return Err(Error::Corrupt);
+        }
+        let namespace = self.namespace().map_err(|_| Error::Authority)?;
+        if validation.record()["prepared_inputs"]["semantic_store_id"] != namespace.value() {
+            return Err(Error::Authority);
+        }
+        let locks = validation.source_locks();
+        let owner = locks
+            .iter()
+            .find(|lock| {
+                lock.directory
+                    .path
+                    .ends_with(Path::new("backtest/strategy-validation"))
+            })
+            .ok_or(Error::Authority)?;
+        let path = owner
+            .directory
+            .path
+            .parent()
+            .and_then(Path::parent)
+            .ok_or(Error::Corrupt)?
+            .to_path_buf();
         // Verify that the selected Frozen fd is the Validation's physical root,
         // rather than reopening another directory with the same namespace JSON.
-        let root=Directory{path,fd:protected_files::duplicate_directory(self.research.as_fd())?};
-        root.verify().map_err(|_|Error::Authority)?;
-        let mut files=Vec::new();
-        if document(&root,".onlyalpha-semantic-store.json",&mut files).map_err(|_|Error::Corrupt)?!=json!({"schema_version":1,"store_id":namespace.value()}){return Err(Error::Corrupt);}
-        let id=source.fingerprint();
-        let revision_root=root.path(&["strategy","frozen-revisions","sha256",&id[..2],id],false).map_err(|_|Error::Corrupt)?;
-        exact_files(&revision_root,&["manifest.json"]).map_err(|_|Error::Corrupt)?;
-        if document(&revision_root,"manifest.json",&mut files).map_err(|_|Error::Corrupt)?!=json!({"schema_version":1,"strategy_fingerprint":id,"revision":source.to_record()}){return Err(Error::Corrupt);}
-        let relation_root=root.path(&["strategy","freeze-relations","sha256",&relation_id[..2],relation_id],false).map_err(|_|Error::Corrupt)?;
-        exact_files(&relation_root,&["manifest.json"]).map_err(|_|Error::Corrupt)?;
-        if document(&relation_root,"manifest.json",&mut files).map_err(|_|Error::Corrupt)?!=relation.to_record(){return Err(Error::Corrupt);}
-        let frozen=FrozenStore::open(self.research.as_fd())?;
-        let proof=VerifiedManualBacktestEvidence{validation,source,relation,frozen,namespace,files};
-        proof.verify_cut().map_err(|_|Error::Authority)?;Ok(proof)
+        let root = Directory {
+            path,
+            fd: protected_files::duplicate_directory(self.research.as_fd())?,
+        };
+        root.verify().map_err(|_| Error::Authority)?;
+        let mut files = Vec::new();
+        if document(&root, ".onlyalpha-semantic-store.json", &mut files)
+            .map_err(|_| Error::Corrupt)?
+            != json!({"schema_version":1,"store_id":namespace.value()})
+        {
+            return Err(Error::Corrupt);
+        }
+        let id = source.fingerprint();
+        let revision_root = root
+            .path(
+                &["strategy", "frozen-revisions", "sha256", &id[..2], id],
+                false,
+            )
+            .map_err(|_| Error::Corrupt)?;
+        exact_files(&revision_root, &["manifest.json"]).map_err(|_| Error::Corrupt)?;
+        if document(&revision_root, "manifest.json", &mut files).map_err(|_| Error::Corrupt)?
+            != json!({"schema_version":1,"strategy_fingerprint":id,"revision":source.to_record()})
+        {
+            return Err(Error::Corrupt);
+        }
+        let relation_root = root
+            .path(
+                &[
+                    "strategy",
+                    "freeze-relations",
+                    "sha256",
+                    &relation_id[..2],
+                    relation_id,
+                ],
+                false,
+            )
+            .map_err(|_| Error::Corrupt)?;
+        exact_files(&relation_root, &["manifest.json"]).map_err(|_| Error::Corrupt)?;
+        if document(&relation_root, "manifest.json", &mut files).map_err(|_| Error::Corrupt)?
+            != relation.to_record()
+        {
+            return Err(Error::Corrupt);
+        }
+        let frozen = FrozenStore::open(self.research.as_fd())?;
+        let proof = VerifiedManualBacktestEvidence {
+            validation,
+            source,
+            relation,
+            frozen,
+            namespace,
+            files,
+        };
+        proof.verify_cut().map_err(|_| Error::Authority)?;
+        Ok(proof)
     }
 }

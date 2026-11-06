@@ -127,6 +127,8 @@ def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict
         CARGO_NET_OFFLINE="true",
         RUSTUP_AUTO_INSTALL="0",
         CARGO_BUILD_JOBS="1",
+        CARGO_PROFILE_DEV_DEBUG="0",
+        CARGO_PROFILE_TEST_DEBUG="0",
         CARGO_TARGET_DIR=str(target_dir),
     )
     return env
@@ -209,6 +211,7 @@ BROKER_DEPENDENCIES = {name: config for name, config in ACCOUNT_DEPENDENCIES.ite
 
 
 EXECUTION_DEPENDENCIES = {
+    "serde": {"version": "=1.0.229", "default-features": False, "features": ["std"]},
     **{name: config for name, config in ACCOUNT_DEPENDENCIES.items() if name != "num-bigint"},
     **{
         "onlyalpha-" + name.replace("_", "-"): {"path": "../" + name.replace("_", "-")}
@@ -301,6 +304,17 @@ BINANCE_DEPENDENCIES = {
     "tokio-tungstenite": {"default-features": False, "features": ["connect", "__rustls-tls"], "version": "=0.30.0"},
 }
 BINANCE_TEST_DEPENDENCIES: dict[str, object] = {}
+CN_ASHARE_MARKET_DEPENDENCIES = {
+    "onlyalpha-domain": {"path": "../../crates/domain"},
+    "onlyalpha-fee": {"path": "../../crates/fee"},
+    "onlyalpha-settlement": {"path": "../../crates/settlement"},
+    "bigdecimal": {"default-features": False, "features": ["std"], "version": "=0.4.11"},
+    "serde_json": {"default-features": False, "features": ["std", "arbitrary_precision"], "version": "=1.0.154"},
+}
+CN_ASHARE_MARKET_TEST_DEPENDENCIES = {
+    "sha2": {"default-features": False, "version": "=0.11.1"},
+}
+
 CRYPTO_MARKET_DEPENDENCIES = {
     "bigdecimal": BINANCE_DEPENDENCIES["bigdecimal"],
     "onlyalpha-domain": BINANCE_DEPENDENCIES["onlyalpha-domain"],
@@ -393,6 +407,7 @@ def validate_workspace(root: Path) -> None:
     modules = {
         "onlyalpha-data-source-binance": "plugs/onlyalpha-data-source-binance",
         "onlyalpha-market-crypto": "plugs/onlyalpha-market-crypto",
+        "onlyalpha-market-cn-ashare": "plugs/onlyalpha-market-cn-ashare",
         "onlyalpha-data-source-tushare": "plugs/onlyalpha-data-source-tushare",
         "onlyalpha-domain": "crates/domain",
         "onlyalpha-calculation": "crates/calculation",
@@ -439,6 +454,7 @@ def validate_workspace(root: Path) -> None:
     for name, dependencies, test_dependencies in (
         ("onlyalpha-data-source-binance", BINANCE_DEPENDENCIES, BINANCE_TEST_DEPENDENCIES),
         ("onlyalpha-market-crypto", CRYPTO_MARKET_DEPENDENCIES, {}),
+        ("onlyalpha-market-cn-ashare", CN_ASHARE_MARKET_DEPENDENCIES, CN_ASHARE_MARKET_TEST_DEPENDENCIES),
         ("onlyalpha-data-source-tushare", SOURCE_AUTHORING_DEPENDENCIES, {}),
         ("onlyalpha-metadata-json", METADATA_JSON_DEPENDENCIES, {}),
         ("onlyalpha-integration-contract", INTEGRATION_CONTRACT_DEPENDENCIES, {}),
@@ -648,6 +664,18 @@ def validate_workspace(root: Path) -> None:
                             (BINANCE_DEPENDENCIES if kind == "dependencies" else BINANCE_TEST_DEPENDENCIES)
                             if name == "onlyalpha-data-source-binance"
                             else (SOURCE_AUTHORING_DEPENDENCIES if kind == "dependencies" else {})
+                        ).get(alias)
+                    )
+                    admitted = admitted or (
+                        name == "onlyalpha-market-cn-ashare"
+                        and section is manifest
+                        and kind in {"dependencies", "dev-dependencies"}
+                        and alias == dependency
+                        and config
+                        == (
+                            CN_ASHARE_MARKET_DEPENDENCIES
+                            if kind == "dependencies"
+                            else CN_ASHARE_MARKET_TEST_DEPENDENCIES
                         ).get(alias)
                     )
                     admitted = admitted or (
@@ -1118,6 +1146,7 @@ def validate_calculation_sources(root: Path) -> None:
 # Exact compile-time resources, owned by their consuming source. These paths are
 # also materialized in isolated builds and covered by source_inputs hashing.
 _EXECUTION_SOURCE_TESTS = (
+    "reconciliation_data_tests.rs",
     "components_cow_tests.rs",
     "payload_codec_tests.rs",
     "position_order_view_tests.rs",
@@ -1130,6 +1159,13 @@ _EXECUTION_SOURCE_TESTS = (
     "valuation_ledger_view_tests.rs",
 )
 _INFRASTRUCTURE_RESOURCES = {
+    "crates/runtime/src/dictionary_commit_tests.rs": {
+        "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "plugs/onlyalpha-market-cn-ashare/src/fees.rs": {
+        "fee_sources.json": "plugs/onlyalpha-market-cn-ashare/src/fee_sources.json",
+    },
     "crates/order/src/recovery.rs": {
         "../../../test-data/order/domain-inputs.json": "test-data/order/domain-inputs.json",
     },
@@ -1159,6 +1195,10 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
     "crates/runtime/tests/support/replay_codec_work.rs": {
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "crates/runtime/tests/support/binding_codec.rs": {
         "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
         "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
@@ -1240,6 +1280,15 @@ _INFRASTRUCTURE_RESOURCES = {
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    "packages/backend/src/bootstrap/workstation_startup.rs": {
+        "../../tests/transport/backtest_recovery_startup.rs": "packages/backend/tests/transport/backtest_recovery_startup.rs",
+    },
+    "packages/backend/tests/transport/backtest_preparation_window.rs": {
+        "backtest_owner_scenarios.rs": "packages/backend/tests/transport/backtest_owner_scenarios.rs",
+    },
+    "crates/runtime/src/dictionary_commit_tests.rs": {
+        "../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
+    },
     "crates/operators/src/algebra.rs": {
         "algebra_tests.rs": "crates/operators/src/algebra_tests.rs",
     },
@@ -1262,6 +1311,12 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
         "typed_after_tests.rs": "crates/execution/src/typed_after_tests.rs",
         "record_observation_tests.rs": "crates/execution/src/record_observation_tests.rs",
         "pure_transition_data_tests.rs": "crates/execution/src/pure_transition_data_tests.rs",
+    },
+    "crates/execution/src/reconciliation.rs": {
+        "reconciliation_data_tests.rs": "crates/execution/src/reconciliation_data_tests.rs",
+    },
+    "crates/execution/src/canonical_roundtrip.rs": {
+        "canonical_roundtrip_tests.rs": "crates/execution/src/canonical_roundtrip_tests.rs",
     },
     "crates/execution/src/valuation.rs": {
         "valuation_history_tests.rs": "crates/execution/src/valuation_history_tests.rs",
@@ -1290,6 +1345,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
     "crates/runtime/src/dictionary_codec.rs": {
         "dictionary_codec_tests.rs": "crates/runtime/src/dictionary_codec_tests.rs",
+        "dictionary_commit_tests.rs": "crates/runtime/src/dictionary_commit_tests.rs",
     },
     "packages/backend/src/persistence/research_evidence/strategy.rs": {
         "columnar.rs": "packages/backend/src/persistence/research_evidence/columnar.rs",
@@ -1344,6 +1400,10 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
     "crates/runtime/src/replay.rs": {
         "../tests/support/replay_codec_work.rs": "crates/runtime/tests/support/replay_codec_work.rs",
+        "../tests/support/binding_codec.rs": "crates/runtime/tests/support/binding_codec.rs",
+    },
+    "crates/runtime/tests/support/binding_codec.rs": {
+        "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
     },
     "crates/runtime/src/store.rs": {
         "checkpoint_data.rs": "crates/runtime/src/checkpoint_data.rs",
@@ -1363,6 +1423,8 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
 }
 _CARGO_VERSION_SOURCES = {
+    "packages/backend/tests/transport/backtest_owner_scenarios.rs",
+    "packages/backend/tests/application/support/postgres_probe.rs",
     "packages/backend/src/application/chart/native_indicators.rs",
     "packages/backend/tests/application/support/backtest_worker_assertions.rs",
     "packages/backend/src/persistence/backtest_evidence/store.rs",
@@ -1472,7 +1534,12 @@ def validate_infrastructure_sources(root: Path) -> None:
             ):
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
-    for component in ("onlyalpha-data-source-binance", "onlyalpha-data-source-tushare", "onlyalpha-market-crypto"):
+    for component in (
+        "onlyalpha-data-source-binance",
+        "onlyalpha-data-source-tushare",
+        "onlyalpha-market-crypto",
+        "onlyalpha-market-cn-ashare",
+    ):
         area = root / "plugs" / component
         manifest = tomllib.loads((area / "Cargo.toml").read_text())
         if (

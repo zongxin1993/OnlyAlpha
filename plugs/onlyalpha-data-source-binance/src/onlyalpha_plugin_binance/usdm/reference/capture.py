@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 
+from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha_market_crypto.derivatives import (
     OnlyBinanceUsdmAccountReferenceAuthority,
     OnlyBinanceUsdmPublicReferenceAuthority,
 )
 
-from onlyalpha.identity import only_identity_fingerprint
 from onlyalpha_plugin_binance.usdm.reference.normalize import only_normalize_binance_usdm_references
 
 

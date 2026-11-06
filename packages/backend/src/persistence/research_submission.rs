@@ -523,15 +523,20 @@ pub(crate) async fn load_in_transaction(
     owner: Option<&str>,
 ) -> Result<VerifiedRun> {
     CommandId::new(id).map_err(db)?;
+    let document_limit: i64 = 8 * 1024 * 1024;
     let row = tx
         .query_opt(
-            "SELECT row_to_json(r)::text FROM research_run r WHERE run_id=$1::text::uuid",
-            &[&id],
+            // One statement gives both documents the same MVCC snapshot. A
+            // legal concurrent state change cannot mix the old row/new history.
+            "SELECT CASE WHEN pg_catalog.octet_length(pg_catalog.row_to_json(r)::pg_catalog.text) OPERATOR(pg_catalog.<=) $2::pg_catalog.int8 THEN pg_catalog.row_to_json(r)::pg_catalog.text ELSE NULL END,CASE WHEN pg_catalog.octet_length(h.source_row::pg_catalog.text) OPERATOR(pg_catalog.<=) $2::pg_catalog.int8 THEN h.source_row::pg_catalog.text ELSE NULL END FROM public.research_run r LEFT JOIN LATERAL (SELECT source_row FROM public.research_source_history WHERE source_family OPERATOR(pg_catalog.=) 'RESEARCH_RUN'::pg_catalog.text AND native_locator OPERATOR(pg_catalog.=) r.run_id::pg_catalog.text ORDER BY event_index DESC LIMIT 1) h ON TRUE WHERE r.run_id OPERATOR(pg_catalog.=) $1::pg_catalog.text::pg_catalog.uuid",
+            &[&id, &document_limit],
         )
         .await
         .map_err(db)?
         .ok_or("RESEARCH_RUN_NOT_FOUND")?;
-    let raw: String = row.try_get(0).map_err(db)?;
+    let raw: Option<String> = row.try_get(0).map_err(db)?;
+    let raw = raw.ok_or(UNAVAILABLE)?;
+    let history: Option<String> = row.try_get(1).map_err(db)?;
     if raw.len() > 8 * 1024 * 1024 {
         return Err(UNAVAILABLE);
     }
@@ -541,6 +546,14 @@ pub(crate) async fn load_in_transaction(
     if owner.is_some_and(|o| auth["actor_id"] != o) {
         return Err("RESEARCH_RUN_NOT_FOUND");
     }
+    crate::persistence::research_execution::verify_run_source_history(&row, history.as_deref())
+        .map_err(|error| {
+            if error == "NOVELTY_PROOF_UNAVAILABLE" {
+                UNAVAILABLE
+            } else {
+                error
+            }
+        })?;
     let payload = text(&row, "specification_payload")?.to_owned();
     let spec = crate::application::research_run::NativeSpecification::from_record(
         &serde_json::from_str(&payload).map_err(db)?,
@@ -753,7 +766,15 @@ async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Resul
     {
         return Err("RESEARCH_FACTOR_REVISION_UNAVAILABLE");
     }
-    verify_novelty_member(tx,row,&command,&expected,text(&v,"decision_group_fingerprint")?,&req.specification.subject()?).await?;
+    verify_novelty_member(
+        tx,
+        row,
+        &command,
+        &expected,
+        text(&v, "decision_group_fingerprint")?,
+        &req.specification.subject()?,
+    )
+    .await?;
     Ok(v)
 }
 
@@ -933,7 +954,9 @@ pub async fn submission_outcome(
 /// Complete trial occurrence relation, bounded to the retained same-factor prefix.
 /// Each predecessor is verified once; its ancestor list is not recursively traversed.
 pub(crate) async fn verify_authorization(tx: &Transaction<'_>, row: &Value) -> Result<Value> {
-    if row["specification_schema_version"]==5 {return strategy::verify_authorization(tx,row).await;}
+    if row["specification_schema_version"] == 5 {
+        return strategy::verify_authorization(tx, row).await;
+    }
     let v = verify_authorization_record(tx, row).await?;
     let id = text(row, "run_id")?;
     let first:Option<i64>=tx.query_one("SELECT min(event_index) FROM research_source_history WHERE source_family='RESEARCH_RUN' AND source_row->>'run_id'=$1",&[&id]).await.map_err(db)?.try_get(0).map_err(db)?;
@@ -989,14 +1012,20 @@ pub(crate) async fn verify_authorization(tx: &Transaction<'_>, row: &Value) -> R
 /// One complete immutable Novelty Admission2 member relation, shared by the two
 /// actual native Research families. This is a reader, never an ADMIT constructor.
 async fn verify_novelty_member(
-    tx: &Transaction<'_>, row: &Value, command: &CommandId, expected: &str,
-    group: &str, subject: &crate::application::research_novelty::Subject,
+    tx: &Transaction<'_>,
+    row: &Value,
+    command: &CommandId,
+    expected: &str,
+    group: &str,
+    subject: &crate::application::research_novelty::Subject,
 ) -> Result<()> {
-    let id=text(row,"run_id")?;
+    let id = text(row, "run_id")?;
     let n=tx.query_opt("SELECT row_to_json(n)::text FROM research_novelty_admission n WHERE run_id=$1::text::uuid",&[&id]).await.map_err(db)?.ok_or("RESEARCH_AUTHORIZATION_CORRUPT")?;
     let parent: Value =
         serde_json::from_str(&n.try_get::<_, String>(0).map_err(db)?).map_err(db)?;
-    if parent["run_id"] != id || parent["runtime_work_id"] != id || parent["command_id"] != command.value()
+    if parent["run_id"] != id
+        || parent["runtime_work_id"] != id
+        || parent["command_id"] != command.value()
         || parent["command_fingerprint"] != expected
         || parent["admission_fingerprint"] != row["admission_resolution_fingerprint"]
         || parent["decision_group_fingerprint"] != group
@@ -1033,13 +1062,20 @@ async fn verify_novelty_member(
 }
 /// Worker candidates only. A returned ID grants no Attempt or executable work;
 /// the caller must load its original verified authorization before claiming it.
-pub async fn pending_native_run_ids(client:&mut Client)->Result<Vec<String>> {
-    let tx=client.transaction().await.map_err(db)?;
+pub async fn pending_native_run_ids(client: &mut Client) -> Result<Vec<String>> {
+    let tx = client.transaction().await.map_err(db)?;
     bounds(&tx).await.map_err(db)?;
-    tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp").await.map_err(db)?;
+    tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp")
+        .await
+        .map_err(db)?;
     let rows=tx.query("SELECT r.run_id::text FROM research_run r WHERE ((r.specification_schema_version IN (4,6) AND r.origin_kind='GENERAL' AND r.strategy_research_composition_fingerprint IS NULL) OR (r.specification_schema_version=5 AND r.origin_kind='PRIVATE_STRATEGY' AND r.strategy_research_composition_fingerprint IS NOT NULL)) AND r.authoring_provenance IS NULL AND r.state IN ('QUEUED','RUNNING','CANCEL_REQUESTED') AND NOT EXISTS(SELECT 1 FROM research_run_attempt a WHERE a.run_id=r.run_id AND a.state='ACTIVE' AND a.lease_expires_at>clock_timestamp()) ORDER BY r.queued_at,r.run_id LIMIT 10001",&[]).await.map_err(db)?;
-    if rows.len()>10000 {return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED");}
-    let ids=rows.iter().map(|r|r.try_get(0).map_err(db)).collect::<Result<Vec<String>>>()?;
+    if rows.len() > 10000 {
+        return Err("RESEARCH_RECOVERY_INVENTORY_BUDGET_EXCEEDED");
+    }
+    let ids = rows
+        .iter()
+        .map(|r| r.try_get(0).map_err(db))
+        .collect::<Result<Vec<String>>>()?;
     tx.commit().await.map_err(db)?;
     Ok(ids)
 }

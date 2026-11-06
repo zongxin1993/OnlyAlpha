@@ -152,17 +152,26 @@ impl PublicResponse {
         {
             return Err(Error::Shape);
         }
-        let symbols = self.value["symbols"].as_array().filter(|rows| rows.len() == 1).ok_or(Error::Shape)?;
+        let symbols = self.value["symbols"]
+            .as_array()
+            .filter(|rows| rows.len() == 1)
+            .ok_or(Error::Shape)?;
         let raw = &symbols[0];
         // Normalized Instrument metadata intentionally lacks these raw filters
         // and independent commission precision. Never infer missing values.
         if raw["symbol"] != "BTCUSDT"
-            || raw["baseCommissionPrecision"].as_u64().is_none_or(|n| n > 18)
+            || raw["baseCommissionPrecision"]
+                .as_u64()
+                .is_none_or(|n| n > 18)
         {
             return Err(Error::Shape);
         }
-        onlyalpha_market_crypto::spot::SpotRuleSnapshot::capture(raw.clone(), captured_at, source_ref)
-            .map_err(|_| Error::Shape)
+        onlyalpha_market_crypto::spot::SpotRuleSnapshot::capture(
+            raw.clone(),
+            captured_at,
+            source_ref,
+        )
+        .map_err(|_| Error::Shape)
     }
 }
 #[derive(Clone)]
@@ -1024,19 +1033,19 @@ mod tests {
     fn controlled_backtest_rule_symbol() -> Value {
         // Deliberately controlled HTTP bytes, not evidence of current Binance rules.
         serde_json::json!({"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING",
-            "isSpotTradingAllowed":true,"orderTypes":["LIMIT","MARKET"],"baseAssetPrecision":8,
-            "quoteAssetPrecision":8,"baseCommissionPrecision":6,"quoteCommissionPrecision":8,"filters":[
-                {"filterType":"PRICE_FILTER","minPrice":"0.01000000","maxPrice":"1000000.00000000","tickSize":"0.01000000"},
-                {"filterType":"LOT_SIZE","minQty":"0.00001000","maxQty":"9000.00000000","stepSize":"0.00001000"},
-                {"filterType":"MARKET_LOT_SIZE","minQty":"0.00000000","maxQty":"100.00000000","stepSize":"0.00000000"},
-                {"filterType":"MIN_NOTIONAL","minNotional":"5.00000000","applyToMarket":true,"avgPriceMins":5},
-                {"filterType":"NOTIONAL","minNotional":"5.00000000","applyMinToMarket":true,
-                    "maxNotional":"9000000.00000000","applyMaxToMarket":false,"avgPriceMins":5}
-            ]})
+        "isSpotTradingAllowed":true,"orderTypes":["LIMIT","MARKET"],"baseAssetPrecision":8,
+        "quoteAssetPrecision":8,"baseCommissionPrecision":6,"quoteCommissionPrecision":8,"filters":[
+            {"filterType":"PRICE_FILTER","minPrice":"0.01000000","maxPrice":"1000000.00000000","tickSize":"0.01000000"},
+            {"filterType":"LOT_SIZE","minQty":"0.00001000","maxQty":"9000.00000000","stepSize":"0.00001000"},
+            {"filterType":"MARKET_LOT_SIZE","minQty":"0.00000000","maxQty":"100.00000000","stepSize":"0.00000000"},
+            {"filterType":"MIN_NOTIONAL","minNotional":"5.00000000","applyToMarket":true,"avgPriceMins":5},
+            {"filterType":"NOTIONAL","minNotional":"5.00000000","applyMinToMarket":true,
+                "maxNotional":"9000000.00000000","applyMaxToMarket":false,"avgPriceMins":5}
+        ]})
     }
     #[test]
     fn actual_public_response_captures_full_backtest_rules_without_guessing_normalized_metadata() {
-        use onlyalpha_domain::{base::OnlyDomainModel,time::OnlyTimestamp};
+        use onlyalpha_domain::{base::OnlyDomainModel, time::OnlyTimestamp};
         runtime().block_on(async {
             let raw=controlled_backtest_rule_symbol();
             let body=serde_json::to_string(&serde_json::json!({"timezone":"UTC","serverTime":1,"symbols":[raw]})).unwrap();
@@ -1071,25 +1080,60 @@ mod tests {
     fn actual_public_response_rejects_missing_or_unsupported_backtest_rule_inputs() {
         use onlyalpha_domain::time::OnlyTimestamp;
         runtime().block_on(async {
-            let mut cases=Vec::new();
-            for key in ["baseAssetPrecision","quoteAssetPrecision","baseCommissionPrecision","quoteCommissionPrecision"] {
-                let mut raw=controlled_backtest_rule_symbol();raw.as_object_mut().unwrap().remove(key);cases.push(raw);
+            let mut cases = Vec::new();
+            for key in [
+                "baseAssetPrecision",
+                "quoteAssetPrecision",
+                "baseCommissionPrecision",
+                "quoteCommissionPrecision",
+            ] {
+                let mut raw = controlled_backtest_rule_symbol();
+                raw.as_object_mut().unwrap().remove(key);
+                cases.push(raw);
             }
-            for (index,key,bad) in [(3,"avgPriceMins",serde_json::json!("5")),(4,"avgPriceMins",serde_json::json!({"minutes":5})),
-                (3,"avgPriceMins",serde_json::json!(1441)),(4,"avgPriceMins",Value::Null),
-                (3,"applyToMarket",Value::Null),(4,"applyMinToMarket",serde_json::json!("true")),
-                (4,"maxNotional",Value::Null),(2,"stepSize",Value::Null)] {
-                let mut raw=controlled_backtest_rule_symbol();raw["filters"][index][key]=bad;cases.push(raw);
+            for (index, key, bad) in [
+                (3, "avgPriceMins", serde_json::json!("5")),
+                (4, "avgPriceMins", serde_json::json!({"minutes":5})),
+                (3, "avgPriceMins", serde_json::json!(1441)),
+                (4, "avgPriceMins", Value::Null),
+                (3, "applyToMarket", Value::Null),
+                (4, "applyMinToMarket", serde_json::json!("true")),
+                (4, "maxNotional", Value::Null),
+                (2, "stepSize", Value::Null),
+            ] {
+                let mut raw = controlled_backtest_rule_symbol();
+                raw["filters"][index][key] = bad;
+                cases.push(raw);
             }
-            let mut raw=controlled_backtest_rule_symbol();raw["filters"]=serde_json::json!([]);cases.push(raw);
-            let mut raw=controlled_backtest_rule_symbol();raw["quoteCommissionPrecision"]=serde_json::json!(19);cases.push(raw);
+            let mut raw = controlled_backtest_rule_symbol();
+            raw["filters"] = serde_json::json!([]);
+            cases.push(raw);
+            let mut raw = controlled_backtest_rule_symbol();
+            raw["quoteCommissionPrecision"] = serde_json::json!(19);
+            cases.push(raw);
             for raw in cases {
-                let body=serde_json::to_string(&serde_json::json!({"symbols":[raw]})).unwrap();
-                let (client,requests,server)=fixture(vec![ok(&body)]);
-                let response=client.exchange_info(&["BTCUSDT".into()],Instant::now()+Duration::from_secs(5)).await.unwrap();
-                assert!(response.spot_rule_snapshot(client.source_id(),OnlyTimestamp::from_unix_nanos(1.into()),"controlled-public-response").is_err());
-                assert_eq!(response.bytes(),body.as_bytes(),"refusal cannot replace the actual source occurrence");
-                requests.recv().unwrap();server.join().unwrap();
+                let body = serde_json::to_string(&serde_json::json!({"symbols":[raw]})).unwrap();
+                let (client, requests, server) = fixture(vec![ok(&body)]);
+                let response = client
+                    .exchange_info(&["BTCUSDT".into()], Instant::now() + Duration::from_secs(5))
+                    .await
+                    .unwrap();
+                assert!(
+                    response
+                        .spot_rule_snapshot(
+                            client.source_id(),
+                            OnlyTimestamp::from_unix_nanos(1.into()),
+                            "controlled-public-response"
+                        )
+                        .is_err()
+                );
+                assert_eq!(
+                    response.bytes(),
+                    body.as_bytes(),
+                    "refusal cannot replace the actual source occurrence"
+                );
+                requests.recv().unwrap();
+                server.join().unwrap();
             }
         });
     }
@@ -1097,19 +1141,56 @@ mod tests {
     fn actual_public_response_rule_capture_requires_the_exact_source_request() {
         use onlyalpha_domain::time::OnlyTimestamp;
         runtime().block_on(async {
-            let body=serde_json::to_string(&serde_json::json!({"symbols":[controlled_backtest_rule_symbol()]})).unwrap();
-            for path in ["/api/v3/time","/api/v3/exchangeInfo"] {
-                let (client,requests,server)=fixture(vec![ok(&body)]);
-                let response=client.get(path,&[("symbols","[\"BTCUSDT\"]".into())],Instant::now()+Duration::from_secs(5)).await.unwrap();
-                let at=OnlyTimestamp::from_unix_nanos(1.into());
-                assert!(response.spot_rule_snapshot("binance.spot.market_data.us",at.clone(),"controlled-public-response").is_err());
-                assert_eq!(response.spot_rule_snapshot(client.source_id(),at,"controlled-public-response").is_ok(),path=="/api/v3/exchangeInfo");
-                requests.recv().unwrap();server.join().unwrap();
+            let body = serde_json::to_string(
+                &serde_json::json!({"symbols":[controlled_backtest_rule_symbol()]}),
+            )
+            .unwrap();
+            for path in ["/api/v3/time", "/api/v3/exchangeInfo"] {
+                let (client, requests, server) = fixture(vec![ok(&body)]);
+                let response = client
+                    .get(
+                        path,
+                        &[("symbols", "[\"BTCUSDT\"]".into())],
+                        Instant::now() + Duration::from_secs(5),
+                    )
+                    .await
+                    .unwrap();
+                let at = OnlyTimestamp::from_unix_nanos(1.into());
+                assert!(
+                    response
+                        .spot_rule_snapshot(
+                            "binance.spot.market_data.us",
+                            at.clone(),
+                            "controlled-public-response"
+                        )
+                        .is_err()
+                );
+                assert_eq!(
+                    response
+                        .spot_rule_snapshot(client.source_id(), at, "controlled-public-response")
+                        .is_ok(),
+                    path == "/api/v3/exchangeInfo"
+                );
+                requests.recv().unwrap();
+                server.join().unwrap();
             }
-            let (client,requests,server)=fixture(vec![ok(&body)]);
-            let response=client.exchange_info(&[],Instant::now()+Duration::from_secs(5)).await.unwrap();
-            assert!(response.spot_rule_snapshot(client.source_id(),OnlyTimestamp::from_unix_nanos(1.into()),"controlled-public-response").is_err(),"the fixed profile must not widen its source request");
-            requests.recv().unwrap();server.join().unwrap();
+            let (client, requests, server) = fixture(vec![ok(&body)]);
+            let response = client
+                .exchange_info(&[], Instant::now() + Duration::from_secs(5))
+                .await
+                .unwrap();
+            assert!(
+                response
+                    .spot_rule_snapshot(
+                        client.source_id(),
+                        OnlyTimestamp::from_unix_nanos(1.into()),
+                        "controlled-public-response"
+                    )
+                    .is_err(),
+                "the fixed profile must not widen its source request"
+            );
+            requests.recv().unwrap();
+            server.join().unwrap();
         });
     }
 }
@@ -1140,5 +1221,4 @@ mod gzip_regressions {
         trailing.extend_from_slice(b"garbage");
         assert!(decode_gzip(&trailing, 100).is_err());
     }
-
 }

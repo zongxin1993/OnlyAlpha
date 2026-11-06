@@ -1,7 +1,6 @@
 //! Finite native Research execution. Only an owning admitted Run can reach this path.
 //! Factor mathematics stays in the selected managed SDK; Research owns Target and Statistics.
 mod strategy;
-pub use strategy::{ExecutedStrategy,execute_strategy};
 use crate::application::{
     factor_content::hash,
     research_admission::{PreparationError, PreparedInputs},
@@ -14,6 +13,7 @@ use bigdecimal::num_bigint::{BigInt, Sign};
 use onlyalpha_calculation_bridge::ChartInstallation;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, time::Duration};
+pub use strategy::{ExecutedStrategy, execute_strategy};
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "RESEARCH_EXECUTION_INPUT_MISMATCH";
 /// Exact rational (future/current - 1), rounded once to 1e-12, ties to even.
@@ -91,11 +91,19 @@ impl Control {
     }
     /// attach() only replaces positively joined owners. Checking the retained
     /// final owner therefore proves every original sequential child was joined.
-    pub(crate) fn verify_joined(&self)->std::result::Result<(),PreparationError> {
+    pub(crate) fn verify_joined(&self) -> std::result::Result<(), PreparationError> {
         self.check()?;
-        let owner=self.0.child.lock().map_err(|e|PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",e.into_inner().clone()))?;
-        if owner.as_ref().is_none_or(|owner|owner.state()!=onlyalpha_calculation_bridge::ProcessState::Joined) {
-            return Err(PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",owner.clone()));
+        let owner = self.0.child.lock().map_err(|e| {
+            PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN", e.into_inner().clone())
+        })?;
+        if owner
+            .as_ref()
+            .is_none_or(|owner| owner.state() != onlyalpha_calculation_bridge::ProcessState::Joined)
+        {
+            return Err(PreparationError::unknown(
+                "RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",
+                owner.clone(),
+            ));
         }
         Ok(())
     }
@@ -108,8 +116,13 @@ impl Control {
         })?;
         // A finite observation may have several sequential mathematical phases.
         // Replacement requires positive join of the exact previous owner.
-        if current.as_ref().is_some_and(|owner| owner.state() != onlyalpha_calculation_bridge::ProcessState::Joined) {
-            return Err(PreparationError::unknown("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN", current.clone()));
+        if current.as_ref().is_some_and(|owner| {
+            owner.state() != onlyalpha_calculation_bridge::ProcessState::Joined
+        }) {
+            return Err(PreparationError::unknown(
+                "RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",
+                current.clone(),
+            ));
         }
         *current = Some(child.clone());
         if self.0.stopped.load(std::sync::atomic::Ordering::Acquire) {
@@ -176,22 +189,27 @@ pub(crate) fn signed(mut body: Value, key: &str) -> Result<Value> {
 }
 pub fn verify_inputs(run: &VerifiedRun, inputs: &PreparedInputs) -> Result<()> {
     inputs.verify_runtime()?;
-    if let crate::application::research_run::NativeSpecification::Strategy(specification) = run.specification() {
+    if let crate::application::research_run::NativeSpecification::Strategy(specification) =
+        run.specification()
+    {
         let spec = specification.record();
         let record = inputs.record();
         if *record != run.prepared_inputs
             || record["contract"] != "ONLYALPHA_STRATEGY_RESEARCH_PREPARED_INPUTS_V1"
             || record["run_specification_fingerprint"] != specification.fingerprint()?
             || record["run_specification_fingerprint"] != run.specification_fingerprint()
-            || record["dataset_snapshot_fingerprint"] != spec["scientific_specification"]["dataset_snapshot_fingerprint"]
+            || record["dataset_snapshot_fingerprint"]
+                != spec["scientific_specification"]["dataset_snapshot_fingerprint"]
             || record["runtime_generation_fingerprint"] != spec["runtime_generation_fingerprint"]
             || record["execution_binding"] != spec["execution_binding"]
             || record["input_window"] != spec["input_window"]
-            || record["algorithm_resolution"]["algorithm_artifact"] != spec["algorithm_artifact_fingerprint"]
+            || record["algorithm_resolution"]["algorithm_artifact"]
+                != spec["algorithm_artifact_fingerprint"]
             || record["runtime_work_binding"]["kind"] != "RuntimeWorkBound"
             || record["runtime_work_binding"]["work_id"] != run.run_id()
             || record["runtime_work_binding"]["reason"] != "research"
-            || inputs.runtime_manifest()["catalog_generation_fingerprint"] != spec["catalog_generation_fingerprint"]
+            || inputs.runtime_manifest()["catalog_generation_fingerprint"]
+                != spec["catalog_generation_fingerprint"]
         {
             return Err(INVALID);
         }

@@ -349,16 +349,25 @@ mod tests {
         // Saved old/unknown references remain exact input records. Current
         // native preparation rejects them instead of relabeling them as V2.
         for version in [Value::Null, json!("1"), json!("3")] {
-            let mut historical=strategy.clone();
-            for node in historical["definition"]["calculations"].as_array_mut().unwrap() {
-                if node["type_reference"]["type_id"]=="onlyalpha.operator.delay" {
-                    if version.is_null() {node["type_reference"].as_object_mut().unwrap().remove("semantic_version");}
-                    else {node["type_reference"]["semantic_version"]=version.clone();}
+            let mut historical = strategy.clone();
+            for node in historical["definition"]["calculations"]
+                .as_array_mut()
+                .unwrap()
+            {
+                if node["type_reference"]["type_id"] == "onlyalpha.operator.delay" {
+                    if version.is_null() {
+                        node["type_reference"]
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("semantic_version");
+                    } else {
+                        node["type_reference"]["semantic_version"] = version.clone();
+                    }
                 }
             }
-            let before=historical.clone();
-            assert!(explicit_factor_bindings(&historical,&value["revision"]).is_err());
-            assert_eq!(historical,before);
+            let before = historical.clone();
+            assert!(explicit_factor_bindings(&historical, &value["revision"]).is_err());
+            assert_eq!(historical, before);
         }
         for node in strategy["definition"]["calculations"]
             .as_array_mut()

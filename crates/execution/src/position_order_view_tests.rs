@@ -234,10 +234,14 @@ fn activity_query_rejects_incomplete_metadata_owner_relations_even_at_a_hash_mat
                     h.components.meta["orders"]["runtime-ORDER-000001"].clone()
             }
             "cluster" => {
-                std::sync::Arc::make_mut(&mut h.components.meta)["orders"]["runtime-ORDER-000001"]["cluster"] = json!("foreign")
+                std::sync::Arc::make_mut(&mut h.components.meta)["orders"]["runtime-ORDER-000001"]
+                    ["cluster"] = json!("foreign")
             }
             "omitted" => std::sync::Arc::make_mut(&mut h.components.meta)["orders"] = json!({}),
-            _ => std::sync::Arc::make_mut(&mut h.components.meta)["orders"]["runtime-ORDER-000001"]["cluster"] = Value::Null,
+            _ => {
+                std::sync::Arc::make_mut(&mut h.components.meta)["orders"]["runtime-ORDER-000001"]
+                    ["cluster"] = Value::Null
+            }
         }
         h.components.invalidate_payloads();
         let mut raw = h.store.rows[0].record();

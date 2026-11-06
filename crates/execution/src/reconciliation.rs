@@ -1,7 +1,10 @@
 use crate::{Components, Record, Store, model::*};
 use bigdecimal::{BigDecimal, Zero};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 /// Immutable diagnostic derived only from the current owning Ready source.
 /// It neither authorizes execution nor writes an accounting owner.
@@ -20,6 +23,93 @@ impl LedgerReconciliation {
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         Ok(serde_json::to_vec(&self.value)?)
     }
+}
+// Exactly one final pure fold and comparison, not a prefix history of owner
+// images. Mutable source observations and public reports are never retained.
+#[derive(Debug)]
+pub(crate) struct ReconciliationData {
+    fold: Arc<FeeFoldData>,
+    comparison: ComparisonData,
+}
+#[derive(Debug)]
+struct FeeFoldData {
+    config: Value,
+    capacity: usize,
+    inputs: Vec<Value>,
+    checkpoint: Value,
+    expected: BTreeMap<String, Value>,
+}
+#[derive(Debug)]
+struct ComparisonData {
+    config: Value,
+    precision: u8,
+    // The immutable six-value codec image contains these exact Account/Ledger
+    // arguments. Pointer equality is deliberately stricter than value equality.
+    owners: Arc<Vec<Value>>,
+    fold: Arc<FeeFoldData>,
+    totals: Value,
+    differences: Vec<Value>,
+}
+struct FeeFold {
+    config: Value,
+    capacity: usize,
+    owner: onlyalpha_fee::Manager,
+    expected: BTreeMap<String, Value>,
+    cached: Option<Arc<FeeFoldData>>,
+    matched: usize,
+    inputs: Vec<Value>,
+}
+impl FeeFold {
+    fn visit(&mut self, record: &Record) -> Result<(), Error> {
+        let input = record.prepared().input();
+        // Preserve the original per-row validation, including non-FILL rows.
+        text(&input["cluster"])?;
+        if input["op"] != "FILL" {
+            return Ok(());
+        }
+        if let Some(cached) = &self.cached {
+            if cached.inputs.get(self.matched) == Some(input) {
+                self.matched += 1;
+                return Ok(());
+            }
+            // First divergence is handled before the next Store observation.
+            // Do not defer an early Fee error behind a later source error.
+            for previous in &cached.inputs[..self.matched] {
+                record_fee_input(previous, &mut self.owner, &mut self.expected)?;
+            }
+            self.inputs
+                .extend_from_slice(&cached.inputs[..self.matched]);
+            self.cached = None;
+        }
+        self.inputs.push(input.clone());
+        record_fee_input(input, &mut self.owner, &mut self.expected)
+    }
+    fn finish(mut self) -> Result<Arc<FeeFoldData>, Error> {
+        if let Some(cached) = self.cached {
+            if self.matched == cached.inputs.len() {
+                return Ok(cached);
+            }
+            // A shorter actual FILL sequence is not the cached full fold. The
+            // equal prefix is deterministically successful under this config.
+            for previous in &cached.inputs[..self.matched] {
+                record_fee_input(previous, &mut self.owner, &mut self.expected)?;
+            }
+            self.inputs
+                .extend_from_slice(&cached.inputs[..self.matched]);
+        }
+        Ok(Arc::new(FeeFoldData {
+            config: self.config,
+            capacity: self.capacity,
+            inputs: self.inputs,
+            checkpoint: self.owner.checkpoint(),
+            expected: self.expected,
+        }))
+    }
+}
+#[cfg(test)]
+std::thread_local! {
+    static FEE_FOLD_APPLICATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static FEE_COMPARISONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 impl Components {
     // Shared complete-source guard for read-only Execution projections. The Store owns immutable records.
@@ -109,27 +199,63 @@ impl Components {
     /// Final-barrier/recovery diagnostic. An incomplete source is an error, not MATCHED.
     pub fn reconcile<S: Store>(&self, store: &S) -> Result<LedgerReconciliation, Error> {
         let checkpoint = &self.meta["fee_authority"];
-        let mut fee_owner = boundary(onlyalpha_fee::Manager::new(
+        // Retain original early config/capacity validation before any Source
+        // reads, even when a prior successful pure fold may be reusable.
+        let capacity = usize::try_from(uint(&checkpoint["capacity"])?)
+            .map_err(|_| err("RECONCILIATION_FEE_CAPACITY"))?;
+        let fee_owner = boundary(onlyalpha_fee::Manager::new(
             checkpoint["config"].clone(),
-            usize::try_from(uint(&checkpoint["capacity"])?)
-                .map_err(|_| err("RECONCILIATION_FEE_CAPACITY"))?,
+            capacity,
         ))?;
-        let mut expected = BTreeMap::new();
+        // An unavailable optional memo never changes the original cold path.
+        let cached = self
+            .reconciliation_data
+            .lock()
+            .ok()
+            .and_then(|entry| entry.as_ref().map(Arc::clone));
+        let cached_fold = cached
+            .as_ref()
+            .map(|entry| &entry.fold)
+            .filter(|fold| fold.config == checkpoint["config"] && fold.capacity == capacity)
+            .map(Arc::clone);
+        let mut fold = FeeFold {
+            config: checkpoint["config"].clone(),
+            capacity,
+            owner: fee_owner,
+            expected: BTreeMap::new(),
+            cached: cached_fold,
+            matched: 0,
+            inputs: Vec::new(),
+        };
         let owners = self.payloads()?;
         let genesis = self.cached_genesis_payload_hashes()?;
-        let source = self.verified_source_with_genesis(store, &genesis, |record| {
-            record_fee(record, &mut fee_owner, &mut expected)
-        })?;
-        if fee_owner.checkpoint() != *checkpoint {
+        let source =
+            self.verified_source_with_genesis(store, &genesis, |record| fold.visit(record))?;
+        let fold = fold.finish()?;
+        if fold.checkpoint != *checkpoint {
             return Err(err("RECONCILIATION_FEE_HISTORY_UNAVAILABLE"));
         }
-        let (totals, differences) = compare(
-            &self.config,
-            &owners[2],
-            &owners[3],
-            &expected,
-            self.precision,
-        )?;
+        let expected = &fold.expected;
+        let reused = cached
+            .as_ref()
+            .map(|entry| &entry.comparison)
+            .filter(|comparison| {
+                comparison.config == self.config
+                    && comparison.precision == self.precision
+                    && Arc::ptr_eq(&comparison.owners, &owners)
+                    && comparison.fold.expected == *expected
+            });
+        let (totals, differences) = if let Some(comparison) = reused {
+            (comparison.totals.clone(), comparison.differences.clone())
+        } else {
+            compare(
+                &self.config,
+                &owners[2],
+                &owners[3],
+                expected,
+                self.precision,
+            )?
+        };
         let scope: serde_json::Map<_, _> = [
             "engine",
             "runtime",
@@ -146,21 +272,36 @@ impl Components {
             "scope":scope,"cluster_ids":self.config["capitals"].as_object().expect("validated capitals").keys().collect::<Vec<_>>(),"source":source,"trade_count":expected.len(),
             "status":if differences.is_empty(){"MATCHED"}else{"MISMATCHED"},"totals":totals,"differences":differences});
         value["id"] = json!(format!("RLR-{}", hash(&value)));
-        Ok(LedgerReconciliation { value })
+        let report = LedgerReconciliation { value };
+        // Publish only one completed pure calculation. Every failure above
+        // leaves a prior memo intact; no Source or successful report is saved.
+        let comparison = ComparisonData {
+            config: self.config.clone(),
+            precision: self.precision,
+            owners,
+            fold: Arc::clone(&fold),
+            totals: report.value["totals"].clone(),
+            differences: differences.clone(),
+        };
+        if let Ok(mut entry) = self.reconciliation_data.lock() {
+            *entry = Some(Arc::new(ReconciliationData { fold, comparison }));
+        }
+        Ok(report)
     }
 }
 
 // Reuse the owning Fee reducer: cumulative targets are not incremental Trade fees.
-fn record_fee(
-    record: &Record,
+fn record_fee_input(
+    input: &Value,
     owner: &mut onlyalpha_fee::Manager,
     expected: &mut BTreeMap<String, Value>,
 ) -> Result<(), Error> {
-    let input = record.prepared().input();
     let cluster = text(&input["cluster"])?;
     if input["op"] != "FILL" {
         return Ok(());
     }
+    #[cfg(test)]
+    FEE_FOLD_APPLICATIONS.with(|count| count.set(count.get() + 1));
     let application = boundary(owner.apply_admitted_target(&input["payload"]["fees"]))?.record();
     let trade = text(&application["trade"])?;
     if application["subject"]["cluster"] != cluster
@@ -213,6 +354,8 @@ fn compare(
     expected: &BTreeMap<String, Value>,
     precision: u8,
 ) -> Result<(Value, Vec<Value>), Error> {
+    #[cfg(test)]
+    FEE_COMPARISONS.with(|count| count.set(count.get() + 1));
     for (owner, keys) in [
         (
             account,
@@ -568,3 +711,7 @@ mod tests {
         assert!(differences.iter().any(|d| d["kind"] == "COMMITTED_FEES"));
     }
 }
+
+#[cfg(test)]
+#[path = "reconciliation_data_tests.rs"]
+mod reconciliation_data_tests;

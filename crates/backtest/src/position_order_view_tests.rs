@@ -199,3 +199,120 @@ fn compact_order_data_never_waives_duplicate_scope_or_deep_domain_snapshot_valid
         );
     }
 }
+
+#[test]
+fn retained_account_capacity_denial_is_positive_exact_and_preserves_safety_recovery() {
+    use crate::execution_test_fixture::{
+        account_capacity_history, capacity_admission, close_and_cancel_at_capacity,
+        expanded_account_journal_bytes,
+    };
+    let mut history = account_capacity_history(false);
+    let configuration = history.configuration().clone();
+    let before = history.checkpoint().unwrap();
+    let records = history.records().to_vec();
+    assert!(expanded_account_journal_bytes(&before) > 4 * 1024 * 1024);
+    assert!(before["components"][2]["journal"].as_array().unwrap().len() < 4096);
+    let denied = capacity_admission(&history, true);
+    assert_eq!(
+        history.apply(&denied).unwrap_err().0,
+        "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+    );
+    assert_eq!(history.checkpoint().unwrap(), before);
+    assert_eq!(history.records(), records.as_slice());
+    let genesis = Components::new(configuration.clone())
+        .unwrap()
+        .checkpoint()
+        .unwrap()["components"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let mut original = OriginalExecution {
+        configuration: &configuration,
+        records: &records,
+        genesis: genesis.clone(),
+        cursor: records.len(),
+        end: records.len(),
+    };
+    assert_eq!(
+        original.apply(&denied).unwrap_err().0,
+        "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+    );
+    assert_eq!(original.cursor, records.len());
+    assert_eq!(original.checkpoint().unwrap(), before);
+    for field in ["runtime", "account", "generation", "revision"] {
+        let mut foreign = denied.clone();
+        foreign[field] = json!("foreign");
+        assert!(original.apply(&foreign).is_err());
+        assert_ne!(
+            original.apply(&foreign).unwrap_err().0,
+            "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+        );
+    }
+    let mut stale = denied.clone();
+    stale["runtime_sequence"] =
+        records.last().unwrap().prepared().input()["runtime_sequence"].clone();
+    assert_eq!(
+        original.apply(&stale).unwrap_err().0,
+        "EXECUTION_RUNTIME_SEQUENCE"
+    );
+    let mut malformed = denied.clone();
+    malformed["payload"]["request"]["quantity"]["value"] =
+        json!({"$serde_json::private::Number":"4"});
+    assert_ne!(
+        original.apply(&malformed).unwrap_err().0,
+        "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+    );
+    let mut aliased = denied.clone();
+    aliased["source_ref"] = records[0].prepared().input()["source_ref"].clone();
+    assert_ne!(
+        original.apply(&aliased).unwrap_err().0,
+        "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+    );
+    let mut bad = before.clone();
+    bad["components"][2]["journal"][0]["cause"] = json!("broken");
+    assert!(Components::admission_rejection(&configuration, &bad, &denied).is_err());
+    let mut missing = OriginalExecution {
+        configuration: &configuration,
+        records: &records[..records.len() - 1],
+        genesis,
+        cursor: records.len(),
+        end: records.len(),
+    };
+    assert_ne!(
+        missing.apply(&denied).unwrap_err().0,
+        "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+    );
+    // Cold transport decoding plus actual source recovery, not a retained DTO.
+    let bytes =
+        serde_json::to_vec(&records.iter().map(Record::record).collect::<Vec<_>>()).unwrap();
+    let values: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    let decoded = values
+        .iter()
+        .map(Record::decode)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let mut cold = crate::Candidate::new(configuration, decoded).unwrap();
+    assert_eq!(cold.checkpoint().unwrap(), before);
+    assert_eq!(
+        cold.apply(&denied).unwrap_err().0,
+        "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+    );
+    assert_eq!(cold.checkpoint().unwrap(), before);
+    close_and_cancel_at_capacity(&mut cold);
+    assert_eq!(
+        cold.state().unwrap()["position"]["accounts"][0]["snapshot"]["quantity"]
+            .as_str()
+            .unwrap()
+            .parse::<onlyalpha_domain::numeric::OnlyDecimal>()
+            .unwrap(),
+        "2".parse::<onlyalpha_domain::numeric::OnlyDecimal>()
+            .unwrap()
+    );
+    assert_eq!(
+        cold.order("cluster", "runtime-ORDER-000002").unwrap()["status"],
+        "CANCELLED"
+    );
+    let recovered =
+        crate::Candidate::new(cold.configuration().clone(), cold.records().to_vec()).unwrap();
+    assert_eq!(recovered.checkpoint().unwrap(), cold.checkpoint().unwrap());
+}

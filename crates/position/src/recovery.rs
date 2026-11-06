@@ -19,10 +19,18 @@ impl Manager {
         }));
         let bytes = serde_json::to_vec(record.as_ref())?;
         let fingerprint = digest(&bytes);
-        let checkpoint = CachedCheckpoint { bytes, fingerprint, record };
+        let checkpoint = CachedCheckpoint {
+            bytes,
+            fingerprint,
+            record,
+        };
         let _ = self.checkpoint_cache.set(Arc::new(checkpoint));
         // Shared readers observe the same immutable accepted owner state.
-        Ok(self.checkpoint_cache.get().expect("checkpoint initialized").as_ref())
+        Ok(self
+            .checkpoint_cache
+            .get()
+            .expect("checkpoint initialized")
+            .as_ref())
     }
     pub fn checkpoint(&self) -> Result<(Vec<u8>, String), Error> {
         let checkpoint = self.cached_checkpoint()?;
@@ -32,7 +40,10 @@ impl Manager {
     /// This representation grants no execution, source, Ready or restore proof.
     pub fn checkpoint_record(&self) -> Result<(Arc<Value>, String), Error> {
         let checkpoint = self.cached_checkpoint()?;
-        Ok((Arc::clone(&checkpoint.record), checkpoint.fingerprint.clone()))
+        Ok((
+            Arc::clone(&checkpoint.record),
+            checkpoint.fingerprint.clone(),
+        ))
     }
     pub fn restore(&mut self, bytes: &[u8], expected: &str) -> Result<(), Error> {
         fingerprint(&json!(expected))?;

@@ -1,11 +1,10 @@
 from datetime import date
 from decimal import Decimal
 
-from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillPlanStatus, OnlyVirtualFillScheduleStepSpec
-
 from onlyalpha.broker import OnlyBrokerCancelRequest, OnlyBrokerRequestId
 from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.time import OnlyTimestamp
+from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillPlanStatus, OnlyVirtualFillScheduleStepSpec
 from tests.support.virtual_broker import ACCOUNT, bar, order
 from tests.support.virtual_broker import accept_scheduled_order as _accept
 from tests.support.virtual_broker import schedule_gateway as _gateway

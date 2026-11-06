@@ -19,6 +19,7 @@ from onlyalpha.domain.market import (
     OnlyTradeTick,
 )
 from onlyalpha.domain.value import OnlyPrice, OnlyQuantity
+
 from onlyalpha_plugin_binance.errors import OnlyBinanceError
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)

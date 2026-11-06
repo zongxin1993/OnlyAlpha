@@ -521,12 +521,8 @@ fn zero_effect_opening_steps_restart_without_a_checkpoint_and_terminal_forces_he
     drop(run);
     let bytes = std::fs::read(root.join("runtime.sqlite3")).unwrap();
     assert!(
-        onlyalpha_runtime::VerifiedReplaySnapshot::read(
-            &root,
-            configuration(),
-            &"e".repeat(64)
-        )
-        .is_err(),
+        onlyalpha_runtime::VerifiedReplaySnapshot::read(&root, configuration(), &"e".repeat(64))
+            .is_err(),
         "source observation still requires an actual head checkpoint"
     );
     assert_eq!(std::fs::read(root.join("runtime.sqlite3")).unwrap(), bytes);
@@ -545,12 +541,9 @@ fn zero_effect_opening_steps_restart_without_a_checkpoint_and_terminal_forces_he
     run.terminate("COMPLETED", None).unwrap();
     let result = run.result().unwrap();
     drop(run);
-    let source = onlyalpha_runtime::VerifiedReplaySnapshot::read(
-        &root,
-        configuration(),
-        &"e".repeat(64),
-    )
-    .unwrap();
+    let source =
+        onlyalpha_runtime::VerifiedReplaySnapshot::read(&root, configuration(), &"e".repeat(64))
+            .unwrap();
     source.verify_cut().unwrap();
     drop(source);
     let reopened = RunLoop::open(&root, spec(), inputs(), Phases::new()).unwrap();
@@ -597,12 +590,9 @@ fn checkpoint_threshold_uses_actual_execution_and_pending_cut_recovers_the_same_
     run.terminate("COMPLETED", None).unwrap();
     let result = run.result().unwrap();
     drop(run);
-    let source = onlyalpha_runtime::VerifiedReplaySnapshot::read(
-        &root,
-        configuration(),
-        &"e".repeat(64),
-    )
-    .unwrap();
+    let source =
+        onlyalpha_runtime::VerifiedReplaySnapshot::read(&root, configuration(), &"e".repeat(64))
+            .unwrap();
     assert_eq!(source.records().len(), 64);
     source.verify_cut().unwrap();
     drop(source);
@@ -694,12 +684,9 @@ fn terminal_control_forces_a_current_head_below_the_next_periodic_checkpoint() {
     );
     let result = run.result().unwrap();
     drop(run);
-    let source = onlyalpha_runtime::VerifiedReplaySnapshot::read(
-        &root,
-        configuration(),
-        &"e".repeat(64),
-    )
-    .unwrap();
+    let source =
+        onlyalpha_runtime::VerifiedReplaySnapshot::read(&root, configuration(), &"e".repeat(64))
+            .unwrap();
     assert_eq!(source.records().len(), 1);
     source.verify_cut().unwrap();
     drop(source);
@@ -821,9 +808,7 @@ fn operation_cut_rehash(root: &std::path::Path, index: u64) {
 // A rehashed causal attack must remain valid physical codec/lineage input;
 // refusal must come from the original participant derivation, not bad framing.
 fn operation_cut_structurally_valid(root: &std::path::Path) {
-    let runtime =
-        onlyalpha_runtime::Runtime::open(root, configuration(), &"e".repeat(64))
-            .unwrap();
+    let runtime = onlyalpha_runtime::Runtime::open(root, configuration(), &"e".repeat(64)).unwrap();
     let refs = runtime.replay_refs().unwrap();
     for reference in refs {
         runtime
@@ -952,8 +937,11 @@ fn zero_plan_step_refuses_execution_history_changed_after_prepare() {
             assert_eq!(index, 3);
             let db = rusqlite::Connection::open(root.join("runtime.sqlite3")).unwrap();
             assert_eq!(
-                db.execute("UPDATE records SET ready=0,delivered=0 WHERE sequence=1", [])
-                    .unwrap(),
+                db.execute(
+                    "UPDATE records SET ready=0,delivered=0 WHERE sequence=1",
+                    []
+                )
+                .unwrap(),
                 1
             );
         }
@@ -1194,8 +1182,7 @@ fn accepted_event_ack_remains_durable_but_delivery_refuses_a_callback_changed_re
     assert!(run.progress().is_err());
     drop(run);
     let runtime =
-        onlyalpha_runtime::Runtime::open(&root, configuration(), &"e".repeat(64))
-            .unwrap();
+        onlyalpha_runtime::Runtime::open(&root, configuration(), &"e".repeat(64)).unwrap();
     assert_eq!(runtime.records().unwrap().len(), 1);
     assert!(runtime.pending_events().unwrap().is_empty());
     drop(runtime);
@@ -1315,39 +1302,76 @@ fn empty_delivery_keeps_the_actual_replay_cut_without_calling_or_acknowledging_a
     std::fs::remove_dir_all(root).unwrap();
 }
 
-
 fn actual_execution_rows(root: &std::path::Path) -> Vec<(i64, String, String, i64, i64)> {
-    let db = rusqlite::Connection::open_with_flags(root.join("runtime.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-    let mut query = db.prepare("SELECT sequence,payload,digest,ready,delivered FROM records ORDER BY sequence").unwrap();
-    query.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
-        .unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap()
+    let db = rusqlite::Connection::open_with_flags(
+        root.join("runtime.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let mut query = db
+        .prepare("SELECT sequence,payload,digest,ready,delivered FROM records ORDER BY sequence")
+        .unwrap();
+    query
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
 }
 
 #[test]
 fn combined_step_delivery_matches_original_bytes_events_cursor_and_economics() {
     let separate_root = root("combined-separate-equivalence");
     let combined_root = root("combined-equivalence");
-    let mut separate = RunLoop::create(&separate_root, spec(), inputs(), Valuations::new(&[1, 1])).unwrap();
-    let mut combined = RunLoop::create(&combined_root, spec(), inputs(), Valuations::new(&[1, 1])).unwrap();
+    let mut separate =
+        RunLoop::create(&separate_root, spec(), inputs(), Valuations::new(&[1, 1])).unwrap();
+    let mut combined =
+        RunLoop::create(&combined_root, spec(), inputs(), Valuations::new(&[1, 1])).unwrap();
     let mut expected_events = Vec::new();
     let mut actual_events = Vec::new();
     for _ in 0..5 {
         let expected_advanced = separate.step().unwrap();
-        let expected_delivered = separate.deliver(|event| {expected_events.push(event.clone()); Ok(())}).unwrap();
-        let observed = combined.step_and_deliver(|event| {actual_events.push(event.clone()); Ok(())}).unwrap();
+        let expected_delivered = separate
+            .deliver(|event| {
+                expected_events.push(event.clone());
+                Ok(())
+            })
+            .unwrap();
+        let observed = combined
+            .step_and_deliver(|event| {
+                actual_events.push(event.clone());
+                Ok(())
+            })
+            .unwrap();
         assert_eq!(observed, (expected_advanced, expected_delivered));
         assert_eq!(actual_events, expected_events);
         assert_eq!(combined.trace().unwrap(), separate.trace().unwrap());
         assert_eq!(combined.state().unwrap(), separate.state().unwrap());
-        assert_eq!(actual_execution_rows(&combined_root), actual_execution_rows(&separate_root));
-        assert_eq!(operation_cut_rows(&combined_root), operation_cut_rows(&separate_root));
+        assert_eq!(
+            actual_execution_rows(&combined_root),
+            actual_execution_rows(&separate_root)
+        );
+        assert_eq!(
+            operation_cut_rows(&combined_root),
+            operation_cut_rows(&separate_root)
+        );
     }
-    separate.close_input().unwrap(); combined.close_input().unwrap();
-    separate.deliver(|_| Ok(())).unwrap(); combined.deliver(|_| Ok(())).unwrap();
-    separate.finish_input().unwrap(); combined.finish_input().unwrap();
+    separate.close_input().unwrap();
+    combined.close_input().unwrap();
+    separate.deliver(|_| Ok(())).unwrap();
+    combined.deliver(|_| Ok(())).unwrap();
+    separate.finish_input().unwrap();
+    combined.finish_input().unwrap();
     assert_eq!(combined.result().unwrap(), separate.result().unwrap());
-    drop(separate); drop(combined);
+    drop(separate);
+    drop(combined);
     std::fs::remove_dir_all(separate_root).unwrap();
     std::fs::remove_dir_all(combined_root).unwrap();
 }
@@ -1357,36 +1381,69 @@ fn combined_empty_step_calls_no_consumer_and_exhausted_step_still_drains_old_eve
     let empty_root = root("combined-empty-consumer");
     let mut empty = RunLoop::create(&empty_root, spec(), inputs(), Phases::new()).unwrap();
     for _ in 0..4 {
-        assert_eq!(empty.step_and_deliver(|_| panic!("empty source invoked consumer")).unwrap(), (true, 0));
+        assert_eq!(
+            empty
+                .step_and_deliver(|_| panic!("empty source invoked consumer"))
+                .unwrap(),
+            (true, 0)
+        );
     }
-    assert_eq!(empty.step_and_deliver(|_| panic!("empty source invoked consumer")).unwrap(), (false, 0));
-    drop(empty); std::fs::remove_dir_all(empty_root).unwrap();
+    assert_eq!(
+        empty
+            .step_and_deliver(|_| panic!("empty source invoked consumer"))
+            .unwrap(),
+        (false, 0)
+    );
+    drop(empty);
+    std::fs::remove_dir_all(empty_root).unwrap();
     let pending_root = root("combined-exhausted-old-pending");
-    let mut pending = RunLoop::create(&pending_root, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
+    let mut pending =
+        RunLoop::create(&pending_root, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
     pending.run().unwrap();
     assert_eq!(pending.step_and_deliver(|_| Ok(())).unwrap(), (false, 1));
     assert_eq!(pending.deliver(|_| Ok(())).unwrap(), 0);
-    drop(pending); std::fs::remove_dir_all(pending_root).unwrap();
+    drop(pending);
+    std::fs::remove_dir_all(pending_root).unwrap();
 }
 
 #[test]
 fn combined_final_completion_cut_refuses_actual_missing_corrupt_flags_and_replay_history() {
     for (name, fault) in [
         ("missing", "DELETE FROM records WHERE sequence=1"),
-        ("corrupt", "UPDATE records SET payload='{}' WHERE sequence=1"),
-        ("flags", "UPDATE records SET ready=0,delivered=0 WHERE sequence=1"),
-        ("replay", "UPDATE replay_steps SET payload='{}' WHERE sequence=1"),
+        (
+            "corrupt",
+            "UPDATE records SET payload='{}' WHERE sequence=1",
+        ),
+        (
+            "flags",
+            "UPDATE records SET ready=0,delivered=0 WHERE sequence=1",
+        ),
+        (
+            "replay",
+            "UPDATE replay_steps SET payload='{}' WHERE sequence=1",
+        ),
     ] {
         let selected = root(&format!("combined-postwrite-{name}"));
-        let mut run = RunLoop::create(&selected, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
+        let mut run =
+            RunLoop::create(&selected, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
         assert!(run.step().unwrap());
         let db = rusqlite::Connection::open(selected.join("runtime.sqlite3")).unwrap();
         db.execute_batch(&format!("CREATE TRIGGER controlled_source_fault AFTER UPDATE OF ready ON replay_steps WHEN NEW.sequence=2 AND NEW.ready=1 BEGIN {fault}; END;")).unwrap();
         drop(db);
         let result = run.step_and_deliver(|_| panic!("corrupt final cut invoked consumer"));
-        assert!(matches!(result, Err(onlyalpha_backtest::StepAndDeliverError::Step(_))), "{name}");
-        assert!(run.progress().is_err(), "failed final cut must require original recovery: {name}");
-        drop(run); std::fs::remove_dir_all(selected).unwrap();
+        assert!(
+            matches!(
+                result,
+                Err(onlyalpha_backtest::StepAndDeliverError::Step(_))
+            ),
+            "{name}"
+        );
+        assert!(
+            run.progress().is_err(),
+            "failed final cut must require original recovery: {name}"
+        );
+        drop(run);
+        std::fs::remove_dir_all(selected).unwrap();
     }
 }
 
@@ -1394,15 +1451,23 @@ fn combined_final_completion_cut_refuses_actual_missing_corrupt_flags_and_replay
 fn combined_consumer_failure_keeps_pending_and_callback_source_change_keeps_original_ack() {
     for corrupt in [false, true] {
         let selected = root(&format!("combined-consumer-{corrupt}"));
-        let mut run = RunLoop::create(&selected, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
+        let mut run =
+            RunLoop::create(&selected, spec(), inputs(), Valuations::new(&[1, 0])).unwrap();
         assert!(run.step().unwrap());
         let mut accepted = Vec::new();
         let result = run.step_and_deliver(|event| {
             accepted.push(event.clone());
-            if corrupt { operation_cut_rehash(&selected, 1); Ok(()) }
-            else { Err(Error("CONTROLLED_CONSUMER_UNKNOWN".into())) }
+            if corrupt {
+                operation_cut_rehash(&selected, 1);
+                Ok(())
+            } else {
+                Err(Error("CONTROLLED_CONSUMER_UNKNOWN".into()))
+            }
         });
-        assert!(matches!(result, Err(onlyalpha_backtest::StepAndDeliverError::Delivery(_))));
+        assert!(matches!(
+            result,
+            Err(onlyalpha_backtest::StepAndDeliverError::Delivery(_))
+        ));
         assert_eq!(accepted.len(), 1);
         let rows = actual_execution_rows(&selected);
         assert_eq!(rows.len(), 1);
@@ -1412,9 +1477,20 @@ fn combined_consumer_failure_keeps_pending_and_callback_source_change_keeps_orig
         } else {
             assert_eq!(run.progress().unwrap()["cursor"], 1);
             let mut retried = Vec::new();
-            assert_eq!(run.deliver(|event| {retried.push(event.clone()); Ok(())}).unwrap(), 1);
-            assert_eq!(retried, accepted, "consumer failure must retain the same stable Event");
+            assert_eq!(
+                run.deliver(|event| {
+                    retried.push(event.clone());
+                    Ok(())
+                })
+                .unwrap(),
+                1
+            );
+            assert_eq!(
+                retried, accepted,
+                "consumer failure must retain the same stable Event"
+            );
         }
-        drop(run); std::fs::remove_dir_all(selected).unwrap();
+        drop(run);
+        std::fs::remove_dir_all(selected).unwrap();
     }
 }

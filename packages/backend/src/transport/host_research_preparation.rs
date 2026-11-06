@@ -1,10 +1,10 @@
 //! Explicit Human preparation of one exact Study; no Agent execution permission.
-#[path="host_strategy_preparation.rs"]
-mod strategy;
-#[path="host_backtest_preparation.rs"]
+#[path = "host_backtest_preparation.rs"]
 mod backtest;
-#[path="host_backtest_environment.rs"]
+#[path = "host_backtest_environment.rs"]
 mod manual_environment;
+#[path = "host_strategy_preparation.rs"]
+mod strategy;
 use crate::{
     application::{
         command::CommandId,
@@ -177,22 +177,39 @@ impl Host {
         };
         self.preparation_view(&o, &human).await.map_err(failure)
     }
-    pub(super) async fn require_preparation_kind(&self,human:&human_access::Session,command:&CommandId,strategy:bool)->std::result::Result<(),Failure> {
-        let owner=self.preparation_owner(human).map_err(failure)?;
-        let mut reader=self.reader.lock().await;
-        let client=reader.as_mut().ok_or_else(||failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
-        let o=Preparations::new(client).query(command,owner).await.map_err(|e|failure(e.into()))?;
-        if (strategy && !o.request.is_strategy()) || (!strategy && o.request.factor().is_err()){return Err(failure(INVALID.into()));}Ok(())
+    pub(super) async fn require_preparation_kind(
+        &self,
+        human: &human_access::Session,
+        command: &CommandId,
+        strategy: bool,
+    ) -> std::result::Result<(), Failure> {
+        let owner = self.preparation_owner(human).map_err(failure)?;
+        let mut reader = self.reader.lock().await;
+        let client = reader
+            .as_mut()
+            .ok_or_else(|| failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
+        let o = Preparations::new(client)
+            .query(command, owner)
+            .await
+            .map_err(|e| failure(e.into()))?;
+        if (strategy && !o.request.is_strategy()) || (!strategy && o.request.factor().is_err()) {
+            return Err(failure(INVALID.into()));
+        }
+        Ok(())
     }
     pub(crate) async fn preparation_view(
         &self,
         o: &Operation,
         human: &human_access::Session,
     ) -> Result<Value> {
-        if o.request.is_backtest(){return self.backtest_preparation_view(o,human).await;}
-        if o.request.is_strategy(){return self.strategy_preparation_view(o,human).await;}
+        if o.request.is_backtest() {
+            return self.backtest_preparation_view(o, human).await;
+        }
+        if o.request.is_strategy() {
+            return self.strategy_preparation_view(o, human).await;
+        }
         let mut view = o.view();
-        let future = CommandId::new(&o.request.research_command()).map_err(|_| INVALID)?;
+        let future = CommandId::new(o.request.research_command()).map_err(|_| INVALID)?;
         if o.outputs.get("ready").is_some() {
             let advice: crate::application::factor_studies::Advice =
                 serde_json::from_value(o.accepted["study"]["advice"].clone())
@@ -411,14 +428,39 @@ impl Host {
         let owner = self.preparation_owner(&human).map_err(failure)?.to_owned();
         let o = {
             let mut writer = self.writer.lock().await;
-            let session=writer.as_mut().ok_or_else(||failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
-            let original={let client=session.client_mut().await.map_err(|_|failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
-                Preparations::new(client).query(command,&owner).await.map_err(|e|failure(e.into()))?};
+            let session = writer
+                .as_mut()
+                .ok_or_else(|| failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
+            let original = {
+                let client = session
+                    .client_mut()
+                    .await
+                    .map_err(|_| failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
+                Preparations::new(client)
+                    .query(command, &owner)
+                    .await
+                    .map_err(|e| failure(e.into()))?
+            };
             if original.request.is_backtest() {
-                crate::persistence::research_preparation::cancel_backtest(session,&cancel,command,&owner,revision,now()?).await.map_err(|e|failure(e.into()))?
+                crate::persistence::research_preparation::cancel_backtest(
+                    session,
+                    &cancel,
+                    command,
+                    &owner,
+                    revision,
+                    now()?,
+                )
+                .await
+                .map_err(|e| failure(e.into()))?
             } else {
-                let client=session.client_mut().await.map_err(|_|failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
-                Preparations::new(client).cancel(&cancel,command,&owner,revision,now()?).await.map_err(|e|failure(e.into()))?
+                let client = session
+                    .client_mut()
+                    .await
+                    .map_err(|_| failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
+                Preparations::new(client)
+                    .cancel(&cancel, command, &owner, revision, now()?)
+                    .await
+                    .map_err(|e| failure(e.into()))?
             }
         };
         if let Some(wake) = self
@@ -429,7 +471,13 @@ impl Host {
         {
             wake.notify_one();
         }
-        if o.request.is_backtest(){let _=self.cleanup_cancelled_backtest_preparation(&o).await;return self.backtest_preparation_view(&o,&human).await.map_err(failure);}
+        if o.request.is_backtest() {
+            let _ = self.cleanup_cancelled_backtest_preparation(&o).await;
+            return self
+                .backtest_preparation_view(&o, &human)
+                .await
+                .map_err(failure);
+        }
         Ok(o.view())
     }
     async fn start_preparation(
@@ -463,7 +511,9 @@ impl Host {
                 Ok(()) => Ok(()),
                 Err(error) => host.finish_preparation_error(&o, error, &wake).await,
             };
-            if o.request.is_backtest(){let _=host.cleanup_cancelled_backtest_preparation(&o).await;}
+            if o.request.is_backtest() {
+                let _ = host.cleanup_cancelled_backtest_preparation(&o).await;
+            }
             host.research_preparation_running
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -573,7 +623,7 @@ impl Host {
                 .transaction()
                 .await
                 .map_err(|_| "RESEARCH_PREPARATION_UNAVAILABLE")?;
-            crate::persistence::research_preparation::require_current(&tx,&current).await?;
+            crate::persistence::research_preparation::require_current(&tx, &current).await?;
             tx.commit()
                 .await
                 .map_err(|_| "RESEARCH_PREPARATION_UNAVAILABLE")?;
@@ -617,7 +667,9 @@ impl Host {
         Ok((authority, session, selection))
     }
     async fn publish_preparation_revision(&self, o: &Operation) -> Result<Value> {
-        if o.request.is_strategy(){return self.retained_strategy_factor_publication(o).await;}
+        if o.request.is_strategy() {
+            return self.retained_strategy_factor_publication(o).await;
+        }
         let expected = validated_inputs(&o.accepted["study"], &o.accepted["factor_confirmation"])?;
         let id = expected.draft.factor_id();
         let child = child_command(&o.command, "PUBLISH_CONFIRMED_FACTOR")?;
@@ -685,18 +737,28 @@ impl Host {
         original: Operation,
         human: human_access::Session,
     ) -> Result<()> {
-        if original.request.is_backtest(){return self.prepare_backtest_inputs(original,human).await;}
+        if original.request.is_backtest() {
+            return self.prepare_backtest_inputs(original, human).await;
+        }
         let config = self.research_preparation_config.clone();
         pinned_release(&config, &original)?;
         let mut o = self.preparation_checkpoint(&original, &human).await?;
         o = self
             .preparation_progress(&o, State::Running, "VALIDATING", &o.outputs, &Value::Null)
             .await?;
-        let source=o.source()?;
-        let (source_authority,source_session,selection)=self.preparation_sources(&human,&source,true).await?;
-        let reference=crate::application::source_access::Reference::new(&source.integration_id,&source.integration_revision_fingerprint,Some(&source.expected_type_id)).map_err(|e|e.code())?;
-        let (resolved,_)=self.resolve(&reference).await.map_err(|e|e.code())?;
-        if resolved.selection()!=&selection{return Err("RESEARCH_SOURCE_ACCESS_DENIED".into());}
+        let source = o.source()?;
+        let (source_authority, source_session, selection) =
+            self.preparation_sources(&human, &source, true).await?;
+        let reference = crate::application::source_access::Reference::new(
+            &source.integration_id,
+            &source.integration_revision_fingerprint,
+            Some(&source.expected_type_id),
+        )
+        .map_err(|e| e.code())?;
+        let (resolved, _) = self.resolve(&reference).await.map_err(|e| e.code())?;
+        if resolved.selection() != &selection {
+            return Err("RESEARCH_SOURCE_ACCESS_DENIED".into());
+        }
         let manifest = release(&config)?;
         let installation = ChartInstallation::open(
             &config.algorithms_root,
@@ -707,17 +769,33 @@ impl Host {
             let publication = self.publish_preparation_revision(&o).await?;
             o = self.preparation_checkpoint(&o, &human).await?;
             let background = config.clone();
-            let operation=o.clone();
+            let operation = o.clone();
             let generation = tokio::task::spawn_blocking(move || {
-                let (factor,revision)=crate::persistence::research_preparation::algorithm_inputs(&operation)?;
+                let (factor, revision) =
+                    crate::persistence::research_preparation::algorithm_inputs(&operation)?;
                 let selected = release(&background)?;
                 let installation = ChartInstallation::open(
                     &background.algorithms_root,
                     text(&selected, "algorithm_artifact")?,
                 )
                 .map_err(|_| "RESEARCH_ALGORITHM_INSTALLATION_CHANGED")?;
-                if operation.request.is_strategy(){research_environment::prepare_strategy(&installation,&background.release_root,&factor,&revision,&background.native_version)}
-                else {research_environment::prepare(&installation,&background.release_root,&factor,&revision,&background.native_version)}
+                if operation.request.is_strategy() {
+                    research_environment::prepare_strategy(
+                        &installation,
+                        &background.release_root,
+                        &factor,
+                        &revision,
+                        &background.native_version,
+                    )
+                } else {
+                    research_environment::prepare(
+                        &installation,
+                        &background.release_root,
+                        &factor,
+                        &revision,
+                        &background.native_version,
+                    )
+                }
             })
             .await
             .map_err(|_| "RESEARCH_PREPARATION_PROCESS_OUTCOME_UNKNOWN")??;
@@ -730,7 +808,7 @@ impl Host {
             let actor = o.owner.clone();
             let expected = o.request.expected_active().map(str::to_owned);
             let initialize = o.request.initialize();
-            let future = CommandId::new(&o.request.research_command()).map_err(|_| INVALID)?;
+            let future = CommandId::new(o.request.research_command()).map_err(|_| INVALID)?;
             let work = research_submission::run_id(&future);
             let at = now().map_err(|e| e.code())?;
             let generation_for_publication = generation_id.clone();
@@ -747,7 +825,7 @@ impl Host {
                     .transaction()
                     .await
                     .map_err(|_| "RESEARCH_PREPARATION_UNAVAILABLE")?;
-                crate::persistence::research_preparation::require_current(&tx,&o).await?;
+                crate::persistence::research_preparation::require_current(&tx, &o).await?;
                 let known_runtime =
                     crate::persistence::research_preparation::runtime_history_exists(&tx).await?;
                 let result =
@@ -830,7 +908,18 @@ impl Host {
                 .preparation_progress(&o, State::Running, "INPUTS", &outputs, &Value::Null)
                 .await?;
         }
-        if o.request.is_strategy(){return self.prepare_strategy_inputs(o,human,source_authority,source_session,selection,installation).await;}
+        if o.request.is_strategy() {
+            return self
+                .prepare_strategy_inputs(
+                    o,
+                    human,
+                    source_authority,
+                    source_session,
+                    selection,
+                    installation,
+                )
+                .await;
+        }
         let current = validated_inputs(&o.accepted["study"], &o.accepted["factor_confirmation"])?;
         let datasets = Datasets::open(
             &config.research_root.join("datasets"),
@@ -846,7 +935,9 @@ impl Host {
                 human: human.clone(),
                 session: &source_session,
                 source: &current.advice.source,
-                window: crate::transport::host_research_inputs::DatasetEventWindow::factor(&current.window)?,
+                window: crate::transport::host_research_inputs::DatasetEventWindow::factor(
+                    &current.window,
+                )?,
                 definition: &definition,
                 command: &o.command,
                 datasets: &datasets,
@@ -899,7 +990,7 @@ impl Host {
                 let runtime = RuntimeInputHold::open(
                     &root,
                     &research_submission::run_id(
-                        &CommandId::new(&o_for_preflight.request.research_command())
+                        &CommandId::new(o_for_preflight.request.research_command())
                             .map_err(|_| INVALID)?,
                     ),
                     "research",
@@ -952,7 +1043,9 @@ impl Host {
             )?
             .into(),
             algorithm_artifact_fingerprint: installation.artifact_fingerprint().into(),
-            authoring_generation_fingerprint: Some(prepared.factor_authoring_generation_fingerprint()?.into()),
+            authoring_generation_fingerprint: Some(
+                prepared.factor_authoring_generation_fingerprint()?.into(),
+            ),
             execution_binding: prepared.record()["execution_binding"].clone(),
         };
         let policy = crate::bootstrap::research_namespace::policy();
@@ -979,7 +1072,7 @@ impl Host {
                 client,
                 &authority,
                 &context,
-                CommandId::new(&o.request.research_command()).map_err(|_| INVALID)?,
+                CommandId::new(o.request.research_command()).map_err(|_| INVALID)?,
                 Request {
                     schema_version: 1,
                     factor_proposal_fingerprint: text(
@@ -1141,7 +1234,7 @@ fn ready_preflight(
         text(ready, "dataset_materialization_id")?,
     )?;
     let work = research_submission::run_id(
-        &CommandId::new(&o.request.research_command()).map_err(|_| INVALID)?,
+        &CommandId::new(o.request.research_command()).map_err(|_| INVALID)?,
     );
     let runtime = RuntimeInputHold::open(
         &config.runtime_root,
@@ -1183,54 +1276,76 @@ impl Host {
             .preparation_query(command, &owner)
             .await
             .map_err(failure)?;
-        if o.request.is_backtest(){return self.confirm_backtest_preparation(human,command,expected,original_research_command).await;}
+        if o.request.is_backtest() {
+            return self
+                .confirm_backtest_preparation(human, command, expected, original_research_command)
+                .await;
+        }
         if o.request.research_command() != original_research_command.value() {
             return Err(failure("RESEARCH_PREPARATION_COMMAND_CONFLICT".into()));
         }
-        let outcome=if o.request.is_strategy(){
-            let source=o.source().map_err(|e|failure(e.into()))?;
-            let (a,s,selection)=self.preparation_sources(&human,&source,false).await.map_err(failure)?;
-            let context=Context{human_authority:&self.human_access,human:&human,source_authority:&a,source:&s,selection:&selection};
-            let study=research_submission::strategy::restore_study(&context,&o.outputs["ready"]["prepared_study"],expected).map_err(|e|failure(e.into()))?;
-            let mut reader=self.reader.lock().await;
-            let client=reader.as_mut().ok_or_else(||failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
-            research_submission::strategy::submission_outcome_readonly(client,&context,&study).await.map_err(|e|failure(e.into()))?
-        }else {
-            let advice = validated_inputs(&o.accepted["study"], &o.accepted["factor_confirmation"])
-            .map_err(|e| failure(e.into()))?
-            .advice;
-        // This original issuer/session tuple is only read for outcome recovery here;
-        // no current Source permission or replacement selection is manufactured.
-        let (source_authority, source_session, selection) = self
-            .preparation_sources(&human, &advice.source, false)
-            .await
-            .map_err(failure)?;
-        let context = Context {
-            human_authority: &self.human_access,
-            human: &human,
-            source_authority: &source_authority,
-            source: &source_session,
-            selection: &selection,
-        };
-        let prepared = research_submission::restore_study(
-            &context,
-            &o.outputs["ready"]["prepared_study"],
-            expected,
-        )
-        .map_err(|e| failure(e.into()))?;
-        let outcome = {
-            let mut writer = self.writer.lock().await;
-            let client = writer
-                .as_mut()
-                .ok_or_else(|| failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?
-                .client_mut()
+        let outcome = if o.request.is_strategy() {
+            let source = o.source().map_err(|e| failure(e.into()))?;
+            let (a, s, selection) = self
+                .preparation_sources(&human, &source, false)
                 .await
-                .map_err(|_| failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
-            research_submission::submission_outcome(client, &context, &prepared)
+                .map_err(failure)?;
+            let context = Context {
+                human_authority: &self.human_access,
+                human: &human,
+                source_authority: &a,
+                source: &s,
+                selection: &selection,
+            };
+            let study = research_submission::strategy::restore_study(
+                &context,
+                &o.outputs["ready"]["prepared_study"],
+                expected,
+            )
+            .map_err(|e| failure(e.into()))?;
+            let mut reader = self.reader.lock().await;
+            let client = reader
+                .as_mut()
+                .ok_or_else(|| failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
+            research_submission::strategy::submission_outcome_readonly(client, &context, &study)
                 .await
                 .map_err(|e| failure(e.into()))?
-        };
-            outcome
+        } else {
+            let advice = validated_inputs(&o.accepted["study"], &o.accepted["factor_confirmation"])
+                .map_err(|e| failure(e.into()))?
+                .advice;
+            // This original issuer/session tuple is only read for outcome recovery here;
+            // no current Source permission or replacement selection is manufactured.
+            let (source_authority, source_session, selection) = self
+                .preparation_sources(&human, &advice.source, false)
+                .await
+                .map_err(failure)?;
+            let context = Context {
+                human_authority: &self.human_access,
+                human: &human,
+                source_authority: &source_authority,
+                source: &source_session,
+                selection: &selection,
+            };
+            let prepared = research_submission::restore_study(
+                &context,
+                &o.outputs["ready"]["prepared_study"],
+                expected,
+            )
+            .map_err(|e| failure(e.into()))?;
+
+            {
+                let mut writer = self.writer.lock().await;
+                let client = writer
+                    .as_mut()
+                    .ok_or_else(|| failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?
+                    .client_mut()
+                    .await
+                    .map_err(|_| failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
+                research_submission::submission_outcome(client, &context, &prepared)
+                    .await
+                    .map_err(|e| failure(e.into()))?
+            }
         };
         match outcome {
             SubmissionOutcome::Accepted(run) => return Ok(json!({"run_id":run.run_id()})),
@@ -1244,9 +1359,15 @@ impl Host {
         if o.state != State::Ready {
             return Err(failure("RESEARCH_PREPARATION_NOT_READY".into()));
         }
-        self.launch_preparation_confirmation(o,human,expected).await
+        self.launch_preparation_confirmation(o, human, expected)
+            .await
     }
-    async fn launch_preparation_confirmation(self:&Arc<Self>,o:Operation,human:human_access::Session,expected:&str)->std::result::Result<Value,Failure> {
+    async fn launch_preparation_confirmation(
+        self: &Arc<Self>,
+        o: Operation,
+        human: human_access::Session,
+        expected: &str,
+    ) -> std::result::Result<Value, Failure> {
         let wake = Arc::new(Notify::new());
         let key = o.command.value().to_owned();
         {
@@ -1255,9 +1376,11 @@ impl Host {
                 .lock()
                 .map_err(|_| failure("RESEARCH_PREPARATION_OWNER_UNKNOWN".into()))?;
             if owners.contains_key(&key) {
-                return Ok(
-                    if o.request.is_backtest(){json!({"state":"SUBMISSION_PENDING","backtest_command_id":o.request.future_command()})}else{json!({"state":"SUBMISSION_PENDING","research_command_id":o.request.research_command()})},
-                );
+                return Ok(if o.request.is_backtest() {
+                    json!({"state":"SUBMISSION_PENDING","backtest_command_id":o.request.future_command()})
+                } else {
+                    json!({"state":"SUBMISSION_PENDING","research_command_id":o.request.research_command()})
+                });
             }
             owners.insert(key.clone(), wake.clone());
         }
@@ -1292,7 +1415,9 @@ impl Host {
                         None
                     };
                     let finished = host.finish_preparation_error(&o, error, &wake).await;
-                    if o.request.is_backtest(){let _=host.cleanup_cancelled_backtest_preparation(&o).await;}
+                    if o.request.is_backtest() {
+                        let _ = host.cleanup_cancelled_backtest_preparation(&o).await;
+                    }
                     host.research_preparation_running
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
@@ -1331,8 +1456,16 @@ impl Host {
         let o = self
             .preparation_progress(&o, State::Running, "CONFIRMING", &o.outputs, &Value::Null)
             .await?;
-        if o.request.is_backtest(){return self.confirm_backtest_preparation_body(o,human,expected).await;}
-        if o.request.is_strategy(){return self.confirm_strategy_preparation_body(o,human,expected).await;}
+        if o.request.is_backtest() {
+            return self
+                .confirm_backtest_preparation_body(o, human, expected)
+                .await;
+        }
+        if o.request.is_strategy() {
+            return self
+                .confirm_strategy_preparation_body(o, human, expected)
+                .await;
+        }
         let current = validated_inputs(&o.accepted["study"], &o.accepted["factor_confirmation"])?;
         let (source_authority, source_session, selection) = self
             .preparation_sources(&human, &current.advice.source, true)
@@ -1466,20 +1599,25 @@ fn last_activation(root: &std::path::Path) -> Result<Option<Value>> {
 }
 
 #[cfg(test)]
+pub use backtest::run_owner_scenario;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn accepted(release: &str) -> Operation {
         Operation {
             command: CommandId::new("00000000-0000-4000-8000-000000000001").unwrap(),
             owner: "owner".into(),
-            request: crate::persistence::research_preparation::PreparationRequest::Factor(PrepareInput {
-                schema_version: 1,
-                study_proposal_fingerprint: "a".repeat(64),
-                release_manifest_fingerprint: release.into(),
-                expected_active_generation: None,
-                initialize_fresh_runtime: false,
-                research_command_id: "00000000-0000-4000-8000-000000000002".into(),
-            }),
+            request: crate::persistence::research_preparation::PreparationRequest::Factor(
+                PrepareInput {
+                    schema_version: 1,
+                    study_proposal_fingerprint: "a".repeat(64),
+                    release_manifest_fingerprint: release.into(),
+                    expected_active_generation: None,
+                    initialize_fresh_runtime: false,
+                    research_command_id: "00000000-0000-4000-8000-000000000002".into(),
+                },
+            ),
             accepted: Value::Null,
             revision: 9_007_199_254_740_993,
             state: State::Unknown,
@@ -1492,7 +1630,13 @@ mod tests {
     fn reuse_current_keeps_original_freeform_activation_reason_without_new_command_authority() {
         let generation = "c".repeat(64);
         let mut o = accepted(&"a".repeat(64));
-        if let crate::persistence::research_preparation::PreparationRequest::Factor(v)=&mut o.request {v.expected_active_generation=Some(generation.clone());}else{unreachable!()}
+        if let crate::persistence::research_preparation::PreparationRequest::Factor(v) =
+            &mut o.request
+        {
+            v.expected_active_generation = Some(generation.clone());
+        } else {
+            unreachable!()
+        }
         let mut environment = json!({"runtime_generation_fingerprint":generation,"activation_disposition":"REUSED_CURRENT","activation":{"kind":"GenerationActivated","generation_fingerprint":generation,"reason":"Human selected the verified release","actor":"original-human","expected_current":null}});
         crate::persistence::research_preparation::validate_activation(&o, &environment).unwrap();
         environment["activation_disposition"] = json!("ACTIVATED");
@@ -1508,7 +1652,13 @@ mod tests {
         environment["activation"]["expected_current"] = json!(o.request.expected_active());
         crate::persistence::research_preparation::validate_activation(&o, &environment).unwrap();
         environment["activation_disposition"] = json!("REUSED_CURRENT");
-        if let crate::persistence::research_preparation::PreparationRequest::Factor(v)=&mut o.request {v.expected_active_generation=None;}else{unreachable!()}
+        if let crate::persistence::research_preparation::PreparationRequest::Factor(v) =
+            &mut o.request
+        {
+            v.expected_active_generation = None;
+        } else {
+            unreachable!()
+        }
         assert!(
             crate::persistence::research_preparation::validate_activation(&o, &environment)
                 .is_err()

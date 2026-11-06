@@ -164,7 +164,9 @@ pub(crate) fn put(directory: &Directory, parts: &[&str], leaf: &str, value: &Val
     components(parts, leaf)?;
     let (name, parents) = parts.split_last().ok_or(INVALID)?;
     let parent = directory.path(parents, true)?;
-    publish_at(&parent.fd, &parent.fd, name, leaf, value, || parent.verify())
+    publish_at(&parent.fd, &parent.fd, name, leaf, value, || {
+        parent.verify()
+    })
 }
 /// Same physical put-once operation for an already selected descriptor owner.
 /// This preserves the selected namespace if its original absolute path is renamed.
@@ -281,7 +283,12 @@ fn publish_at(
             .map(|v| format!("{v:02x}"))
             .collect::<String>()
     );
-    fs::mkdirat(staging_parent, stage.as_str(), fs::Mode::from_raw_mode(0o700)).map_err(io)?;
+    fs::mkdirat(
+        staging_parent,
+        stage.as_str(),
+        fs::Mode::from_raw_mode(0o700),
+    )
+    .map_err(io)?;
     let staging = files::open_directory_at(staging_parent, OsStr::new(&stage)).map_err(io)?;
     fs::fsync(staging_parent).map_err(io)?;
     #[cfg(test)]
@@ -373,7 +380,8 @@ pub(crate) fn put_bundle_at(
         Err(rustix::io::Errno::EXIST) => false,
         Err(error) => return Err(io(error)),
     };
-    let staging_parent = files::open_directory_at(&selected, OsStr::new(staging_name)).map_err(io)?;
+    let staging_parent =
+        files::open_directory_at(&selected, OsStr::new(staging_name)).map_err(io)?;
     if created {
         fs::fsync(&staging_parent).map_err(io)?;
         fs::fsync(&selected).map_err(io)?;
@@ -406,8 +414,19 @@ pub(crate) fn put_bundle_at(
     }
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random).map_err(io)?;
-    let stage = format!(".stage-{}", random.iter().map(|b| format!("{b:02x}")).collect::<String>());
-    fs::mkdirat(&staging_parent, stage.as_str(), fs::Mode::from_raw_mode(0o700)).map_err(io)?;
+    let stage = format!(
+        ".stage-{}",
+        random
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    );
+    fs::mkdirat(
+        &staging_parent,
+        stage.as_str(),
+        fs::Mode::from_raw_mode(0o700),
+    )
+    .map_err(io)?;
     let staging = files::open_directory_at(&staging_parent, OsStr::new(&stage)).map_err(io)?;
     fs::fsync(&staging_parent).map_err(io)?;
     #[cfg(test)]
@@ -425,11 +444,22 @@ pub(crate) fn put_bundle_at(
         for (relative, bytes) in files {
             let (prefix, leaf) = relative.rsplit_once('/').unwrap_or(("", relative));
             let at = bundle_directory(&staging, prefix, Some(&owned))?;
-            let descriptor = fs::openat(&at, leaf,
-                fs::OFlags::WRONLY | fs::OFlags::CREATE | fs::OFlags::EXCL | fs::OFlags::NOFOLLOW
-                    | fs::OFlags::CLOEXEC | fs::OFlags::NONBLOCK,
-                fs::Mode::from_raw_mode(0o600)).map_err(io)?;
-            owned.insert(relative.clone(), (false, fs::fstat(&descriptor).map_err(io)?));
+            let descriptor = fs::openat(
+                &at,
+                leaf,
+                fs::OFlags::WRONLY
+                    | fs::OFlags::CREATE
+                    | fs::OFlags::EXCL
+                    | fs::OFlags::NOFOLLOW
+                    | fs::OFlags::CLOEXEC
+                    | fs::OFlags::NONBLOCK,
+                fs::Mode::from_raw_mode(0o600),
+            )
+            .map_err(io)?;
+            owned.insert(
+                relative.clone(),
+                (false, fs::fstat(&descriptor).map_err(io)?),
+            );
             let mut file = File::from(descriptor);
             #[cfg(test)]
             partial_publication_crash(&mut file, bytes)?;
@@ -446,7 +476,13 @@ pub(crate) fn put_bundle_at(
         #[cfg(test)]
         publication_crash(PublicationCrashPoint::StageSynced);
         files::duplicate_directory(parent.as_fd()).map_err(io)?;
-        match fs::renameat_with(&staging_parent, stage.as_str(), &parent, *name, fs::RenameFlags::NOREPLACE) {
+        match fs::renameat_with(
+            &staging_parent,
+            stage.as_str(),
+            &parent,
+            *name,
+            fs::RenameFlags::NOREPLACE,
+        ) {
             Ok(()) | Err(rustix::io::Errno::EXIST) => {}
             Err(error) => return Err(io(error)),
         }
@@ -462,9 +498,16 @@ pub(crate) fn put_bundle_at(
 }
 
 type BundleLayout = std::collections::BTreeMap<String, Vec<String>>;
-fn bundle_layout(files: &std::collections::BTreeMap<String, Vec<u8>>, max_bytes: usize) -> Result<BundleLayout> {
+fn bundle_layout(
+    files: &std::collections::BTreeMap<String, Vec<u8>>,
+    max_bytes: usize,
+) -> Result<BundleLayout> {
     use std::collections::BTreeSet;
-    if files.is_empty() || files.len() > MAX_ENTRIES || max_bytes == 0 || max_bytes > 512 * 1024 * 1024 {
+    if files.is_empty()
+        || files.len() > MAX_ENTRIES
+        || max_bytes == 0
+        || max_bytes > 512 * 1024 * 1024
+    {
         return Err(INVALID);
     }
     let mut remaining = max_bytes;
@@ -473,25 +516,50 @@ fn bundle_layout(files: &std::collections::BTreeMap<String, Vec<u8>>, max_bytes:
     for (path, bytes) in files {
         remaining = remaining.checked_sub(bytes.len()).ok_or(INVALID)?;
         let parts = path.split('/').collect::<Vec<_>>();
-        if parts.len() > 32 || parts.iter().any(|p| p.is_empty() || p.len() > 255
-            || matches!(*p, "." | "..") || p.contains('\\') || p.contains('\0')) {
+        if parts.len() > 32
+            || parts.iter().any(|p| {
+                p.is_empty()
+                    || p.len() > 255
+                    || matches!(*p, "." | "..")
+                    || p.contains('\\')
+                    || p.contains('\0')
+            })
+        {
             return Err(INVALID);
         }
         let mut prefix = String::new();
         for (index, part) in parts.iter().enumerate() {
-            layout.entry(prefix.clone()).or_default().insert((*part).into());
-            if !prefix.is_empty() { prefix.push('/'); }
+            layout
+                .entry(prefix.clone())
+                .or_default()
+                .insert((*part).into());
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
             prefix.push_str(part);
             if index + 1 < parts.len() {
-                if files.contains_key(&prefix) { return Err(INVALID); }
+                if files.contains_key(&prefix) {
+                    return Err(INVALID);
+                }
                 layout.entry(prefix.clone()).or_default();
             }
         }
     }
-    if layout.len().saturating_add(files.len()) > MAX_ENTRIES { return Err(INVALID); }
-    let work = layout.values().flat_map(|names| names.iter()).try_fold(0_usize, |n,name| n.checked_add(1 + name.len())).ok_or(INVALID)?;
-    if work > MAX_ENTRIES { return Err(INVALID); }
-    Ok(layout.into_iter().map(|(k,v)|(k,v.into_iter().collect())).collect())
+    if layout.len().saturating_add(files.len()) > MAX_ENTRIES {
+        return Err(INVALID);
+    }
+    let work = layout
+        .values()
+        .flat_map(|names| names.iter())
+        .try_fold(0_usize, |n, name| n.checked_add(1 + name.len()))
+        .ok_or(INVALID)?;
+    if work > MAX_ENTRIES {
+        return Err(INVALID);
+    }
+    Ok(layout
+        .into_iter()
+        .map(|(k, v)| (k, v.into_iter().collect()))
+        .collect())
 }
 fn bundle_directory(
     root: &OwnedFd,
@@ -503,12 +571,16 @@ fn bundle_directory(
     let mut prefix = String::new();
     for part in relative.split('/').filter(|p| !p.is_empty()) {
         at = files::open_directory_at(&at, OsStr::new(part)).map_err(io)?;
-        if !prefix.is_empty() { prefix.push('/'); }
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
         prefix.push_str(part);
         if let Some(owned) = owned {
             let (directory, expected) = owned.get(&prefix).ok_or(INVALID)?;
             let actual = fs::fstat(&at).map_err(io)?;
-            if !directory || !bundle_inode(&actual, expected) { return Err(INVALID); }
+            if !directory || !bundle_inode(&actual, expected) {
+                return Err(INVALID);
+            }
         }
     }
     Ok(at)
@@ -516,74 +588,132 @@ fn bundle_directory(
 fn bundle_inode(actual: &fs::Stat, expected: &fs::Stat) -> bool {
     actual.st_ino == expected.st_ino && actual.st_dev == expected.st_dev
 }
-fn verify_bundle(root: &OwnedFd, files: &std::collections::BTreeMap<String, Vec<u8>>, layout: &BundleLayout) -> Result<()> {
+fn verify_bundle(
+    root: &OwnedFd,
+    files: &std::collections::BTreeMap<String, Vec<u8>>,
+    layout: &BundleLayout,
+) -> Result<()> {
     use std::io::Read;
     let mut remaining = MAX_ENTRIES;
     for (relative, expected) in layout {
-        if bundle_names(&bundle_directory(root, relative, None)?, &mut remaining)? != *expected { return Err(INVALID); }
+        if bundle_names(&bundle_directory(root, relative, None)?, &mut remaining)? != *expected {
+            return Err(INVALID);
+        }
     }
     for (relative, expected) in files {
         let (prefix, leaf) = relative.rsplit_once('/').unwrap_or(("", relative));
         let directory = bundle_directory(root, prefix, None)?;
-        let descriptor = fs::openat(&directory, leaf,
+        let descriptor = fs::openat(
+            &directory,
+            leaf,
             fs::OFlags::RDONLY | fs::OFlags::NOFOLLOW | fs::OFlags::CLOEXEC | fs::OFlags::NONBLOCK,
-            fs::Mode::empty()).map_err(io)?;
+            fs::Mode::empty(),
+        )
+        .map_err(io)?;
         let metadata = fs::fstat(&descriptor).map_err(io)?;
         if fs::FileType::from_raw_mode(metadata.st_mode) != fs::FileType::RegularFile
-            || metadata.st_nlink != 1 || metadata.st_mode & 0o022 != 0
+            || metadata.st_nlink != 1
+            || metadata.st_mode & 0o022 != 0
             || (metadata.st_uid != 0 && metadata.st_uid != rustix::process::geteuid().as_raw())
-            || metadata.st_size < 0 || metadata.st_size as u64 != expected.len() as u64 { return Err(INVALID); }
+            || metadata.st_size < 0
+            || metadata.st_size as u64 != expected.len() as u64
+        {
+            return Err(INVALID);
+        }
         let mut file = File::from(descriptor);
         let mut offset = 0_usize;
         let mut buffer = [0_u8; 65536];
         loop {
             let length = file.read(&mut buffer).map_err(io)?;
-            if length == 0 { break; }
-            let end = offset.checked_add(length).filter(|end| *end <= expected.len()).ok_or(INVALID)?;
-            if buffer[..length] != expected[offset..end] { return Err(INVALID); }
+            if length == 0 {
+                break;
+            }
+            let end = offset
+                .checked_add(length)
+                .filter(|end| *end <= expected.len())
+                .ok_or(INVALID)?;
+            if buffer[..length] != expected[offset..end] {
+                return Err(INVALID);
+            }
             offset = end;
         }
-        if offset != expected.len() { return Err(INVALID); }
+        if offset != expected.len() {
+            return Err(INVALID);
+        }
     }
     Ok(())
 }
-fn cleanup_bundle(parent: &OwnedFd, name: &str, root: &OwnedFd, owned: &std::collections::BTreeMap<String,(bool,fs::Stat)>) -> Result<()> {
+fn cleanup_bundle(
+    parent: &OwnedFd,
+    name: &str,
+    root: &OwnedFd,
+    owned: &std::collections::BTreeMap<String, (bool, fs::Stat)>,
+) -> Result<()> {
     let current = match files::open_directory_at(parent, OsStr::new(name)) {
         Ok(fd) => fd,
         Err(files::ReadError::Missing) => return Ok(()),
         Err(error) => return Err(io(error)),
     };
-    if !bundle_inode(&fs::fstat(root).map_err(io)?, &fs::fstat(&current).map_err(io)?) { return Err(INVALID); }
+    if !bundle_inode(
+        &fs::fstat(root).map_err(io)?,
+        &fs::fstat(&current).map_err(io)?,
+    ) {
+        return Err(INVALID);
+    }
     let mut names: BundleLayout = Default::default();
     names.insert(String::new(), Vec::new());
-    for (relative,(directory,_)) in owned {
-        let (prefix,leaf)=relative.rsplit_once('/').unwrap_or(("",relative));
+    for (relative, (directory, _)) in owned {
+        let (prefix, leaf) = relative.rsplit_once('/').unwrap_or(("", relative));
         names.entry(prefix.into()).or_default().push(leaf.into());
-        if *directory { names.entry(relative.clone()).or_default(); }
+        if *directory {
+            names.entry(relative.clone()).or_default();
+        }
     }
     // Never remove unrecognized files or a replacement inode, even under our stage.
     let mut remaining = MAX_ENTRIES;
     for (relative, children) in &mut names {
         children.sort();
-        if bundle_names(&bundle_directory(root,relative,Some(owned))?, &mut remaining)? != *children { return Err(INVALID); }
+        if bundle_names(
+            &bundle_directory(root, relative, Some(owned))?,
+            &mut remaining,
+        )? != *children
+        {
+            return Err(INVALID);
+        }
     }
-    for (relative,(directory,expected)) in owned.iter().rev() {
-        let (prefix,leaf)=relative.rsplit_once('/').unwrap_or(("",relative));
-        let at=bundle_directory(root,prefix,Some(owned))?;
-        let actual=fs::statat(&at,leaf,fs::AtFlags::SYMLINK_NOFOLLOW).map_err(io)?;
-        if !bundle_inode(&actual,expected) { return Err(INVALID); }
-        fs::unlinkat(&at,leaf,if *directory {fs::AtFlags::REMOVEDIR}else{fs::AtFlags::empty()}).map_err(io)?;
+    for (relative, (directory, expected)) in owned.iter().rev() {
+        let (prefix, leaf) = relative.rsplit_once('/').unwrap_or(("", relative));
+        let at = bundle_directory(root, prefix, Some(owned))?;
+        let actual = fs::statat(&at, leaf, fs::AtFlags::SYMLINK_NOFOLLOW).map_err(io)?;
+        if !bundle_inode(&actual, expected) {
+            return Err(INVALID);
+        }
+        fs::unlinkat(
+            &at,
+            leaf,
+            if *directory {
+                fs::AtFlags::REMOVEDIR
+            } else {
+                fs::AtFlags::empty()
+            },
+        )
+        .map_err(io)?;
         fs::fsync(&at).map_err(io)?;
     }
-    let actual=fs::statat(parent,name,fs::AtFlags::SYMLINK_NOFOLLOW).map_err(io)?;
-    if !bundle_inode(&actual,&fs::fstat(root).map_err(io)?) { return Err(INVALID); }
-    fs::unlinkat(parent,name,fs::AtFlags::REMOVEDIR).map_err(io)?;
+    let actual = fs::statat(parent, name, fs::AtFlags::SYMLINK_NOFOLLOW).map_err(io)?;
+    if !bundle_inode(&actual, &fs::fstat(root).map_err(io)?) {
+        return Err(INVALID);
+    }
+    fs::unlinkat(parent, name, fs::AtFlags::REMOVEDIR).map_err(io)?;
     fs::fsync(parent).map_err(io)
 }
 
 fn bundle_names(directory: &OwnedFd, remaining: &mut usize) -> Result<Vec<String>> {
-    files::directory_entries(directory, remaining).map_err(io)?.into_iter()
-        .map(|name| name.into_string().map_err(|_|INVALID)).collect()
+    files::directory_entries(directory, remaining)
+        .map_err(io)?
+        .into_iter()
+        .map(|name| name.into_string().map_err(|_| INVALID))
+        .collect()
 }
 
 pub(crate) fn read_path(root: &Directory, parts: &[&str], leaf: &str) -> Result<Value> {
@@ -905,93 +1035,275 @@ fn partial_publication_crash(file: &mut File, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod bundle_publication_tests {
     use super::*;
-    use std::{collections::BTreeMap,os::fd::AsFd,os::unix::fs::{MetadataExt,PermissionsExt}};
-    fn root()->PathBuf {
-        let mut random=[0u8;16];getrandom::fill(&mut random).unwrap();
-        let path=std::env::temp_dir().canonicalize().unwrap().join(format!("use-test-bundle-{}",random.iter().map(|b|format!("{b:02x}")).collect::<String>()));
-        std::fs::create_dir(&path).unwrap();std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o700)).unwrap();path
+    use std::{
+        collections::BTreeMap,
+        os::fd::AsFd,
+        os::unix::fs::{MetadataExt, PermissionsExt},
+    };
+    fn root() -> PathBuf {
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).unwrap();
+        let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "use-test-bundle-{}",
+            random
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        path
     }
-    fn bytes()->BTreeMap<String,Vec<u8>> {
+    fn bytes() -> BTreeMap<String, Vec<u8>> {
         // Transport bytes only. This fixture makes no Arrow/Parquet or Evidence claim.
-        BTreeMap::from([("manifest.json".into(),canonical(&serde_json::json!({"schema_version":1,"transport":"exact"})).unwrap().into_bytes()),
-            ("data/p-000000.part".into(),b"first physical partition".to_vec()),("data/p-000001.part".into(),b"second physical partition".to_vec())])
+        BTreeMap::from([
+            (
+                "manifest.json".into(),
+                canonical(&serde_json::json!({"schema_version":1,"transport":"exact"}))
+                    .unwrap()
+                    .into_bytes(),
+            ),
+            (
+                "data/p-000000.part".into(),
+                b"first physical partition".to_vec(),
+            ),
+            (
+                "data/p-000001.part".into(),
+                b"second physical partition".to_vec(),
+            ),
+        ])
     }
-    fn check(path:&Path,expected:&BTreeMap<String,Vec<u8>>) {
-        for (name,raw) in expected {assert_eq!(std::fs::read(path.join(name)).unwrap(),*raw);}
-        assert_eq!(std::fs::read_dir(path).unwrap().count(),2);
-        assert_eq!(std::fs::read_dir(path.join("data")).unwrap().count(),2);
+    fn check(path: &Path, expected: &BTreeMap<String, Vec<u8>>) {
+        for (name, raw) in expected {
+            assert_eq!(std::fs::read(path.join(name)).unwrap(), *raw);
+        }
+        assert_eq!(std::fs::read_dir(path).unwrap().count(), 2);
+        assert_eq!(std::fs::read_dir(path.join("data")).unwrap().count(), 2);
     }
     #[test]
     fn descriptor_bundle_is_exact_replays_without_rewrite_and_keeps_selected_root() {
-        let path=root();let selected=files::open_directory(&path).unwrap();let payload=bytes();
-        put_bundle_at(selected.as_fd(),&["owner","sha256","aa","first"],&payload,8192).unwrap();
-        let target=path.join("owner/sha256/aa/first");check(&target,&payload);
-        let inode=std::fs::metadata(target.join("data/p-000000.part")).unwrap().ino();
-        put_bundle_at(selected.as_fd(),&["owner","sha256","aa","first"],&payload,8192).unwrap();
-        assert_eq!(std::fs::metadata(target.join("data/p-000000.part")).unwrap().ino(),inode);
-        let moved=path.with_extension("retained");std::fs::rename(&path,&moved).unwrap();std::fs::create_dir(&path).unwrap();
-        std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o700)).unwrap();
-        put_bundle_at(selected.as_fd(),&["owner","sha256","aa","second"],&payload,8192).unwrap();
-        check(&moved.join("owner/sha256/aa/second"),&payload);assert!(std::fs::read_dir(&path).unwrap().next().is_none());
-        std::fs::write(moved.join("owner/sha256/aa/first/data/p-000000.part"),b"corrupt").unwrap();
-        assert!(put_bundle_at(selected.as_fd(),&["owner","sha256","aa","first"],&payload,8192).is_err());
-        assert_eq!(std::fs::read(moved.join("owner/sha256/aa/first/data/p-000000.part")).unwrap(),b"corrupt");
-        drop(selected);std::fs::remove_dir_all(moved).unwrap();std::fs::remove_dir(path).unwrap();
+        let path = root();
+        let selected = files::open_directory(&path).unwrap();
+        let payload = bytes();
+        put_bundle_at(
+            selected.as_fd(),
+            &["owner", "sha256", "aa", "first"],
+            &payload,
+            8192,
+        )
+        .unwrap();
+        let target = path.join("owner/sha256/aa/first");
+        check(&target, &payload);
+        let inode = std::fs::metadata(target.join("data/p-000000.part"))
+            .unwrap()
+            .ino();
+        put_bundle_at(
+            selected.as_fd(),
+            &["owner", "sha256", "aa", "first"],
+            &payload,
+            8192,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::metadata(target.join("data/p-000000.part"))
+                .unwrap()
+                .ino(),
+            inode
+        );
+        let moved = path.with_extension("retained");
+        std::fs::rename(&path, &moved).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        put_bundle_at(
+            selected.as_fd(),
+            &["owner", "sha256", "aa", "second"],
+            &payload,
+            8192,
+        )
+        .unwrap();
+        check(&moved.join("owner/sha256/aa/second"), &payload);
+        assert!(std::fs::read_dir(&path).unwrap().next().is_none());
+        std::fs::write(
+            moved.join("owner/sha256/aa/first/data/p-000000.part"),
+            b"corrupt",
+        )
+        .unwrap();
+        assert!(
+            put_bundle_at(
+                selected.as_fd(),
+                &["owner", "sha256", "aa", "first"],
+                &payload,
+                8192
+            )
+            .is_err()
+        );
+        assert_eq!(
+            std::fs::read(moved.join("owner/sha256/aa/first/data/p-000000.part")).unwrap(),
+            b"corrupt"
+        );
+        drop(selected);
+        std::fs::remove_dir_all(moved).unwrap();
+        std::fs::remove_dir(path).unwrap();
     }
     #[test]
     fn bundle_invalid_paths_prefix_collisions_and_total_budget_have_no_side_effects() {
-        let path=root();let selected=files::open_directory(&path).unwrap();
-        for name in ["","../escape","/absolute","data//part","data/./part","data/../part","data\\part","nul\0part"] {
-            let mut payload=bytes();payload.insert(name.into(),b"rejected".to_vec());
-            assert!(put_bundle_at(selected.as_fd(),&["must-not-exist","first"],&payload,8192).is_err(),"{name:?}");
+        let path = root();
+        let selected = files::open_directory(&path).unwrap();
+        for name in [
+            "",
+            "../escape",
+            "/absolute",
+            "data//part",
+            "data/./part",
+            "data/../part",
+            "data\\part",
+            "nul\0part",
+        ] {
+            let mut payload = bytes();
+            payload.insert(name.into(), b"rejected".to_vec());
+            assert!(
+                put_bundle_at(
+                    selected.as_fd(),
+                    &["must-not-exist", "first"],
+                    &payload,
+                    8192
+                )
+                .is_err(),
+                "{name:?}"
+            );
             assert!(std::fs::read_dir(&path).unwrap().next().is_none());
         }
-        let mut collision=bytes();collision.insert("data".into(),b"not a directory".to_vec());
-        assert!(put_bundle_at(selected.as_fd(),&["must-not-exist","first"],&collision,8192).is_err());
-        assert!(put_bundle_at(selected.as_fd(),&["must-not-exist","first"],&bytes(),1).is_err());
-        assert!(put_bundle_at(selected.as_fd(),&["must-not-exist","first"],&BTreeMap::new(),8192).is_err());
+        let mut collision = bytes();
+        collision.insert("data".into(), b"not a directory".to_vec());
+        assert!(
+            put_bundle_at(
+                selected.as_fd(),
+                &["must-not-exist", "first"],
+                &collision,
+                8192
+            )
+            .is_err()
+        );
+        assert!(
+            put_bundle_at(selected.as_fd(), &["must-not-exist", "first"], &bytes(), 1).is_err()
+        );
+        assert!(
+            put_bundle_at(
+                selected.as_fd(),
+                &["must-not-exist", "first"],
+                &BTreeMap::new(),
+                8192
+            )
+            .is_err()
+        );
         assert!(std::fs::read_dir(&path).unwrap().next().is_none());
-        drop(selected);std::fs::remove_dir(path).unwrap();
+        drop(selected);
+        std::fs::remove_dir(path).unwrap();
     }
     #[test]
     fn bundle_publication_preserves_unknown_auxiliary_stage_and_rejects_unexpected_final_files() {
-        let path=root();let selected=files::open_directory(&path).unwrap();let payload=bytes();
-        let unknown=path.join(".immutable-json-staging/.stage-ffffffffffffffffffffffffffffffff");std::fs::create_dir_all(&unknown).unwrap();
-        std::fs::set_permissions(unknown.parent().unwrap(),std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::set_permissions(&unknown,std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::write(unknown.join("unrecognized"),b"retain unknown owner").unwrap();
-        put_bundle_at(selected.as_fd(),&["owner","sha256","aa","first"],&payload,8192).unwrap();
-        assert_eq!(std::fs::read(unknown.join("unrecognized")).unwrap(),b"retain unknown owner");
-        let target=path.join("owner/sha256/aa/first");std::fs::write(target.join("unexpected"),b"not a declared file").unwrap();
-        assert!(put_bundle_at(selected.as_fd(),&["owner","sha256","aa","first"],&payload,8192).is_err());
-        assert_eq!(std::fs::read(target.join("unexpected")).unwrap(),b"not a declared file");
-        drop(selected);std::fs::remove_dir_all(path).unwrap();
+        let path = root();
+        let selected = files::open_directory(&path).unwrap();
+        let payload = bytes();
+        let unknown = path.join(".immutable-json-staging/.stage-ffffffffffffffffffffffffffffffff");
+        std::fs::create_dir_all(&unknown).unwrap();
+        std::fs::set_permissions(
+            unknown.parent().unwrap(),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        std::fs::set_permissions(&unknown, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(unknown.join("unrecognized"), b"retain unknown owner").unwrap();
+        put_bundle_at(
+            selected.as_fd(),
+            &["owner", "sha256", "aa", "first"],
+            &payload,
+            8192,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(unknown.join("unrecognized")).unwrap(),
+            b"retain unknown owner"
+        );
+        let target = path.join("owner/sha256/aa/first");
+        std::fs::write(target.join("unexpected"), b"not a declared file").unwrap();
+        assert!(
+            put_bundle_at(
+                selected.as_fd(),
+                &["owner", "sha256", "aa", "first"],
+                &payload,
+                8192
+            )
+            .is_err()
+        );
+        assert_eq!(
+            std::fs::read(target.join("unexpected")).unwrap(),
+            b"not a declared file"
+        );
+        drop(selected);
+        std::fs::remove_dir_all(path).unwrap();
     }
     #[test]
     fn bundle_actual_process_exit_probe() {
-        let Ok(path)=std::env::var("ONLYALPHA_USE_TEST_BUNDLE_ROOT") else {return;};
-        let selected=files::open_directory(Path::new(&path)).unwrap();
-        crash_publication_at_for_test(&std::env::var("ONLYALPHA_USE_TEST_BUNDLE_POINT").unwrap()).unwrap();
-        let _=put_bundle_at(selected.as_fd(),&["owner","sha256","aa","original"],&bytes(),8192);
+        let Ok(path) = std::env::var("ONLYALPHA_USE_TEST_BUNDLE_ROOT") else {
+            return;
+        };
+        let selected = files::open_directory(Path::new(&path)).unwrap();
+        crash_publication_at_for_test(&std::env::var("ONLYALPHA_USE_TEST_BUNDLE_POINT").unwrap())
+            .unwrap();
+        let _ = put_bundle_at(
+            selected.as_fd(),
+            &["owner", "sha256", "aa", "original"],
+            &bytes(),
+            8192,
+        );
         panic!("actual publication crash point was not reached");
     }
     #[test]
     fn bundle_mid_publication_process_exit_preserves_original_identity_and_unknown_stage() {
-        for point in ["stage_created","partial_write","leaf_written","file_synced","stage_synced","renamed"] {
-            let path=root();let payload=bytes();
+        for point in [
+            "stage_created",
+            "partial_write",
+            "leaf_written",
+            "file_synced",
+            "stage_synced",
+            "renamed",
+        ] {
+            let path = root();
+            let payload = bytes();
             let status=std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact","security::immutable_json::bundle_publication_tests::bundle_actual_process_exit_probe","--nocapture"])
                 .env("ONLYALPHA_USE_TEST_BUNDLE_ROOT",&path).env("ONLYALPHA_USE_TEST_BUNDLE_POINT",point).status().unwrap();
-            assert_eq!(status.code(),Some(86),"{point}");
-            let auxiliary=path.join(".immutable-json-staging");
-            let stages=std::fs::read_dir(&auxiliary).unwrap().map(|e|e.unwrap().path()).collect::<Vec<_>>();
-            assert_eq!(stages.len(),usize::from(point!="renamed"));
-            let selected=files::open_directory(&path).unwrap();
-            put_bundle_at(selected.as_fd(),&["owner","sha256","aa","original"],&payload,8192).unwrap();
-            check(&path.join("owner/sha256/aa/original"),&payload);
-            for stage in stages {assert!(stage.is_dir(),"unknown prior process stage must remain retained");}
-            assert_eq!(std::fs::read_dir(path.join("owner/sha256/aa")).unwrap().count(),1);
-            drop(selected);std::fs::remove_dir_all(path).unwrap();
+            assert_eq!(status.code(), Some(86), "{point}");
+            let auxiliary = path.join(".immutable-json-staging");
+            let stages = std::fs::read_dir(&auxiliary)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .collect::<Vec<_>>();
+            assert_eq!(stages.len(), usize::from(point != "renamed"));
+            let selected = files::open_directory(&path).unwrap();
+            put_bundle_at(
+                selected.as_fd(),
+                &["owner", "sha256", "aa", "original"],
+                &payload,
+                8192,
+            )
+            .unwrap();
+            check(&path.join("owner/sha256/aa/original"), &payload);
+            for stage in stages {
+                assert!(
+                    stage.is_dir(),
+                    "unknown prior process stage must remain retained"
+                );
+            }
+            assert_eq!(
+                std::fs::read_dir(path.join("owner/sha256/aa"))
+                    .unwrap()
+                    .count(),
+                1
+            );
+            drop(selected);
+            std::fs::remove_dir_all(path).unwrap();
         }
     }
 }

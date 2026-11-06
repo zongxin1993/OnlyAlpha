@@ -1,9 +1,11 @@
 //! Technical infrastructure probe: never a Shipping Product endpoint.
-mod factor_studies_probe;
 mod backtest_native_host;
+mod factor_studies_probe;
+mod integration_command_fixture;
 mod market_storage_probe;
 mod research_namespace_probe;
 mod strategy_authoring_probe;
+mod watchlist_fixture;
 use onlyalpha_backend::application::command::{
     Admission, Binding, CommandId, CommandKind, Error, Outcome, OutcomeKind, Put, Receipt,
 };
@@ -657,7 +659,95 @@ async fn factor_authoring(request: &Value, client: &mut tokio_postgres::Client) 
     }
 }
 
-fn main() -> Result<(), Box<dyn StdError>> {
+// Read-only technical observation of the original Web-created Run. The caller's
+// identity values are data; only the Runtime owner validates the complete source.
+fn read_backtest_runtime_source(request: &Value) -> Result<Value, Box<dyn StdError>> {
+    use onlyalpha_runtime::VerifiedReplaySnapshot;
+    use sha2::{Digest, Sha256};
+    use std::path::Path;
+    let run_id = request["run_id"].as_str().ok_or("run id")?;
+    if run_id.is_empty()
+        || run_id.len() > 256
+        || !run_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    {
+        return Err("invalid run id".into());
+    }
+    let user_data = Path::new(request["user_data"].as_str().ok_or("user data")?);
+    if !user_data.is_absolute() || user_data.canonicalize()? != user_data {
+        return Err("noncanonical user data".into());
+    }
+    let root = user_data.join("backtest").join("runtime").join(run_id);
+    let configuration = request["configuration"].clone();
+    if configuration["runtime_kind"] != "BACKTEST" {
+        return Err("not a backtest runtime".into());
+    }
+    let snapshot = VerifiedReplaySnapshot::read(
+        &root,
+        configuration,
+        request["kernel_artifact"]
+            .as_str()
+            .ok_or("kernel artifact")?,
+    )?;
+    if snapshot.binding()["schema_version"] != 2 || snapshot.binding()["work_id"] != run_id {
+        return Err("foreign run binding".into());
+    }
+    if snapshot.records().is_empty()
+        || snapshot.refs().is_empty()
+        || snapshot.records().iter().any(|r| !r.ready())
+        || snapshot.refs().iter().any(|r| !r.ready())
+    {
+        return Err("nonempty complete Ready prefixes required".into());
+    }
+    let execution_prefix = snapshot
+        .records()
+        .iter()
+        .take(16)
+        .map(|record| {
+            Ok(json!({"sequence":record.prepared().sequence(),
+            "logical_digest":Sha256::digest(record.prepared().encode()?).iter().map(|byte|format!("{byte:02x}")).collect::<String>(),
+            "ready":record.ready()}))
+        })
+        .collect::<Result<Vec<Value>, onlyalpha_backtest::Error>>()?;
+    let mut steps = Vec::new();
+    let mut replay_prefix = Vec::new();
+    let mut state = Value::Null;
+    // Each kind and state comes from the actual fully decoded owning step,
+    // never a frame summary, database hint, trace log or terminal inference.
+    snapshot.for_each_step(|step, reference| {
+        if replay_prefix.len() < 16 {
+            replay_prefix.push(json!({"sequence":reference.index(),
+                "digest":reference.physical_fingerprint(),
+                "logical_digest":reference.logical_fingerprint(),"ready":reference.ready()}));
+        }
+        steps.push(json!({"sequence":reference.index(),
+            "digest":reference.physical_fingerprint(),
+            "logical_digest":reference.logical_fingerprint(),
+            "execution_start":reference.execution_start(),
+            "kind":step["cause"]["kind"],"status":step["state"]["status"],
+            "cursor":step["state"]["cursor"],
+            "input_finished":step["state"]["input_finished"],
+            // The formal Run state adds input_cancelled only at CANCEL_INPUT.
+            "input_cancelled":step["state"].get("input_cancelled").cloned().unwrap_or(json!(false))}));
+        state = step["state"].clone();
+        Ok(())
+    })?;
+    snapshot.verify_cut()?;
+    Ok(
+        json!({"schema_version":1,"run_id":run_id,"binding":snapshot.binding(),
+        "storage_version":snapshot.storage_version(),
+        "execution_sequence":snapshot.state()["execution_sequence"],
+        "execution_prefix":execution_prefix,"replay_prefix":replay_prefix,
+        "steps":steps,"state":state}),
+    )
+}
+
+pub fn main() -> Result<(), Box<dyn StdError>> {
+    run_with_input(None)
+}
+
+pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -668,8 +758,16 @@ fn main() -> Result<(), Box<dyn StdError>> {
   if std::env::args().skip(1).collect::<Vec<_>>()==["--backtest-native-host"] {
     return backtest_native_host::serve().await;
   }
+  if std::env::args().skip(1).collect::<Vec<_>>()==["--describe-native-runtime"] {
+    println!("{}",onlyalpha_backend::workers::algorithm::describe_native_runtime(env!("CARGO_PKG_VERSION"))?);return Ok(());
+  }
   if std::env::args().any(|arg|arg=="--describe-research-runtime") {
     println!("{}",onlyalpha_backend::workers::algorithm::describe_research_runtime("0.11.1")?);return Ok(());
+  }
+  if std::env::args().skip(1).collect::<Vec<_>>()==["--read-backtest-runtime-source"] {
+    let mut raw=String::new();io::stdin().read_to_string(&mut raw)?;
+    let request:Value=serde_json::from_str(&raw)?;
+    println!("{}",read_backtest_runtime_source(&request)?);return Ok(());
   }
   let dsn=std::env::var("ONLYALPHA_POSTGRES_DSN")?;
   let mut config:tokio_postgres::Config=dsn.parse()?;
@@ -680,7 +778,9 @@ fn main() -> Result<(), Box<dyn StdError>> {
   let driver=tokio::spawn(connection);
   if std::env::args().any(|arg|arg=="--pid-barrier") {let pid:i32=client.query_one("SELECT pg_backend_pid()",&[]).await?.get(0);println!("{}",json!({"ready":true,"backend_pid":pid}));io::stdout().flush()?;}
   else if std::env::args().any(|arg|arg=="--barrier") {println!("{}",json!({"ready":true}));io::stdout().flush()?;}
-  let mut raw=String::new();io::stdin().take((8*1024*1024+4097) as u64).read_to_string(&mut raw)?;
+  let raw = if let Some(raw) = input { raw } else {
+    let mut raw=String::new();io::stdin().take((8*1024*1024+4097) as u64).read_to_string(&mut raw)?; raw
+  };
   if raw.len()>8*1024*1024+4096 {return Err("probe frame bound".into())}
   let request:Value=serde_json::from_str(&raw)?;
   // Factor Draft tests carry the 256 KiB Product input plus the probe envelope.
@@ -688,6 +788,10 @@ fn main() -> Result<(), Box<dyn StdError>> {
   // All other probe operations retain their existing 128 KiB frame guard.
   if request["op"]=="factor-authoring" {if raw.len()>270336{return Err("probe frame bound".into());}}
   else if request["op"]!="research-calculations" && raw.len()>131072 {return Err("probe frame bound".into())}
+  if matches!(request["op"].as_str(),Some("integration-command-fixture"|"integration-fixture-fingerprint"|"integration-fixture-records")) {
+   let response=integration_command_fixture::response(&request)?;
+   println!("{response}");drop(client);driver.await??;return Ok(());
+  }
   if request["op"]=="factor-reference" {
    let candidate=&request["candidate"];
    let draft=if request["draft"].is_null() {
@@ -791,6 +895,10 @@ fn main() -> Result<(), Box<dyn StdError>> {
    })();
    println!("{}",match result {Ok(value)=>value,Err(error)=>json!({"error":error.to_string()})});return Ok(());
   }
+  if request["op"]=="watchlist-fixture-record" {
+   let result=watchlist_fixture::produce(&request)?;
+   println!("{result}");drop(client);driver.await??;return Ok(());
+  }
   let id=CommandId::new(request["command_id"].as_str().ok_or("command id")?)?;
   let op=request["op"].as_str().ok_or("operation")?;
   let a=if matches!(op,"admit"|"receipt"|"rollback"|"commit-no-reply"|"atomic-commit") {Some(admission(&request)?)} else {None};
@@ -827,6 +935,10 @@ fn main() -> Result<(), Box<dyn StdError>> {
     },
     "binding"=>binding(Commands::new(&mut client).verify_binding(&id).await?),
     "load-admission"=>json!({"admission":Commands::new(&mut client).load_admission(&id).await?.map(|a|record(&a))}),
+    "load-receipt"=>match Commands::new(&mut client).load_verified_receipt(&id).await? {
+     Some(receipt)=>binding(Binding::Accepted(receipt)),
+     None=>json!({"state":"NO_RECEIPT"}),
+    },
     "admit"=>put(Commands::new(&mut client).admit_exact(a.as_ref().expect("validated admission")).await?),
     "receipt"=>put(Commands::new(&mut client).put_verified_receipt(r.as_ref().expect("validated receipt")).await?),
     "rollback"|"commit-no-reply"|"atomic-commit"=>{

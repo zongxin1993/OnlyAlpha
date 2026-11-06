@@ -1,5 +1,4 @@
 import pytest
-
 from onlyalpha.algorithm.codec import decode, encode
 
 

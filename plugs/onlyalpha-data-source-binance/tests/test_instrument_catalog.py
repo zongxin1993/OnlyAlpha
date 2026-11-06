@@ -3,6 +3,11 @@ from __future__ import annotations
 import json
 
 import pytest
+from onlyalpha.application.integration_configuration import (
+    only_integration_runtime_configuration_fingerprint,
+    only_integration_secret_binding_fingerprint,
+)
+from onlyalpha.plugin.data_source import OnlyDataSourceInstrumentCatalogRequestV1
 from onlyalpha_plugin_binance.spot.data_source import instrument_catalog
 from onlyalpha_plugin_binance.spot.data_source.config import (
     OnlyBinanceMarketEnvironment,
@@ -15,12 +20,6 @@ from onlyalpha_plugin_binance.spot.data_source.instrument_catalog import (
     OnlyBinanceSpotInstrumentCatalog,
     only_binance_raw_symbol,
 )
-
-from onlyalpha.application.integration_configuration import (
-    only_integration_runtime_configuration_fingerprint,
-    only_integration_secret_binding_fingerprint,
-)
-from onlyalpha.plugin.data_source import OnlyDataSourceInstrumentCatalogRequestV1
 
 
 def _symbol(symbol: str, *, tick: str, step: str, base: str = "BTC", status: str = "TRADING") -> dict[str, object]:
@@ -311,9 +310,8 @@ def test_only_binance_raw_symbol_rejects_foreign_venues() -> None:
 
 
 def test_quotes_are_provider_tickers_with_explicit_rolling_basis(monkeypatch: pytest.MonkeyPatch) -> None:
-    from onlyalpha_plugin_binance.spot.data_source import instrument_catalog as module
-
     from onlyalpha.plugin.data_source import OnlyDataSourceQuoteRequestV1
+    from onlyalpha_plugin_binance.spot.data_source import instrument_catalog as module
 
     class TickerHttp:
         def __init__(self, *args: object, **kwargs: object) -> None:

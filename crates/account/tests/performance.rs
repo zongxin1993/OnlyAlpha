@@ -275,33 +275,59 @@ fn zero_high_water_becomes_positive_and_all_rate_constraints_remain_visible() {
 #[test]
 fn equity_drawdown_reuses_account_half_even_and_preserves_full_loss_sign() {
     use onlyalpha_account::equity_drawdown;
-    let calculate = |equity:&str, peak:&str| equity_drawdown(&equity.parse().unwrap(),&peak.parse().unwrap()).unwrap();
-    assert_eq!(calculate("199999999","200000000"),Some("0.00000000".parse().unwrap()));
-    assert_eq!(calculate("199999997","200000000"),Some("-0.00000002".parse().unwrap()));
-    assert_eq!(calculate("1100","1200"),Some("-0.08333333".parse().unwrap()));
-    assert_eq!(calculate("-10","100"),Some("-1.10000000".parse().unwrap()));
-    assert_eq!(calculate("100","100"),Some("0.00000000".parse().unwrap()));
-    for peak in ["0","-1"] {assert_eq!(calculate("-10",peak),None);}
+    let calculate = |equity: &str, peak: &str| {
+        equity_drawdown(&equity.parse().unwrap(), &peak.parse().unwrap()).unwrap()
+    };
+    assert_eq!(
+        calculate("199999999", "200000000"),
+        Some("0.00000000".parse().unwrap())
+    );
+    assert_eq!(
+        calculate("199999997", "200000000"),
+        Some("-0.00000002".parse().unwrap())
+    );
+    assert_eq!(
+        calculate("1100", "1200"),
+        Some("-0.08333333".parse().unwrap())
+    );
+    assert_eq!(
+        calculate("-10", "100"),
+        Some("-1.10000000".parse().unwrap())
+    );
+    assert_eq!(calculate("100", "100"), Some("0.00000000".parse().unwrap()));
+    for peak in ["0", "-1"] {
+        assert_eq!(calculate("-10", peak), None);
+    }
 }
 #[test]
 fn equity_drawdown_rounds_only_once_even_at_a_three_hundred_digit_half_quantum() {
-    use {num_bigint::BigInt,onlyalpha_account::equity_drawdown};
-    let scale=BigInt::from(10).pow(300);
-    let peak:BigInt=&scale*3;
-    let loss:BigInt=BigInt::from(15)*BigInt::from(10).pow(291)+1;
-    let equity:BigInt=&peak-loss;
+    use {num_bigint::BigInt, onlyalpha_account::equity_drawdown};
+    let scale = BigInt::from(10).pow(300);
+    let peak: BigInt = &scale * 3;
+    let loss: BigInt = BigInt::from(15) * BigInt::from(10).pow(291) + 1;
+    let equity: BigInt = &peak - loss;
     // The exact loss is just larger than .000000005. A prior 28-digit
     // division would turn it into a tie and incorrectly round to zero.
-    assert_eq!(equity_drawdown(&equity.to_string().parse().unwrap(),&peak.to_string().parse().unwrap()).unwrap(),Some("-0.00000001".parse().unwrap()));
+    assert_eq!(
+        equity_drawdown(
+            &equity.to_string().parse().unwrap(),
+            &peak.to_string().parse().unwrap()
+        )
+        .unwrap(),
+        Some("-0.00000001".parse().unwrap())
+    );
 }
 #[test]
 fn equity_drawdown_keeps_the_existing_account_analytical_scale_and_size_bounds() {
     use onlyalpha_account::equity_drawdown;
-    for peak in ["1e512","1e-512"] {
-        assert_eq!(equity_drawdown(&"0".parse().unwrap(),&peak.parse().unwrap()).unwrap(),Some("-1.00000000".parse().unwrap()));
+    for peak in ["1e512", "1e-512"] {
+        assert_eq!(
+            equity_drawdown(&"0".parse().unwrap(), &peak.parse().unwrap()).unwrap(),
+            Some("-1.00000000".parse().unwrap())
+        );
     }
-    for unbounded in ["1e513".to_owned(),"1e-513".to_owned(),"1".repeat(1025)] {
-        let value=unbounded.parse().unwrap();
-        assert!(equity_drawdown(&value,&value).is_err());
+    for unbounded in ["1e513".to_owned(), "1e-513".to_owned(), "1".repeat(1025)] {
+        let value = unbounded.parse().unwrap();
+        assert!(equity_drawdown(&value, &value).is_err());
     }
 }

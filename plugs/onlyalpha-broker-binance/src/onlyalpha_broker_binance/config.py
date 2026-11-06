@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 
 from onlyalpha.domain.identifiers import OnlyAccountId
+
 from onlyalpha_broker_binance.environment import OnlyBinanceBrokerEnvironment
 from onlyalpha_broker_binance.private_http import OnlyBinanceCredentials
 

@@ -615,11 +615,7 @@ struct Output {
     reasons: Vec<&'static str>,
 }
 
-fn evaluate(
-    definition: &Value,
-    columns: &Map<String, Value>,
-    end: Instant,
-) -> Result<Value> {
+fn evaluate(definition: &Value, columns: &Map<String, Value>, end: Instant) -> Result<Value> {
     let indicator = Indicator::from_record(definition).ok_or(Error::Unavailable)?;
     let mut kernel = Kernel::new(indicator, definition)?;
     let minimum = definition["warmup"]["minimum_observations"]

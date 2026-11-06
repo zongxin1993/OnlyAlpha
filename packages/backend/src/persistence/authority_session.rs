@@ -120,7 +120,10 @@ impl AuthoritySession {
             .await
             .map_err(|_| AuthorityError::Unavailable)?
             .map_err(|_| AuthorityError::Unavailable)?;
-        if row.try_get::<_, bool>(0).map_err(|_| AuthorityError::Unavailable)? {
+        if row
+            .try_get::<_, bool>(0)
+            .map_err(|_| AuthorityError::Unavailable)?
+        {
             Ok(())
         } else {
             Err(AuthorityError::Lost)

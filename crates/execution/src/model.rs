@@ -249,9 +249,7 @@ impl Prepared {
         // Value permits unchecked arbitrary-precision Number construction.
         // Prove this exact representation has the original reader's meaning
         // and depth limits before an observation may release its expanded form.
-        let decoded: Value =
-            serde_json::from_slice(&bytes).map_err(|_| err("EXECUTION_NONCANONICAL"))?;
-        if &decoded != result.value() {
+        if !crate::canonical_roundtrip::matches_value(&bytes, result.value()) {
             return Err(err("EXECUTION_NONCANONICAL"));
         }
         result.retain_canonical_data(bytes);

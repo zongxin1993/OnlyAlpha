@@ -3,19 +3,6 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from onlyalpha_plugin_broker_virtual import (
-    OnlyFixedLatencyModel,
-    OnlyVirtualBrokerConfig,
-    OnlyVirtualBrokerGateway,
-)
-from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerFactory
-from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillPlanStatus
-from onlyalpha_plugin_broker_virtual.submission_control import (
-    OnlyVirtualSubmissionAction,
-    OnlyVirtualSubmissionControl,
-    OnlyVirtualSubmissionSimulation,
-)
-
 from onlyalpha.broker import (
     OnlyBrokerConnectionState,
     OnlyBrokerGatewayId,
@@ -28,6 +15,18 @@ from onlyalpha.domain.enums import OnlyOrderStatus
 from onlyalpha.domain.identifiers import OnlyRuntimeId
 from onlyalpha.domain.value import OnlyMoney
 from onlyalpha.plugin.lifecycle import OnlyPluginLifecycleState
+from onlyalpha_plugin_broker_virtual import (
+    OnlyFixedLatencyModel,
+    OnlyVirtualBrokerConfig,
+    OnlyVirtualBrokerGateway,
+)
+from onlyalpha_plugin_broker_virtual.factory import OnlyVirtualBrokerFactory
+from onlyalpha_plugin_broker_virtual.fill_plan import OnlyVirtualFillPlanStatus
+from onlyalpha_plugin_broker_virtual.submission_control import (
+    OnlyVirtualSubmissionAction,
+    OnlyVirtualSubmissionControl,
+    OnlyVirtualSubmissionSimulation,
+)
 from tests.support.virtual_broker import ACCOUNT, CNY, START, bar, order
 
 

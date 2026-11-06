@@ -271,13 +271,12 @@ impl Store {
                 return Err(INVALID);
             }
         }
-        if let Some((e, r, d)) = run.completion_fingerprints() {
-            if e != identity
+        if let Some((e, r, d)) = run.completion_fingerprints()
+            && (e != identity
                 || expected.record()["result_fingerprint"] != r
-                || expected.record()["determinism_fingerprint"] != d
-            {
-                return Err(INVALID);
-            }
+                || expected.record()["determinism_fingerprint"] != d)
+        {
+            return Err(INVALID);
         }
         let status = text(observed.proof(), "status")?;
         if matches!(run.state(), RunState::Completed | RunState::Cancelled)

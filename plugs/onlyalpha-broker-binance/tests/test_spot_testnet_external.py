@@ -8,19 +8,6 @@ import time
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
 
 import pytest
-from onlyalpha_broker_binance.private_http import (
-    OnlyBinanceCredentials,
-    OnlyBinancePrivateHttpClient,
-)
-from onlyalpha_broker_binance.spot.broker.codec import only_binance_client_order_id
-from onlyalpha_broker_binance.spot.broker.rest import OnlyBinanceSpotPrivateRestClient
-from onlyalpha_broker_binance.spot.broker.stream import (
-    OnlyBinanceResolvedOrderIdentity,
-    OnlyBinanceSpotUserStream,
-    OnlyBinanceSpotUserStreamNormalizer,
-    OnlyBinanceThreadedUserStreamTransport,
-)
-
 from onlyalpha.broker.identifiers import OnlyBrokerGatewayId, OnlyBrokerRequestId
 from onlyalpha.broker.models import OnlyBrokerCancelRequest, OnlyBrokerOrderRequest
 from onlyalpha.broker.updates import OnlyBrokerInboundUpdate, OnlyBrokerTradeUpdate
@@ -41,6 +28,18 @@ from onlyalpha.domain.identifiers import (
 )
 from onlyalpha.domain.time import OnlyTimestamp
 from onlyalpha.domain.value import OnlyCurrency, OnlyPrice, OnlyQuantity
+from onlyalpha_broker_binance.private_http import (
+    OnlyBinanceCredentials,
+    OnlyBinancePrivateHttpClient,
+)
+from onlyalpha_broker_binance.spot.broker.codec import only_binance_client_order_id
+from onlyalpha_broker_binance.spot.broker.rest import OnlyBinanceSpotPrivateRestClient
+from onlyalpha_broker_binance.spot.broker.stream import (
+    OnlyBinanceResolvedOrderIdentity,
+    OnlyBinanceSpotUserStream,
+    OnlyBinanceSpotUserStreamNormalizer,
+    OnlyBinanceThreadedUserStreamTransport,
+)
 
 pytestmark = [
     pytest.mark.external,
