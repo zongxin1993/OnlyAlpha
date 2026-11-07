@@ -835,8 +835,8 @@ def validate_domain_sources(root: Path) -> None:
             argument = macro[2].strip()
             admitted = path.parent == domain / "tests" and argument in {f'"{name}"' for name in permitted}
             if path == domain / "src/tzdb_rules.rs" and macro[1] == "include_bytes":
-                dataset = json.loads((domain / "resources/tzdata/2026.3/dataset.json").read_text())
-                admitted = argument in {f'"../resources/tzdata/2026.3/{name}"' for name in dataset["zones"]}
+                dataset = json.loads((domain / "src/resources/tzdata/2026.3/dataset.json").read_text())
+                admitted = argument in {f'"resources/tzdata/2026.3/{name}"' for name in dataset["zones"]}
             if not admitted:
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
 
@@ -1145,23 +1145,11 @@ def validate_calculation_sources(root: Path) -> None:
 
 # Exact compile-time resources, owned by their consuming source. These paths are
 # also materialized in isolated builds and covered by source_inputs hashing.
-_EXECUTION_SOURCE_TESTS = (
-    "reconciliation_data_tests.rs",
-    "components_cow_tests.rs",
-    "payload_codec_tests.rs",
-    "position_order_view_tests.rs",
-    "prefix_read_tests.rs",
-    "projection_digest_tests.rs",
-    "pure_transition_data_tests.rs",
-    "record_observation_tests.rs",
-    "typed_after_tests.rs",
-    "valuation_history_tests.rs",
-    "valuation_ledger_view_tests.rs",
-)
+
 _INFRASTRUCTURE_RESOURCES = {
-    "crates/runtime/src/dictionary_commit_tests.rs": {
-        "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-        "../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    "crates/runtime/src/tests/dictionary_commit_tests.rs": {
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
     "plugs/onlyalpha-market-cn-ashare/src/fees.rs": {
         "fee_sources.json": "plugs/onlyalpha-market-cn-ashare/src/fee_sources.json",
@@ -1181,28 +1169,67 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../../../../database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql": "database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql",
     },
     **{
-        f"crates/execution/src/{name}": {
-            "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        }
-        for name in _EXECUTION_SOURCE_TESTS
+        "crates/execution/src/tests/reconciliation_data_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/components_cow_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/payload_codec_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/position_order_view_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/prefix_read_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/projection_digest_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/pure_transition_data_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/record_observation_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/typed_after_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/valuation_history_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
+        "crates/execution/src/tests/valuation_ledger_view_tests.rs": {
+            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+        },
     },
     "packages/backend/tests/transport/backtest_preparation_routes.rs": {
         "../../../frontend/src/features/backtest/fixtures/preparation-wire-v2.json": "packages/frontend/src/features/backtest/fixtures/preparation-wire-v2.json",
     },
-    "crates/runtime/tests/support/checkpoint_work.rs": {
+    "crates/runtime/src/tests/checkpoint_work.rs": {
         "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
         "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
-    "crates/runtime/tests/support/replay_codec_work.rs": {
+    "crates/runtime/src/tests/replay_codec_work.rs": {
         "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
         "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
-    "crates/runtime/tests/support/binding_codec.rs": {
+    "crates/runtime/src/tests/binding_codec.rs": {
         "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
         "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
-    "crates/runtime/tests/support/replay_references.rs": {
+    "crates/runtime/src/tests/replay_references.rs": {
         "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
         "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
@@ -1233,15 +1260,15 @@ _INFRASTRUCTURE_RESOURCES = {
     "packages/backend/src/transport/host_backtest_environment.rs": {
         "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
     },
-    "crates/backtest/src/test_support/execution.rs": {
-        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-        "../../../../test-data/execution/economics-v1.json": "test-data/execution/economics-v1.json",
-        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    "crates/backtest/src/tests/support/execution.rs": {
+        "../../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../../test-data/execution/economics-v1.json": "test-data/execution/economics-v1.json",
+        "../../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
-    "crates/backtest/src/next_open_tests.rs": {
-        "../../../test-data/domain/fact-records-v1.jsonl": "test-data/domain/fact-records-v1.jsonl",
-        "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-        "../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    "crates/backtest/src/tests/next_open_tests.rs": {
+        "../../../../test-data/domain/fact-records-v1.jsonl": "test-data/domain/fact-records-v1.jsonl",
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
     "packages/backend/src/application/strategy_research/run_specification.rs": {
         "../../../tests/application/fixtures/strategy_specification.json": "packages/backend/tests/application/fixtures/strategy_specification.json",
@@ -1280,72 +1307,104 @@ _INFRASTRUCTURE_RESOURCES = {
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    "crates/account/src/lib.rs": {
+        "tests/extension_tests.rs": "crates/account/src/tests/extension_tests.rs",
+    },
+    "crates/execution/src/lib.rs": {
+        "tests/projection_digest_tests.rs": "crates/execution/src/tests/projection_digest_tests.rs",
+        "tests/valuation_ledger_view_tests.rs": "crates/execution/src/tests/valuation_ledger_view_tests.rs",
+    },
     "packages/backend/src/bootstrap/workstation_startup.rs": {
         "../../tests/transport/backtest_recovery_startup.rs": "packages/backend/tests/transport/backtest_recovery_startup.rs",
     },
     "packages/backend/tests/transport/backtest_preparation_window.rs": {
         "backtest_owner_scenarios.rs": "packages/backend/tests/transport/backtest_owner_scenarios.rs",
     },
-    "crates/runtime/src/dictionary_commit_tests.rs": {
-        "../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
+    "crates/runtime/src/tests/dictionary_commit_tests.rs": {
+        "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
     },
-    "crates/operators/src/algebra.rs": {
-        "algebra_tests.rs": "crates/operators/src/algebra_tests.rs",
-    },
+    "crates/operators/src/algebra.rs": {"tests/algebra_tests.rs": "crates/operators/src/tests/algebra_tests.rs"},
     "packages/backend/src/persistence/research_runtime.rs": {
         "research_runtime/metadata_read_tests.rs": "packages/backend/src/persistence/research_runtime/metadata_read_tests.rs",
     },
     **{
-        f"crates/execution/src/{name}": {
-            "../tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
-        }
-        for name in _EXECUTION_SOURCE_TESTS
+        "crates/execution/src/tests/reconciliation_data_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/components_cow_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/payload_codec_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/position_order_view_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/prefix_read_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/projection_digest_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/pure_transition_data_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/record_observation_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/typed_after_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/valuation_history_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
+        "crates/execution/src/tests/valuation_ledger_view_tests.rs": {
+            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
+        },
     },
     "crates/execution/src/components.rs": {
-        "components_cow_tests.rs": "crates/execution/src/components_cow_tests.rs",
-        "payload_codec_tests.rs": "crates/execution/src/payload_codec_tests.rs",
-        "position_order_view_tests.rs": "crates/execution/src/position_order_view_tests.rs",
-        "prefix_read_tests.rs": "crates/execution/src/prefix_read_tests.rs",
+        "tests/components_cow_tests.rs": "crates/execution/src/tests/components_cow_tests.rs",
+        "tests/payload_codec_tests.rs": "crates/execution/src/tests/payload_codec_tests.rs",
+        "tests/position_order_view_tests.rs": "crates/execution/src/tests/position_order_view_tests.rs",
+        "tests/prefix_read_tests.rs": "crates/execution/src/tests/prefix_read_tests.rs",
     },
     "crates/execution/src/model.rs": {
-        "typed_after_tests.rs": "crates/execution/src/typed_after_tests.rs",
-        "record_observation_tests.rs": "crates/execution/src/record_observation_tests.rs",
-        "pure_transition_data_tests.rs": "crates/execution/src/pure_transition_data_tests.rs",
+        "tests/typed_after_tests.rs": "crates/execution/src/tests/typed_after_tests.rs",
+        "tests/record_observation_tests.rs": "crates/execution/src/tests/record_observation_tests.rs",
+        "tests/pure_transition_data_tests.rs": "crates/execution/src/tests/pure_transition_data_tests.rs",
     },
     "crates/execution/src/reconciliation.rs": {
-        "reconciliation_data_tests.rs": "crates/execution/src/reconciliation_data_tests.rs",
+        "tests/reconciliation_data_tests.rs": "crates/execution/src/tests/reconciliation_data_tests.rs"
     },
     "crates/execution/src/canonical_roundtrip.rs": {
-        "canonical_roundtrip_tests.rs": "crates/execution/src/canonical_roundtrip_tests.rs",
+        "tests/canonical_roundtrip_tests.rs": "crates/execution/src/tests/canonical_roundtrip_tests.rs"
     },
     "crates/execution/src/valuation.rs": {
-        "valuation_history_tests.rs": "crates/execution/src/valuation_history_tests.rs",
+        "tests/valuation_history_tests.rs": "crates/execution/src/tests/valuation_history_tests.rs"
     },
     "crates/position/src/manager.rs": {
-        "current_exposure_tests.rs": "crates/position/src/current_exposure_tests.rs",
+        "tests/current_exposure_tests.rs": "crates/position/src/tests/current_exposure_tests.rs"
     },
     "crates/position/src/recovery.rs": {
-        "checkpoint_cache_tests.rs": "crates/position/src/checkpoint_cache_tests.rs",
+        "tests/checkpoint_cache_tests.rs": "crates/position/src/tests/checkpoint_cache_tests.rs"
     },
-    "crates/risk/src/recovery.rs": {
-        "checkpoint_tests.rs": "crates/risk/src/checkpoint_tests.rs",
-    },
+    "crates/risk/src/recovery.rs": {"tests/checkpoint_tests.rs": "crates/risk/src/tests/checkpoint_tests.rs"},
     "crates/strategy-ledger/src/recovery.rs": {
-        "recovery_extension_tests.rs": "crates/strategy-ledger/src/recovery_extension_tests.rs",
+        "tests/recovery_extension_tests.rs": "crates/strategy-ledger/src/tests/recovery_extension_tests.rs"
     },
-    "crates/runtime/tests/support/checkpoint_work.rs": {
+    "crates/runtime/src/tests/checkpoint_work.rs": {
         "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
-        "prefix_work.rs": "crates/runtime/tests/support/prefix_work.rs",
+        "prefix_work.rs": "crates/runtime/src/tests/prefix_work.rs",
     },
-    "crates/runtime/tests/support/replay_codec_work.rs": {
+    "crates/runtime/src/tests/replay_codec_work.rs": {
         "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
     },
-    "crates/runtime/tests/support/replay_references.rs": {
+    "crates/runtime/src/tests/replay_references.rs": {
         "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
     },
     "crates/runtime/src/dictionary_codec.rs": {
-        "dictionary_codec_tests.rs": "crates/runtime/src/dictionary_codec_tests.rs",
-        "dictionary_commit_tests.rs": "crates/runtime/src/dictionary_commit_tests.rs",
+        "tests/dictionary_codec_tests.rs": "crates/runtime/src/tests/dictionary_codec_tests.rs",
+        "tests/dictionary_commit_tests.rs": "crates/runtime/src/tests/dictionary_commit_tests.rs",
     },
     "packages/backend/src/persistence/research_evidence/strategy.rs": {
         "columnar.rs": "packages/backend/src/persistence/research_evidence/columnar.rs",
@@ -1390,28 +1449,27 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
         "../../tests/transport/backtest_preparation_window.rs": "packages/backend/tests/transport/backtest_preparation_window.rs",
     },
     "crates/backtest/src/native_read.rs": {
-        "position_order_view_tests.rs": "crates/backtest/src/position_order_view_tests.rs",
+        "tests/position_order_view_tests.rs": "crates/backtest/src/tests/position_order_view_tests.rs"
     },
     "crates/backtest/src/run.rs": {
-        "candidate_configuration_tests.rs": "crates/backtest/src/candidate_configuration_tests.rs",
+        "tests/candidate_configuration_tests.rs": "crates/backtest/src/tests/candidate_configuration_tests.rs"
     },
     "crates/backtest/src/lib.rs": {
-        "test_support/execution.rs": "crates/backtest/src/test_support/execution.rs",
+        "tests/next_open_tests.rs": "crates/backtest/src/tests/next_open_tests.rs",
+        "tests/support/execution.rs": "crates/backtest/src/tests/support/execution.rs",
     },
     "crates/runtime/src/replay.rs": {
-        "../tests/support/replay_codec_work.rs": "crates/runtime/tests/support/replay_codec_work.rs",
-        "../tests/support/binding_codec.rs": "crates/runtime/tests/support/binding_codec.rs",
+        "tests/replay_codec_work.rs": "crates/runtime/src/tests/replay_codec_work.rs",
+        "tests/binding_codec.rs": "crates/runtime/src/tests/binding_codec.rs",
     },
-    "crates/runtime/tests/support/binding_codec.rs": {
+    "crates/runtime/src/tests/binding_codec.rs": {
         "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
     },
     "crates/runtime/src/store.rs": {
         "checkpoint_data.rs": "crates/runtime/src/checkpoint_data.rs",
-        "../tests/support/checkpoint_work.rs": "crates/runtime/tests/support/checkpoint_work.rs",
+        "tests/checkpoint_work.rs": "crates/runtime/src/tests/checkpoint_work.rs",
     },
-    "crates/runtime/src/references.rs": {
-        "../tests/support/replay_references.rs": "crates/runtime/tests/support/replay_references.rs",
-    },
+    "crates/runtime/src/references.rs": {"tests/replay_references.rs": "crates/runtime/src/tests/replay_references.rs"},
     "plugs/onlyalpha-data-source-binance/src/spot_source.rs": {
         "spot_temporary.rs": "plugs/onlyalpha-data-source-binance/src/spot_temporary.rs",
     },
@@ -2450,7 +2508,44 @@ def check_risk_reference(root: Path, env: dict[str, str], target: str) -> None:
     _check_component_reference(root, env, target, "risk", compare_native_outputs)
 
 
+def validate_crate_layout(root: Path) -> None:
+    """Enforce the shared Cargo directory and Chinese library README contract."""
+    allowed = {"src", "tests", "examples", "benches"}
+    sections = ("目的与职责", "边界与依赖", "公开接口", "状态与生命周期", "使用与验证")
+    crates = root / "crates"
+    for crate in sorted(crates.iterdir()):
+        if crate.is_symlink() or not crate.is_dir():
+            raise ValueError(f"RUST_CRATE_LAYOUT_INVALID: {crate}")
+        if not (crate / "Cargo.toml").is_file() or not (crate / "src/lib.rs").is_file():
+            raise ValueError(f"RUST_CRATE_LAYOUT_INVALID: {crate}: missing Cargo.toml or src/lib.rs")
+        for entry in crate.iterdir():
+            if entry.is_symlink() or (entry.is_dir() and entry.name not in allowed):
+                raise ValueError(f"RUST_CRATE_LAYOUT_INVALID: {entry}")
+        for source in (crate / "src").rglob("*.rs"):
+            if source.stem.endswith("_tests") and not source.is_relative_to(crate / "src/tests"):
+                raise ValueError(f"RUST_CRATE_UNIT_TEST_LAYOUT_INVALID: {source}")
+            pattern = r'#\[cfg\([^\n]*\btest\b[^\n]*\)\]\s*(?:#\[path = "([^"]+)"\]\s*)?mod (\w+);'
+            for module in re.finditer(pattern, source.read_text(encoding="utf-8")):
+                target = (source.parent / (module[1] or (module[2] + ".rs"))).resolve()
+                # Test helpers shared with integration tests remain in their existing test owner.
+                if not target.is_relative_to((crate / "src").resolve()):
+                    if target.is_file() and re.search(r"(?m)^\s*#\[test\]", target.read_text(encoding="utf-8")):
+                        raise ValueError(f"RUST_CRATE_UNIT_TEST_LAYOUT_INVALID: {source}: {target}")
+                    continue
+                if not target.is_relative_to((crate / "src/tests").resolve()):
+                    raise ValueError(f"RUST_CRATE_UNIT_TEST_LAYOUT_INVALID: {source}: {target}")
+        readme = crate / "README.md"
+        if not readme.is_file():
+            raise ValueError(f"RUST_CRATE_README_INVALID: {readme}: missing")
+        content = readme.read_text(encoding="utf-8")
+        for section in sections:
+            match = re.search(r"^## " + re.escape(section) + r"\s*\n(.*?)(?=^## |\Z)", content, re.M | re.S)
+            if match is None or not match[1].strip():
+                raise ValueError(f"RUST_CRATE_README_INVALID: {readme}: {section}")
+
+
 def validate_sources(root: Path) -> None:
+    validate_crate_layout(root)
     validate_workspace(root)
     validate_domain_sources(root)
     validate_clock_sources(root)

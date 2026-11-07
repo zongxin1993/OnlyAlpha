@@ -82,5 +82,5 @@ std::thread_local! {
 }
 
 #[cfg(test)]
-#[path = "checkpoint_tests.rs"]
+#[path = "tests/checkpoint_tests.rs"]
 mod checkpoint_tests;

@@ -160,5 +160,5 @@ impl<'de> DeserializeSeed<'de> for ExpectedKey<'_> {
 }
 
 #[cfg(test)]
-#[path = "canonical_roundtrip_tests.rs"]
+#[path = "tests/canonical_roundtrip_tests.rs"]
 mod tests;

@@ -1408,5 +1408,5 @@ fn replay(config: Value, records: &[Record]) -> Result<Components, Error> {
 }
 
 #[cfg(test)]
-#[path = "../tests/support/checkpoint_work.rs"]
+#[path = "tests/checkpoint_work.rs"]
 mod checkpoint_work_tests;

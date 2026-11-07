@@ -744,5 +744,5 @@ impl Manager {
 }
 
 #[cfg(test)]
-#[path = "current_exposure_tests.rs"]
+#[path = "tests/current_exposure_tests.rs"]
 mod current_exposure_tests;

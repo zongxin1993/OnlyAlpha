@@ -122,7 +122,7 @@ impl Manager {
 }
 
 #[cfg(test)]
-#[path = "recovery_extension_tests.rs"]
+#[path = "tests/recovery_extension_tests.rs"]
 mod extension_tests;
 
 #[cfg(test)]

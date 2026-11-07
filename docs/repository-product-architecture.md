@@ -45,6 +45,33 @@ Each library directory uses its responsibility name, with a Cargo package name p
 Provider dependencies stay outside the Kernel. Concrete Rust plugins use their own `src/` under `plugs/`. Each independently
 deployable unit requires a distinct lifecycle, resource, fault or upgrade boundary.
 
+### Rust 库的内部目录与说明
+
+`crates/<lib>/` 只允许以下一级目录，按需创建，不要求空目录占位：
+
+| 目录 | 职责 |
+|---|---|
+| `src/` | 库实现、随模块组织的单元测试及编译所需资源 |
+| `tests/` | Cargo 集成测试及专用测试数据、辅助代码 |
+| `examples/` | 使用公开接口的可运行示例 |
+| `benches/` | Cargo 性能基准及专用数据 |
+
+每个库的独立单元测试文件统一集中在 `src/tests/`，按被测职责命名；专用辅助文件放在
+`src/tests/support/`，不再为每个业务模块创建物理测试目录。内联单元测试无需拆出。
+测试文件仍由原业务模块挂载，保留原测试模块名与 `#[cfg(test)]`，通过精确 `#[path]` 引用保持逻辑模块归属和
+私有访问能力；不得为移动测试而扩大公开接口，也不得改为统一从 `lib.rs` 挂载而改变所属模块。
+现有供集成测试复用的辅助文件保留原归属；仅供私有单元测试使用的文件一并集中，不能借辅助目录保留私有测试用例。`src/tests/` 是库内部单元测试，库根 `tests/` 是 Cargo 公开接口集成测试。
+
+`Cargo.toml`、`README.md` 等必要文件位于库根目录。多个库或工程共享的参考数据仍位于根目录
+`test-data/`，不因内部目录约束复制。Domain 的固定 TZif 资源及许可位于
+`crates/domain/src/resources/tzdata/2026.3/`，随实际使用它的库编译。
+
+每个库的中文 `README.md` 必须包含五个非空二级章节：目的与职责、边界与依赖、公开接口、状态与生命周期、
+使用与验证。内容明确负责与不负责的范围、事实归属、输入输出、主要公开模块/类型/trait/函数、错误及约束、
+直接依赖和适用的持久化恢复语义，并链接实际 Rust 公开入口。没有状态或持久化能力时明确说明。
+README 是职责和调用导航，详细签名以源码及 Rust 文档为准，不创造另一份正式契约或验收 Authority。
+修改公开接口时同步维护 README；目录白名单和必需章节由 `scripts/rust_kernel_check.py` 的源码检查入口校验。
+
 Backend owns package/binary `onlyalpha-backend`. Frontend owns package `onlyalpha-frontend`.
 These are the two runtime projects under `packages/`. Agent clients use the formal API. Quantitative asset authoring
 and ownership follow [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md). Release metadata is documented in [release versioning](release-versioning.md).

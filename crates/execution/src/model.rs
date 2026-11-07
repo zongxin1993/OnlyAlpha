@@ -588,13 +588,13 @@ pub(crate) fn bound_decimal_leaves(v: &Value) -> Result<(), Error> {
 }
 
 #[cfg(test)]
-#[path = "typed_after_tests.rs"]
+#[path = "tests/typed_after_tests.rs"]
 mod typed_after_tests;
 
 #[cfg(test)]
-#[path = "record_observation_tests.rs"]
+#[path = "tests/record_observation_tests.rs"]
 mod record_observation_tests;
 
 #[cfg(test)]
-#[path = "pure_transition_data_tests.rs"]
+#[path = "tests/pure_transition_data_tests.rs"]
 mod pure_transition_data_tests;

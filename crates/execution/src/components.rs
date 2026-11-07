@@ -915,17 +915,17 @@ pub(crate) fn settlement_config(config: &Value) -> Value {
 }
 
 #[cfg(test)]
-#[path = "payload_codec_tests.rs"]
+#[path = "tests/payload_codec_tests.rs"]
 mod payload_codec_tests;
 
 #[cfg(test)]
-#[path = "position_order_view_tests.rs"]
+#[path = "tests/position_order_view_tests.rs"]
 mod position_order_view_tests;
 
 #[cfg(test)]
-#[path = "prefix_read_tests.rs"]
+#[path = "tests/prefix_read_tests.rs"]
 mod prefix_read_tests;
 
 #[cfg(test)]
-#[path = "components_cow_tests.rs"]
+#[path = "tests/components_cow_tests.rs"]
 mod components_cow_tests;

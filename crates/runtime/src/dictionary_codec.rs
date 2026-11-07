@@ -314,9 +314,9 @@ pub(crate) fn decode_anchor(frame: &Frame) -> Result<(Value, Anchor), Error> {
     ))
 }
 #[cfg(test)]
-#[path = "dictionary_codec_tests.rs"]
+#[path = "tests/dictionary_codec_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "dictionary_commit_tests.rs"]
+#[path = "tests/dictionary_commit_tests.rs"]
 mod commit_tests;

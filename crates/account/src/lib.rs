@@ -11,4 +11,5 @@ mod performance;
 pub use performance::{Performance, equity_drawdown};
 
 #[cfg(test)]
+#[path = "tests/extension_tests.rs"]
 mod extension_tests;

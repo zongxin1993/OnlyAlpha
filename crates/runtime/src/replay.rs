@@ -466,9 +466,9 @@ impl SqliteStore {
 }
 
 #[cfg(test)]
-#[path = "../tests/support/replay_codec_work.rs"]
+#[path = "tests/replay_codec_work.rs"]
 mod replay_codec_work_tests;
 
 #[cfg(test)]
-#[path = "../tests/support/binding_codec.rs"]
+#[path = "tests/binding_codec.rs"]
 mod binding_codec_tests;

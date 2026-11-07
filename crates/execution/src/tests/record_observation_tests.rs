@@ -1,9 +1,9 @@
 //! Observation can remove authority, never manufacture a planner origin.
 use super::*;
 use crate::{Record, coordinate};
-const FIXTURE: &str = include_str!("../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../test-data/settlement/common-v1.json");
-#[path = "../tests/support/mod.rs"]
+const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
+const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
+#[path = "../../tests/support/mod.rs"]
 mod support;
 use support::{Harness, config, open};
 // Select only the explicit authority-removing observation, never a flag copy.

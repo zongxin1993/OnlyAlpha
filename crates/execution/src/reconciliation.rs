@@ -713,5 +713,5 @@ mod tests {
 }
 
 #[cfg(test)]
-#[path = "reconciliation_data_tests.rs"]
+#[path = "tests/reconciliation_data_tests.rs"]
 mod reconciliation_data_tests;

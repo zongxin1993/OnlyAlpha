@@ -42,6 +42,7 @@ fn sha(s: &str) -> Result<(), Error> {
 }
 
 #[cfg(test)]
+#[path = "tests/next_open_tests.rs"]
 mod next_open_tests;
 
 /// Pure validation by the canonical composition. No Store, candidate or execution grant is returned.
@@ -50,5 +51,5 @@ pub fn validate_configuration(configuration: &Value) -> Result<(), Error> {
 }
 
 #[cfg(test)]
-#[path = "test_support/execution.rs"]
+#[path = "tests/support/execution.rs"]
 mod execution_test_fixture;

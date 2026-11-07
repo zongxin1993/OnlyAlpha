@@ -246,8 +246,8 @@ Jiff's `jiff-core` and RustCrypto's digest/block-buffer/crypto-common/hybrid-arr
 `libc` through cpufeatures. libc's build script probes rustc/platform configuration. Inactive defmt, portable-atomic and thiserror
 nodes also contain build scripts; locked presence does not imply execution. Optional log/defmt, non-pointer-atomic target helpers
 and jiff-static/proc-macro dependencies remain part of Cargo's legitimate complete lock graph. Keep all applicable license notices.
-Rust keeps upstream timezone resources separate from `src/` under
-`crates/domain/resources/tzdata/2026.3/`, including their licenses and `dataset.json` checksums.
+Rust keeps upstream timezone resources owned by their consuming source under
+`crates/domain/src/resources/tzdata/2026.3/`, including their licenses and `dataset.json` checksums.
 The resources remain inside the Domain crate so its isolated build includes the complete input closure.
 `scripts/domain_timezone_data.py --check` compares every byte and the Rust lookup index with the pinned Python package.
 These copies contain the same upstream rules, not independent timezone authorities.

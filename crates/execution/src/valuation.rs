@@ -150,5 +150,5 @@ impl Components {
 }
 
 #[cfg(test)]
-#[path = "valuation_history_tests.rs"]
+#[path = "tests/valuation_history_tests.rs"]
 mod valuation_history_tests;

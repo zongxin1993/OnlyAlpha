@@ -18,7 +18,7 @@ def validate_index(domain: Path, dataset: dict[str, Any]) -> None:
         "#[rustfmt::skip]\n"
         "pub(crate) const ZONES: &[(&str, &[u8])] = &[\n"
         + "".join(
-            f'    ("{name}", include_bytes!("../resources/tzdata/{dataset["version"]}/{name}")),\n'
+            f'    ("{name}", include_bytes!("resources/tzdata/{dataset["version"]}/{name}")),\n'
             for name in sorted(dataset["zones"])
         )
         + "];\n"
@@ -29,7 +29,7 @@ def validate_index(domain: Path, dataset: dict[str, Any]) -> None:
 
 def main() -> None:
     domain = ROOT / "crates/domain"
-    root = domain / "resources/tzdata/2026.3"
+    root = domain / "src/resources/tzdata/2026.3"
     dataset = json.loads((root / "dataset.json").read_text())
     validate_index(domain, dataset)
     if version("tzdata") != dataset["version"]:

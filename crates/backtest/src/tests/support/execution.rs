@@ -1,9 +1,9 @@
 //! Existing independent three-fact vector shared by two native tests.
 use crate::hash;
 use serde_json::{Value, json};
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-const ECONOMICS: &str = include_str!("../../../../test-data/execution/economics-v1.json");
+const FIXTURE: &str = include_str!("../../../../../test-data/execution/domain-inputs.json");
+const SETTLEMENT_FIXTURE: &str = include_str!("../../../../../test-data/settlement/common-v1.json");
+const ECONOMICS: &str = include_str!("../../../../../test-data/execution/economics-v1.json");
 pub(crate) fn configuration(modern: bool) -> Value {
     let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
     let economics: Value = serde_json::from_str(ECONOMICS).unwrap();

@@ -7,7 +7,7 @@ use onlyalpha_domain::{
 };
 use serde_json::{Value, json};
 use std::str::FromStr;
-const FACTS: &str = include_str!("../../../test-data/domain/fact-records-v1.jsonl");
+const FACTS: &str = include_str!("../../../../test-data/domain/fact-records-v1.jsonl");
 fn configuration() -> Value {
     json!({"schema_version":1,"engine":"engine","runtime":"runtime","account":"account","gateway":"gateway","generation":"a".repeat(64),"runtime_kind":"BACKTEST","currency":{"schema_version":1,"code":"USD","precision":2,"currency_type":"FIAT"},"initial_cash":"10000.00","capitals":{"cluster":"10000.00"},"profiles":{"cluster":{"schema_version":1,"revision":"revision","instruments":["A.X"],"rules":[]}},"instruments":[{"schema_version":1,"id":"A.X","price_precision":2,"quantity_precision":2,"multiplier":"1"}]})
 }
@@ -167,7 +167,7 @@ impl NextOpenPolicy for ProofPolicy {
         context: &Value,
     ) -> Result<Value, crate::Error> {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../test-data/execution/domain-inputs.json"
+            "../../../../test-data/execution/domain-inputs.json"
         ))
         .unwrap();
         let mut contract = if order["side"] == "BUY" {
@@ -230,9 +230,10 @@ impl NextOpenPolicy for ProofPolicy {
         quantity: &OnlyQuantity,
         _: &Value,
     ) -> Result<Value, crate::Error> {
-        let fixture: Value =
-            serde_json::from_str(include_str!("../../../test-data/settlement/common-v1.json"))
-                .unwrap();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../test-data/settlement/common-v1.json"
+        ))
+        .unwrap();
         Ok(
             json!({"schema_version":1,"charge_target":"1.00","rebate_target":"0.00","gross_notional":self.money(price,quantity),"settlement_policy":fixture["policy"]}),
         )
@@ -242,7 +243,7 @@ fn native_input(index: u64, price: &str) -> MarketInput {
     let i = input(index, price);
     let mut v = i.bar().to_record();
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../test-data/execution/domain-inputs.json"
+        "../../../../test-data/execution/domain-inputs.json"
     ))
     .unwrap();
     v["bar_type"]["instrument_id"] = fixture["request"]["instrument_id"].clone();
@@ -265,8 +266,10 @@ fn native_state(cash: &str) -> (NativeReplay, Candidate) {
     native_state_for_configuration(cfg)
 }
 fn native_state_for_configuration(cfg: Value) -> (NativeReplay, Candidate) {
-    let fixture: Value =
-        serde_json::from_str(include_str!("../../../test-data/settlement/common-v1.json")).unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../test-data/settlement/common-v1.json"
+    ))
+    .unwrap();
     let mut s = settings();
     s["execution"] = cfg.clone();
     // A fresh proof calendar covers these 2025 Bars. The shared settlement

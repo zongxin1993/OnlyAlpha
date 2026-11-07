@@ -1,8 +1,8 @@
 //! Pure owner-image codec reuse; never a Ready/source-proof cache.
 use super::*;
-const FIXTURE: &str = include_str!("../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../test-data/settlement/common-v1.json");
-#[path = "../tests/support/mod.rs"]
+const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
+const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
+#[path = "../../tests/support/mod.rs"]
 mod support;
 use support::{Harness, config, fill, open, stage, terminal};
 fn capture_bytes() -> u64 {

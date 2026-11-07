@@ -770,7 +770,7 @@ impl Runtime {
 }
 
 #[cfg(test)]
-#[path = "../tests/support/replay_references.rs"]
+#[path = "tests/replay_references.rs"]
 mod reference_tests;
 
 #[cfg(test)]

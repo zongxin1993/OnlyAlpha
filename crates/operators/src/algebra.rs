@@ -652,5 +652,5 @@ fn log_bounds(n: &BigInt, d: &BigInt, unit: &BigInt, precision: usize) -> Result
 }
 
 #[cfg(test)]
-#[path = "algebra_tests.rs"]
+#[path = "tests/algebra_tests.rs"]
 mod tests;

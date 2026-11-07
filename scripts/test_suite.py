@@ -169,6 +169,7 @@ LANES = {
             "scripts/tests/test_dev_verification_git_inputs.py",
             "scripts/tests/test_current_coverage_contract.py",
             "scripts/tests/test_domain_mutation.py",
+            "scripts/tests/test_crate_layout_contract.py",
             "scripts/tests/test_import_owner_boundaries.py",
         ),
         "architecture",

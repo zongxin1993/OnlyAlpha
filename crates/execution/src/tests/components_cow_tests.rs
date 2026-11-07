@@ -2,9 +2,9 @@
 use super::*;
 use crate::{Prepared, coordinate, recover};
 
-const FIXTURE: &str = include_str!("../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../test-data/settlement/common-v1.json");
-#[path = "../tests/support/mod.rs"]
+const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
+const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
+#[path = "../../tests/support/mod.rs"]
 mod support;
 use support::{Harness, config, fill, open, stage};
 

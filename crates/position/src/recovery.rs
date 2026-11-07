@@ -78,5 +78,5 @@ impl Manager {
 }
 
 #[cfg(test)]
-#[path = "checkpoint_cache_tests.rs"]
+#[path = "tests/checkpoint_cache_tests.rs"]
 mod checkpoint_cache_tests;

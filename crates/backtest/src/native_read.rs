@@ -416,5 +416,5 @@ std::thread_local! {
  static ORIGINAL_BODY_READS:std::cell::Cell<u64>=const{std::cell::Cell::new(0)};
 }
 #[cfg(test)]
-#[path = "position_order_view_tests.rs"]
+#[path = "tests/position_order_view_tests.rs"]
 mod position_order_view_tests;

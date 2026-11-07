@@ -24,7 +24,9 @@ pub use backtest_result::BacktestResult;
 #[cfg(test)]
 extern crate self as onlyalpha_execution;
 #[cfg(test)]
+#[path = "tests/projection_digest_tests.rs"]
 mod projection_digest_tests;
 
 #[cfg(test)]
+#[path = "tests/valuation_ledger_view_tests.rs"]
 mod valuation_ledger_view_tests;

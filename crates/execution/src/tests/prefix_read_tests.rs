@@ -1,9 +1,9 @@
 //! Keep the default Store's immediate validation, callback and error order.
 use super::*;
 use std::cell::RefCell;
-const FIXTURE: &str = include_str!("../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../test-data/settlement/common-v1.json");
-#[path = "../tests/support/mod.rs"]
+const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
+const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
+#[path = "../../tests/support/mod.rs"]
 mod support;
 struct Observed {
     rows: Vec<crate::Record>,

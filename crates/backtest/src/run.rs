@@ -950,5 +950,5 @@ impl<P: Participants> RunLoop<P> {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-#[path = "candidate_configuration_tests.rs"]
+#[path = "tests/candidate_configuration_tests.rs"]
 mod configuration_tests;
