@@ -3,6 +3,8 @@
 mod canonical_roundtrip;
 mod components;
 mod model;
+mod perpetual;
+mod perpetual_fees;
 mod planning;
 pub use components::Components;
 pub use model::{Error, Prepared, digest};
@@ -19,7 +21,7 @@ mod performance;
 pub use performance::RuntimePerformance;
 
 mod backtest_result;
-pub use backtest_result::BacktestResult;
+pub use backtest_result::{BacktestResult, TranscriptDraft};
 
 #[cfg(test)]
 extern crate self as onlyalpha_execution;
@@ -30,3 +32,10 @@ mod projection_digest_tests;
 #[cfg(test)]
 #[path = "tests/valuation_ledger_view_tests.rs"]
 mod valuation_ledger_view_tests;
+
+pub use onlyalpha_domain::market_source::OnlyMarketSourceCut as MarketSourceCut;
+
+pub use perpetual::funding_boundary;
+
+mod projection_data;
+pub use projection_data::{FundingDraft, ProjectionData};

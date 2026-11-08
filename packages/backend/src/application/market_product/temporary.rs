@@ -807,7 +807,7 @@ impl Application {
                 // not a join against another Source's equal timestamp.
                 let checkpoint = rows.last().ok_or(Error::Corrupt)?.clone();
                 let mut constructed = queries::derived_with_calendar(
-                    r.resource.calendar(),
+                    r.resource.calendar().ok_or(Error::Selection)?,
                     &plan,
                     &request.instrument_id,
                     rows,

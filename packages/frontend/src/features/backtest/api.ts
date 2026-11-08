@@ -297,6 +297,7 @@ export async function loadSources() {
             source.type_id === "binance.spot.market_data" &&
             source.is_current_revision &&
             source.new_work_status === "AVAILABLE" &&
+            source.time_bar_capability !== undefined &&
             source.time_bar_capability.minimum_window_minutes <= 1 &&
             source.time_bar_capability.maximum_window_minutes >= 1
     );

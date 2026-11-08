@@ -3402,6 +3402,28 @@
         ],
         "type": "string"
       },
+      "ConfiguredProbeInstrumentsDto": {
+        "additionalProperties": false,
+        "properties": {
+          "field_id": {
+            "type": "string"
+          },
+          "instruments": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "field_id",
+          "instruments"
+        ],
+        "type": "object"
+      },
       "ConfirmInput": {
         "additionalProperties": false,
         "properties": {
@@ -4883,6 +4905,16 @@
       "IntegrationProbeContractDto": {
         "additionalProperties": false,
         "properties": {
+          "configured_instruments": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConfiguredProbeInstrumentsDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "default_probe_instrument": {
             "type": [
               "string",
@@ -4903,7 +4935,10 @@
             "$ref": "#/components/schemas/OnlyIntegrationProbeMode"
           },
           "probe_version": {
-            "$ref": "#/components/schemas/Version1"
+            "format": "int32",
+            "maximum": 2,
+            "minimum": 1,
+            "type": "integer"
           },
           "user_selectable_probe_instrument": {
             "type": "boolean"
@@ -5408,6 +5443,12 @@
               "null"
             ]
           },
+          "original_request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "provenance": {
             "type": "string"
           },
@@ -5464,6 +5505,7 @@
       },
       "MarketDataAcquisitionDtoStatus": {
         "enum": [
+          "UNKNOWN",
           "PENDING",
           "RUNNING",
           "COMPLETE",
@@ -5474,6 +5516,12 @@
       "MarketDataAcquisitionRequestDto": {
         "additionalProperties": false,
         "properties": {
+          "adjustment_anchor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "bar_semantic": {
             "oneOf": [
               {
@@ -5491,6 +5539,12 @@
           "instrument_id": {
             "minLength": 1,
             "type": "string"
+          },
+          "original_request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "provenance": {
             "oneOf": [
@@ -6272,6 +6326,16 @@
           "environment": {
             "type": "string"
           },
+          "historical_day_semantic": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MarketDataBarSemanticDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "history_read_policy": {
             "$ref": "#/components/schemas/SourceHistoryPolicy"
           },
@@ -6297,7 +6361,14 @@
             "type": "string"
           },
           "time_bar_capability": {
-            "$ref": "#/components/schemas/MarketDataTimeBarCapabilityDto"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MarketDataTimeBarCapabilityDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "type_id": {
             "type": "string"
@@ -6313,7 +6384,6 @@
           "integration_id",
           "integration_revision_fingerprint",
           "source_id",
-          "time_bar_capability",
           "type_id"
         ],
         "type": "object"
@@ -15844,6 +15914,14 @@
           },
           {
             "in": "query",
+            "name": "revision_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "bar_semantic",
             "required": true,
             "schema": {
@@ -15993,6 +16071,14 @@
             "in": "query",
             "name": "instrument_id",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision_id",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -16436,6 +16522,14 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sealed_only",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],

@@ -35,8 +35,11 @@ impl Resource for Feed {
     fn identity(&self) -> &MarketIdentity {
         &self.identity
     }
-    fn calendar(&self) -> &OnlyTradingCalendar {
-        &self.calendar
+    fn normalizer_id(&self) -> &str {
+        "test.feed"
+    }
+    fn calendar(&self) -> Option<&OnlyTradingCalendar> {
+        Some(&self.calendar)
     }
     fn capabilities(&self) -> &[OnlyConstructionCapability] {
         &self.capabilities
@@ -245,6 +248,7 @@ pub(in crate::application::market_product) fn source_from(
         implementation: "e".repeat(64),
         data_version: "test@1".into(),
         probe_contract: "f".repeat(64),
+        probe_checks: vec![],
         probe_configuration: None,
         probe_symbol: "TEST".into(),
         clock: Arc::new(FixedClock),

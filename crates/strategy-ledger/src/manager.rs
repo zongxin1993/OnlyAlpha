@@ -37,8 +37,19 @@ pub struct Manager {
 }
 impl Manager {
     pub fn new(mut config: Value) -> Result<Self, Error> {
+        let mut shape = config.clone();
+        let perpetual = config["schema_version"] == 2;
+        if perpetual {
+            shape["schema_version"] = json!(1);
+            if let Some(p) = shape
+                .as_object_mut()
+                .and_then(|r| r.remove("position_configuration"))
+            {
+                fingerprint(&p)?;
+            }
+        }
         let c = row(
-            &config,
+            &shape,
             &[
                 "engine",
                 "runtime",
@@ -53,7 +64,9 @@ impl Manager {
         for f in ["engine", "runtime", "account", "generation"] {
             id(&c[f])?;
         }
-        if !matches!(text(&c["runtime_kind"])?, "BACKTEST" | "SIM" | "LIVE") {
+        if (perpetual && c["runtime_kind"] != "BACKTEST")
+            || !matches!(text(&c["runtime_kind"])?, "BACKTEST" | "SIM" | "LIVE")
+        {
             return Err(err("LEDGER_RUNTIME_KIND"));
         }
         let currency = onlyalpha_domain::value::OnlyCurrency::from_record(&c["currency"])?;
@@ -75,7 +88,11 @@ impl Manager {
             let amount = nonnegative(amount, p)?;
             sum += &amount;
             normalized.insert(cluster.clone(), json!(formatted(&amount, p)));
-            ledgers.insert(cluster.clone(), Ledger::new(amount, p));
+            let mut ledger = Ledger::new(amount, p);
+            if perpetual {
+                ledger.funding = Some(Decimal::zero());
+            }
+            ledgers.insert(cluster.clone(), ledger);
         }
         if sum != initial {
             return Err(err("LEDGER_CAPITAL_SUM"));
@@ -140,7 +157,87 @@ impl Manager {
         STATE_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
         json!({"schema_version":1,"config":self.config,"ledgers":self.ledgers.iter().map(|(k,v)|(k.clone(),v.record(self.precision))).collect::<BTreeMap<_,_>>(),"receipts":self.receipts,"aliases":self.aliases,"orders":self.orders,"trades":self.trades,"timeline":self.timeline.iter().map(std::sync::Arc::as_ref).collect::<Vec<_>>(),"allocation_owners":self.allocation_owners,"sequence":self.sequence,"time":self.now.as_ref().map(|n|serde_json::from_str::<Value>(&n.to_string()).expect("integer")),"trading_day":self.trading_day,"day_index":self.day_index})
     }
+    /// 仅由绑定的 Position 和冻结的来源原件推导资金费流水。
+    pub fn apply_funding(
+        &mut self,
+        input: &Value,
+        effect: &onlyalpha_position::FundingEffect,
+    ) -> Result<Outcome, Error> {
+        let flow = effect.record();
+        if input["op"] != "FUNDING"
+            || self.config["position_configuration"] != effect.position_configuration()
+            || self.config["account"] != flow["account"]
+            || input["cluster"] != flow["cluster"]
+            || self.config["schema_version"] != 2
+        {
+            return Err(err("LEDGER_FUNDING_PRODUCER_SCOPE"));
+        }
+        let mut command = input.clone();
+        command["payload"] = json!({"schema_version":1,"cashflow":flow["cashflow"],"source_fact":flow["source_fact"],"amount":flow["amount"],"funding_source":effect.reference(),"trade_lineage":effect.ledger_lineage()});
+        if let Some(original) = self
+            .journal
+            .iter()
+            .find(|c| c["op"] == "FUNDING" && c["payload"]["cashflow"] == flow["cashflow"])
+        {
+            let mut retained = original.as_ref().clone();
+            retained["command_id"] = command["command_id"].clone();
+            if retained != command {
+                return Err(err("LEDGER_FUNDING_IDENTITY_CONFLICT"));
+            }
+            return self.apply_inner(&command);
+        }
+        let mut lineage = BTreeMap::new();
+        for original in &self.journal {
+            let p = &original["payload"];
+            if original["op"] != "TRADE" {
+                continue;
+            }
+            let trade = text(&p["trade"])?;
+            if let Some((cluster, order)) = self.trades.get(trade) {
+                if original["cluster"] != *cluster || p["order"] != *order {
+                    return Err(err("LEDGER_FUNDING_SOURCE_RELATION"));
+                }
+                lineage.entry(trade.to_owned()).or_insert_with(||json!({"cluster":original["cluster"],"order":p["order"],"execution":p["execution"],"venue_trade":p["venue_trade"],"sequence":p["source_sequence"],"cause":original["cause"],"time":original["time"],"allocation_evidence":p["allocation_evidence"],"trade_evidence":p["trade_evidence"]}));
+            } else if p["instrument"] == flow["instrument"] {
+                return Err(err("LEDGER_FUNDING_SOURCE_RELATION"));
+            }
+        }
+        if lineage.len() != self.trades.len()
+            || effect.ledger_lineage() != hash(&serde_json::to_value(lineage)?)
+        {
+            return Err(err("LEDGER_FUNDING_SOURCE_RELATION"));
+        }
+        self.apply_inner(&command)
+    }
+    /// 显式永续 TRADE 的原输入身份只由实际已应用的 Position 成交签发。
+    pub fn apply_position_trade(
+        &mut self,
+        input: &Value,
+        original: &onlyalpha_position::TradeEvidence,
+    ) -> Result<Outcome, Error> {
+        let evidence = original
+            .verify_projection(&self.config, input, true)
+            .map_err(|e| Error(e.0))?;
+        let mut command = input.clone();
+        if command["payload"]
+            .get("trade_evidence")
+            .is_some_and(|old| old != evidence)
+        {
+            return Err(err("LEDGER_TRADE_EVIDENCE_CONFLICT"));
+        }
+        command["payload"]["trade_evidence"] = json!(evidence);
+        self.apply_inner(&command)
+    }
     pub fn apply(&mut self, input: &Value) -> Result<Outcome, Error> {
+        if self.config["schema_version"] == 2 && input["op"] == "TRADE" {
+            return Err(err("LEDGER_TRADE_PRODUCER_REQUIRED"));
+        }
+        if input["op"] == "FUNDING" {
+            return Err(err("LEDGER_FUNDING_PRODUCER_REQUIRED"));
+        }
+        self.apply_inner(input)
+    }
+    fn apply_inner(&mut self, input: &Value) -> Result<Outcome, Error> {
         #[cfg(test)]
         RECOVERY_COMMAND_APPLICATIONS.with(|count| count.set(count.get() + 1));
         if input.to_string().len() > 65536 {
@@ -180,6 +277,11 @@ impl Manager {
         day(&r["trading_day"])?;
         let di = uint(&r["day_index"])?;
         let op = text(&r["op"])?;
+        if op == "TRADE"
+            && (self.config["schema_version"] == 2) != r["payload"].get("trade_evidence").is_some()
+        {
+            return Err(err("LEDGER_TRADE_EVIDENCE_PROFILE"));
+        }
         let mut cmd = input.clone();
         cmd["payload"] = normalize(op, &r["payload"], self.precision)?;
         let h = hash(&cmd);
@@ -216,7 +318,7 @@ impl Manager {
                 ("fee_instruction", "fee_instruction"),
                 ("source_fact", "source_fact"),
             ],
-            "CASH_FLOW" => &[("cashflow", "cashflow"), ("source_fact", "source_fact")],
+            "CASH_FLOW" | "FUNDING" => &[("cashflow", "cashflow"), ("source_fact", "source_fact")],
             "VALUATION" => &[("valuation", "valuation")],
             "SETTLEMENT" => &[("settlement", "instruction")],
             _ => &[],
@@ -384,7 +486,7 @@ impl Manager {
                     return Err(err("LEDGER_RESERVE_BLOCKED"));
                 }
                 let amount = nonnegative(&p["amount"], precision)?;
-                if amount <= Decimal::zero() || amount > l.available() {
+                if (l.funding.is_none() && amount.is_zero()) || amount > l.available() {
                     return Err(err("LEDGER_INSUFFICIENT_CASH"));
                 }
                 let rid = id(&p["reservation"])?;
@@ -416,7 +518,9 @@ impl Manager {
                     .get_mut(text(&p["reservation"])?)
                     .ok_or_else(|| err("LEDGER_RESERVATION_UNKNOWN"))?;
                 if op == "STAGE" {
-                    if r.remaining == Decimal::zero() {
+                    if r.terminal_outcome.is_some()
+                        || (l.funding.is_none() && r.remaining.is_zero())
+                    {
                         return Err(err("LEDGER_RESERVATION_TERMINAL"));
                     }
                     match text(&p["stage"])? {
@@ -473,6 +577,17 @@ impl Manager {
                         l.entry("RELEASE", released, false, p, sequence, precision);
                     }
                 }
+            }
+            "FUNDING" => {
+                let accrued = l
+                    .funding
+                    .as_mut()
+                    .ok_or_else(|| err("LEDGER_FUNDING_CONFIGURATION"))?;
+                let amount = money(&p["amount"], precision)?;
+                *accrued += &amount;
+                l.cash += &amount;
+                l.economic_version += 1;
+                l.entry(op, amount, true, p, sequence, precision);
             }
             "CASH_FLOW" => {
                 let amount = money(&p["amount"], precision)?;

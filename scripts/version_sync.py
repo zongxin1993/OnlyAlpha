@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.release_metadata import VersionSyncError as VersionSyncError
 from scripts.release_metadata import load_release_units as load_release_units
-from scripts.release_metadata import validate_release_version
+from scripts.release_metadata import plugin_release_unit, validate_release_version
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_DISTRIBUTION_PATHS = (
@@ -203,7 +203,7 @@ def _rust_members(root: Path) -> list[tuple[Path, Any, str]]:
         document = read_document(path)
         name = document["package"]["name"]
         unit = (
-            "plugin-" + name.removeprefix("onlyalpha-plugin-")
+            plugin_release_unit(name)
             if Path(member).parts[0] == "plugs"
             else "backend"
             if name in BACKEND_RUST_COMPONENTS
@@ -218,7 +218,7 @@ def _rust_members(root: Path) -> list[tuple[Path, Any, str]]:
 
 def _python_unit(distribution: WorkspaceDistribution, root: Path) -> str:
     if distribution.path.relative_to(root).parts[0] == "plugs":
-        return "plugin-" + distribution.name.removeprefix("onlyalpha-plugin-")
+        return plugin_release_unit(distribution.name)
     if distribution.path.relative_to(root).as_posix() == "packages/agent/pyproject.toml":
         return "agent"
     return "backend"

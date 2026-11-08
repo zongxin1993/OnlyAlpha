@@ -3001,6 +3001,12 @@ export interface components {
         };
         /** @enum {string} */
         ChartStudyWindowDtoAnchorKind: "BEFORE_TIME";
+        ConfiguredProbeInstrumentsDto: {
+            field_id: string;
+            instruments: {
+                [key: string]: string;
+            };
+        };
         ConfirmInput: {
             proposal_fingerprint: string;
             /** Format: int32 */
@@ -3356,11 +3362,13 @@ export interface components {
             status: string;
         };
         IntegrationProbeContractDto: {
+            configured_instruments?: components["schemas"]["ConfiguredProbeInstrumentsDto"] | null;
             default_probe_instrument: string | null;
             fingerprint: string;
             probe_checks: components["schemas"]["OnlyIntegrationProbeCheck"][];
             probe_mode: components["schemas"]["OnlyIntegrationProbeMode"];
-            probe_version: components["schemas"]["Version1"];
+            /** Format: int32 */
+            probe_version: number;
             user_selectable_probe_instrument: boolean;
         };
         IntegrationProbeRequestDto: {
@@ -3476,6 +3484,7 @@ export interface components {
             failure_detail: string | null;
             instrument_id: string;
             integration_binding_fingerprint: string | null;
+            original_request_id?: string | null;
             provenance: string;
             revision_fingerprint: string | null;
             revision_id: string | null;
@@ -3486,11 +3495,13 @@ export interface components {
             status: components["schemas"]["MarketDataAcquisitionDtoStatus"];
         };
         /** @enum {string} */
-        MarketDataAcquisitionDtoStatus: "PENDING" | "RUNNING" | "COMPLETE" | "FAILED";
+        MarketDataAcquisitionDtoStatus: "UNKNOWN" | "PENDING" | "RUNNING" | "COMPLETE" | "FAILED";
         MarketDataAcquisitionRequestDto: {
+            adjustment_anchor?: string | null;
             bar_semantic?: components["schemas"]["MarketDataBarSemanticDto"] | null;
             end_ns: string;
             instrument_id: string;
+            original_request_id?: string | null;
             provenance?: components["schemas"]["MarketDataAcquisitionRequestDtoProvenance"] | null;
             source_reference: components["schemas"]["MarketDataSourceReferenceDto"];
             start_ns: string;
@@ -3661,6 +3672,7 @@ export interface components {
         MarketDataSourceProjectionDto: {
             display_name: string;
             environment: string;
+            historical_day_semantic?: components["schemas"]["MarketDataBarSemanticDto"] | null;
             history_read_policy: components["schemas"]["SourceHistoryPolicy"];
             integration_id: string;
             integration_revision_fingerprint: string;
@@ -3668,7 +3680,7 @@ export interface components {
             new_work_status: components["schemas"]["SourceNewWorkStatus"];
             new_work_unavailable_code: string | null;
             source_id: string;
-            time_bar_capability: components["schemas"]["MarketDataTimeBarCapabilityDto"];
+            time_bar_capability?: components["schemas"]["MarketDataTimeBarCapabilityDto"] | null;
             type_id: string;
         };
         MarketDataSourceReferenceDto: {
@@ -9180,6 +9192,7 @@ export interface operations {
                 integration_revision_fingerprint: string;
                 instrument_id: string;
                 anchor_kind: string;
+                revision_id?: string;
                 bar_semantic: string;
                 target_bar_count: number;
                 before_ns?: string;
@@ -9271,6 +9284,7 @@ export interface operations {
                 integration_id: string;
                 integration_revision_fingerprint: string;
                 instrument_id: string;
+                revision_id?: string;
                 bar_semantic: string;
                 expected_type_id?: string;
             };
@@ -9576,6 +9590,7 @@ export interface operations {
                 query?: string;
                 limit?: number;
                 instrument_ids?: string;
+                sealed_only?: boolean;
             };
             header?: never;
             path?: never;

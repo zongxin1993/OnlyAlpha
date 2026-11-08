@@ -377,7 +377,7 @@ impl Running {
                     .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
                 onlyalpha_data_source_binance::usdm_authoring(WORK)
                     .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
-                onlyalpha_data_source_tushare::daily_authoring(WORK)
+                onlyalpha_data_source_tushare::source::native_authoring(WORK)
                     .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
             ])
             .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
@@ -391,7 +391,16 @@ impl Running {
         let factory = onlyalpha_data_source_binance::spot_source::SpotFactory::installed()
             .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?;
         let resolver = Resolver::new(
-            vec![Installed::from_executable(Arc::new(factory), &bytes)?],
+            vec![
+                Installed::from_executable(Arc::new(factory), &bytes)?,
+                Installed::from_executable(
+                    Arc::new(
+                        onlyalpha_data_source_tushare::source::DailyFactory::installed()
+                            .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
+                    ),
+                    &bytes,
+                )?,
+            ],
             Trust::explicit_roots(vec![trust.to_vec()])
                 .map_err(|_| Failure::unavailable("SOURCE_TRUST_INVALID"))?,
             Arc::new(WallClock),

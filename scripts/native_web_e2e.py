@@ -313,7 +313,7 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
 
 @contextmanager
 def controlled_source_https(
-    output: Path, *, backtest: bool = False, chart_sma: bool = False
+    output: Path, *, backtest: bool = False, chart_sma: bool = False, tushare_daily: bool = False
 ) -> Iterator[tuple[Path, dict[str, Any]]]:
     """Controlled external Binance input; never a Product/Authority substitute.
 
@@ -330,6 +330,11 @@ def controlled_source_https(
         "127.0.0.1", 443, type=socket.SOCK_STREAM
     ):
         raise RuntimeError("CONTROLLED_SOURCE_STREAM_MAPPING_REQUIRED")
+    tushare_host = "api.tushare.pro"
+    if tushare_daily and socket.getaddrinfo(tushare_host, 443, type=socket.SOCK_STREAM) != socket.getaddrinfo(
+        "127.0.0.1", 443, type=socket.SOCK_STREAM
+    ):
+        raise RuntimeError("CONTROLLED_TUSHARE_MAPPING_REQUIRED")
     fixture: dict[str, Any] = {}
     violations: list[str] = []
     guard = threading.Lock()
@@ -341,6 +346,12 @@ def controlled_source_https(
     chart_anchor = now_ms // stride_ms * stride_ms
     chart_first = chart_anchor - 2400 * stride_ms
     chart_end = chart_anchor + 2 * stride_ms
+    # 日线场景从普通首页选择来源。初次打开、刷新、重启可能跨原 Chart 的两个 15m 边界。
+    day_home_windows = (
+        [(upper - 1000 * stride_ms, upper) for upper in range(chart_anchor, chart_end + 1, stride_ms)]
+        if tushare_daily
+        else []
+    )
     # Explicit synthetic external facts for the approved 20 + 720 minute window.
     # No prepared Dataset, Strategy, Generation or Run is installed by this input.
     minute_first, minute_end = 1735861200000, 1735905600000
@@ -385,6 +396,7 @@ def controlled_source_https(
             "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
             "extendedKeyUsage=serverAuth\nsubjectAltName=DNS:data-api.binance.vision"
             + (",DNS:data-stream.binance.vision" if chart_sma else "")
+            + (",DNS:api.tushare.pro" if tushare_daily else "")
             + "\n"
         )
         commands = (
@@ -453,7 +465,11 @@ def controlled_source_https(
         tls.load_cert_chain(leaf, leaf_key)
 
         def accept_sni(connection: ssl.SSLSocket | ssl.SSLObject, name: str | None, _context: Any) -> None:
-            if name != hostname and not (chart_sma and name == stream_host):
+            if (
+                name != hostname
+                and not (chart_sma and name == stream_host)
+                and not (tushare_daily and name == tushare_host)
+            ):
                 record({"kind": "rejected_sni", "sni": name}, "CONTROLLED_SOURCE_UNEXPECTED_SNI")
                 raise ssl.SSLError("CONTROLLED_SOURCE_UNEXPECTED_SNI")
             connection.onlyalpha_sni = name  # type: ignore[union-attr]
@@ -543,6 +559,46 @@ def controlled_source_https(
                 self.close_connection = True
                 self.connection.settimeout(150)
                 self.rfile.read(2)
+
+            def do_POST(self) -> None:
+                if not tushare_daily:
+                    self.send_error(501)
+                    return
+                from packages.backend.tests.transport.tushare_daily_product import external_response
+
+                sni = getattr(self.connection, "onlyalpha_sni", None)
+                try:
+                    if (
+                        not tushare_daily
+                        or sni != tushare_host
+                        or self.headers.get_all("Host") != [tushare_host]
+                        or self.path != "/"
+                        or self.headers.get_all("Content-Type") != ["application/json"]
+                        or self.headers.get_all("Transfer-Encoding") is not None
+                    ):
+                        raise ValueError("unexpected target")
+                    lengths = self.headers.get_all("Content-Length") or []
+                    if (
+                        len(lengths) != 1
+                        or not lengths[0].isascii()
+                        or not lengths[0].isdigit()
+                        or not 0 < int(lengths[0]) <= 4096
+                    ):
+                        raise ValueError("unexpected size")
+                    api, response = external_response(json.loads(self.rfile.read(int(lengths[0]))))
+                    raw = json.dumps(response, ensure_ascii=False).encode()
+                    record({"kind": "tushare", "api": api, "response_sha256": hashlib.sha256(raw).hexdigest()})
+                    status = 200
+                except (ValueError, TypeError, KeyError):
+                    record({"kind": "tushare_rejected"}, "CONTROLLED_TUSHARE_REQUEST_REJECTED")
+                    raw = b'{"code":-1}'
+                    status = 400
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(raw)
 
             def do_GET(self) -> None:
                 request = urlsplit(self.path)
@@ -687,6 +743,8 @@ def controlled_source_https(
                                     )
                             elif first_ms <= lower < upper <= exclusive_end_ms:
                                 response = [row for row in fixture["klines"] if lower <= row[0] < upper][:1000]
+                            elif (lower, upper) in day_home_windows:
+                                response = []
                             elif (
                                 backtest
                                 and 1735689600000 <= lower < upper <= 1798761600000
@@ -762,6 +820,7 @@ def controlled_source_https(
                 "backtest_minute_scope": [minute_first, minute_end] if backtest else None,
                 "sma_chart_scope": [chart_first, chart_end] if chart_sma else None,
                 "empty_chart_scope": [1735689600000, 1798761600000, 1000] if backtest else None,
+                **({"tushare_home_chart_windows": day_home_windows} if tushare_daily else {}),
             }
         )
         thread = threading.Thread(target=server.serve_forever, name="controlled-source-https")
@@ -834,6 +893,7 @@ def main() -> int:
         help="Declare synthetic one-minute Backtest input and absent recent chart history",
     )
     parser.add_argument("--chart-sma-market-input", action="store_true")
+    parser.add_argument("--tushare-daily-market-input", action="store_true")
     parser.add_argument("--contract-fuzz", action="store_true", help="Fuzz all declared Implemented native operations")
     parser.add_argument(
         "--restart-check", action="store_true", help="Repeat selected browser checks after a fully drained Host restart"
@@ -843,6 +903,13 @@ def main() -> int:
     parser.add_argument("--grep", help="Select the affected ordinary Shipping UI tests only")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    if args.tushare_daily_market_input and (
+        args.chart_sma_market_input
+        or args.backtest_market_input
+        or not args.controlled_source_https
+        or not args.retained_market_input
+    ):
+        raise ValueError("TUSHARE_DAY_REQUIRES_DEDICATED_CONTROLLED_SOURCE")
     if args.chart_sma_market_input and (
         args.backtest_market_input or not args.controlled_source_https or not args.retained_market_input
     ):
@@ -859,7 +926,12 @@ def main() -> int:
     output = ROOT / "test-results/native-web-e2e" / operation
     output.mkdir(parents=True)
     external: AbstractContextManager[tuple[Path, dict[str, Any]]] = (
-        controlled_source_https(output, backtest=args.backtest_market_input, chart_sma=args.chart_sma_market_input)
+        controlled_source_https(
+            output,
+            backtest=args.backtest_market_input,
+            chart_sma=args.chart_sma_market_input,
+            tushare_daily=args.tushare_daily_market_input,
+        )
         if args.controlled_source_https
         else nullcontext((Path("/etc/ssl/certs/ca-certificates.crt"), {}))
     )
@@ -1038,6 +1110,11 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                 (phase_output / "wal-recovery-locations.json").write_text(json.dumps(wal_locations) + "\n")
                 result = 0
                 results = {}
+                if args.tushare_daily_market_input:
+                    from packages.backend.tests.transport.tushare_daily_product import run_product
+
+                    run_product(phase, output, dsn)
+                    results["tushare_daily_api"] = 0
                 if not args.contract_fuzz or args.tests:
                     browser = subprocess.run(
                         [
@@ -1055,6 +1132,7 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                             **os.environ,
                             "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
                             "ONLYALPHA_BROWSER_RESTART_PHASE": phase,
+                            "ONLYALPHA_BROWSER_TUSHARE_DAILY_INPUT": "1" if args.tushare_daily_market_input else "0",
                             "ONLYALPHA_BROWSER_CHART_SMA_INPUT": "1" if args.chart_sma_market_input else "0",
                             "ONLYALPHA_BROWSER_CONTROLLED_SOURCE_HTTPS": "1" if args.controlled_source_https else "0",
                             "ONLYALPHA_BROWSER_HOST_PID": str(child.pid),
@@ -1121,6 +1199,12 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
     clickhouse_namespace(executable, database, initialize=True)
     try:
         result = run_host("initial")
+        if result == 0 and args.tushare_daily_market_input and args.restart_check:
+            from packages.backend.tests.transport.tushare_daily_product import check_stopped_preparation
+
+            target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
+            probe = ROOT / "test-results/rust-kernel/target" / target / "release/examples/command-postgres-probe"
+            check_stopped_preparation(output, dsn, probe, env)
         lifecycle = output / "factor-restart-input.json.backtest-functional-running-recovery"
         paused = None
         if result == 0 and lifecycle.exists():

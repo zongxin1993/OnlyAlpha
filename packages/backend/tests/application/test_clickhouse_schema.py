@@ -33,6 +33,10 @@ def _query(database: str, statement: str) -> list[dict[str, object]]:
 def test_fresh_rust_schema_has_exact_history_and_never_adopts_an_existing_database() -> None:
     backend = native_executable(release=False)
     database = "onlyalpha_test_schema_" + uuid.uuid4().hex
+    count_database = f"SELECT count() AS n FROM system.databases WHERE name='{database}'"
+    assert _query("default", count_database) == [{"n": 0}]
+    clickhouse_namespace(backend, database, initialize=False)
+    assert _query("default", count_database) == [{"n": 0}]
     clickhouse_namespace(backend, database, initialize=True)
     try:
         expected = [
@@ -59,7 +63,9 @@ def test_fresh_rust_schema_has_exact_history_and_never_adopts_an_existing_databa
         assert _query(database, statement) == expected
     finally:
         clickhouse_namespace(backend, database, initialize=False)
-    assert _query("default", f"SELECT count() AS n FROM system.databases WHERE name='{database}'") == [{"n": 0}]
+    assert _query("default", count_database) == [{"n": 0}]
+    clickhouse_namespace(backend, database, initialize=False)
+    assert _query("default", count_database) == [{"n": 0}]
 
 
 def test_rust_schema_invalid_policy_cannot_leave_a_database(monkeypatch: pytest.MonkeyPatch) -> None:

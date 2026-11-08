@@ -74,8 +74,11 @@ impl Application {
             )
             .map_err(|_| Error::Invalid)?;
             Some(
-                OnlyTimeBarExecutor::new(edge, Arc::new(r.resource.calendar().clone()))
-                    .map_err(|_| Error::Invalid)?,
+                OnlyTimeBarExecutor::new(
+                    edge,
+                    Arc::new(r.resource.calendar().ok_or(Error::Selection)?.clone()),
+                )
+                .map_err(|_| Error::Invalid)?,
             )
         };
         let minutes = input

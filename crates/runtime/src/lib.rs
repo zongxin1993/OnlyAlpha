@@ -1,5 +1,9 @@
 //! Durable Execution storage and bounded recovery orchestration, outside Trading Kernel.
+mod broker_source_store;
 mod codec;
+mod perpetual_sources;
+pub use broker_source_store::BoundBrokerJournal;
+pub use perpetual_sources::BrokerJournal;
 mod dictionary_codec;
 mod references;
 mod replay;
@@ -7,12 +11,12 @@ pub use references::{ReplayCompletion, ReplayEntryRef};
 mod readonly;
 pub use readonly::VerifiedReplaySnapshot;
 mod store;
-use onlyalpha_execution::{
-    BacktestResult, Components, Error, Record, Store, coordinate, pending_events,
-};
+mod transcript;
+use onlyalpha_execution::{Components, Error, Record, coordinate};
 use serde_json::Value;
 use std::path::Path;
-pub use store::SqliteStore;
+pub use store::{RunFundingPlan, RunPlan, SqliteStore};
+pub use transcript::RunBacktestResult;
 
 /// Exclusive native Execution session. This is not Product Runtime admission or LIVE authority.
 pub struct Runtime {
@@ -53,27 +57,80 @@ impl Runtime {
     /// Errors retain the original identity and block outward reads until explicit recovery.
     pub fn apply(&mut self, input: &Value) -> Result<(), Error> {
         self.require_healthy()?;
-        let prepared = self.store.with_ready_source(&self.components, |source| {
+        enum Application {
+            AlreadyApplied,
+            Run(RunPlan),
+            Ordinary(onlyalpha_execution::Prepared),
+        }
+        let plan = self.store.with_ready_source(&self.components, |source| {
             if let Some(existing) = source
                 .records()
                 .iter()
-                .find(|record| record.prepared().input()["input_id"] == input["input_id"])
+                .find(|r| r.prepared().input()["input_id"] == input["input_id"])
             {
                 if existing.prepared().input() != input {
                     return Err(Error("RUNTIME_STORE_IDENTITY_CONFLICT".into()));
                 }
-                return Ok(None);
+                self.store.verify_perpetual_inputs(source.records())?;
+                return Ok(Application::AlreadyApplied);
             }
-            self.components.prepare(source, input).map(Some)
+            if self.store.requires_run_plan(source, input) {
+                return self
+                    .store
+                    .plan_from_prefix(&self.components, source, input)
+                    .map(Application::Run);
+            }
+            self.store
+                .prepare_input(&self.components, source, input)
+                .map(Application::Ordinary)
         });
         self.healthy = false;
-        if let Some(prepared) = prepared? {
-            // The original coordinator reopens the actual writer source and
-            // proves commit/projection/Ready readback; the view is gone.
-            coordinate(&mut self.store, &mut self.components, &prepared)?;
+        match plan? {
+            Application::AlreadyApplied => {}
+            Application::Ordinary(p) => coordinate(&mut self.store, &mut self.components, &p)?,
+            Application::Run(plan) => {
+                self.store.commit_run_plan(&plan)?;
+                self.components = self.store.recover_components()?;
+            }
         }
         self.healthy = true;
         Ok(())
+    }
+    /// 在现金或尚无 Funding 的普通前缀上准备事务。Funding 及其后续输入使用 prepare_run_plan。
+    pub fn prepare(&self, input: &Value) -> Result<onlyalpha_execution::Prepared, Error> {
+        self.require_healthy()?;
+        self.store.with_ready_source(&self.components, |source| {
+            if self.store.requires_run_plan(source, input) {
+                return Err(Error("RUNTIME_RUN_PLAN_REQUIRED".into()));
+            }
+            self.store.prepare_input(&self.components, source, input)
+        })
+    }
+    /// 从实际源和本 Run 的 Ready 前缀准备 Funding 或 Funding 后的普通事务。
+    pub fn prepare_run_plan(&self, input: &Value) -> Result<RunPlan, Error> {
+        self.require_healthy()?;
+        self.store.with_ready_source(&self.components, |source| {
+            self.store.plan_from_prefix(&self.components, source, input)
+        })
+    }
+    /// 用签发计划的同一个持锁 Store 提交并按原件恢复。
+    pub fn apply_run_plan(&mut self, plan: &RunPlan) -> Result<(), Error> {
+        self.ready()?;
+        self.healthy = false;
+        self.store.commit_run_plan(plan)?;
+        self.recover()
+    }
+    pub fn prepare_original_funding(&self, input: &Value) -> Result<RunFundingPlan, Error> {
+        if self.components.configuration()["schema_version"] != 3 || input["op"] != "FUNDING" {
+            return Err(Error("RUNTIME_STORE_FUNDING_INPUT".into()));
+        }
+        self.prepare_run_plan(input)
+    }
+    pub fn apply_original_funding(&mut self, plan: &RunFundingPlan) -> Result<(), Error> {
+        if plan.value()["input"]["op"] != "FUNDING" {
+            return Err(Error("RUNTIME_STORE_FUNDING_INPUT".into()));
+        }
+        self.apply_run_plan(plan)
     }
     /// Commit an original canonical plan through the actual owning source.
     /// This technical port grants no Product work or planner origin to decoded data.
@@ -82,10 +139,27 @@ impl Runtime {
         prepared: &onlyalpha_execution::Prepared,
     ) -> Result<(), Error> {
         self.require_healthy()?;
-        let source = self.store.with_ready_source(&self.components, |_| Ok(()));
+        let existing = self.store.with_ready_source(&self.components, |source| {
+            if self.components.configuration()["schema_version"] != 3
+                || !source.has_funding()
+                || prepared.input()["op"] == "FUNDING"
+            {
+                return Ok(false);
+            }
+            let row = source
+                .records()
+                .iter()
+                .find(|row| row.prepared().sequence() == prepared.sequence())
+                .ok_or_else(|| Error("RUNTIME_RUN_PLAN_REQUIRED".into()))?;
+            if !row.ready() || row.prepared() != prepared {
+                return Err(Error("RUNTIME_STORE_IDENTITY_CONFLICT".into()));
+            }
+            Ok(true)
+        });
         self.healthy = false;
-        source?;
-        coordinate(&mut self.store, &mut self.components, prepared)?;
+        if !existing? {
+            coordinate(&mut self.store, &mut self.components, prepared)?;
+        }
         self.healthy = true;
         Ok(())
     }
@@ -112,7 +186,7 @@ impl Runtime {
     pub fn state(&self) -> Result<Value, Error> {
         self.require_healthy()?;
         self.store
-            .with_ready_source(&self.components, |source| self.components.state(source))
+            .with_ready_source(&self.components, |source| source.state(&self.components))
     }
     pub fn records(&self) -> Result<Vec<Record>, Error> {
         self.require_healthy()?;
@@ -122,13 +196,13 @@ impl Runtime {
     pub fn pending_events(&self) -> Result<Vec<Value>, Error> {
         self.require_healthy()?;
         self.store.with_ready_source(&self.components, |source| {
-            pending_events(source, &self.components)
+            source.pending_events(&self.components)
         })
     }
     pub fn acknowledge(&mut self, sequence: u64) -> Result<(), Error> {
         self.ready()?;
         self.healthy = false;
-        self.store.acknowledge(sequence)?;
+        self.store.acknowledge_original(sequence)?;
         self.healthy = true;
         Ok(())
     }
@@ -179,13 +253,12 @@ impl Runtime {
         &self,
         manifest: &Value,
         outcome: &Value,
-    ) -> Result<BacktestResult, Error> {
+    ) -> Result<RunBacktestResult, Error> {
         self.require_healthy()?;
         if manifest["kernel_artifact"] != self.store.identity()["kernel_artifact"] {
             return Err(Error("RUNTIME_RESULT_ARTIFACT_CONFLICT".into()));
         }
-        self.store.with_ready_source(&self.components, |source| {
-            self.components.backtest_result(source, manifest, outcome)
-        })
+        self.store
+            .backtest_result_at_ready(&self.components, manifest, outcome)
     }
 }

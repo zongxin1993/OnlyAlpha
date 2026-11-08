@@ -64,6 +64,7 @@ impl From<spot_rest::Error> for SourceError {
         match e {
             spot_rest::Error::Deadline => Self::Timeout,
             spot_rest::Error::Evidence => Self::Evidence,
+            spot_rest::Error::Unsupported => Self::Unsupported,
             spot_rest::Error::Configuration | spot_rest::Error::Range => Self::Invalid,
             _ => Self::Unavailable,
         }
@@ -337,8 +338,11 @@ impl Resource for Spot {
     fn identity(&self) -> &MarketIdentity {
         &self.identity
     }
-    fn calendar(&self) -> &OnlyTradingCalendar {
-        &self.calendar
+    fn normalizer_id(&self) -> &str {
+        "binance.spot.native"
+    }
+    fn calendar(&self) -> Option<&OnlyTradingCalendar> {
+        Some(&self.calendar)
     }
     fn capabilities(&self) -> &[OnlyConstructionCapability] {
         &self.capabilities
@@ -411,7 +415,7 @@ impl Resource for Spot {
                             .clock
                             .now_ns()
                             .map_err(|_| spot_rest::Error::Evidence)?;
-                        let parsed = (|| {
+                        let mut parsed = (|| {
                             if context.source_id() != self.identity.source_id
                                 || context.parameter("symbol") != Some(symbol)
                                 || context.parameter("interval")
@@ -465,6 +469,11 @@ impl Resource for Spot {
                                 })
                                 .collect::<spot_rest::Result<Vec<_>>>()
                         })();
+                        if let Ok(bars) = &mut parsed {
+                            bars.retain(|bar| {
+                                bar.bar_end().timestamp().total_nanoseconds() <= i128::from(receive)
+                            });
+                        }
                         recorder
                             .record(self.observation(
                                 "rest",
@@ -745,16 +754,229 @@ impl Resource for Spot {
                     Ok::<(), SourceError>(())
                 }
                 .await;
-                checks.push(json!({"check":check,"status":if result.is_ok(){"READY"}else{"UNAVAILABLE"},"started_at_ns":at,"completed_at_ns":self.clock.now_ns()?,"detail":result.err().map(SourceError::code)}));
+                let completed = self.clock.now_ns()?;
+                let mut record = json!({"check":check,"status":if result.is_ok(){"READY"}else{"UNAVAILABLE"},"started_at_ns":at,"completed_at_ns":completed,"detail":result.err().map(SourceError::code)});
+                if result.is_ok() && Instant::now() >= end {
+                    record["status"] = json!("UNAVAILABLE");
+                    record["detail"] = json!(SourceError::Timeout.code());
+                }
+                checks.push(record);
             }
             let ready = checks.iter().all(|c| c["status"] == "READY");
-            Ok(
-                json!({"schema_version":1,"status":if ready{"READY"}else{"UNAVAILABLE"},"started_at_ns":started,"completed_at_ns":self.clock.now_ns()?,"checks":checks}),
-            )
+            let report = json!({"schema_version":1,"status":if ready{"READY"}else{"UNAVAILABLE"},"started_at_ns":started,"completed_at_ns":self.clock.now_ns()?,"checks":checks});
+            if ready && Instant::now() >= total {
+                return Err(SourceError::Timeout);
+            }
+            Ok(report)
         })
     }
 }
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+/// 非 Bar 库协议接口。正式 Source::Stream 尚不消费这些事实，不授予产品 READY。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpotFact {
+    Trade(onlyalpha_domain::market::OnlyTradeTick),
+    Reference(onlyalpha_domain::market::OnlyMarketReferenceTick),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpotFactFamily {
+    Trade,
+    Reference,
+}
+/// owning recorder 必须持久化原始 bytes 与规范化 fact 后才返回成功。
+/// 无法解释的输入仍以 fact=None 保存；不从失败结果推断事实不存在。
+pub struct SpotFactObservation {
+    pub identity: MarketIdentity,
+    pub stream: String,
+    pub bytes: Vec<u8>,
+    pub receive_ns: i64,
+    pub fact: Option<SpotFact>,
+}
+pub struct SpotFactClient {
+    source: Arc<Spot>,
+}
+impl SpotFactClient {
+    pub fn from_configuration(
+        configuration: &RawValue,
+        trust: &Trust,
+        clock: Arc<dyn Clock>,
+    ) -> Result<Self, SourceError> {
+        Ok(Self {
+            source: Arc::new(Spot::new(configuration, trust, clock)?),
+        })
+    }
+    /// 真实的、受预算的握手。返回只证明 transport，不证明 baseline 或连续性。
+    pub async fn connect(
+        &self,
+        instrument: OnlyInstrument,
+        family: SpotFactFamily,
+        deadline: Budget,
+    ) -> Result<SpotFactConnection, SourceError> {
+        let f = instrument.specification();
+        if f.venue().value() != "BINANCE"
+            || f.instrument_type().as_str() != "CRYPTO_SPOT"
+            || f.market_type().as_str() != "CASH"
+        {
+            return Err(SourceError::Invalid);
+        }
+        let suffix = match family {
+            SpotFactFamily::Trade => "trade",
+            SpotFactFamily::Reference => "referencePrice",
+        };
+        let stream = format!("{}@{suffix}", f.raw_symbol().value().to_lowercase());
+        let socket = self.source.connect(&stream, end(deadline)).await?;
+        Ok(SpotFactConnection {
+            source: Arc::clone(&self.source),
+            instrument,
+            family,
+            stream,
+            socket: Some(socket),
+            stopped: false,
+        })
+    }
+}
+/// 可取消的单连接事实读取。断线返回 Gap；调用者显式重连后须使用真实历史
+/// 与 TradeContinuity 重建连续性。此接口不会把新socket当作自动恢复成功。
+pub struct SpotFactConnection {
+    source: Arc<Spot>,
+    instrument: OnlyInstrument,
+    family: SpotFactFamily,
+    stream: String,
+    socket: Option<Socket>,
+    stopped: bool,
+}
+impl SpotFactConnection {
+    fn receive_time(&mut self) -> Result<i64, SourceError> {
+        match self.source.clock.now_ns() {
+            Ok(time) => Ok(time),
+            Err(error) => {
+                self.stopped = true;
+                self.socket = None;
+                Err(error)
+            }
+        }
+    }
+
+    fn frame(
+        &mut self,
+        bytes: Vec<u8>,
+        record: &mut dyn FnMut(SpotFactObservation) -> Result<(), SourceError>,
+    ) -> Result<SpotFact, SourceError> {
+        let receive_ns = self.receive_time()?;
+        let parsed = spot_rest::decode_json(&bytes)
+            .map_err(SourceError::from)
+            .and_then(|raw| {
+                match self.family {
+                    SpotFactFamily::Trade => {
+                        crate::spot_facts::websocket_trade(&raw, &self.instrument)
+                            .map(SpotFact::Trade)
+                    }
+                    SpotFactFamily::Reference => {
+                        crate::spot_facts::reference_price(&raw, &self.instrument)
+                            .map(SpotFact::Reference)
+                    }
+                }
+                .map_err(SourceError::from)
+            });
+        if record(SpotFactObservation {
+            identity: self.source.identity.clone(),
+            stream: self.stream.clone(),
+            bytes,
+            receive_ns,
+            fact: parsed.as_ref().ok().cloned(),
+        })
+        .is_err()
+        {
+            self.stopped = true;
+            self.socket = None;
+            return Err(SourceError::Evidence);
+        }
+        if parsed.is_err() {
+            self.stopped = true;
+            self.socket = None;
+        }
+        parsed
+    }
+    /// 一次 deadline 覆盖全部控制帧和数据读取。超时/断线均失去连续性；
+    /// 记录失败永久停止当前连接。取消future不重新设定传入的绝对deadline。
+    pub async fn next(
+        &mut self,
+        deadline: Instant,
+        record: &mut dyn FnMut(SpotFactObservation) -> Result<(), SourceError>,
+    ) -> Result<SpotFact, SourceError> {
+        if self.stopped {
+            return Err(SourceError::Stopped);
+        }
+        loop {
+            let message = tokio::time::timeout_at(
+                deadline.into(),
+                self.socket.as_mut().ok_or(SourceError::Stopped)?.next(),
+            )
+            .await;
+            match message {
+                Ok(Some(Ok(Message::Text(text)))) => {
+                    return self.frame(text.as_bytes().to_vec(), record);
+                }
+                Ok(Some(Ok(Message::Binary(bytes)))) => {
+                    let receive_ns = self.receive_time()?;
+                    let recorded = record(SpotFactObservation {
+                        identity: self.source.identity.clone(),
+                        stream: self.stream.clone(),
+                        bytes: bytes.to_vec(),
+                        receive_ns,
+                        fact: None,
+                    });
+                    self.stopped = true;
+                    self.socket = None;
+                    return Err(if recorded.is_err() {
+                        SourceError::Evidence
+                    } else {
+                        SourceError::Invalid
+                    });
+                }
+                Ok(Some(Ok(Message::Ping(payload)))) => {
+                    if !matches!(
+                        tokio::time::timeout_at(
+                            deadline.into(),
+                            self.socket
+                                .as_mut()
+                                .ok_or(SourceError::Stopped)?
+                                .send(Message::Pong(payload))
+                        )
+                        .await,
+                        Ok(Ok(()))
+                    ) {
+                        self.stopped = true;
+                        self.socket = None;
+                        return Err(SourceError::Gap);
+                    }
+                }
+                Ok(Some(Ok(Message::Pong(_)))) => {}
+                Err(_) => {
+                    self.stopped = true;
+                    self.socket = None;
+                    return Err(SourceError::Timeout);
+                }
+                _ => {
+                    self.stopped = true;
+                    self.socket = None;
+                    return Err(SourceError::Gap);
+                }
+            }
+        }
+    }
+    pub async fn close(&mut self, deadline: Instant) -> Result<(), SourceError> {
+        self.stopped = true;
+        if let Some(mut socket) = self.socket.take() {
+            tokio::time::timeout_at(deadline.into(), socket.close(None))
+                .await
+                .map_err(|_| SourceError::Timeout)?
+                .map_err(|_| SourceError::Unavailable)?;
+        }
+        Ok(())
+    }
+}
+
 struct Bars {
     source: Spot,
     request: HistoryRequest,
@@ -1163,7 +1385,7 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
             .build()
             .unwrap()
     }
-    fn source(base: &str) -> Spot {
+    pub(super) fn source(base: &str) -> Spot {
         let mut s = Spot::new(
             RawValue::from_string("{}".into()).unwrap().as_ref(),
             &Trust::explicit_roots(vec![CERT.to_vec()]).unwrap(),
@@ -1176,7 +1398,159 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
     fn instrument() -> OnlyInstrument {
         spot_normalize::instrument(&json!({"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.01"},{"filterType":"LOT_SIZE","stepSize":"0.00001","minQty":"0.00001"}]})).unwrap()
     }
-    fn http(bodies: Vec<String>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    #[test]
+    fn configured_profiles_bind_exact_rest_websocket_and_weekend_calendar() {
+        for (env, profile, rest, ws, source_id) in [
+            (
+                "GLOBAL",
+                "PUBLIC_MARKET_DATA",
+                "https://data-api.binance.vision",
+                "wss://data-stream.binance.vision",
+                "binance.spot.market_data.live",
+            ),
+            (
+                "GLOBAL",
+                "STANDARD",
+                "https://api.binance.com",
+                "wss://stream.binance.com:9443",
+                "binance.spot.market_data.live",
+            ),
+            (
+                "GLOBAL",
+                "GCP",
+                "https://api-gcp.binance.com",
+                "wss://stream.binance.com:9443",
+                "binance.spot.market_data.live",
+            ),
+            (
+                "GLOBAL",
+                "API1",
+                "https://api1.binance.com",
+                "wss://stream.binance.com:9443",
+                "binance.spot.market_data.live",
+            ),
+            (
+                "GLOBAL",
+                "API2",
+                "https://api2.binance.com",
+                "wss://stream.binance.com:9443",
+                "binance.spot.market_data.live",
+            ),
+            (
+                "GLOBAL",
+                "API3",
+                "https://api3.binance.com",
+                "wss://stream.binance.com:9443",
+                "binance.spot.market_data.live",
+            ),
+            (
+                "GLOBAL",
+                "API4",
+                "https://api4.binance.com",
+                "wss://stream.binance.com:9443",
+                "binance.spot.market_data.live",
+            ),
+            (
+                "US",
+                "DEFAULT",
+                "https://api.binance.us",
+                "wss://stream.binance.us:9443",
+                "binance.spot.market_data.us",
+            ),
+            (
+                "SPOT_TESTNET",
+                "DEFAULT",
+                "https://testnet.binance.vision",
+                "wss://stream.testnet.binance.vision",
+                "binance.spot.market_data.spot_testnet",
+            ),
+            (
+                "SPOT_TESTNET",
+                "GCP",
+                "https://api1.testnet.binance.vision",
+                "wss://stream.testnet.binance.vision",
+                "binance.spot.market_data.spot_testnet",
+            ),
+        ] {
+            let raw = RawValue::from_string(
+                json!({"environment":env,"endpoint_profile":profile}).to_string(),
+            )
+            .unwrap();
+            let s = Spot::new(&raw, &test_support::trust(), Arc::new(FixedClock)).unwrap();
+            assert_eq!(s.rest.rest_base(), rest);
+            assert_eq!(s.ws_base, ws);
+            assert_eq!(s.identity().environment, env);
+            assert_eq!(s.identity().source_id, source_id);
+            assert_eq!(s.rest.source_id(), source_id);
+            let calendar = s.calendar().unwrap();
+            let saturday =
+                onlyalpha_domain::time::OnlyTradingDay::new("2026-01-03".parse().unwrap()).unwrap();
+            assert_eq!(calendar.timezone().name(), "UTC");
+            assert_eq!(
+                calendar
+                    .session_intervals_for_trading_day(saturday)
+                    .unwrap(),
+                [(
+                    "2026-01-03T00:00:00Z".parse().unwrap(),
+                    "2026-01-04T00:00:00Z".parse().unwrap()
+                )]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn resource_queries_exact_symbols_preserve_instrument_and_rolling_ticker_fields() {
+        let symbol = |base, quote, status| {
+            json!({"symbol":format!("{base}{quote}"),"baseAsset":base,"quoteAsset":quote,"status":status,"filters":[
+            {"filterType":"PRICE_FILTER","tickSize":"0.01000000"},{"filterType":"LOT_SIZE","stepSize":"0.00001000","minQty":"0.00001000"}]})
+        };
+        let (base,server)=http(vec![
+            json!({"symbols":[symbol("BTC","USDT","TRADING"),symbol("ETH","USDT","HALT")]}).to_string(),
+            json!({"symbols":[symbol("A","B","BREAK")]}).to_string(),
+            json!([{"symbol":"BTCUSDT","lastPrice":"83547.33000000","priceChangePercent":"-0.614","closeTime":1800000000123_i64}]).to_string(),
+        ]);
+        let s = source(&base);
+        let budget = Budget::from_millis(5000).unwrap();
+        let instruments = s
+            .instruments(&["BTCUSDT".into(), "ETHUSDT".into()], budget)
+            .await
+            .unwrap();
+        assert_eq!(instruments.len(), 2);
+        let btc = instruments[0].to_record();
+        assert_eq!(
+            instruments[0].specification().instrument_id().to_string(),
+            "BTCUSDT.BINANCE"
+        );
+        assert_eq!(btc["tick_size"]["value"], "0.01");
+        assert_eq!(btc["step_size"]["value"], "0.00001");
+        assert_eq!(btc["price_precision"], 2);
+        assert_eq!(btc["quantity_precision"], 5);
+        assert_eq!(btc["status"], "ACTIVE");
+        let eth = instruments[1].to_record();
+        assert_eq!(eth["base_currency"]["code"], "ETH");
+        assert_eq!(eth["status"], "HALTED");
+        let one = s.instruments(&["AB".into()], budget).await.unwrap();
+        assert_eq!(one.len(), 1);
+        let short = one[0].to_record();
+        assert_eq!(short["base_currency"]["code"], "A");
+        assert_eq!(short["quote_currency"]["code"], "B");
+        assert_eq!(short["status"], "HALTED");
+        let quotes = s.quotes(&["BTCUSDT".into()], budget).await.unwrap();
+        assert_eq!(quotes.len(), 1);
+        let quote = &quotes[0];
+        assert_eq!(quote.instrument_id, "BTCUSDT.BINANCE");
+        assert_eq!(quote.last_price, "83547.33000000");
+        assert_eq!(quote.change_pct, "-0.614");
+        assert_eq!(quote.event_ns, 1800000000123000000);
+        let requests = server.join().unwrap();
+        assert!(
+            requests[0].starts_with("GET /api/v3/exchangeInfo?")
+                && requests[0].contains("symbols=%5B%22BTCUSDT%22%2C%22ETHUSDT%22%5D")
+        );
+        assert!(requests[1].contains("symbols=%5B%22AB%22%5D"));
+        assert!(requests[2].starts_with("GET /api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22%5D "));
+    }
+    pub(super) fn http(bodies: Vec<String>) -> (String, std::thread::JoinHandle<Vec<String>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let task = std::thread::spawn(move || {
@@ -1282,7 +1656,7 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
             end_ms: start + i64::from(minutes) * 60000 * count,
         }
     }
-    fn row(start: i64, minutes: u16) -> Value {
+    pub(super) fn row(start: i64, minutes: u16) -> Value {
         json!([
             start,
             "10",
@@ -1297,6 +1671,44 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
             "0",
             "0"
         ])
+    }
+    #[test]
+    fn original_history_page_keeps_open_tail_raw_and_only_records_closed_bars() {
+        runtime().block_on(async {
+            let raw = json!([row(0, 1), row(60_000, 1), row(120_000, 1)]).to_string();
+            for (receive_ms, expected) in [(180_000, 3), (179_000, 2)] {
+                let (url, server) = http(vec![raw.clone()]);
+                let mut s = source(&url);
+                s.clock = Arc::new(MovingClock(std::sync::atomic::AtomicI64::new(
+                    receive_ms * 1_000_000,
+                )));
+                let mut captures = Captures::default();
+                let bars = s
+                    .history(
+                        &request(1, 0, 3),
+                        Budget::from_millis(5000).unwrap(),
+                        &mut captures,
+                    )
+                    .await
+                    .unwrap();
+                let requests = server.join().unwrap();
+                assert_eq!(requests.len(), 1);
+                assert!(
+                    requests[0].contains("startTime=0") && requests[0].contains("endTime=179999")
+                );
+                assert_eq!(captures.observations.len(), 1);
+                let observation = &captures.observations[0];
+                assert_eq!(observation.bytes, raw.as_bytes());
+                assert_eq!(observation.receive_ns, receive_ms * 1_000_000);
+                assert_eq!(observation.bars, bars);
+                assert_eq!(bars.len(), expected, "receive_ms={receive_ms}");
+                for (i, bar) in bars.iter().enumerate() {
+                    assert_eq!(ns(*bar.bar_start()).unwrap(), i as i64 * 60_000_000_000);
+                    assert_eq!(ns(*bar.bar_end()).unwrap(), (i as i64 + 1) * 60_000_000_000);
+                    assert!(ns(*bar.bar_end()).unwrap() <= observation.receive_ns);
+                }
+            }
+        });
     }
     #[test]
     fn temporary_history_uses_the_exact_provider_response_without_a_durable_recorder() {
@@ -1495,6 +1907,128 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
     }
     fn kline(start: i64, minutes: u16, closed: bool) -> Message {
         Message::Text(json!({"e":"kline","E":start+i64::from(minutes)*60000,"s":"BTCUSDT","k":{"s":"BTCUSDT","i":spot_rest::native_interval(minutes).unwrap().0,"t":start,"T":start+i64::from(minutes)*60000-1,"o":"10","h":"11","l":"9","c":"10.5","v":"1.23","q":"12.915","n":3,"V":"0","Q":"0","x":closed}}).to_string().into())
+    }
+    #[test]
+    fn wrong_stream_interval_and_failed_preview_recording_never_deliver_bars() {
+        let s = source("http://127.0.0.1:1");
+        let request = request(15, 0, 1);
+        for (interval, fail, closed, expected) in [
+            (1, false, false, SourceError::Invalid),
+            (1, false, true, SourceError::Invalid),
+            (15, true, false, SourceError::Evidence),
+        ] {
+            let raw = kline(0, interval, closed).into_data().to_vec();
+            let mut recorder = Captures {
+                fail,
+                ..Default::default()
+            };
+            assert_eq!(
+                s.frame(raw.clone(), &request, &mut recorder).err(),
+                Some(expected)
+            );
+            assert_eq!(recorder.observations.len(), 1);
+            assert_eq!(recorder.observations[0].bytes, raw);
+            assert!(recorder.observations[0].bars.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn resumed_bar_gap_recovers_ordered_closed_suffix_or_stops_without_reconnect() {
+        for complete in [true, false] {
+            let ms = 60_000;
+            let mut baseline = vec![row(100 * ms, 1), row(102 * ms, 1)];
+            if complete {
+                baseline.insert(1, row(101 * ms, 1));
+            }
+            let raw = json!(baseline).to_string();
+            let (url, server) = http(vec![raw.clone()]);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut s = source(&url);
+            s.ws_base = format!("ws://{}", listener.local_addr().unwrap());
+            s.resume_limit = 2;
+            let clock = Arc::new(MovingClock(std::sync::atomic::AtomicI64::new(
+                103 * ms * 1_000_000,
+            )));
+            s.clock = clock.clone();
+            let budget = Budget::from_millis(5000).unwrap();
+            assert!(matches!(
+                s.stream(request(1, 0, 1), Some(99), budget).await,
+                Err(SourceError::RefreshRequired)
+            ));
+            assert!(listener.accept().now_or_never().is_none());
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let peer = tokio::spawn(async move {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let mut socket = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                if complete {
+                    receive.await.unwrap();
+                    socket.send(kline(103 * ms, 1, true)).await.unwrap();
+                    assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
+                } else {
+                    assert!(!matches!(socket.next().await, Some(Ok(Message::Text(_)))));
+                }
+                listener
+            });
+            let mut stream = s.stream(request(1, 0, 1), Some(100), budget).await.unwrap();
+            let mut recorder = Captures::default();
+            assert!(matches!(
+                stream.next(&mut recorder).await.unwrap(),
+                StreamEvent::Recovering
+            ));
+            if complete {
+                for seq in [101, 102] {
+                    let StreamEvent::Closed(bar, actual, None) =
+                        stream.next(&mut recorder).await.unwrap()
+                    else {
+                        panic!("缺少恢复的 closed Bar")
+                    };
+                    assert_eq!(actual, seq);
+                    assert_eq!(ns(*bar.bar_start()).unwrap(), seq * ms * 1_000_000);
+                }
+                assert!(matches!(
+                    stream.next(&mut recorder).await.unwrap(),
+                    StreamEvent::Ready
+                ));
+                clock.0.store(
+                    104 * ms * 1_000_000 + 123,
+                    std::sync::atomic::Ordering::SeqCst,
+                );
+                send.send(()).unwrap();
+                let StreamEvent::Closed(_, 103, Some(timing)) =
+                    stream.next(&mut recorder).await.unwrap()
+                else {
+                    panic!("未交付原始实时 Bar")
+                };
+                assert_eq!(timing.provider_event_ns, 104 * ms * 1_000_000);
+                assert_eq!(timing.ingress_received_ns, 104 * ms * 1_000_000 + 123);
+                let occurrence = recorder.observations.last().unwrap();
+                assert_eq!(occurrence.stream, "websocket");
+                assert_eq!(Some(timing.provider_event_ns), occurrence.event_ns);
+                assert_eq!(timing.ingress_received_ns, occurrence.receive_ns);
+                stream.close().await.unwrap();
+            } else {
+                assert!(matches!(
+                    stream.next(&mut recorder).await.unwrap(),
+                    StreamEvent::Lost(SourceError::Gap)
+                ));
+                assert!(matches!(
+                    stream.next(&mut recorder).await,
+                    Err(SourceError::Stopped)
+                ));
+            }
+            assert_eq!(recorder.observations[0].bytes, raw.as_bytes());
+            let listener = tokio::time::timeout(Duration::from_secs(5), peer)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(listener.accept().now_or_never().is_none());
+            let requests = server.join().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(
+                requests[0].contains("startTime=6000000")
+                    && requests[0].contains("endTime=6179999")
+            );
+        }
     }
     struct MovingClock(std::sync::atomic::AtomicI64);
     impl Clock for MovingClock {
@@ -1840,13 +2374,18 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
             let mut stream=s.stream(request(minutes,0,1),None,Budget::from_millis(5000).unwrap()).await.unwrap();
             let mut captures=Captures::default();
             assert!(matches!(stream.next(&mut captures).await.unwrap(),StreamEvent::Recovering));
-            assert!(matches!(stream.next(&mut captures).await.unwrap(),StreamEvent::Closed(_, 2, _)));
-            assert!(matches!(stream.next(&mut captures).await.unwrap(),StreamEvent::Preview(_, 3, _)));
-            assert!(matches!(stream.next(&mut captures).await.unwrap(),StreamEvent::Closed(_, 3, _)));
+            assert!(matches!(stream.next(&mut captures).await.unwrap(),StreamEvent::Closed(_, 2, None)));
+            let StreamEvent::Preview(_, 3, Some(preview)) = stream.next(&mut captures).await.unwrap() else {panic!("暂存 preview 缺少原接收观测")};
+            let StreamEvent::Closed(_, 3, Some(closed)) = stream.next(&mut captures).await.unwrap() else {panic!("暂存 closed Bar 缺少原接收观测")};
             assert!(matches!(stream.next(&mut captures).await.unwrap(),StreamEvent::Ready));
             let ws_captures=captures.observations.iter().filter(|o|o.stream=="websocket").collect::<Vec<_>>();
             assert_eq!(ws_captures.len(),2);
             assert!(ws_captures.iter().all(|o|o.receive_ns==3*stride*1_000_000));
+            for (timing, occurrence) in [preview,closed].iter().zip(&ws_captures) {
+                assert_eq!(timing.ingress_received_ns, occurrence.receive_ns);
+                assert_eq!(Some(timing.provider_event_ns), occurrence.event_ns);
+                assert_ne!(timing.ingress_received_ns,4*stride*1_000_000);
+            }
             advance.send(()).await.unwrap();
             assert!(matches!(stream.next(&mut captures).await.unwrap(),StreamEvent::Recovering));
             assert!(matches!(stream.next(&mut captures).await.unwrap(),StreamEvent::Ready));
@@ -1915,7 +2454,148 @@ eyGs1dw4kT66b00SPSBhiQVOIM+W+yC2GWPG+iDnVsHtzQ0GFFTCmw==
             http_task.join().unwrap();
         });
     }
+    #[test]
+    fn actual_spot_fact_connections_record_trade_and_null_reference_before_delivery() {
+        runtime().block_on(async {
+            for (family,raw) in [(SpotFactFamily::Trade,json!({"e":"trade","s":"BTCUSDT","t":100,"p":"10.50","q":"1","T":1000,"m":false})),(SpotFactFamily::Reference,json!({"e":"referencePrice","s":"BTCUSDT","r":null,"t":1000}))] {
+                let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let mut s=source("http://127.0.0.1:1");s.ws_base=format!("ws://{}",listener.local_addr().unwrap());
+                let bytes=raw.to_string().into_bytes();let sent=bytes.clone();
+                let server=tokio::spawn(async move {
+                    let (tcp,_)=listener.accept().await.unwrap();let mut socket=tokio_tungstenite::accept_async(tcp).await.unwrap();
+                    socket.send(Message::Text(String::from_utf8(sent).unwrap().into())).await.unwrap();
+                    socket.close(None).await.unwrap();
+                });
+                let client=SpotFactClient {source:Arc::new(s)};
+                let mut connection=client.connect(instrument(),family,Budget::from_millis(5000).unwrap()).await.unwrap();
+                let mut recorded=Vec::new();
+                let fact=connection.next(Instant::now()+Duration::from_secs(5),&mut |observation|{assert_eq!(observation.bytes,bytes);assert!(observation.fact.is_some());recorded.push(observation);Ok(())}).await.unwrap();
+                assert_eq!(recorded.len(),1);assert_eq!(recorded[0].fact.as_ref(),Some(&fact));
+                match fact {
+                    SpotFact::Trade(t)=>assert_eq!(t.trade_id().value(),"100"),
+                    SpotFact::Reference(r)=>assert!(r.price().is_none()),
+                }
+                assert_eq!(connection.next(Instant::now()+Duration::from_secs(5),&mut |_|Ok(())).await.err(),Some(SourceError::Gap));
+                assert_eq!(connection.next(Instant::now()+Duration::from_secs(5),&mut |_|Ok(())).await.err(),Some(SourceError::Stopped));
+                server.await.unwrap();
+            }
+        });
+    }
+    #[test]
+    fn fact_connection_invalid_input_is_raw_only_and_durability_failure_is_terminal() {
+        let source = Arc::new(source("http://127.0.0.1:1"));
+        let make = || SpotFactConnection {
+            source: Arc::clone(&source),
+            instrument: instrument(),
+            family: SpotFactFamily::Trade,
+            stream: "btcusdt@trade".into(),
+            socket: None,
+            stopped: false,
+        };
+        for bytes in [
+            b"invalid-json".to_vec(),
+            json!({"e":"trade","s":"ETHUSDT","t":100,"p":"10.50","q":"1","T":1000,"m":false})
+                .to_string()
+                .into_bytes(),
+        ] {
+            let mut connection = make();
+            let mut captures = Vec::new();
+            assert!(
+                connection
+                    .frame(bytes.clone(), &mut |o| {
+                        captures.push(o);
+                        Ok(())
+                    })
+                    .is_err()
+            );
+            assert_eq!(captures.len(), 1);
+            assert_eq!(captures[0].bytes, bytes);
+            assert!(captures[0].fact.is_none());
+            assert!(connection.stopped);
+        }
+        let raw = json!({"e":"trade","s":"BTCUSDT","t":100,"p":"10.50","q":"1","T":1000,"m":false})
+            .to_string()
+            .into_bytes();
+        let mut connection = make();
+        assert_eq!(
+            connection
+                .frame(raw, &mut |_| Err(SourceError::Evidence))
+                .err(),
+            Some(SourceError::Evidence)
+        );
+        assert!(connection.stopped);
+    }
+    #[test]
+    fn consumed_text_and_binary_clock_failure_stop_connection_before_any_later_delivery() {
+        struct FailOnce(std::sync::atomic::AtomicUsize);
+        impl Clock for FailOnce {
+            fn now_ns(&self) -> Result<i64, SourceError> {
+                if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    Err(SourceError::Unavailable)
+                } else {
+                    Ok(2_000_000_000)
+                }
+            }
+        }
+        runtime().block_on(async {
+            let raw = json!({"e":"referencePrice","s":"BTCUSDT","r":null,"t":1000}).to_string();
+            for first in [
+                Message::Text(raw.clone().into()),
+                Message::Binary(vec![0, 255].into()),
+            ] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let mut s = source("http://127.0.0.1:1");
+                s.ws_base = format!("ws://{}", listener.local_addr().unwrap());
+                let clock = Arc::new(FailOnce(std::sync::atomic::AtomicUsize::new(0)));
+                s.clock = clock.clone();
+                let second = raw.clone();
+                let server = tokio::spawn(async move {
+                    let (tcp, _) = listener.accept().await.unwrap();
+                    let mut socket = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                    socket.send(first).await.unwrap();
+                    let _ = socket.send(Message::Text(second.into())).await;
+                });
+                let client = SpotFactClient {
+                    source: Arc::new(s),
+                };
+                let mut connection = client
+                    .connect(
+                        instrument(),
+                        SpotFactFamily::Reference,
+                        Budget::from_millis(5000).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    connection
+                        .next(Instant::now() + Duration::from_secs(5), &mut |_| panic!(
+                            "Clock failure must not deliver or record a fabricated time"
+                        ))
+                        .await
+                        .err(),
+                    Some(SourceError::Unavailable)
+                );
+                assert!(connection.stopped);
+                assert!(connection.socket.is_none());
+                assert_eq!(
+                    connection
+                        .next(Instant::now() + Duration::from_secs(5), &mut |_| panic!(
+                            "later frame must never pass failed observation"
+                        ))
+                        .await
+                        .err(),
+                    Some(SourceError::Stopped)
+                );
+                assert_eq!(clock.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+                server.await.unwrap();
+            }
+        });
+    }
 }
+
+#[cfg(test)]
+#[path = "tests/spot_probe.rs"]
+mod probe_tests;
 
 /// Controlled external inputs for the frozen technical integration consumer.
 /// This module is absent from every shipped plugin build.

@@ -1,0 +1,33 @@
+[package]
+name = "onlyalpha-broker-binance"
+version = "0.11.1"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = false
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+onlyalpha-broker = { path = "../../crates/broker" }
+onlyalpha-domain = { path = "../../crates/domain" }
+onlyalpha-integration-contract = { path = "../../crates/integration-contract" }
+onlyalpha-metadata-json = { path = "../../crates/metadata-json" }
+bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time", "sync", "macros"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "__rustls-tls"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+hmac = { version = "=0.13.0", default-features = false, features = ["zeroize"] }
+sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"] }
+
+[dev-dependencies]
+onlyalpha-execution = { path = "../../crates/execution" }
+onlyalpha-runtime = { path = "../../crates/runtime" }

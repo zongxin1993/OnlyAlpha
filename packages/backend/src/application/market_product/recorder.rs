@@ -31,6 +31,7 @@ pub(super) struct WalRecorder<'a> {
     construction: OnlyConstructionIdentity,
     binding: String,
     version: String,
+    normalizer: String,
     implementation: String,
     provenance: &'static str,
     session: crate::application::source_access::Session,
@@ -96,8 +97,12 @@ impl<'a> WalRecorder<'a> {
             crate::application::source_access::Permission::ClosedHistory
         };
         session.require_selection(&resolved.selection, permission)?;
+        let day = scope.is_session_day();
         if capture.is_empty()
-            || capture.len() > 48
+            || (day
+                && (!capture.starts_with("acquisition-attempt:")
+                    || !crate::is_sha256_hex(&capture["acquisition-attempt:".len()..])))
+            || (!day && capture.len() > 48)
             || scope.to_record()["source_id"] != resolved.identity().source_id
         {
             return Err(Error::Invalid);
@@ -125,11 +130,19 @@ impl<'a> WalRecorder<'a> {
             ordinal: rotating.then_some(0),
             created_at: at.into(),
             failed: false,
-            capture: format!("native:{}:{}", resolved.implementation, capture),
+            capture: if day {
+                capture.into()
+            } else {
+                format!("native:{}:{}", resolved.implementation, capture)
+            },
+            version: scope.to_record()["data_version"]
+                .as_str()
+                .ok_or(Error::Corrupt)?
+                .to_owned(),
             scope,
             construction,
             binding: resolved.binding.fingerprint().into(),
-            version: resolved.data_version.clone(),
+            normalizer: resolved.resource.normalizer_id().to_owned(),
             implementation: resolved.implementation.clone(),
             provenance: if realtime {
                 "REALTIME_STREAM"
@@ -189,7 +202,7 @@ impl<'a> WalRecorder<'a> {
             }
             let update = update(bar, &o.identity.source_id, &self.version)?;
             let update_id = update["update_id"].clone();
-            facts.push(json!({"canonical_fact_id":update_id,"raw_event_id":raw_id,"source_id":o.identity.source_id,"segment_id":self.segment,"capture_session_id":self.capture,"data_kind":"BAR","instrument_id":bar.instrument_id().to_string(),"ts_event_ns":end,"ts_receive_ns":o.receive_ns,"ts_ingest_ns":o.receive_ns,"canonical_payload_hash":fp(&update)?,"canonical_payload":update,"normalizer_id":"binance.spot.native","normalizer_version":self.implementation,"quality_state":"VALID","provenance":self.provenance}));
+            facts.push(json!({"canonical_fact_id":update_id,"raw_event_id":raw_id,"source_id":o.identity.source_id,"segment_id":self.segment,"capture_session_id":self.capture,"data_kind":"BAR","instrument_id":bar.instrument_id().to_string(),"ts_event_ns":end,"ts_receive_ns":o.receive_ns,"ts_ingest_ns":o.receive_ns,"canonical_payload_hash":fp(&update)?,"canonical_payload":update,"normalizer_id":self.normalizer,"normalizer_version":self.implementation,"quality_state":"VALID","provenance":self.provenance}));
         }
         Ok(
             json!({"schema_version":1,"evidence":{"raw_event_id":raw_id,"source_id":o.identity.source_id,"capture_session_id":self.capture,"provider":o.identity.provider,"venue":o.identity.venue,"market":o.identity.market,"stream":o.stream,"provider_event_type":o.event_type,"provider_event_id":o.provider_event_id,"provider_sequence":o.provider_sequence,"ts_event_ns":o.event_ns,"ts_receive_ns":o.receive_ns,"payload_codec":"application/json","provider_schema":"v1","payload_base64":STANDARD.encode(o.bytes),"raw_sha256":raw_hash,"provenance":self.provenance,"integration_binding_fingerprint":self.binding,"bar_construction":self.construction.to_record()},"canonical_facts":facts}),
@@ -264,16 +277,24 @@ fn update(bar: &OnlyBar, source: &str, version: &str) -> Result<Value> {
             &json!({"kind":"BAR","source":source,"instrument":bar.instrument_id().to_json().map_err(|_|Error::Invalid)?,"bar_type":bar.bar_type().to_json().map_err(|_|Error::Invalid)?,"bar_start":bar.bar_start().to_string(),"data_version":version})
         )?
     );
-    let minutes: i64 = bar
-        .bar_type()
-        .semantic()
-        .stride_minutes()
-        .map_err(|_| Error::Invalid)?
-        .to_string()
-        .parse()
-        .map_err(|_| Error::Invalid)?;
     let event = ns(*bar.ts_event())?;
+    let (sequence, semantics) = if bar.bar_type().semantic().is_fixed_duration() {
+        let minutes: i64 = bar
+            .bar_type()
+            .semantic()
+            .stride_minutes()
+            .map_err(|_| Error::Invalid)?
+            .to_string()
+            .parse()
+            .map_err(|_| Error::Invalid)?;
+        (
+            ns(*bar.bar_start())? / (minutes * 60_000_000_000),
+            "CONTIGUOUS",
+        )
+    } else {
+        (event, "MONOTONIC")
+    };
     Ok(
-        json!({"schema_version":3,"update_id":id,"runtime_id":"market-data-product","source_id":source,"source_sequence":ns(*bar.bar_start())?/(minutes*60_000_000_000),"data_version":version,"instrument_id":bar.instrument_id().to_string(),"data_type":"BAR","payload":{"kind":"BAR","value":bar.to_record()},"ts_event":event,"ts_init":event,"quality_flags":["VALID"],"metadata":[],"correlation_id":null,"sequence_semantics":"CONTIGUOUS","sequence_scope":{"source_id":source,"instrument_id":bar.instrument_id().to_json().map_err(|_|Error::Invalid)?,"data_type":"BAR","bar_type":bar.bar_type().to_record()}}),
+        json!({"schema_version":3,"update_id":id,"runtime_id":"market-data-product","source_id":source,"source_sequence":sequence,"data_version":version,"instrument_id":bar.instrument_id().to_string(),"data_type":"BAR","payload":{"kind":"BAR","value":bar.to_record()},"ts_event":event,"ts_init":event,"quality_flags":["VALID"],"metadata":[],"correlation_id":null,"sequence_semantics":semantics,"sequence_scope":{"source_id":source,"instrument_id":bar.instrument_id().to_json().map_err(|_|Error::Invalid)?,"data_type":"BAR","bar_type":bar.bar_type().to_record()}}),
     )
 }

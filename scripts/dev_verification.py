@@ -32,6 +32,7 @@ BROWSER_RESET_FENCE = Path("test-results/dev-verification/browser-reset.pending.
 CONTROLLED_HOSTS = Path("/etc/hosts")
 CONTROLLED_HOSTNAME = b"data-api.binance.vision"
 CONTROLLED_STREAM_HOSTNAME = b"data-stream.binance.vision"
+CONTROLLED_TUSHARE_HOSTNAME = b"api.tushare.pro"
 CONTROLLED_HOSTS_BACKUPS = Path("/root/onlyalpha-dev-controlled-https")
 # Immutable historical regression inputs, not mutable release baselines. These
 # two original commits prove the non-reusable ADR 0109 authorization guard.
@@ -471,18 +472,29 @@ def controlled_https_command(command: list[str]) -> bool:
         command[:3] == ["python", "-m", "scripts.native_web_e2e"]
         and command.count("--controlled-source-https") == 1
         and command.count("--retained-market-input") == 1
+        and command.count("--tushare-daily-market-input") <= 1
+        and not (
+            "--tushare-daily-market-input" in command
+            and any(flag in command for flag in ("--chart-sma-market-input", "--backtest-market-input"))
+        )
     )
 
 
-def controlled_hostnames(chart_stream: bool) -> tuple[bytes, ...]:
+def controlled_hostnames(chart_stream: bool, *, tushare_daily: bool = False) -> tuple[bytes, ...]:
+    if chart_stream and tushare_daily:
+        raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
+    if tushare_daily:
+        return (CONTROLLED_HOSTNAME, CONTROLLED_TUSHARE_HOSTNAME)
     return (CONTROLLED_HOSTNAME, CONTROLLED_STREAM_HOSTNAME) if chart_stream else (CONTROLLED_HOSTNAME,)
 
 
-def controlled_hosts_bytes(original: bytes, operation_id: str, *, chart_stream: bool = False) -> bytes:
+def controlled_hosts_bytes(
+    original: bytes, operation_id: str, *, chart_stream: bool = False, tushare_daily: bool = False
+) -> bytes:
     if str(uuid.UUID(operation_id)) != operation_id or uuid.UUID(operation_id).version != 4:
         raise ValueError("DEV_CONTROLLED_HTTPS_OPERATION_INVALID")
     if b"onlyalpha-dev-controlled-https:" in original or any(
-        host in original.lower() for host in controlled_hostnames(chart_stream)
+        host in original.lower() for host in controlled_hostnames(chart_stream, tushare_daily=tushare_daily)
     ):
         raise ValueError("DEV_CONTROLLED_HTTPS_EXISTING_MAPPING_REFUSED")
     newline = b"" if original.endswith(b"\n") else b"\n"
@@ -490,7 +502,7 @@ def controlled_hosts_bytes(original: bytes, operation_id: str, *, chart_stream: 
         original
         + newline
         + b"127.0.0.1 "
-        + b" ".join(controlled_hostnames(chart_stream))
+        + b" ".join(controlled_hostnames(chart_stream, tushare_daily=tushare_daily))
         + b" # onlyalpha-dev-controlled-https:"
         + operation_id.encode("ascii")
         + b"\n"
@@ -561,10 +573,13 @@ def validate_controlled_proof(proof: Any, operation_id: str, action: str) -> dic
     return proof
 
 
-def controlled_https_root(action: str, operation_id: str, *, chart_stream: bool = False) -> dict[str, Any]:
+def controlled_https_root(
+    action: str, operation_id: str, *, chart_stream: bool = False, tushare_daily: bool = False
+) -> dict[str, Any]:
     """Fixed resource lifecycle only; no command, path, credential or key argument."""
     if os.geteuid() != 0 or ROOT != Path("/workspace") or action not in {"begin", "restore"}:
         raise ValueError("DEV_CONTROLLED_HTTPS_ROOT_REQUIRED")
+    controlled_hostnames(chart_stream, tushare_daily=tushare_daily)
     if str(uuid.UUID(operation_id)) != operation_id or uuid.UUID(operation_id).version != 4:
         raise ValueError("DEV_CONTROLLED_HTTPS_OPERATION_INVALID")
     marker_fd = os.open(ROOT / CUT_METADATA, os.O_RDONLY | os.O_NOFOLLOW)
@@ -604,7 +619,9 @@ def controlled_https_root(action: str, operation_id: str, *, chart_stream: bool 
                 return hashlib.sha256(raw).hexdigest()
 
             if action == "begin":
-                mapped = controlled_hosts_bytes(current, operation_id, chart_stream=chart_stream)
+                mapped = controlled_hosts_bytes(
+                    current, operation_id, chart_stream=chart_stream, tushare_daily=tushare_daily
+                )
                 evidence = {
                     "operation_id": operation_id,
                     "device": identity.st_dev,
@@ -626,7 +643,9 @@ def controlled_https_root(action: str, operation_id: str, *, chart_stream: bool 
                     or evidence.get("original_sha256") != sha(original)
                 ):
                     raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_IDENTITY_REFUSED")
-                mapped = controlled_hosts_bytes(original, operation_id, chart_stream=chart_stream)
+                mapped = controlled_hosts_bytes(
+                    original, operation_id, chart_stream=chart_stream, tushare_daily=tushare_daily
+                )
                 if evidence.get("mapped_sha256") != sha(mapped):
                     raise ValueError("DEV_CONTROLLED_HTTPS_RESTORE_CAS_REFUSED")
                 try:
@@ -666,8 +685,10 @@ def controlled_https_root(action: str, operation_id: str, *, chart_stream: bool 
             return proof
 
 
-def controlled_https_mapping(raw: bytes, operation_id: str, *, chart_stream: bool = False) -> bool:
-    names = controlled_hostnames(chart_stream)
+def controlled_https_mapping(
+    raw: bytes, operation_id: str, *, chart_stream: bool = False, tushare_daily: bool = False
+) -> bool:
+    names = controlled_hostnames(chart_stream, tushare_daily=tushare_daily)
     line = b"127.0.0.1 " + b" ".join(names) + b" # onlyalpha-dev-controlled-https:" + operation_id.encode("ascii")
     aliases = [
         entry
@@ -685,7 +706,9 @@ def _controlled_https_exec(
     environment: dict[str, str],
     *,
     chart_stream: bool = False,
+    tushare_daily: bool = False,
 ) -> dict[str, Any]:
+    controlled_hostnames(chart_stream, tushare_daily=tushare_daily)
     container_id = container["Id"]
     image_id = container["Image"]
     if (
@@ -712,6 +735,7 @@ def _controlled_https_exec(
             "--operation-id",
             operation_id,
             *(["--controlled-chart-stream"] if chart_stream else []),
+            *(["--controlled-tushare-daily"] if tushare_daily else []),
             "controlled-https-" + action,
         ],
         env=environment,
@@ -786,7 +810,10 @@ def run_inside(
                     or identity.st_nlink != 1
                     or identity.st_mode & 0o022
                     or not controlled_https_mapping(
-                        hosts.read(1024 * 1024 + 1), operation_id, chart_stream="--chart-sma-market-input" in command
+                        hosts.read(1024 * 1024 + 1),
+                        operation_id,
+                        chart_stream="--chart-sma-market-input" in command,
+                        tushare_daily="--tushare-daily-market-input" in command,
                     )
                 ):
                     raise ValueError("DEV_CONTROLLED_HTTPS_MAPPING_UNPROVEN")
@@ -1017,6 +1044,7 @@ def run_host(
             "begin",
             environment,
             chart_stream="--chart-sma-market-input" in command,
+            tushare_daily="--tushare-daily-market-input" in command,
         )
     status = subprocess.run(invocation, cwd=ROOT, env=environment, check=False).returncode
     outcome = json.loads((ROOT / "test-results/dev-verification/last-outcome.json").read_text())
@@ -1044,6 +1072,7 @@ def run_host(
             "restore",
             environment,
             chart_stream="--chart-sma-market-input" in command,
+            tushare_daily="--tushare-daily-market-input" in command,
         )
         if any(
             restored.get(key) != begin.get(key)
@@ -1075,6 +1104,7 @@ def main() -> int:
     parser.add_argument("--operation-id", default="")
     parser.add_argument("--controlled-source-https", action="store_true")
     parser.add_argument("--controlled-chart-stream", action="store_true")
+    parser.add_argument("--controlled-tushare-daily", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -1087,13 +1117,14 @@ def main() -> int:
                     args.mode.removeprefix("controlled-https-"),
                     args.operation_id,
                     chart_stream=args.controlled_chart_stream,
+                    tushare_daily=args.controlled_tushare_daily,
                 ),
                 sort_keys=True,
             ),
             flush=True,
         )
         return 0
-    if args.controlled_chart_stream:
+    if args.controlled_chart_stream or args.controlled_tushare_daily:
         raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
     if args.mode == "inside":
         # This receipt is emitted only for pre-command admission refusal; errors

@@ -1725,6 +1725,8 @@ strict_object!(IntegrationProbeCheckDto);
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct IntegrationProbeContractDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configured_instruments: Option<ConfiguredProbeInstrumentsDto>,
     #[serde(deserialize_with = "required_nullable")]
     #[schema(required = true)]
     pub default_probe_instrument: Option<String>,
@@ -1732,10 +1734,18 @@ pub struct IntegrationProbeContractDto {
     pub fingerprint: String,
     pub probe_checks: Vec<OnlyIntegrationProbeCheck>,
     pub probe_mode: OnlyIntegrationProbeMode,
-    pub probe_version: Version1,
+    #[schema(minimum = 1, maximum = 2)]
+    pub probe_version: u8,
     pub user_selectable_probe_instrument: bool,
 }
 strict_object!(IntegrationProbeContractDto);
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(remote = "Self", deny_unknown_fields)]
+pub struct ConfiguredProbeInstrumentsDto {
+    pub field_id: String,
+    pub instruments: std::collections::BTreeMap<String, String>,
+}
+strict_object!(ConfiguredProbeInstrumentsDto);
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
@@ -1916,6 +1926,8 @@ pub struct JsonValue(pub serde_json::Value);
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub enum MarketDataAcquisitionDtoStatus {
+    #[serde(rename = "UNKNOWN")]
+    UNKNOWN,
     #[serde(rename = "PENDING")]
     PENDING,
     #[serde(rename = "RUNNING")]
@@ -1929,6 +1941,8 @@ pub enum MarketDataAcquisitionDtoStatus {
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct MarketDataAcquisitionDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_request_id: Option<String>,
     pub acquisition_id: String,
     pub bar_semantic: MarketDataBarSemanticDto,
     pub coverage: MarketDataCoverageDto,
@@ -1968,6 +1982,10 @@ pub enum MarketDataAcquisitionRequestDtoProvenance {
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct MarketDataAcquisitionRequestDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adjustment_anchor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bar_semantic: Option<MarketDataBarSemanticDto>,
     #[schema(pattern = "^(?:0|[1-9][0-9]*)$")]
@@ -2383,7 +2401,10 @@ pub struct MarketDataSourceProjectionDto {
     pub integration_id: String,
     pub integration_revision_fingerprint: String,
     pub source_id: String,
-    pub time_bar_capability: MarketDataTimeBarCapabilityDto,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_bar_capability: Option<MarketDataTimeBarCapabilityDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub historical_day_semantic: Option<MarketDataBarSemanticDto>,
     pub type_id: String,
 }
 strict_object!(MarketDataSourceProjectionDto);

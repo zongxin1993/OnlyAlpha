@@ -18,7 +18,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.dev_verification import source_inputs
-from scripts.release_metadata import load_release_units
+from scripts.release_metadata import load_release_units, plugin_release_members, plugin_release_unit
 from scripts.runtime_artifacts import encode as encode
 from scripts.rust_kernel_check import _workspace_packages
 
@@ -45,7 +45,8 @@ def _safe_name(name: str) -> bool:
 
 def _workspace(root: Path, unit: str) -> dict[str, Any]:
     if unit in {"frontend", "agent"} or (
-        unit.startswith("plugin-") and not (root / "plugs" / ("onlyalpha-" + unit) / "Cargo.toml").is_file()
+        unit.startswith("plugin-")
+        and not any(owner == unit and rust for owner, _, _, rust in plugin_release_members(root))
     ):
         return {}
     workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
@@ -66,7 +67,9 @@ def _paths(root: Path, unit: str, inputs: dict[str, str]) -> set[str]:
     elif unit in {"backend", "frontend", "agent"}:
         prefixes = [f"packages/{unit}/"]
     else:
-        prefixes = ["plugs/onlyalpha-" + unit + "/"]
+        prefixes = [
+            directory.as_posix() + "/" for owner, directory, _, _ in plugin_release_members(root) if owner == unit
+        ]
     selected = {name for name in inputs if any(name.startswith(prefix) for prefix in prefixes)}
     if not selected:
         raise ValueError("RELEASE_SOURCE_EMPTY_UNIT")
@@ -144,7 +147,7 @@ def required_units(root: Path) -> set[str]:
         visited.add(name)
         directory, manifest = packages[name]
         if directory.parts[0] == "plugs":
-            result.add(name.removeprefix("onlyalpha-"))
+            result.add(plugin_release_unit(name))
         for table in (manifest, *manifest.get("target", {}).values()):
             for kind in ("dependencies", "build-dependencies"):
                 for alias, value in table.get(kind, {}).items():
@@ -165,14 +168,16 @@ def required_units(root: Path) -> set[str]:
     for raw in executor["project"]["dependencies"]:
         dependency_name = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", raw)
         if dependency_name is not None and re.sub(r"[-_.]+", "-", dependency_name[1]).lower().startswith(
-            "onlyalpha-plugin-"
+            ("onlyalpha-plugin-", "onlyalpha-market-", "onlyalpha-broker-", "onlyalpha-data-source-")
         ):
             match = re.fullmatch(
-                r"onlyalpha-(plugin-[a-z0-9]+(?:-[a-z0-9]+)*)\s*==\s*[0-9]+\.[0-9]+\.[0-9]+", raw.strip()
+                r"(onlyalpha-(?:plugin|market|broker|data-source)-[a-z0-9]+(?:-[a-z0-9]+)*)"
+                r"\s*==\s*[0-9]+\.[0-9]+\.[0-9]+",
+                raw.strip(),
             )
             if match is None:
                 raise ValueError("RELEASE_SOURCE_DEPENDENCY_UNPINNED")
-            result.add(match[1])
+            result.add(plugin_release_unit(match[1]))
     if not result <= load_release_units(root).keys():
         raise ValueError("RELEASE_SOURCE_DEPENDENCY_UNKNOWN")
     return result

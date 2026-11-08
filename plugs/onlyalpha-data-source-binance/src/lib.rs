@@ -195,3 +195,20 @@ pub fn spot_history_identity(
         source_id: source.into(),
     })
 }
+
+/// Canonical Spot Trade / venue Reference 转换，不隐含已安装事实采集流。
+pub mod spot_facts;
+/// Canonical USD-M 历史参考价、资金费事实转换。
+pub mod usdm_facts;
+
+/// 受预算的 USD-M 历史 HTTP 采集；不隐含产品正式发布。
+pub mod usdm_rest;
+
+/// 单一Spot原始成交scope的有界连续性协调。
+pub mod trade_continuity;
+
+pub mod reference_capture;
+pub mod reference_store;
+
+pub mod spot_reference;
+mod usdm_reference;

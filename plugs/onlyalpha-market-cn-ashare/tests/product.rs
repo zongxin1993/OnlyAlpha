@@ -479,3 +479,177 @@ fn frozen_public_reference_fixture_is_consumed_by_the_actual_reference_and_compi
         );
     }
 }
+
+#[test]
+fn compiled_cash_economics_keep_six_settlement_axes_and_no_short_or_flip() {
+    let policy = compile("2025.1", reference(), "2026-01-05");
+    let record = policy.record();
+    assert_eq!(record["currency"], "CNY");
+    assert_eq!(record["contract_multiplier"], "1");
+    assert_eq!(record["status"], "TRADABLE");
+    assert_eq!(
+        record["position_policy"],
+        json!({"allow_flip":false,"mode":"NETTING","short_selling":"DISABLED"})
+    );
+    assert_eq!(
+        record["settlement_policy"],
+        json!({"id":"CN_A_SHARE_T1","version":"1","asset_booked":0,
+            "asset_trade_available":1,"cash_booked":0,"cash_trade_available":0,
+            "cash_withdrawable":1,"legal_settled":1})
+    );
+    assert_eq!(record["quantity_policy"]["sell_quantity_increment"], "1");
+    assert_eq!(record["quantity_policy"]["round_lot_size"], "100");
+    // ADR 0056: previous close and bars cannot prove a realtime price cage.
+    assert_eq!(
+        record["dynamic_price_cage"],
+        json!({"status":"NOT_EVALUATED","reason":"REALTIME_QUOTE_AUTHORITY_UNAVAILABLE"})
+    );
+    let dates = policy.settlement_schedule(&calendar(&policy)).unwrap();
+    assert_eq!(dates["asset_booked"], "2026-01-05");
+    assert_eq!(dates["cash_booked"], "2026-01-05");
+
+    // A valid calendar for another venue must not settle this instrument.
+    let mut foreign = calendar(&policy).to_record();
+    foreign["venue_id"]["value"] = json!("XSHE");
+    let foreign = OnlyTradingCalendar::from_record(&foreign).unwrap();
+    assert_eq!(
+        policy.settlement_schedule(&foreign).unwrap_err().0,
+        "SETTLEMENT_CALENDAR_SCOPE"
+    );
+}
+
+#[test]
+fn price_band_keeps_at_least_one_tick_on_both_sides() {
+    // 10% of 0.02 is below half a 0.01 tick. Merely rounding the
+    // percentage bounds would collapse both limits onto the close.
+    let mut raw = reference();
+    raw["previous_close"] = json!("0.02");
+    let policy = compile("2025.1", raw, "2026-01-05");
+    assert_eq!(policy.price_limits().to_record()["upper"]["value"], "0.03");
+    assert_eq!(policy.price_limits().to_record()["lower"]["value"], "0.01");
+}
+
+#[test]
+fn frozen_market_fee_records_keep_legacy_dates_rates_and_source_links() {
+    let pack = FeePack::new().record();
+    assert_eq!(pack["pack_id"], "CN_A_SHARE_PRODUCTION_MARKET_FEES");
+    assert_eq!(pack["pack_version"], "2025.06.30");
+    assert_eq!(
+        pack["compatible_market_products"],
+        json!(["CN_A_SHARE_CASH"])
+    );
+    assert_eq!(pack["coverage_from"], "2025-06-30");
+    for (venue, name, transfer_source) in [
+        ("XSHG", "SSE", "CSDC:SSE-FEE-TABLE:2025-06-30"),
+        ("XSHE", "SZSE", "CSDC:SZSE-FEE-TABLE:2025-06-30"),
+    ] {
+        for (kind, version, from, to, rate, source, authority) in [
+            (
+                "STAMP_DUTY",
+                "1",
+                20220701,
+                json!(20230828),
+                "0.001",
+                "PRC-NPC:STAMP-TAX-LAW:2021",
+                "REGULATOR",
+            ),
+            (
+                "STAMP_DUTY",
+                "2",
+                20230828,
+                Value::Null,
+                "0.0005",
+                "MOF-STA:ANNOUNCEMENT-2023-39:1",
+                "REGULATOR",
+            ),
+            (
+                "TRANSFER_FEE",
+                "1",
+                20250630,
+                Value::Null,
+                "0.00001",
+                transfer_source,
+                "CLEARING",
+            ),
+        ] {
+            let family = format!("CN_A_SHARE_{name}_{kind}");
+            let entry = pack["schedules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| {
+                    entry["schedule"]["family"] == family && entry["schedule"]["version"] == version
+                })
+                .unwrap();
+            assert_eq!(entry["source_id"], source);
+            let schedule = &entry["schedule"];
+            assert_eq!(schedule["from"], from);
+            assert_eq!(schedule["to"], to);
+            assert_eq!(
+                schedule["scope"],
+                json!({"market":"CN_A_SHARE","venue":venue,
+                "instrument_class":"CASH","currency":"CNY"})
+            );
+            let rule = &schedule["rules"][0];
+            assert_eq!(rule["authority"], authority);
+            assert_eq!(rule["direction"], "CHARGE");
+            assert_eq!(rule["scope"], "FILL");
+            assert_eq!(rule["resolution"], "FILL_EFFECTIVE");
+            assert_eq!(rule["pipeline"], "ROUND_THEN_BOUNDS");
+            assert_eq!(rule["quantum"], "0.01");
+            assert_eq!(
+                rule["terms"],
+                json!([{"kind":"RATE","basis":"NOTIONAL","amount":rate}])
+            );
+        }
+    }
+    let sources = pack["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 6);
+    for (id, published, effective, supporting) in [
+        ("PRC-NPC:STAMP-TAX-LAW:2021", "2021-06-10", "2022-07-01", 2),
+        (
+            "MOF-STA:ANNOUNCEMENT-2023-39:1",
+            "2023-08-27",
+            "2023-08-28",
+            3,
+        ),
+        (
+            "CSDC:SSE-FEE-TABLE:2025-06-30",
+            "2025-06-30",
+            "2025-06-30",
+            1,
+        ),
+        (
+            "CSDC:SZSE-FEE-TABLE:2025-06-30",
+            "2025-06-30",
+            "2025-06-30",
+            2,
+        ),
+        (
+            "CSDC:SH-SETTLEMENT-INTERFACE:V3.102",
+            "2026-07-17",
+            "2026-07-17",
+            0,
+        ),
+        (
+            "CSDC:SZ-SETTLEMENT-INTERFACE:V5.17",
+            "2026-02-02",
+            "2026-02-02",
+            0,
+        ),
+    ] {
+        let source = sources
+            .iter()
+            .find(|source| source["source_id"] == id)
+            .unwrap();
+        assert_eq!(source["publication_date"], published);
+        assert_eq!(source["effective_date"], effective);
+        assert_eq!(
+            source["supporting_source_ids"].as_array().unwrap().len(),
+            supporting
+        );
+        for linked in source["supporting_source_ids"].as_array().unwrap() {
+            assert!(sources.iter().any(|source| source["source_id"] == *linked));
+        }
+    }
+}

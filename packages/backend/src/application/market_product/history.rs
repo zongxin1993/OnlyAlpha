@@ -51,7 +51,7 @@ impl HistoryContext {
         Ok(Self {
             selection: r.selection.clone(),
             identity: r.identity().clone(),
-            calendar: Arc::new(r.resource.calendar().clone()),
+            calendar: Arc::new(r.resource.calendar().ok_or(Error::Selection)?.clone()),
             plan,
             base: queries::scope(r, instrument, 0, 1, &base)?,
             implementation: Some(r.implementation.clone()),
@@ -293,7 +293,7 @@ impl Application {
     }
 }
 /// The original declared Source relation, independent of installed code.
-pub(super) fn original_selection(
+pub(crate) fn original_selection(
     snapshot: &Snapshot,
     reference: &Reference,
     session: &Session,

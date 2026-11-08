@@ -499,6 +499,21 @@ fn snapshot_type(raw: &RawValue, fingerprint: &str) -> Result<(Box<RawValue>, Ca
     }
     if top["probe_contract"].get() != "null" {
         let probe = fields(top["probe_contract"])?;
+        if value::<u8>(&probe, "probe_version")? == 2 {
+            // V2 snapshots are self-contained. Decode their pinned descriptor,
+            // without a Registration, current installation or credential.
+            let encoded = serde_json::to_string(&top).map_err(|_| Error::RevisionCorrupt)?;
+            let descriptor =
+                onlyalpha_integration_contract::Descriptor::from_json(&encoded, 64 * 1024 * 1024)
+                    .map_err(|_| Error::RevisionCorrupt)?;
+            if descriptor.fingerprint() != fingerprint || descriptor.category() != category {
+                return Err(Error::RevisionCorrupt.into());
+            }
+            return Ok((
+                document(raw, fingerprint).map_err(|_| Error::RevisionCorrupt)?,
+                category,
+            ));
+        }
         closed(
             &probe,
             &[

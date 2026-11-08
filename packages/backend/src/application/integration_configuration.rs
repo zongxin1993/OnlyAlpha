@@ -519,6 +519,7 @@ pub struct RuntimeBindingRecord {
     pub runtime_configuration_fingerprint: String,
     pub runtime_generation_fingerprint: Option<String>,
 }
+#[derive(Clone)]
 pub struct RuntimeBinding {
     record: RuntimeBindingRecord,
     fingerprint: String,

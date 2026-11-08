@@ -27,3 +27,11 @@ futures-util = { version = "=0.3.34", default-features = false, features = ["sin
 rustls = { version = "=0.23.46", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "__rustls-tls"] }
 flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+
+[dev-dependencies]
+onlyalpha-account = { path = "../../crates/account" }
+onlyalpha-position = { path = "../../crates/position" }
+onlyalpha-strategy-ledger = { path = "../../crates/strategy-ledger" }
+onlyalpha-broker = { path = "../../crates/broker" }
+onlyalpha-broker-virtual = { path = "../onlyalpha-broker-virtual" }
+onlyalpha-runtime = { path = "../../crates/runtime" }

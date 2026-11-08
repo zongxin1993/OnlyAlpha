@@ -1,11 +1,19 @@
 //! Frozen technical consumer of the exact installed Source and Product owners.
 #![cfg(test)]
+#[path = "../plugs/onlyalpha-data-source-binance/src/reference_capture.rs"]
+mod reference_capture;
+#[path = "../plugs/onlyalpha-data-source-binance/src/spot_facts.rs"]
+mod spot_facts;
 #[path = "../plugs/onlyalpha-data-source-binance/src/spot_normalize.rs"]
 mod spot_normalize;
+#[path = "../plugs/onlyalpha-data-source-binance/src/spot_reference.rs"]
+mod spot_reference;
 #[path = "../plugs/onlyalpha-data-source-binance/src/spot_rest.rs"]
 mod spot_rest;
 #[path = "../plugs/onlyalpha-data-source-binance/src/spot_source.rs"]
 mod spot_source;
+#[path = "../plugs/onlyalpha-data-source-binance/src/usdm_reference.rs"]
+mod usdm_reference;
 use futures_util::{SinkExt, StreamExt};
 use onlyalpha_backend::application::chart::ChartQuery;
 use onlyalpha_backend::application::command::CommandId;
@@ -15,17 +23,18 @@ use onlyalpha_backend::application::integration_commands::{
 };
 use onlyalpha_backend::application::integration_configuration::{IntegrationId, ObjectDocument};
 use onlyalpha_backend::application::market_product::*;
+use onlyalpha_backend::application::private_assets::AssetFence;
 use onlyalpha_backend::application::source_access::*;
 use onlyalpha_backend::persistence::authority_session::AuthoritySession;
-use onlyalpha_backend::persistence::integration_postgres::Integrations;
+use onlyalpha_backend::persistence::integration_postgres::{Integrations, Snapshot};
 use onlyalpha_backend::persistence::market_data::*;
 use onlyalpha_backend::persistence::market_data_wal::Wal;
+pub use onlyalpha_data_source_binance::{spot_authoring, usdm_authoring};
 use onlyalpha_domain::market::OnlyBarSemantic;
 use onlyalpha_integration_contract::{
     IntegrationTypeId,
     source::{Clock, SourceError},
 };
-pub use onlyalpha_data_source_binance::spot_authoring;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -51,9 +60,9 @@ fn emit(kind: &str, value: &Value) {
     writeln!(file, "{}", json!({"kind":kind,"value":value})).unwrap();
 }
 fn chart_query() -> ChartQuery {
-    ChartQuery::with_native_executable(
-        std::path::PathBuf::from(std::env::var_os("ONLYALPHA_NATIVE_CHART_WORKER").unwrap()),
-    )
+    ChartQuery::with_native_executable(std::path::PathBuf::from(
+        std::env::var_os("ONLYALPHA_NATIVE_CHART_WORKER").unwrap(),
+    ))
     .unwrap()
 }
 fn chart_request(window: &Value, capability: &Value, preview: Option<&str>) -> Value {
@@ -194,6 +203,31 @@ impl Clock for FixedClock {
         Ok(self.0.fetch_add(1000, Ordering::SeqCst))
     }
 }
+struct WalLossClock {
+    clock: FixedClock,
+    original: Mutex<Option<(std::path::PathBuf, String)>>,
+}
+impl Clock for WalLossClock {
+    fn now_ns(&self) -> Result<i64, SourceError> {
+        let mut original = self.original.lock().unwrap();
+        if let Some((path, raw_hash)) = original.as_ref() {
+            match std::fs::read(path) {
+                Ok(bytes)
+                    if bytes
+                        .windows(raw_hash.len())
+                        .any(|part| part == raw_hash.as_bytes()) =>
+                {
+                    std::fs::remove_file(path).unwrap();
+                    *original = None;
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("cannot read owned WAL {}: {error}", path.display()),
+            }
+        }
+        self.clock.now_ns()
+    }
+}
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(10)
 }
@@ -210,7 +244,7 @@ fn uid(n: u32) -> String {
     format!("10000000-0000-4000-8000-{n:012x}")
 }
 fn symbol(s: &str) -> Value {
-    json!({"symbol":s,"baseAsset":s.trim_end_matches("USDT"),"quoteAsset":"USDT","status":"TRADING","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.01"},{"filterType":"LOT_SIZE","stepSize":"0.00001","minQty":"0.00001"}]})
+    json!({"symbol":s,"baseAsset":s.trim_end_matches("USDT"),"quoteAsset":"USDT","status":if s=="LTCUSDT"{"HALT"}else{"TRADING"},"filters":[{"filterType":"PRICE_FILTER","tickSize":"0.01"},{"filterType":"LOT_SIZE","stepSize":"0.00001","minQty":"0.00001"}]})
 }
 fn row(start: i64, stride: i64) -> Value {
     json!([
@@ -233,6 +267,7 @@ struct Http {
     requests: Arc<Mutex<Vec<String>>>,
     repeat: Arc<AtomicBool>,
     changed: Arc<AtomicBool>,
+    malformed_ping: Arc<AtomicBool>,
     gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
     task: Option<std::thread::JoinHandle<()>>,
 }
@@ -246,6 +281,8 @@ impl Http {
         let mode = repeat.clone();
         let changed = Arc::new(AtomicBool::new(false));
         let prices = changed.clone();
+        let malformed_ping = Arc::new(AtomicBool::new(false));
+        let ping_fault = malformed_ping.clone();
         let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
         let barrier = gate.clone();
         let task = std::thread::spawn(move || {
@@ -272,6 +309,9 @@ impl Http {
                     .into_owned()
                     .collect::<std::collections::BTreeMap<_, _>>();
                 let body = match u.path() {
+                    "/api/v3/ping" if ping_fault.load(Ordering::SeqCst) => {
+                        json!({"provider_secret":"private-probe-marker"})
+                    }
                     "/api/v3/ping" => json!({}),
                     "/api/v3/time" => json!({"serverTime":NOW/1_000_000}),
                     "/api/v3/exchangeInfo" => {
@@ -335,6 +375,7 @@ impl Http {
             requests,
             repeat,
             changed,
+            malformed_ping,
             gate,
             task: Some(task),
         }
@@ -355,6 +396,7 @@ impl Drop for Http {
 }
 struct Ws {
     url: String,
+    malformed_depth: Arc<AtomicBool>,
     send: tokio::sync::broadcast::Sender<Message>,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
@@ -381,6 +423,8 @@ impl Ws {
         let finished = closed.clone();
         let sent = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let writes = sent.clone();
+        let malformed_depth = Arc::new(AtomicBool::new(false));
+        let depth_fault = malformed_depth.clone();
         let task = tokio::spawn(async move {
             let mut tasks = vec![];
             loop {
@@ -391,7 +435,8 @@ impl Ws {
                 let connections = accepted.clone();
                 let closed = finished.clone();
                 let sent = writes.clone();
-                tasks.push(tokio::spawn(async move {let path=Arc::new(Mutex::new(String::new()));let selected=path.clone();let mut socket=tokio_tungstenite::accept_hdr_async(incoming.0,move|request:&tokio_tungstenite::tungstenite::handshake::server::Request,response|{*selected.lock().unwrap()=request.uri().path().into();Ok(response)}).await.unwrap();connections.fetch_add(1,Ordering::SeqCst);changed.notify_waiters();let depth=path.lock().unwrap().contains("depth5");if depth {socket.send(Message::Text(json!({"lastUpdateId":1,"bids":[["10","1"]],"asks":[["11","1"]]}).to_string().into())).await.unwrap();}loop {tokio::select! {message=socket.next()=>match message {Some(Ok(Message::Pong(_)))=>{pongs.fetch_add(1,Ordering::SeqCst);changed.notify_waiters();},Some(Ok(Message::Close(_)))|None=>{let _=socket.flush().await;break},Some(Err(_))=>break,_=>{}},command=commands.recv(),if !depth=>match command {Ok(message)=>{if socket.send(message).await.is_err(){break}sent.fetch_add(1,Ordering::SeqCst);},Err(_)=>break}}}closed.fetch_add(1,Ordering::SeqCst);changed.notify_waiters();}));
+                let depth_fault = depth_fault.clone();
+                tasks.push(tokio::spawn(async move {let path=Arc::new(Mutex::new(String::new()));let selected=path.clone();let mut socket=tokio_tungstenite::accept_hdr_async(incoming.0,move|request:&tokio_tungstenite::tungstenite::handshake::server::Request,response|{*selected.lock().unwrap()=request.uri().path().into();Ok(response)}).await.unwrap();connections.fetch_add(1,Ordering::SeqCst);changed.notify_waiters();let depth=path.lock().unwrap().contains("depth5");if depth {let book=if depth_fault.load(Ordering::SeqCst){json!({"lastUpdateId":1,"bids":[["private-probe-marker","1"]],"asks":[["11","1"]]})}else{json!({"lastUpdateId":1,"bids":[["10","1"]],"asks":[["11","1"]]})};socket.send(Message::Text(book.to_string().into())).await.unwrap();}loop {tokio::select! {message=socket.next()=>match message {Some(Ok(Message::Pong(_)))=>{pongs.fetch_add(1,Ordering::SeqCst);changed.notify_waiters();},Some(Ok(Message::Close(_)))|None=>{let _=socket.flush().await;break},Some(Err(_))=>break,_=>{}},command=commands.recv(),if !depth=>match command {Ok(message)=>{if socket.send(message).await.is_err(){break}sent.fetch_add(1,Ordering::SeqCst);},Err(_)=>break}}}closed.fetch_add(1,Ordering::SeqCst);changed.notify_waiters();}));
             }
             for task in tasks {
                 task.await.unwrap();
@@ -399,6 +444,7 @@ impl Ws {
         });
         Self {
             url,
+            malformed_depth,
             send,
             stop: Some(stop),
             task,
@@ -582,6 +628,89 @@ async fn native_source_application() {
     let http = Http::start();
     let ws = Ws::start().await;
     let mut business = session().await;
+    let (fixture, snapshot, mut wal) =
+        Box::pin(install_native_source(http, ws, &mut business)).await;
+    if std::env::var("ONLYALPHA_NATIVE_REBUILD_SECOND").is_ok() {
+        let _rebuilt_query = Box::pin(rebuilt_artifact_replays_original_evidence(
+            &fixture,
+            &mut business,
+        ))
+        .await;
+        fixture.ws.close().await;
+        business.close().await.unwrap();
+        return;
+    }
+    Box::pin(source_catalogue_and_queries(
+        &fixture,
+        &mut business,
+        snapshot,
+    ))
+    .await;
+    Box::pin(history_interval_acquisitions(
+        &fixture,
+        &mut business,
+        &mut wal,
+    ))
+    .await;
+    let (query, caps) = Box::pin(history_chart_calculation(&fixture, &mut business)).await;
+    // Keep these writers alive across the remaining scenarios and connection shutdown.
+    let _recovered_wal = Box::pin(resume_partial_history(&fixture, &mut business, wal)).await;
+    let _collision_wal = Box::pin(conflicting_history_occurrences(&fixture, &mut business)).await;
+
+    let snapshot = Box::pin(realtime_delivery_and_chart(
+        &fixture,
+        &mut business,
+        &query,
+        &caps,
+    ))
+    .await;
+    Box::pin(stream_admission_and_wal_loss(
+        &fixture,
+        &mut business,
+        &snapshot,
+    ))
+    .await;
+    Box::pin(stream_gap_recovery_and_derived_bars(
+        &fixture,
+        &mut business,
+        &snapshot,
+    ))
+    .await;
+    Box::pin(reliable_stream_overflow(&fixture, &mut business, &snapshot)).await;
+    Box::pin(conflicting_stream_occurrence(&fixture, &mut business)).await;
+    Box::pin(blocked_baseline_recovery(&fixture, &mut business)).await;
+
+    Box::pin(persisted_probe_evidence(&fixture, &mut business)).await;
+    let _retained_wal = Box::pin(retained_integration_revision(&fixture, &mut business)).await;
+    Box::pin(withdraw_source_access(&fixture, &mut business)).await;
+    fixture.ws.close().await;
+    business.close().await.unwrap();
+}
+
+struct NativeSourceFixture {
+    root: String,
+    ch: ClickHouse,
+    app: Application,
+    human: Arc<Human>,
+    resolved: Arc<Resolved>,
+    resolver: Resolver,
+    clock: Arc<WalLossClock>,
+    executable: Vec<u8>,
+    asset_fence: AssetFence,
+    source_session: Session,
+    authority: Authority,
+    reference: Reference,
+    id: IntegrationId,
+    authoring: AuthoringCatalog,
+    ws: Ws,
+    http: Http,
+}
+
+async fn install_native_source(
+    http: Http,
+    ws: Ws,
+    business: &mut AuthoritySession,
+) -> (NativeSourceFixture, Snapshot, Wal) {
     let authoring = AuthoringCatalog::new(vec![spot_authoring(WORK).unwrap()]).unwrap();
     let id = IntegrationId::new(&uid(1)).unwrap();
     Integrations::new(business.client_mut().await.unwrap())
@@ -639,12 +768,81 @@ async fn native_source_application() {
     let source_session = authority
         .authenticate("Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         .unwrap();
+    let asset_fence = Box::pin(private_asset_provenance(business, &source_session)).await;
+    let factory = spot_source::test_support::controlled_factory(&http.url, &ws.url, 1000);
+    let executable = std::fs::read(std::env::current_exe().unwrap()).unwrap();
+    let clock = Arc::new(WalLossClock {
+        clock: FixedClock(std::sync::atomic::AtomicI64::new(NOW)),
+        original: Mutex::new(None),
+    });
+    let resolver = Resolver::new(
+        vec![Installed::from_executable(factory, &executable).unwrap()],
+        spot_source::test_support::trust(),
+        clock.clone(),
+    )
+    .unwrap();
+    let resolved = Arc::new(
+        resolver
+            .resolve(&snapshot, &reference, &source_session, None)
+            .unwrap(),
+    );
+    println!(
+        "NATIVE_INSTALLATION {}",
+        json!({"current_exe":std::env::current_exe().unwrap(),"debug_assertions":cfg!(debug_assertions),"artifact":resolved.artifact_fingerprint(),"implementation":resolved.implementation_fingerprint(),"binding":resolved.binding_fingerprint()})
+    );
+    let human = Arc::new(Human {
+        selection,
+        active: AtomicBool::new(true),
+    });
+    let app = Application::default();
+    let ch = ClickHouse::new(ClickHouseConfig {
+        url: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_URL").unwrap(),
+        database: "onlyalpha_test_native_market_source".into(),
+        user: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_USER").unwrap_or("default".into()),
+        password: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_PASSWORD").unwrap_or_default(),
+        timeout: Duration::from_secs(5),
+        tls_roots_pem: vec![],
+        max_bytes: WORK,
+        max_rows: 100_000,
+    })
+    .unwrap();
+    ch.assert_server().await.unwrap();
+    let root = std::env::var("ONLYALPHA_NATIVE_MARKET_WAL").unwrap();
+    let wal = Wal::new(Path::new(&root), WORK).unwrap();
+    (
+        NativeSourceFixture {
+            root,
+            ch,
+            app,
+            human,
+            resolved,
+            resolver,
+            clock,
+            executable,
+            asset_fence,
+            source_session,
+            authority,
+            reference,
+            id,
+            authoring,
+            ws,
+            http,
+        },
+        snapshot,
+        wal,
+    )
+}
+
+async fn private_asset_provenance(
+    business: &mut AuthoritySession,
+    source_session: &Session,
+) -> AssetFence {
     let expected_factor: Value =
         serde_json::from_str(&std::env::var("ONLYALPHA_NATIVE_FACTOR_METADATA").unwrap()).unwrap();
     let registry = onlyalpha_backend::application::private_assets::PrivateAssets::new(
         business.client_mut().await.unwrap(),
     )
-    .current_registry(&source_session)
+    .current_registry(source_session)
     .await
     .unwrap()
     .into_parts()
@@ -664,7 +862,7 @@ async fn native_source_application() {
     let (factor, asset_fence) = onlyalpha_backend::application::private_assets::PrivateAssets::new(
         business.client_mut().await.unwrap(),
     )
-    .factor_revision(&source_session, factor_id, factor_revision, factor_content)
+    .factor_revision(source_session, factor_id, factor_revision, factor_content)
     .await
     .unwrap()
     .into_parts()
@@ -675,7 +873,7 @@ async fn native_source_application() {
         onlyalpha_backend::application::private_assets::PrivateAssets::new(
             business.client_mut().await.unwrap()
         )
-        .factor_revision(&source_session, factor_id, factor_revision, &"0".repeat(64))
+        .factor_revision(source_session, factor_id, factor_revision, &"0".repeat(64))
         .await,
         Err(onlyalpha_backend::application::private_assets::Error::Mismatch)
     ));
@@ -683,7 +881,7 @@ async fn native_source_application() {
         onlyalpha_backend::application::private_assets::PrivateAssets::new(
             business.client_mut().await.unwrap()
         )
-        .factor_revision(&source_session, factor_id, &"0".repeat(64), factor_content)
+        .factor_revision(source_session, factor_id, &"0".repeat(64), factor_content)
         .await,
         Err(onlyalpha_backend::application::private_assets::Error::NotFound)
     ));
@@ -733,14 +931,14 @@ async fn native_source_application() {
         .unwrap();
     assert!(matches!(
         onlyalpha_backend::application::private_assets::PrivateAssets::new(client)
-            .current_registry(&source_session)
+            .current_registry(source_session)
             .await,
         Err(onlyalpha_backend::application::private_assets::Error::Corrupt)
     ));
     assert!(matches!(
         onlyalpha_backend::application::private_assets::PrivateAssets::new(client)
             .factor_revision(
-                &source_session,
+                source_session,
                 &corrupt_id,
                 &corrupt_revision,
                 factor_content
@@ -756,244 +954,236 @@ async fn native_source_application() {
         .await
         .unwrap();
     onlyalpha_backend::application::private_assets::PrivateAssets::new(client)
-        .current_registry(&source_session)
+        .current_registry(source_session)
         .await
         .unwrap();
-    let factory = spot_source::test_support::controlled_factory(&http.url, &ws.url, 1000);
-    let executable = std::fs::read(std::env::current_exe().unwrap()).unwrap();
-    let resolver = Resolver::new(
-        vec![Installed::from_executable(factory, &executable).unwrap()],
-        spot_source::test_support::trust(),
-        Arc::new(FixedClock(std::sync::atomic::AtomicI64::new(NOW))),
+    asset_fence
+}
+
+async fn rebuilt_artifact_replays_original_evidence(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+) -> ChartQuery {
+    let NativeSourceFixture {
+        root,
+        resolved,
+        app,
+        source_session,
+        ch,
+        http,
+        ..
+    } = fixture;
+    let original: Value = serde_json::from_slice(
+        &std::fs::read(Path::new(root).with_file_name("rebuild-original.json")).unwrap(),
     )
     .unwrap();
-    let resolved = Arc::new(
-        resolver
-            .resolve(&snapshot, &reference, &source_session, None)
-            .unwrap(),
+    assert_ne!(original["artifact"], resolved.artifact_fingerprint());
+    assert_ne!(
+        original["implementation"],
+        resolved.implementation_fingerprint()
     );
-    println!(
-        "NATIVE_INSTALLATION {}",
-        json!({"current_exe":std::env::current_exe().unwrap(),"debug_assertions":cfg!(debug_assertions),"artifact":resolved.artifact_fingerprint(),"implementation":resolved.implementation_fingerprint(),"binding":resolved.binding_fingerprint()})
-    );
-    let human = Arc::new(Human {
-        selection,
-        active: AtomicBool::new(true),
-    });
-    let app = Application::default();
-    let ch = ClickHouse::new(ClickHouseConfig {
-        url: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_URL").unwrap(),
-        database: "onlyalpha_test_native_market_source".into(),
-        user: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_USER").unwrap_or("default".into()),
-        password: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_PASSWORD").unwrap_or_default(),
-        timeout: Duration::from_secs(5),
-        tls_roots_pem: vec![],
-        max_bytes: WORK,
-        max_rows: 100_000,
-    })
-    .unwrap();
-    ch.assert_server().await.unwrap();
-    let root = std::env::var("ONLYALPHA_NATIVE_MARKET_WAL").unwrap();
-    let mut wal = Wal::new(Path::new(&root), WORK).unwrap();
-    if std::env::var("ONLYALPHA_NATIVE_REBUILD_SECOND").is_ok() {
-        let original: Value = serde_json::from_slice(
-            &std::fs::read(Path::new(&root).with_file_name("rebuild-original.json")).unwrap(),
-        )
+    assert_eq!(original["binding"], resolved.binding_fingerprint());
+    let path = Path::new(root).with_file_name("rebuilt-stream");
+    std::fs::create_dir(&path).unwrap();
+    let wal = Wal::new(&path, WORK).unwrap();
+    let retained = wal.sealed_handle().unwrap();
+    let instrument = app
+        .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
+        .await
         .unwrap();
-        assert_ne!(original["artifact"], resolved.artifact_fingerprint());
-        assert_ne!(
-            original["implementation"],
-            resolved.implementation_fingerprint()
-        );
-        assert_eq!(original["binding"], resolved.binding_fingerprint());
-        let path = Path::new(&root).with_file_name("rebuilt-stream");
-        std::fs::create_dir(&path).unwrap();
-        let wal = Wal::new(&path, WORK).unwrap();
-        let retained = wal.sealed_handle().unwrap();
-        let instrument = app
-            .reference(&resolved, &source_session, "BTCUSDT.BINANCE", deadline())
-            .await
-            .unwrap();
-        let mut stream = app
-            .open_stream(
-                resolved.clone(),
-                instrument,
-                &mut store(business.client_mut().await.unwrap(), &ch),
-                StreamRequest {
-                    stream_id: uid(250),
-                    semantic: semantic(1),
-                    resume_after_sequence: None,
-                    resume_plan_fingerprint: None,
-                    clock_ns: NOW,
-                    deadline: deadline(),
-                    segment_id: "rebuilt".into(),
-                    capture_id: "rebuilt".into(),
-                    created_at: AT.into(),
-                },
-                wal,
-            )
-            .await
-            .unwrap();
-        let mut compared = false;
-        loop {
-            let pending = stream.next().await.unwrap().unwrap();
-            let ids = retained.published_sealed().unwrap();
-            if !compared && !ids.is_empty() {
-                let occurrence = retained.read_sealed(&ids[0]).unwrap();
-                let fact = &occurrence[0]["canonical_facts"][0];
-                assert_eq!(
-                    fact["canonical_fact_id"],
-                    original["fact"]["canonical_fact_id"]
-                );
-                assert_eq!(
-                    fact["canonical_payload"],
-                    original["fact"]["canonical_payload"]
-                );
-                assert_eq!(
-                    fact["normalizer_version"],
-                    resolved.implementation_fingerprint()
-                );
-                assert_ne!(
-                    fact["normalizer_version"],
-                    original["fact"]["normalizer_version"]
-                );
-                assert_ne!(
-                    fact["capture_session_id"],
-                    original["fact"]["capture_session_id"]
-                );
-                assert_eq!(
-                    fact["canonical_payload_hash"],
-                    original["fact"]["canonical_payload_hash"]
-                );
-                compared = true;
-            }
-            let event = stream
-                .release(
-                    pending,
-                    &mut store(business.client_mut().await.unwrap(), &ch),
-                    "2026-10-22T00:00:01Z",
-                )
-                .await
-                .unwrap()
-                .into_parts()
-                .unwrap()
-                .0;
-            emit("stream", &event);
-            if event["state"] == "READY" {
-                break;
-            }
+    let mut stream = app
+        .open_stream(
+            resolved.clone(),
+            instrument,
+            &mut store(business.client_mut().await.unwrap(), ch),
+            StreamRequest {
+                stream_id: uid(250),
+                semantic: semantic(1),
+                resume_after_sequence: None,
+                resume_plan_fingerprint: None,
+                clock_ns: NOW,
+                deadline: deadline(),
+                segment_id: "rebuilt".into(),
+                capture_id: "rebuilt".into(),
+                created_at: AT.into(),
+            },
+            wal,
+        )
+        .await
+        .unwrap();
+    let mut compared = false;
+    loop {
+        let pending = stream.next().await.unwrap().unwrap();
+        let ids = retained.published_sealed().unwrap();
+        if !compared && !ids.is_empty() {
+            let occurrence = retained.read_sealed(&ids[0]).unwrap();
+            let fact = &occurrence[0]["canonical_facts"][0];
+            assert_eq!(
+                fact["canonical_fact_id"],
+                original["fact"]["canonical_fact_id"]
+            );
+            assert_eq!(
+                fact["canonical_payload"],
+                original["fact"]["canonical_payload"]
+            );
+            assert_eq!(
+                fact["normalizer_version"],
+                resolved.implementation_fingerprint()
+            );
+            assert_ne!(
+                fact["normalizer_version"],
+                original["fact"]["normalizer_version"]
+            );
+            assert_ne!(
+                fact["capture_session_id"],
+                original["fact"]["capture_session_id"]
+            );
+            assert_eq!(
+                fact["canonical_payload_hash"],
+                original["fact"]["canonical_payload_hash"]
+            );
+            compared = true;
         }
-        assert!(compared);
-        let result = app
-            .window(
-                &resolved,
-                &source_session,
-                &mut store(business.client_mut().await.unwrap(), &ch),
-                &WindowRequest {
-                    instrument_id: "BTCUSDT.BINANCE".into(),
-                    semantic: semantic(1),
-                    before_ns: Some(NOW),
-                    bar_count: 1,
-                    clock_ns: NOW,
-                },
+        let event = stream
+            .release(
+                pending,
+                &mut store(business.client_mut().await.unwrap(), ch),
+                "2026-10-22T00:00:01Z",
             )
             .await
             .unwrap()
             .into_parts()
             .unwrap()
             .0;
-        emit("window", &result);
-        assert_eq!(result["coverage"]["status"], "COMPLETE");
-        assert_eq!(result["bars"].as_array().unwrap().len(), 1);
-        let query = chart_query();
-        let caps = query.capabilities(&source_session).unwrap();
-        emit("chart_capabilities", &caps);
-        let request = chart_request(&result, &caps["capabilities"][0], None);
-        let value = evaluate_chart(
-            &query,
-            &app,
-            &resolved,
-            &source_session,
-            &mut business,
-            &ch,
-            &request,
-            None,
+        emit("stream", &event);
+        if event["state"] == "READY" {
+            break;
+        }
+    }
+    assert!(compared);
+    let result = app
+        .window(
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
+            &WindowRequest {
+                instrument_id: "BTCUSDT.BINANCE".into(),
+                semantic: semantic(1),
+                before_ns: Some(NOW),
+                bar_count: 1,
+                clock_ns: NOW,
+            },
         )
         .await
+        .unwrap()
         .into_parts()
         .unwrap()
         .0;
-        emit("chart_evaluation", &value);
-        assert_eq!(value["query_status"], "DISPLAYABLE");
-        stream.close().await.unwrap();
-        drop(stream);
-        drop(retained);
-        // The newly executing artifact still cannot change this canonical payload.
-        let path = Path::new(&root).with_file_name("rebuilt-conflict");
-        std::fs::create_dir(&path).unwrap();
-        let wal = Wal::new(&path, WORK).unwrap();
-        let retained = wal.sealed_handle().unwrap();
-        let instrument = app
-            .reference(&resolved, &source_session, "BTCUSDT.BINANCE", deadline())
-            .await
-            .unwrap();
-        http.changed.store(true, Ordering::SeqCst);
-        let mut stream = app
-            .open_stream(
-                resolved.clone(),
-                instrument,
-                &mut store(business.client_mut().await.unwrap(), &ch),
-                StreamRequest {
-                    stream_id: uid(251),
-                    semantic: semantic(1),
-                    resume_after_sequence: None,
-                    resume_plan_fingerprint: None,
-                    clock_ns: NOW,
-                    deadline: deadline(),
-                    segment_id: "rebuilt-bad".into(),
-                    capture_id: "rebuilt-bad".into(),
-                    created_at: AT.into(),
-                },
-                wal,
+    emit("window", &result);
+    assert_eq!(result["coverage"]["status"], "COMPLETE");
+    assert_eq!(result["bars"].as_array().unwrap().len(), 1);
+    let query = chart_query();
+    let caps = query.capabilities(source_session).unwrap();
+    emit("chart_capabilities", &caps);
+    let request = chart_request(&result, &caps["capabilities"][0], None);
+    let value = evaluate_chart(
+        &query,
+        app,
+        resolved,
+        source_session,
+        business,
+        ch,
+        &request,
+        None,
+    )
+    .await
+    .into_parts()
+    .unwrap()
+    .0;
+    emit("chart_evaluation", &value);
+    assert_eq!(value["query_status"], "DISPLAYABLE");
+    stream.close().await.unwrap();
+    drop(stream);
+    drop(retained);
+    // The newly executing artifact still cannot change this canonical payload.
+    let path = Path::new(root).with_file_name("rebuilt-conflict");
+    std::fs::create_dir(&path).unwrap();
+    let wal = Wal::new(&path, WORK).unwrap();
+    let retained = wal.sealed_handle().unwrap();
+    let instrument = app
+        .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
+        .await
+        .unwrap();
+    http.changed.store(true, Ordering::SeqCst);
+    let mut stream = app
+        .open_stream(
+            resolved.clone(),
+            instrument,
+            &mut store(business.client_mut().await.unwrap(), ch),
+            StreamRequest {
+                stream_id: uid(251),
+                semantic: semantic(1),
+                resume_after_sequence: None,
+                resume_plan_fingerprint: None,
+                clock_ns: NOW,
+                deadline: deadline(),
+                segment_id: "rebuilt-bad".into(),
+                capture_id: "rebuilt-bad".into(),
+                created_at: AT.into(),
+            },
+            wal,
+        )
+        .await
+        .unwrap();
+    loop {
+        let pending = stream.next().await.unwrap().unwrap();
+        match stream
+            .release(
+                pending,
+                &mut store(business.client_mut().await.unwrap(), ch),
+                "2026-10-22T00:00:02Z",
             )
             .await
-            .unwrap();
-        loop {
-            let pending = stream.next().await.unwrap().unwrap();
-            match stream
-                .release(
-                    pending,
-                    &mut store(business.client_mut().await.unwrap(), &ch),
-                    "2026-10-22T00:00:02Z",
-                )
-                .await
-            {
-                Err(onlyalpha_backend::application::market_product::Error::Store(
-                    onlyalpha_backend::persistence::market_data::Error::Conflict,
-                )) => break,
-                Ok(event) => {
-                    let event = event.into_parts().unwrap().0;
-                    assert!(event["event"] != "BAR_CLOSED" && event["state"] != "READY");
-                }
-                Err(error) => panic!("unexpected {error:?}"),
+        {
+            Err(onlyalpha_backend::application::market_product::Error::Store(
+                onlyalpha_backend::persistence::market_data::Error::Conflict,
+            )) => break,
+            Ok(event) => {
+                let event = event.into_parts().unwrap().0;
+                assert!(event["event"] != "BAR_CLOSED" && event["state"] != "READY");
             }
+            Err(error) => panic!("unexpected {error:?}"),
         }
-        assert_eq!(retained.published_sealed().unwrap().len(), 1);
-        stream.close().await.unwrap();
-        drop(stream);
-        drop(retained);
-        ws.close().await;
-        business.close().await.unwrap();
-        return;
     }
-    let (_, projection) = resolver.sources(&[snapshot], &source_session).unwrap();
+    assert_eq!(retained.published_sealed().unwrap().len(), 1);
+    stream.close().await.unwrap();
+    drop(stream);
+    drop(retained);
+    query
+}
+
+async fn source_catalogue_and_queries(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+    snapshot: Snapshot,
+) {
+    let NativeSourceFixture {
+        resolver,
+        source_session,
+        resolved,
+        app,
+        http,
+        ch,
+        ..
+    } = fixture;
+    let (_, projection) = resolver.sources(&[snapshot], source_session).unwrap();
     let sources = projection.into_parts().unwrap().0;
     emit("sources", &sources);
     assert_eq!(sources["sources"].as_array().unwrap().len(), 1);
     let instruments = app
         .instruments(
-            &resolved,
-            &source_session,
+            resolved,
+            source_session,
             &InstrumentQuery {
                 query: "BTC".into(),
                 asset_class: Some("CRYPTOCURRENCY".into()),
@@ -1010,42 +1200,44 @@ async fn native_source_application() {
         .0;
     emit("instruments", &instruments);
     assert_eq!(instruments["instruments"].as_array().unwrap().len(), 1);
-    let quotes = app
-        .quotes(
-            &resolved,
-            &source_session,
-            &["BTCUSDT.BINANCE".into(), "ETHUSDT.BINANCE".into()],
-            deadline(),
-        )
-        .await
-        .unwrap()
-        .into_parts()
-        .unwrap()
-        .0;
-    emit("quotes", &quotes);
-    assert_eq!(quotes["quotes"][0]["last_price"], "10.5000");
-    assert_eq!(quotes["quotes"][1]["status"], "UNAVAILABLE");
-    let search = app
-        .search(
-            &[resolved.as_ref()],
-            &source_session,
-            &InstrumentQuery {
-                query: "USDT".into(),
-                asset_class: None,
-                instrument_types: vec![],
-                instrument_ids: vec![],
-                limit: 1,
-            },
-            deadline(),
-        )
-        .await
-        .unwrap()
-        .into_parts()
-        .unwrap()
-        .0;
-    emit("search", &search);
-    assert_eq!(search["results"].as_array().unwrap().len(), 1);
-    assert_eq!(search["truncated"], true);
+    Box::pin(rolling_quotes_preserve_provider_fields(
+        app,
+        resolved,
+        source_session,
+    ))
+    .await;
+    Box::pin(catalogue_search_filters_before_limit(
+        app,
+        resolved,
+        source_session,
+        http,
+    ))
+    .await;
+    Box::pin(window_rejects_unclosed_range(
+        app,
+        resolved,
+        source_session,
+        business,
+        ch,
+        http,
+    ))
+    .await;
+}
+
+async fn history_interval_acquisitions(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+    wal: &mut Wal,
+) {
+    let NativeSourceFixture {
+        app,
+        resolved,
+        source_session,
+        ch,
+        http,
+        human,
+        ..
+    } = fixture;
     for minutes in [1, 3, 5, 15, 30, 60, 120, 240, 7] {
         let end = i64::from(minutes) * 2 * 60_000_000_000;
         let request = WindowRequest {
@@ -1057,9 +1249,9 @@ async fn native_source_application() {
         };
         let initial = app
             .window(
-                &resolved,
-                &source_session,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                resolved,
+                source_session,
+                &mut store(business.client_mut().await.unwrap(), ch),
                 &request,
             )
             .await
@@ -1075,7 +1267,7 @@ async fn native_source_application() {
                 resolved.clone(),
                 source_session.clone(),
                 human.clone(),
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                &mut store(business.client_mut().await.unwrap(), ch),
                 AcquisitionRequest {
                     instrument_id: "BTCUSDT.BINANCE",
                     semantic: &semantic(minutes),
@@ -1094,7 +1286,7 @@ async fn native_source_application() {
                     resolved.clone(),
                     source_session.clone(),
                     human.clone(),
-                    &mut store(business.client_mut().await.unwrap(), &ch),
+                    &mut store(business.client_mut().await.unwrap(), ch),
                     AcquisitionRequest {
                         instrument_id: "BTCUSDT.BINANCE",
                         semantic: &semantic(minutes),
@@ -1117,7 +1309,7 @@ async fn native_source_application() {
                     resolved.clone(),
                     source_session.clone(),
                     human.clone(),
-                    &mut store(business.client_mut().await.unwrap(), &ch),
+                    &mut store(business.client_mut().await.unwrap(), ch),
                     AcquisitionRequest {
                         instrument_id: "ETHUSDT.BINANCE",
                         semantic: &semantic(1),
@@ -1133,7 +1325,7 @@ async fn native_source_application() {
             let before = http.calls().len();
             assert!(matches!(
                 work.start(
-                    &mut store(business.client_mut().await.unwrap(), &ch),
+                    &mut store(business.client_mut().await.unwrap(), ch),
                     &wrong,
                     AT
                 )
@@ -1142,9 +1334,9 @@ async fn native_source_application() {
             ));
             assert!(matches!(
                 app.acquisition_status(
-                    &resolved,
-                    &source_session,
-                    &mut store(business.client_mut().await.unwrap(), &ch),
+                    resolved,
+                    source_session,
+                    &mut store(business.client_mut().await.unwrap(), ch),
                     work.id(),
                     Some(&wrong)
                 )
@@ -1155,7 +1347,7 @@ async fn native_source_application() {
             wrong.close().await.unwrap();
         }
         work.start(
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             &execution,
             AT,
         )
@@ -1163,8 +1355,8 @@ async fn native_source_application() {
         .unwrap();
         let segments = work
             .capture(
-                &app,
-                &mut wal,
+                app,
+                wal,
                 CaptureRequest {
                     segment_id: &format!("native-{minutes}"),
                     capture_id: &format!("capture-{minutes}"),
@@ -1179,8 +1371,8 @@ async fn native_source_application() {
             assert!(matches!(
                 other
                     .publish(
-                        &mut store(business.client_mut().await.unwrap(), &ch),
-                        &wal,
+                        &mut store(business.client_mut().await.unwrap(), ch),
+                        wal,
                         &segments,
                         AT
                     )
@@ -1190,8 +1382,8 @@ async fn native_source_application() {
         }
         let output = work
             .publish(
-                &mut store(business.client_mut().await.unwrap(), &ch),
-                &wal,
+                &mut store(business.client_mut().await.unwrap(), ch),
+                wal,
                 &segments,
                 AT,
             )
@@ -1206,9 +1398,9 @@ async fn native_source_application() {
         execution.close().await.unwrap();
         let result = app
             .window(
-                &resolved,
-                &source_session,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                resolved,
+                source_session,
+                &mut store(business.client_mut().await.unwrap(), ch),
                 &request,
             )
             .await
@@ -1229,9 +1421,9 @@ async fn native_source_application() {
         );
         let latest = app
             .latest(
-                &resolved,
-                &source_session,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                resolved,
+                source_session,
+                &mut store(business.client_mut().await.unwrap(), ch),
                 "BTCUSDT.BINANCE",
                 &semantic(minutes),
             )
@@ -1248,7 +1440,7 @@ async fn native_source_application() {
             let execution = lease(stale.id()).await;
             stale
                 .start(
-                    &mut store(business.client_mut().await.unwrap(), &ch),
+                    &mut store(business.client_mut().await.unwrap(), ch),
                     &execution,
                     AT,
                 )
@@ -1256,8 +1448,8 @@ async fn native_source_application() {
                 .unwrap();
             let extra = stale
                 .capture(
-                    &app,
-                    &mut wal,
+                    app,
+                    wal,
                     CaptureRequest {
                         segment_id: "stale",
                         capture_id: "stale",
@@ -1275,8 +1467,8 @@ async fn native_source_application() {
             assert_eq!(http.calls().len(), before);
             let completed = stale
                 .publish(
-                    &mut store(business.client_mut().await.unwrap(), &ch),
-                    &wal,
+                    &mut store(business.client_mut().await.unwrap(), ch),
+                    wal,
                     &extra,
                     AT,
                 )
@@ -1291,31 +1483,58 @@ async fn native_source_application() {
             execution.close().await.unwrap();
         }
     }
+}
+
+async fn history_chart_calculation(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+) -> (ChartQuery, Value) {
+    let NativeSourceFixture {
+        source_session,
+        app,
+        resolved,
+        ch,
+        http,
+        ..
+    } = fixture;
     // Current installed factory -> native catalog/admission -> original durable Storage
     // proof -> actual isolated mathematics -> atomic Product schema, no acquisition.
     installation_mutations();
     let query = chart_query();
-    let caps = query.capabilities(&source_session).unwrap();
+    let caps = query.capabilities(source_session).unwrap();
     emit("chart_capabilities", &caps);
-    let catalog = query.catalog(&source_session).unwrap();
+    let catalog = query.catalog(source_session).unwrap();
     emit("chart_catalog", &catalog);
     let entries = caps["capabilities"].as_array().unwrap();
     assert_eq!(entries.len(), 14);
-    assert_eq!(entries.iter().filter(|entry| entry["provider_id"] == "onlyalpha.indicator.native").count(), 14);
     assert_eq!(
-        entries.iter().filter(|entry| entry["type_id"] == "onlyalpha.indicator.sma"
-            && entry["semantic_version"] == "2").count(),
+        entries
+            .iter()
+            .filter(|entry| entry["provider_id"] == "onlyalpha.indicator.native")
+            .count(),
+        14
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|entry| entry["type_id"] == "onlyalpha.indicator.sma"
+                && entry["semantic_version"] == "2")
+            .count(),
         1
     );
     assert_eq!(catalog["calculations"].as_array().unwrap().len(), 14);
-    assert!(catalog["calculations"].as_array().unwrap().iter().all(|entry| {
-        entry["parameter_sweep_allowed"] == false
-    }));
+    assert!(
+        catalog["calculations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| { entry["parameter_sweep_allowed"] == false })
+    );
     let original = app
         .window(
-            &resolved,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "BTCUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -1340,11 +1559,11 @@ async fn native_source_application() {
         let request = chart_request(&original, capability, None);
         let result = evaluate_chart(
             &query,
-            &app,
-            &resolved,
-            &source_session,
-            &mut business,
-            &ch,
+            app,
+            resolved,
+            source_session,
+            business,
+            ch,
             &request,
             None,
         )
@@ -1385,10 +1604,10 @@ async fn native_source_application() {
         assert!(matches!(
             query
                 .prepare(
-                    &app,
+                    app,
                     resolved.as_ref(),
-                    &source_session,
-                    &mut store(business.client_mut().await.unwrap(), &ch),
+                    source_session,
+                    &mut store(business.client_mut().await.unwrap(), ch),
                     onlyalpha_backend::application::chart::ChartInput {
                         raw: &invalid.to_string(),
                         preview_stream: None,
@@ -1402,10 +1621,10 @@ async fn native_source_application() {
     let pending_request = chart_request(&original, &caps["capabilities"][0], None);
     let pending = query
         .prepare(
-            &app,
+            app,
             resolved.as_ref(),
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             onlyalpha_backend::application::chart::ChartInput {
                 raw: &pending_request.to_string(),
                 preview_stream: None,
@@ -1414,13 +1633,13 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
-    query.capabilities(&source_session).unwrap();
+    query.capabilities(source_session).unwrap();
     let second_pending = query
         .prepare(
-            &app,
+            app,
             resolved.as_ref(),
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             onlyalpha_backend::application::chart::ChartInput {
                 raw: &pending_request.to_string(),
                 preview_stream: None,
@@ -1430,22 +1649,28 @@ async fn native_source_application() {
         .await
         .unwrap();
     assert!(matches!(
-        query.capabilities(&source_session),
+        query.capabilities(source_session),
         Err(onlyalpha_backend::application::chart::Error::Capacity)
     ));
-    let cancellation = pending.cancellation().unwrap().expect("legacy worker cancellation");
+    let cancellation = pending
+        .cancellation()
+        .unwrap()
+        .expect("legacy worker cancellation");
     cancellation.cancel().unwrap();
     assert_eq!(
         cancellation.state(),
         onlyalpha_calculation_bridge::ProcessState::Joined
     );
-    query.capabilities(&source_session).unwrap(); // Actual cancel wait released capacity.
+    query.capabilities(source_session).unwrap(); // Actual cancel wait released capacity.
 
     assert!(
         pending.execute().is_err(),
         "cancelled invocation cannot retry a fresh process"
     );
-    let second_cancellation = second_pending.cancellation().unwrap().expect("legacy worker cancellation");
+    let second_cancellation = second_pending
+        .cancellation()
+        .unwrap()
+        .expect("legacy worker cancellation");
     assert_eq!(
         second_cancellation.state(),
         onlyalpha_calculation_bridge::ProcessState::Running
@@ -1455,10 +1680,10 @@ async fn native_source_application() {
     let dropped_request = chart_request(&original, &caps["capabilities"][0], None).to_string();
     let dropped = query
         .prepare(
-            &app,
+            app,
             resolved.as_ref(),
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             onlyalpha_backend::application::chart::ChartInput {
                 raw: &dropped_request,
                 preview_stream: None,
@@ -1467,20 +1692,23 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
-    let control = dropped.cancellation().unwrap().expect("legacy worker cancellation");
+    let control = dropped
+        .cancellation()
+        .unwrap()
+        .expect("legacy worker cancellation");
     drop(dropped);
     assert_eq!(
         control.state(),
         onlyalpha_calculation_bridge::ProcessState::Joined
     );
-    query.capabilities(&source_session).unwrap();
+    query.capabilities(source_session).unwrap();
     let closing = chart_query();
     let prepared = closing
         .prepare(
-            &app,
+            app,
             resolved.as_ref(),
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             onlyalpha_backend::application::chart::ChartInput {
                 raw: &dropped_request,
                 preview_stream: None,
@@ -1489,7 +1717,10 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
-    let control = prepared.cancellation().unwrap().expect("legacy worker cancellation");
+    let control = prepared
+        .cancellation()
+        .unwrap()
+        .expect("legacy worker cancellation");
     drop(closing);
     assert_eq!(
         control.state(),
@@ -1501,10 +1732,10 @@ async fn native_source_application() {
     assert!(matches!(
         query
             .prepare(
-                &app,
+                app,
                 resolved.as_ref(),
-                &source_session,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                source_session,
+                &mut store(business.client_mut().await.unwrap(), ch),
                 onlyalpha_backend::application::chart::ChartInput {
                     raw: &invalid.to_string(),
                     preview_stream: None,
@@ -1519,10 +1750,10 @@ async fn native_source_application() {
     assert!(matches!(
         query
             .prepare(
-                &app,
+                app,
                 resolved.as_ref(),
-                &source_session,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                source_session,
+                &mut store(business.client_mut().await.unwrap(), ch),
                 onlyalpha_backend::application::chart::ChartInput {
                     raw: &invalid.to_string(),
                     preview_stream: None,
@@ -1537,9 +1768,9 @@ async fn native_source_application() {
     incomplete["window"]["target_bar_count"] = json!(3);
     let gap = app
         .window(
-            &resolved,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "BTCUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -1562,11 +1793,11 @@ async fn native_source_application() {
         .count();
     let value = evaluate_chart(
         &query,
-        &app,
-        &resolved,
-        &source_session,
-        &mut business,
-        &ch,
+        app,
+        resolved,
+        source_session,
+        business,
+        ch,
         &incomplete,
         None,
     )
@@ -1584,24 +1815,45 @@ async fn native_source_application() {
             .count(),
         before_incomplete
     );
+    (query, caps)
+}
+
+async fn resume_partial_history(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+    mut wal: Wal,
+) -> Wal {
+    let NativeSourceFixture {
+        http,
+        executable,
+        id,
+        reference,
+        source_session,
+        resolved,
+        human,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // A later malformed page preserves the first original durable occurrence, then
     // a fresh Work/lease reads that exact sealed prefix and requests only the gap.
     let partial_factory =
         spot_source::test_support::controlled_factory(&http.url, "ws://127.0.0.1:1", 1);
     let partial_resolver = Resolver::new(
-        vec![Installed::from_executable(partial_factory, &executable).unwrap()],
+        vec![Installed::from_executable(partial_factory, executable).unwrap()],
         spot_source::test_support::trust(),
         Arc::new(FixedClock(std::sync::atomic::AtomicI64::new(NOW))),
     )
     .unwrap();
     let snapshot = Integrations::new(business.client_mut().await.unwrap())
-        .read(&id, 1000, WORK)
+        .read(id, 1000, WORK)
         .await
         .unwrap()
         .unwrap();
     let partial_resolved = Arc::new(
         partial_resolver
-            .resolve(&snapshot, &reference, &source_session, None)
+            .resolve(&snapshot, reference, source_session, None)
             .unwrap(),
     );
     let mut partial = app
@@ -1609,7 +1861,7 @@ async fn native_source_application() {
             partial_resolved.clone(),
             source_session.clone(),
             human.clone(),
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             AcquisitionRequest {
                 instrument_id: "ETHUSDT.BINANCE",
                 semantic: &semantic(1),
@@ -1625,7 +1877,7 @@ async fn native_source_application() {
     let execution = lease(partial.id()).await;
     partial
         .start(
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             &execution,
             AT,
         )
@@ -1634,7 +1886,7 @@ async fn native_source_application() {
     http.repeat.store(true, Ordering::SeqCst);
     let captured = partial
         .capture(
-            &app,
+            app,
             &mut wal,
             CaptureRequest {
                 segment_id: "partial",
@@ -1652,12 +1904,12 @@ async fn native_source_application() {
     assert_eq!(raw[0]["canonical_facts"].as_array().unwrap().len(), 1);
     assert!(raw[1]["canonical_facts"].as_array().unwrap().is_empty());
     assert!(
-        matches!(partial.publish(&mut store(business.client_mut().await.unwrap(),&ch),&wal,&captured,AT).await,Err(e) if Some(e)==captured.failure())
+        matches!(partial.publish(&mut store(business.client_mut().await.unwrap(),ch),&wal,&captured,AT).await,Err(e) if Some(e)==captured.failure())
     );
     drop(captured);
     execution.close().await.unwrap();
     assert!(
-        store(business.client_mut().await.unwrap(), &ch)
+        store(business.client_mut().await.unwrap(), ch)
             .catalog()
             .latest_attempt(&original)
             .await
@@ -1667,9 +1919,9 @@ async fn native_source_application() {
     );
     let prefix = app
         .window(
-            &resolved,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "ETHUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -1686,9 +1938,9 @@ async fn native_source_application() {
     assert_eq!(prefix["coverage"]["status"], "COMPLETE");
     let partial_status = app
         .acquisition_status(
-            &resolved,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &original,
             None,
         )
@@ -1707,14 +1959,14 @@ async fn native_source_application() {
         "60000000000"
     );
     drop(wal);
-    let mut wal = Wal::new(Path::new(&root), WORK).unwrap();
+    let mut wal = Wal::new(Path::new(root), WORK).unwrap();
     http.repeat.store(false, Ordering::SeqCst);
     let mut resumed = app
         .prepare_acquisition(
             partial_resolved,
             source_session.clone(),
             human.clone(),
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             AcquisitionRequest {
                 instrument_id: "ETHUSDT.BINANCE",
                 semantic: &semantic(1),
@@ -1730,7 +1982,7 @@ async fn native_source_application() {
     let execution = lease(resumed.id()).await;
     resumed
         .start(
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             &execution,
             AT,
         )
@@ -1739,7 +1991,7 @@ async fn native_source_application() {
     let before = http.calls().len();
     let captured = resumed
         .capture(
-            &app,
+            app,
             &mut wal,
             CaptureRequest {
                 segment_id: "resumed",
@@ -1761,7 +2013,7 @@ async fn native_source_application() {
     assert!(klines[0].contains("startTime=60000"));
     let result = resumed
         .publish(
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             &wal,
             &captured,
             AT,
@@ -1776,9 +2028,9 @@ async fn native_source_application() {
     execution.close().await.unwrap();
     let status = app
         .acquisition_status(
-            &resolved,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &original,
             None,
         )
@@ -1789,7 +2041,7 @@ async fn native_source_application() {
         .0;
     emit("acquisition", &status);
     assert_eq!(status["status"], "COMPLETE");
-    let intent = store(business.client_mut().await.unwrap(), &ch)
+    let intent = store(business.client_mut().await.unwrap(), ch)
         .catalog()
         .intent(&original)
         .await
@@ -1802,27 +2054,46 @@ async fn native_source_application() {
             .unwrap()
             .starts_with("2026-10-22T00:00:00")
     );
+    wal
+}
 
+async fn conflicting_history_occurrences(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+) -> Wal {
+    let NativeSourceFixture {
+        http,
+        executable,
+        id,
+        reference,
+        source_session,
+        resolved,
+        human,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // The same formal raw identity cannot stand for incompatible canonical outcomes.
-    let collision_root = Path::new(&root).with_file_name("collision-wal");
+    let collision_root = Path::new(root).with_file_name("collision-wal");
     std::fs::create_dir(&collision_root).unwrap();
     let mut collision_wal = Wal::new(&collision_root, WORK).unwrap();
     let collision_factory =
         spot_source::test_support::controlled_factory(&http.url, "ws://127.0.0.1:1", 1);
     let collision_resolver = Resolver::new(
-        vec![Installed::from_executable(collision_factory, &executable).unwrap()],
+        vec![Installed::from_executable(collision_factory, executable).unwrap()],
         spot_source::test_support::trust(),
         Arc::new(ConstantClock),
     )
     .unwrap();
     let snapshot = Integrations::new(business.client_mut().await.unwrap())
-        .read(&id, 1000, WORK)
+        .read(id, 1000, WORK)
         .await
         .unwrap()
         .unwrap();
     let collision_resolved = Arc::new(
         collision_resolver
-            .resolve(&snapshot, &reference, &source_session, None)
+            .resolve(&snapshot, reference, source_session, None)
             .unwrap(),
     );
     let mut collision = app
@@ -1830,7 +2101,7 @@ async fn native_source_application() {
             collision_resolved,
             source_session.clone(),
             human.clone(),
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             AcquisitionRequest {
                 instrument_id: "LTCUSDT.BINANCE",
                 semantic: &semantic(1),
@@ -1845,7 +2116,7 @@ async fn native_source_application() {
     let execution = lease(collision.id()).await;
     collision
         .start(
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             &execution,
             AT,
         )
@@ -1854,7 +2125,7 @@ async fn native_source_application() {
     http.repeat.store(true, Ordering::SeqCst);
     let captured = collision
         .capture(
-            &app,
+            app,
             &mut collision_wal,
             CaptureRequest {
                 segment_id: "collision",
@@ -1874,7 +2145,7 @@ async fn native_source_application() {
     assert!(matches!(
         collision
             .publish(
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                &mut store(business.client_mut().await.unwrap(), ch),
                 &collision_wal,
                 &captured,
                 AT
@@ -1890,7 +2161,7 @@ async fn native_source_application() {
     drop(captured);
     execution.close().await.unwrap();
     assert!(
-        store(business.client_mut().await.unwrap(), &ch)
+        store(business.client_mut().await.unwrap(), ch)
             .catalog()
             .latest_attempt(collision.id())
             .await
@@ -1900,9 +2171,9 @@ async fn native_source_application() {
     );
     let no_complete = app
         .window(
-            &resolved,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "LTCUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -1919,19 +2190,40 @@ async fn native_source_application() {
     assert_eq!(no_complete["coverage"]["status"], "INCOMPLETE");
     assert!(no_complete["bars"].as_array().unwrap().is_empty());
     http.repeat.store(false, Ordering::SeqCst);
-    let stream_root = Path::new(&root).with_file_name("stream-wal");
+    collision_wal
+}
+
+async fn realtime_delivery_and_chart(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+    query: &ChartQuery,
+    caps: &Value,
+) -> Snapshot {
+    let NativeSourceFixture {
+        ws,
+        id,
+        reference,
+        source_session,
+        resolver,
+        resolved,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
+    let stream_root = Path::new(root).with_file_name("stream-wal");
     std::fs::create_dir(&stream_root).unwrap();
     let stream_wal = Wal::new(&stream_root, WORK).unwrap();
     let sealed = stream_wal.sealed_handle().unwrap();
     let instrument = app
-        .reference(&resolved, &source_session, "BTCUSDT.BINANCE", deadline())
+        .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
         .await
         .unwrap();
     let mut stream = app
         .open_stream(
             resolved.clone(),
             instrument,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(80),
                 semantic: semantic(1),
@@ -1958,7 +2250,7 @@ async fn native_source_application() {
     let subscribed = stream
         .release(
             subscribed,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             AT,
         )
         .await
@@ -1967,7 +2259,7 @@ async fn native_source_application() {
         .unwrap()
         .0;
     emit("stream", &subscribed);
-    let recovering = delivery(&mut stream, &mut business, &ch)
+    let recovering = delivery(&mut stream, business, ch)
         .await
         .into_parts()
         .unwrap()
@@ -1983,11 +2275,11 @@ async fn native_source_application() {
     let original = sealed
         .read_sealed(&sealed.published_sealed().unwrap()[0])
         .unwrap();
-    std::fs::write(Path::new(&root).with_file_name("rebuild-original.json"),json!({"artifact":resolved.artifact_fingerprint(),"implementation":resolved.implementation_fingerprint(),"binding":resolved.binding_fingerprint(),"fact":original[0]["canonical_facts"][0]}).to_string()).unwrap();
+    std::fs::write(Path::new(root).with_file_name("rebuild-original.json"),json!({"artifact":resolved.artifact_fingerprint(),"implementation":resolved.implementation_fingerprint(),"binding":resolved.binding_fingerprint(),"fact":original[0]["canonical_facts"][0]}).to_string()).unwrap();
     let closed = stream
         .release(
             pending,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             AT,
         )
         .await
@@ -1997,10 +2289,10 @@ async fn native_source_application() {
         .0;
     emit("stream", &closed);
     assert_eq!(closed["event"], "BAR_CLOSED");
-    ready(&mut stream, &mut business, &ch).await;
+    ready(&mut stream, business, ch).await;
     assert_eq!(
         stream
-            .drain(&mut store(business.client_mut().await.unwrap(), &ch), AT)
+            .drain(&mut store(business.client_mut().await.unwrap(), ch), AT)
             .await
             .unwrap(),
         0
@@ -2022,7 +2314,7 @@ async fn native_source_application() {
         3,
         "all observations retained while one preview is coalesced"
     );
-    let preview = delivery(&mut stream, &mut business, &ch).await;
+    let preview = delivery(&mut stream, business, ch).await;
     let (preview, fence) = preview.into_parts().unwrap();
     emit("stream", &preview);
     assert_eq!(preview["event"], "BAR_PREVIEW");
@@ -2046,7 +2338,7 @@ async fn native_source_application() {
         .unwrap();
     ws.barrier().await;
     assert!(fence.check().is_err());
-    let (replacement, fence) = delivery(&mut stream, &mut business, &ch)
+    let (replacement, fence) = delivery(&mut stream, business, ch)
         .await
         .into_parts()
         .unwrap();
@@ -2062,18 +2354,18 @@ async fn native_source_application() {
     // A different legitimate resolve/window issuance joins the original stream by
     // full Source/context/plan identity, retaining both original fences.
     let snapshot = Integrations::new(business.client_mut().await.unwrap())
-        .read(&id, 1000, WORK)
+        .read(id, 1000, WORK)
         .await
         .unwrap()
         .unwrap();
     let distinct = resolver
-        .resolve(&snapshot, &reference, &source_session, None)
+        .resolve(&snapshot, reference, source_session, None)
         .unwrap();
     let history = app
         .window(
             &distinct,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "BTCUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -2095,23 +2387,23 @@ async fn native_source_application() {
         .unwrap();
     let request = chart_request(&history, capability, Some(&uid(80)));
     let retained_chart = evaluate_chart(
-        &query,
-        &app,
+        query,
+        app,
         &distinct,
-        &source_session,
-        &mut business,
-        &ch,
+        source_session,
+        business,
+        ch,
         &request,
         Some(&stream),
     )
     .await;
     let fresh = evaluate_chart(
-        &query,
-        &app,
+        query,
+        app,
         &distinct,
-        &source_session,
-        &mut business,
-        &ch,
+        source_session,
+        business,
+        ch,
         &request,
         Some(&stream),
     )
@@ -2136,7 +2428,7 @@ async fn native_source_application() {
     );
     assert_eq!(
         stream
-            .drain(&mut store(business.client_mut().await.unwrap(), &ch), AT)
+            .drain(&mut store(business.client_mut().await.unwrap(), ch), AT)
             .await
             .unwrap(),
         0,
@@ -2144,7 +2436,7 @@ async fn native_source_application() {
     );
     ws.send.send(kline(NOW / 1_000_000, true)).unwrap();
     ws.barrier().await;
-    let closed = delivery(&mut stream, &mut business, &ch)
+    let closed = delivery(&mut stream, business, ch)
         .await
         .into_parts()
         .unwrap()
@@ -2158,12 +2450,12 @@ async fn native_source_application() {
         ))
     ));
     let value = evaluate_chart(
-        &query,
-        &app,
+        query,
+        app,
         &distinct,
-        &source_session,
-        &mut business,
-        &ch,
+        source_session,
+        business,
+        ch,
         &request,
         Some(&stream),
     )
@@ -2180,7 +2472,7 @@ async fn native_source_application() {
     );
     assert_eq!(
         stream
-            .drain(&mut store(business.client_mut().await.unwrap(), &ch), AT)
+            .drain(&mut store(business.client_mut().await.unwrap(), ch), AT)
             .await
             .unwrap(),
         0
@@ -2209,14 +2501,14 @@ async fn native_source_application() {
         1,
         "failed actual Store drain retains original sealed bytes"
     );
-    let failed = delivery(&mut stream, &mut business, &ch)
+    let failed = delivery(&mut stream, business, ch)
         .await
         .into_parts()
         .unwrap()
         .0;
     emit("stream", &failed);
     assert_eq!(failed["state"], "FAILED");
-    let error = delivery(&mut stream, &mut business, &ch)
+    let error = delivery(&mut stream, business, ch)
         .await
         .into_parts()
         .unwrap()
@@ -2229,21 +2521,42 @@ async fn native_source_application() {
     assert!(Wal::new(&stream_root, WORK).is_err());
     drop(sealed);
     drop(Wal::new(&stream_root, WORK).unwrap());
+    snapshot
+}
+
+async fn stream_admission_and_wal_loss(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+    snapshot: &Snapshot,
+) {
+    let NativeSourceFixture {
+        http,
+        ws,
+        reference,
+        source_session,
+        clock,
+        resolver,
+        resolved,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // Every admitted session has its own actual protected WAL root and writer.
     let mut sessions = vec![];
     for n in 0..8 {
-        let path = Path::new(&root).with_file_name(format!("concurrent-{n}"));
+        let path = Path::new(root).with_file_name(format!("concurrent-{n}"));
         std::fs::create_dir(&path).unwrap();
         let wal = Wal::new(&path, WORK).unwrap();
         let instrument = app
-            .reference(&resolved, &source_session, "BTCUSDT.BINANCE", deadline())
+            .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
             .await
             .unwrap();
         let mut stream = app
             .open_stream(
                 resolved.clone(),
                 instrument,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                &mut store(business.client_mut().await.unwrap(), ch),
                 StreamRequest {
                     stream_id: uid(100 + n),
                     semantic: semantic(1),
@@ -2259,14 +2572,14 @@ async fn native_source_application() {
             )
             .await
             .unwrap();
-        ready(&mut stream, &mut business, &ch).await;
+        ready(&mut stream, business, ch).await;
         sessions.push((path, stream));
     }
-    let path = Path::new(&root).with_file_name("ninth");
+    let path = Path::new(root).with_file_name("ninth");
     std::fs::create_dir(&path).unwrap();
     let wal = Wal::new(&path, WORK).unwrap();
     let instrument = app
-        .reference(&resolved, &source_session, "BTCUSDT.BINANCE", deadline())
+        .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
         .await
         .unwrap();
     let before = http.calls().len();
@@ -2274,7 +2587,7 @@ async fn native_source_application() {
         app.open_stream(
             resolved.clone(),
             instrument,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(109),
                 semantic: semantic(1),
@@ -2302,7 +2615,7 @@ async fn native_source_application() {
     for (path, mut stream) in sessions {
         assert_eq!(
             stream
-                .drain(&mut store(business.client_mut().await.unwrap(), &ch), AT)
+                .drain(&mut store(business.client_mut().await.unwrap(), ch), AT)
                 .await
                 .unwrap(),
             0
@@ -2314,16 +2627,27 @@ async fn native_source_application() {
     }
     ws.wait_closed(ws.connections.load(Ordering::SeqCst), None)
         .await;
+    Box::pin(wal_loss_terminates_stream(
+        app,
+        resolved,
+        source_session,
+        business,
+        ch,
+        ws,
+        clock,
+        Path::new(root),
+    ))
+    .await;
     // A staged reference proof cannot be transferred to another actual
     // Resource instance even with the same current metadata and artifact identity.
     let other = resolver
-        .resolve(&snapshot, &reference, &source_session, None)
+        .resolve(snapshot, reference, source_session, None)
         .unwrap();
     let wrong_reference = app
-        .reference(&other, &source_session, "BTCUSDT.BINANCE", deadline())
+        .reference(&other, source_session, "BTCUSDT.BINANCE", deadline())
         .await
         .unwrap();
-    let path = Path::new(&root).with_file_name("wrong-resource");
+    let path = Path::new(root).with_file_name("wrong-resource");
     std::fs::create_dir(&path).unwrap();
     let wal = Wal::new(&path, WORK).unwrap();
     let before = http.calls().len();
@@ -2331,7 +2655,7 @@ async fn native_source_application() {
         app.open_stream(
             resolved.clone(),
             wrong_reference,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(114),
                 semantic: semantic(1),
@@ -2356,13 +2680,32 @@ async fn native_source_application() {
             .unwrap()
             .is_empty()
     );
+}
+
+async fn stream_gap_recovery_and_derived_bars(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+    snapshot: &Snapshot,
+) {
+    let NativeSourceFixture {
+        http,
+        ws,
+        reference,
+        source_session,
+        executable,
+        resolved,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // A multi-row native recovery observation overlaps one existing closed prefix
     // and one real gap. INCOMPLETE does not mean the prefix has no canonical facts.
     let before_gap = app
         .window(
-            &resolved,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "BTCUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -2380,9 +2723,9 @@ async fn native_source_application() {
     assert_eq!(before_gap["coverage"]["gaps"].as_array().unwrap().len(), 1);
     let prefix = app
         .window(
-            &resolved,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "BTCUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -2413,7 +2756,7 @@ async fn native_source_application() {
         vec![
             Installed::from_executable(
                 spot_source::test_support::controlled_factory(&http.url, &ws.url, 1000),
-                &executable,
+                executable,
             )
             .unwrap(),
         ],
@@ -2423,14 +2766,14 @@ async fn native_source_application() {
     .unwrap();
     let mixed = Arc::new(
         mixed_resolver
-            .resolve(&snapshot, &reference, &source_session, None)
+            .resolve(snapshot, reference, source_session, None)
             .unwrap(),
     );
-    let path = Path::new(&root).with_file_name("derived-gap");
+    let path = Path::new(root).with_file_name("derived-gap");
     std::fs::create_dir(&path).unwrap();
     let wal = Wal::new(&path, WORK).unwrap();
     let instrument = app
-        .reference(&mixed, &source_session, "BTCUSDT.BINANCE", deadline())
+        .reference(&mixed, source_session, "BTCUSDT.BINANCE", deadline())
         .await
         .unwrap();
     let before = http.calls().len();
@@ -2438,7 +2781,7 @@ async fn native_source_application() {
         app.open_stream(
             mixed.clone(),
             instrument,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(115),
                 semantic: semantic(7),
@@ -2473,12 +2816,12 @@ async fn native_source_application() {
         } else {
             "mixed-prefix-good"
         };
-        let path = Path::new(&root).with_file_name(name);
+        let path = Path::new(root).with_file_name(name);
         std::fs::create_dir(&path).unwrap();
         let wal = Wal::new(&path, WORK).unwrap();
         let original = wal.sealed_handle().unwrap();
         let instrument = app
-            .reference(&mixed, &source_session, "BTCUSDT.BINANCE", deadline())
+            .reference(&mixed, source_session, "BTCUSDT.BINANCE", deadline())
             .await
             .unwrap();
         http.changed.store(changed, Ordering::SeqCst);
@@ -2486,7 +2829,7 @@ async fn native_source_application() {
             .open_stream(
                 mixed.clone(),
                 instrument,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                &mut store(business.client_mut().await.unwrap(), ch),
                 StreamRequest {
                     stream_id: uid(if changed { 116 } else { 117 }),
                     semantic: semantic(1),
@@ -2508,7 +2851,7 @@ async fn native_source_application() {
                 match stream
                     .release(
                         pending,
-                        &mut store(business.client_mut().await.unwrap(), &ch),
+                        &mut store(business.client_mut().await.unwrap(), ch),
                         AT,
                     )
                     .await
@@ -2528,7 +2871,7 @@ async fn native_source_application() {
             let raw = original.read_sealed(&ids[0]).unwrap();
             assert_eq!(raw[0]["canonical_facts"].as_array().unwrap().len(), 2);
         } else {
-            ready(&mut stream, &mut business, &ch).await;
+            ready(&mut stream, business, ch).await;
         }
         http.changed.store(false, Ordering::SeqCst);
         stream.close().await.unwrap();
@@ -2541,7 +2884,7 @@ async fn native_source_application() {
             assert!(matches!(
                 drain_market_capture(
                     &mut original,
-                    &mut store(business.client_mut().await.unwrap(), &ch),
+                    &mut store(business.client_mut().await.unwrap(), ch),
                     &ids,
                     AT
                 )
@@ -2557,8 +2900,8 @@ async fn native_source_application() {
     let completed = app
         .window(
             &mixed,
-            &source_session,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "BTCUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -2577,18 +2920,18 @@ async fn native_source_application() {
     assert_eq!(completed["coverage"]["status"], "COMPLETE");
     // Actual derived stream bootstraps only proved native bars; cursor stays 1m,
     // derived closes are executor output and carry no copied provider timing.
-    let path = Path::new(&root).with_file_name("derived-stream");
+    let path = Path::new(root).with_file_name("derived-stream");
     std::fs::create_dir(&path).unwrap();
     let wal = Wal::new(&path, WORK).unwrap();
     let instrument = app
-        .reference(&mixed, &source_session, "BTCUSDT.BINANCE", deadline())
+        .reference(&mixed, source_session, "BTCUSDT.BINANCE", deadline())
         .await
         .unwrap();
     let mut derived = app
         .open_stream(
             mixed.clone(),
             instrument,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(118),
                 semantic: semantic(7),
@@ -2604,13 +2947,13 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
-    ready(&mut derived, &mut business, &ch).await;
+    ready(&mut derived, business, ch).await;
     mixed_clock.0.store(NOW + 420_000_000_000, Ordering::SeqCst);
     ws.send
         .send(kline(NOW / 1_000_000 + 120000, false))
         .unwrap();
     ws.barrier().await;
-    let preview = delivery(&mut derived, &mut business, &ch)
+    let preview = delivery(&mut derived, business, ch)
         .await
         .into_parts()
         .unwrap()
@@ -2626,7 +2969,7 @@ async fn native_source_application() {
     }
     let mut closes = 0;
     for _ in 0..6 {
-        let event = delivery(&mut derived, &mut business, &ch)
+        let event = delivery(&mut derived, business, ch)
             .await
             .into_parts()
             .unwrap()
@@ -2647,6 +2990,24 @@ async fn native_source_application() {
     assert_eq!(closes, 1);
     derived.close().await.unwrap();
     drop(derived);
+}
+
+async fn reliable_stream_overflow(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+    snapshot: &Snapshot,
+) {
+    let NativeSourceFixture {
+        http,
+        ws,
+        reference,
+        source_session,
+        executable,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // Bounded reliable output never drops a close silently; actual remote
     // socket close is the barrier proving the overflowing writer has stopped.
     let overflow_clock = Arc::new(FixedClock(std::sync::atomic::AtomicI64::new(NOW)));
@@ -2654,7 +3015,7 @@ async fn native_source_application() {
         vec![
             Installed::from_executable(
                 spot_source::test_support::controlled_factory(&http.url, &ws.url, 1000),
-                &executable,
+                executable,
             )
             .unwrap(),
         ],
@@ -2664,17 +3025,17 @@ async fn native_source_application() {
     .unwrap();
     let overflow_resolved = Arc::new(
         overflow_resolver
-            .resolve(&snapshot, &reference, &source_session, None)
+            .resolve(snapshot, reference, source_session, None)
             .unwrap(),
     );
-    let overflow_path = Path::new(&root).with_file_name("overflow");
+    let overflow_path = Path::new(root).with_file_name("overflow");
     std::fs::create_dir(&overflow_path).unwrap();
     let wal = Wal::new(&overflow_path, WORK).unwrap();
     let retained = wal.sealed_handle().unwrap();
     let instrument = app
         .reference(
             &overflow_resolved,
-            &source_session,
+            source_session,
             "BTCUSDT.BINANCE",
             deadline(),
         )
@@ -2684,7 +3045,7 @@ async fn native_source_application() {
         .open_stream(
             overflow_resolved,
             instrument,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(112),
                 semantic: semantic(1),
@@ -2700,7 +3061,7 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
-    ready(&mut overflow, &mut business, &ch).await;
+    ready(&mut overflow, business, ch).await;
     overflow_clock
         .0
         .store(NOW + 257 * 60_000_000_000, Ordering::SeqCst);
@@ -2716,14 +3077,14 @@ async fn native_source_application() {
         .send(kline(NOW / 1_000_000 + 256 * 60000, true))
         .unwrap();
     ws.wait_closed(closed, Some(&overflow)).await;
-    let failed = delivery(&mut overflow, &mut business, &ch)
+    let failed = delivery(&mut overflow, business, ch)
         .await
         .into_parts()
         .unwrap()
         .0;
     emit("stream", &failed);
     assert_eq!(failed["state"], "FAILED");
-    let error = delivery(&mut overflow, &mut business, &ch)
+    let error = delivery(&mut overflow, business, ch)
         .await
         .into_parts()
         .unwrap()
@@ -2738,14 +3099,29 @@ async fn native_source_application() {
     drop(overflow);
     drop(retained);
     drop(Wal::new(&overflow_path, WORK).unwrap());
+}
+
+async fn conflicting_stream_occurrence(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+) {
+    let NativeSourceFixture {
+        http,
+        source_session,
+        resolved,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // A new provider occurrence must not replace the payload of an existing
     // canonical fact merely because its WAL segment/producer occurrence is new.
-    let conflict_path = Path::new(&root).with_file_name("changed-close");
+    let conflict_path = Path::new(root).with_file_name("changed-close");
     std::fs::create_dir(&conflict_path).unwrap();
     let wal = Wal::new(&conflict_path, WORK).unwrap();
     let original = wal.sealed_handle().unwrap();
     let instrument = app
-        .reference(&resolved, &source_session, "BTCUSDT.BINANCE", deadline())
+        .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
         .await
         .unwrap();
     http.changed.store(true, Ordering::SeqCst);
@@ -2753,7 +3129,7 @@ async fn native_source_application() {
         .open_stream(
             resolved.clone(),
             instrument,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(111),
                 semantic: semantic(1),
@@ -2774,7 +3150,7 @@ async fn native_source_application() {
         match conflict
             .release(
                 pending,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                &mut store(business.client_mut().await.unwrap(), ch),
                 AT,
             )
             .await
@@ -2804,7 +3180,7 @@ async fn native_source_application() {
         matches!(
             drain_market_capture(
                 &mut retained,
-                &mut store(business.client_mut().await.unwrap(), &ch),
+                &mut store(business.client_mut().await.unwrap(), ch),
                 &ids,
                 AT
             )
@@ -2820,14 +3196,27 @@ async fn native_source_application() {
     assert_eq!(retained.published_sealed().unwrap(), ids);
     drop(retained);
     drop(restarted);
+}
+
+async fn blocked_baseline_recovery(fixture: &NativeSourceFixture, business: &mut AuthoritySession) {
+    let NativeSourceFixture {
+        http,
+        ws,
+        source_session,
+        resolved,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // An observation received while REST is still blocked is already sealed;
     // cancel closes the real writer and restart preserves its exact original bytes.
-    let blocked_path = Path::new(&root).with_file_name("blocked-baseline");
+    let blocked_path = Path::new(root).with_file_name("blocked-baseline");
     std::fs::create_dir(&blocked_path).unwrap();
     let wal = Wal::new(&blocked_path, WORK).unwrap();
     let sealed = wal.sealed_handle().unwrap();
     let instrument = app
-        .reference(&resolved, &source_session, "BTCUSDT.BINANCE", deadline())
+        .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
         .await
         .unwrap();
     *http.gate.0.lock().unwrap() = true;
@@ -2836,7 +3225,7 @@ async fn native_source_application() {
         .open_stream(
             resolved.clone(),
             instrument,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(110),
                 semantic: semantic(1),
@@ -2877,9 +3266,20 @@ async fn native_source_application() {
     let restarted = Wal::new(&blocked_path, WORK).unwrap();
     assert_eq!(restarted.read_sealed(&ids[0]).unwrap(), original);
     drop(restarted);
+}
+
+async fn persisted_probe_evidence(fixture: &NativeSourceFixture, business: &mut AuthoritySession) {
+    let NativeSourceFixture {
+        http,
+        ws,
+        resolved,
+        human,
+        app,
+        ..
+    } = fixture;
     // Real Probe uses maintained REST + depth WS, then exact append-only PG evidence.
     assert_eq!(
-        latest_probe(business.client_mut().await.unwrap(), &resolved)
+        latest_probe(business.client_mut().await.unwrap(), resolved)
             .await
             .unwrap()["status"],
         "UNKNOWN"
@@ -2894,7 +3294,7 @@ async fn native_source_application() {
         .await
         .unwrap();
     emit("probe_result", probe.document());
-    let stored_probe = latest_probe(business.client_mut().await.unwrap(), &resolved)
+    let stored_probe = latest_probe(business.client_mut().await.unwrap(), resolved)
         .await
         .unwrap();
     assert_eq!(stored_probe["status"], "READY");
@@ -2919,11 +3319,29 @@ async fn native_source_application() {
     business.client_mut().await.unwrap().execute("INSERT INTO public.integration_probe_attempt SELECT $1::text::uuid,integration_id,revision_fingerprint,type_id,type_descriptor_fingerprint,probe_contract_fingerprint,probe_configuration_fingerprint,runtime_configuration_fingerprint,started_at,completed_at,overall_status,$2,$3::text::json FROM public.integration_probe_attempt WHERE probe_attempt_id=$4::text::uuid",&[&uid(202),&fingerprint,&malformed.to_string(),&uid(200)]).await.unwrap();
     assert!(
         matches!(
-            latest_probe(business.client_mut().await.unwrap(), &resolved).await,
+            latest_probe(business.client_mut().await.unwrap(), resolved).await,
             Err(onlyalpha_backend::application::market_product::Error::Corrupt)
         ),
         "even correctly hashed stored Probe must prove its check/status relation"
     );
+    Box::pin(probe_faults_persist_public_status(
+        app, resolved, human, business, http, ws,
+    ))
+    .await;
+}
+
+async fn retained_integration_revision(
+    fixture: &NativeSourceFixture,
+    business: &mut AuthoritySession,
+) -> Wal {
+    let NativeSourceFixture {
+        authoring,
+        resolver,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // A newer head and UNKNOWN Probe cannot replace or disable an explicitly
     // selected retained Revision that is still ACTIVE and actually installed.
     let retained_id = IntegrationId::new(&uid(300)).unwrap();
@@ -2936,7 +3354,7 @@ async fn native_source_application() {
                 "Retained source",
             )
             .unwrap(),
-            &authoring,
+            authoring,
             AT.parse().unwrap(),
             WORK,
         )
@@ -2946,7 +3364,7 @@ async fn native_source_application() {
         .publish_revision(
             &PublishRevision::new(CommandId::new(&uid(302)).unwrap(), retained_id.clone(), 1)
                 .unwrap(),
-            &authoring,
+            authoring,
             AT.parse().unwrap(),
             1000,
             WORK,
@@ -2981,7 +3399,7 @@ async fn native_source_application() {
     let permitted = permitted
         .authenticate("Bearer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         .unwrap();
-    let retained_path = Path::new(&root).with_file_name("retained-source");
+    let retained_path = Path::new(root).with_file_name("retained-source");
     std::fs::create_dir(&retained_path).unwrap();
     let mut retained_wal = Wal::new(&retained_path, WORK).unwrap();
     let own = Arc::new(
@@ -2998,7 +3416,7 @@ async fn native_source_application() {
             own,
             permitted.clone(),
             own_human,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             AcquisitionRequest {
                 instrument_id: "BTCUSDT.BINANCE",
                 semantic: &semantic(1),
@@ -3013,7 +3431,7 @@ async fn native_source_application() {
     let execution = lease(own_work.id()).await;
     own_work
         .start(
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             &execution,
             AT,
         )
@@ -3021,7 +3439,7 @@ async fn native_source_application() {
         .unwrap();
     let captured = own_work
         .capture(
-            &app,
+            app,
             &mut retained_wal,
             CaptureRequest {
                 segment_id: "retained-source",
@@ -3035,7 +3453,7 @@ async fn native_source_application() {
         .unwrap();
     let complete = own_work
         .publish(
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             &retained_wal,
             &captured,
             AT,
@@ -3066,7 +3484,7 @@ async fn native_source_application() {
                 Some(ObjectDocument::new("{\"instrument\":\"ETHUSDT\"}", WORK).unwrap()),
             )
             .unwrap(),
-            &authoring,
+            authoring,
             AT.parse().unwrap(),
             1000,
             WORK,
@@ -3081,7 +3499,7 @@ async fn native_source_application() {
                 version + 1,
             )
             .unwrap(),
-            &authoring,
+            authoring,
             AT.parse().unwrap(),
             1000,
             WORK,
@@ -3116,7 +3534,7 @@ async fn native_source_application() {
         .window(
             &old_resolved,
             &permitted,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             &WindowRequest {
                 instrument_id: "BTCUSDT.BINANCE".into(),
                 semantic: semantic(1),
@@ -3135,6 +3553,14 @@ async fn native_source_application() {
     assert_eq!(old_window["resolved_start_ns"], "0");
     assert_eq!(old_window["resolved_end_ns"], "120000000000");
     assert_eq!(old_window["bars"].as_array().unwrap().len(), 2);
+    Box::pin(endpoint_profile_revision_preserves_source_identity(
+        &changed,
+        &retained_id,
+        authoring,
+        resolver,
+        business,
+    ))
+    .await;
     let missing = Resolver::new(
         vec![],
         spot_source::test_support::trust(),
@@ -3145,20 +3571,35 @@ async fn native_source_application() {
         missing.resolve(&changed, &old_reference, &permitted, None),
         Err(onlyalpha_backend::application::market_product::Error::Unavailable)
     ));
+    retained_wal
+}
+
+async fn withdraw_source_access(fixture: &NativeSourceFixture, business: &mut AuthoritySession) {
+    let NativeSourceFixture {
+        ws,
+        authority,
+        source_session,
+        asset_fence,
+        resolved,
+        app,
+        ch,
+        root,
+        ..
+    } = fixture;
     // Original Source withdrawal fences a queued physical send while Host
     // persistence of already accepted occurrences remains available.
-    let revoked_path = Path::new(&root).with_file_name("revoked");
+    let revoked_path = Path::new(root).with_file_name("revoked");
     std::fs::create_dir(&revoked_path).unwrap();
     let wal = Wal::new(&revoked_path, WORK).unwrap();
     let instrument = app
-        .reference(&resolved, &source_session, "BTCUSDT.BINANCE", deadline())
+        .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
         .await
         .unwrap();
     let mut revoked = app
         .open_stream(
             resolved.clone(),
             instrument,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             StreamRequest {
                 stream_id: uid(113),
                 semantic: semantic(1),
@@ -3174,14 +3615,14 @@ async fn native_source_application() {
         )
         .await
         .unwrap();
-    ready(&mut revoked, &mut business, &ch).await;
+    ready(&mut revoked, business, ch).await;
     ws.send.send(kline(NOW / 1_000_000, false)).unwrap();
     ws.barrier().await;
     let pending = revoked.next().await.unwrap().unwrap();
     let authorized = revoked
         .release(
             pending,
-            &mut store(business.client_mut().await.unwrap(), &ch),
+            &mut store(business.client_mut().await.unwrap(), ch),
             AT,
         )
         .await
@@ -3199,13 +3640,373 @@ async fn native_source_application() {
     let _ = revoked.close().await;
     assert_eq!(
         revoked
-            .drain(&mut store(business.client_mut().await.unwrap(), &ch), AT)
+            .drain(&mut store(business.client_mut().await.unwrap(), ch), AT)
             .await
             .unwrap(),
         1
     );
     drop(revoked);
     drop(Wal::new(&revoked_path, WORK).unwrap());
-    ws.close().await;
-    business.close().await.unwrap();
+}
+
+async fn rolling_quotes_preserve_provider_fields(
+    app: &Application,
+    resolved: &Resolved,
+    source_session: &Session,
+) {
+    let quotes = app
+        .quotes(
+            resolved,
+            source_session,
+            &["BTCUSDT.BINANCE".into(), "ETHUSDT.BINANCE".into()],
+            deadline(),
+        )
+        .await
+        .unwrap()
+        .into_parts()
+        .unwrap()
+        .0;
+    emit("quotes", &quotes);
+    assert_eq!(
+        quotes["quotes"],
+        json!([
+            {"instrument_id":"BTCUSDT.BINANCE","status":"AVAILABLE","last_price":"10.5000","change_pct":"2.50","change_basis":"ROLLING_24H","ts_event_ns":NOW.to_string()},
+            {"instrument_id":"ETHUSDT.BINANCE","status":"UNAVAILABLE","last_price":null,"change_pct":null,"change_basis":null,"ts_event_ns":null}
+        ])
+    );
+}
+
+async fn catalogue_search_filters_before_limit(
+    app: &Application,
+    resolved: &Resolved,
+    source_session: &Session,
+    http: &Http,
+) {
+    let search = app
+        .search(
+            &[resolved],
+            source_session,
+            &InstrumentQuery {
+                query: "USDT".into(),
+                asset_class: None,
+                instrument_types: vec![],
+                instrument_ids: vec![],
+                limit: 1,
+            },
+            deadline(),
+        )
+        .await
+        .unwrap()
+        .into_parts()
+        .unwrap()
+        .0;
+    emit("search", &search);
+    assert_eq!(search["results"].as_array().unwrap().len(), 1);
+    assert_eq!(search["truncated"], true);
+    assert_eq!(
+        search["results"][0]["instrument"]["instrument_id"],
+        "BTCUSDT.BINANCE"
+    );
+    let mut query = InstrumentQuery {
+        query: String::new(),
+        asset_class: None,
+        instrument_types: vec![],
+        instrument_ids: vec![],
+        limit: 1,
+    };
+    let before_blank = http.calls();
+    assert!(matches!(
+        app.search(&[resolved], source_session, &query, deadline())
+            .await,
+        Err(onlyalpha_backend::application::market_product::Error::Invalid)
+    ));
+    assert_eq!(http.calls(), before_blank);
+    query.query = "LTC".into();
+    let halted = app
+        .search(&[resolved], source_session, &query, deadline())
+        .await
+        .unwrap()
+        .into_parts()
+        .unwrap()
+        .0;
+    emit("search", &halted);
+    assert_eq!(halted["results"].as_array().unwrap().len(), 1);
+    let found = &halted["results"][0]["instrument"];
+    assert_eq!(found["instrument_id"], "LTCUSDT.BINANCE");
+    assert_eq!(found["status"], "HALTED");
+    assert_eq!(halted["truncated"], false);
+    query.asset_class = Some("EQUITY".into());
+    let equities = app
+        .search(&[resolved], source_session, &query, deadline())
+        .await
+        .unwrap()
+        .into_parts()
+        .unwrap()
+        .0;
+    emit("search", &equities);
+    assert_eq!(equities["results"], json!([]));
+    assert_eq!(equities["sources"][0]["status"], "COMPLETE");
+    assert_eq!(equities["truncated"], false);
+}
+
+async fn window_rejects_unclosed_range(
+    app: &Application,
+    resolved: &Resolved,
+    source_session: &Session,
+    business: &mut AuthoritySession,
+    ch: &ClickHouse,
+    http: &Http,
+) {
+    let calls = http.calls();
+    assert!(matches!(
+        app.window(
+            resolved,
+            source_session,
+            &mut store(business.client_mut().await.unwrap(), ch),
+            &WindowRequest {
+                instrument_id: "BTCUSDT.BINANCE".into(),
+                semantic: semantic(1),
+                before_ns: Some(180_000_000_000),
+                bar_count: 2,
+                clock_ns: 179_000_000_000
+            }
+        )
+        .await,
+        Err(
+            onlyalpha_backend::application::market_product::Error::Store(
+                onlyalpha_backend::persistence::market_data::Error::Invalid
+            )
+        )
+    ));
+    assert!(
+        http.calls()[calls.len()..]
+            .iter()
+            .all(|p| !p.starts_with("/api/v3/klines"))
+    );
+}
+
+async fn wal_loss_terminates_stream(
+    app: &Application,
+    resolved: &Arc<Resolved>,
+    source_session: &Session,
+    business: &mut AuthoritySession,
+    ch: &ClickHouse,
+    ws: &Ws,
+    clock: &WalLossClock,
+    root: &Path,
+) {
+    let path = root.with_file_name("wal-loss");
+    std::fs::create_dir(&path).unwrap();
+    let wal = Wal::new(&path, WORK).unwrap();
+    let sealed = wal.sealed_handle().unwrap();
+    let instrument = app
+        .reference(resolved, source_session, "BTCUSDT.BINANCE", deadline())
+        .await
+        .unwrap();
+    let origin = ws.connections.load(Ordering::SeqCst);
+    let mut stream = app
+        .open_stream(
+            resolved.clone(),
+            instrument,
+            &mut store(business.client_mut().await.unwrap(), ch),
+            StreamRequest {
+                stream_id: uid(117),
+                semantic: semantic(1),
+                resume_after_sequence: None,
+                resume_plan_fingerprint: None,
+                clock_ns: NOW,
+                deadline: deadline(),
+                segment_id: "wal-loss".into(),
+                capture_id: "wal-loss".into(),
+                created_at: AT.into(),
+            },
+            wal,
+        )
+        .await
+        .unwrap();
+    ready(&mut stream, business, ch).await;
+    ws.wait_connections(origin + 1).await;
+    assert!(sealed.published_sealed().unwrap().is_empty());
+    let frame = kline(NOW / 1_000_000, false);
+    let path = path.join("wal-loss-0000000000000001.open.wal");
+    *clock.original.lock().unwrap() = Some((path, sha(frame.to_text().unwrap().as_bytes())));
+    ws.send.send(frame).unwrap();
+    let failed = delivery(&mut stream, business, ch)
+        .await
+        .into_parts()
+        .unwrap()
+        .0;
+    assert!(
+        clock.original.lock().unwrap().is_none(),
+        "original preview was appended before unlink"
+    );
+    assert_eq!(failed["event"], "STATE");
+    assert_eq!(failed["state"], "FAILED");
+    emit("stream", &failed);
+    let terminal = delivery(&mut stream, business, ch)
+        .await
+        .into_parts()
+        .unwrap()
+        .0;
+    assert_eq!(terminal["event"], "ERROR");
+    assert_eq!(terminal["code"], SourceError::Evidence.code());
+    emit("stream", &terminal);
+    assert!(stream.next().await.unwrap().is_none());
+    ws.wait_closed(origin + 1, Some(&stream)).await;
+    assert!(matches!(
+        stream.close().await,
+        Err(onlyalpha_backend::application::market_product::Error::Source(SourceError::Evidence))
+    ));
+    assert_eq!(ws.connections.load(Ordering::SeqCst), origin + 1);
+    assert!(sealed.published_sealed().unwrap().is_empty());
+}
+
+async fn probe_faults_persist_public_status(
+    app: &Application,
+    resolved: &Arc<Resolved>,
+    human: &Arc<Human>,
+    business: &mut AuthoritySession,
+    http: &Http,
+    ws: &Ws,
+) {
+    for (id, fault, name, status) in [
+        (203, &http.malformed_ping, "CONNECTIVITY", "OFFLINE"),
+        (204, &ws.malformed_depth, "REALTIME_DATA", "DEGRADED"),
+    ] {
+        let before = http.calls().len();
+        fault.store(true, Ordering::SeqCst);
+        let attempt = app
+            .execute_probe(resolved.clone(), human.clone(), &uid(id), deadline())
+            .await;
+        fault.store(false, Ordering::SeqCst);
+        let attempt = attempt.unwrap();
+        let doc = attempt.document();
+        assert_eq!(doc["overall_status"], status);
+        let checks = doc["checks"].as_array().unwrap();
+        assert_eq!(checks.len(), 4);
+        let failed = checks.iter().find(|c| c["check"] == name).unwrap();
+        assert_eq!(failed["status"], "FAIL");
+        assert_eq!(failed["failure_kind"], status);
+        assert_eq!(failed["error_code"], SourceError::Unavailable.code());
+        assert!(!doc.to_string().contains("private-probe-marker"));
+        if name == "CONNECTIVITY" {
+            assert!(
+                http.calls()[before..]
+                    .iter()
+                    .all(|p| p != "/api/v3/time" && !p.starts_with("/api/v3/klines"))
+            );
+        } else {
+            assert!(
+                checks
+                    .iter()
+                    .filter(|c| c["check"] != name)
+                    .all(|c| c["status"] == "PASS")
+            );
+        }
+        attempt
+            .persist(business.client_mut().await.unwrap())
+            .await
+            .unwrap();
+        let persisted = latest_probe(business.client_mut().await.unwrap(), resolved)
+            .await
+            .unwrap();
+        assert_eq!(persisted["status"], status);
+        assert_eq!(&persisted["latest_attempt"], doc);
+        emit("probe_result", doc);
+    }
+}
+
+async fn endpoint_profile_revision_preserves_source_identity(
+    changed: &onlyalpha_backend::persistence::integration_postgres::Snapshot,
+    retained_id: &IntegrationId,
+    authoring: &AuthoringCatalog,
+    resolver: &Resolver,
+    business: &mut AuthoritySession,
+) {
+    let draft = changed.draft().unwrap().0.record();
+    let mut configuration: Value =
+        serde_json::from_str(draft.public_configuration_document.raw().get()).unwrap();
+    assert_ne!(configuration["endpoint_profile"], "STANDARD");
+    configuration["endpoint_profile"] = json!("STANDARD");
+    Integrations::new(business.client_mut().await.unwrap())
+        .update_draft(
+            &UpdateDraft::new(
+                CommandId::new(&uid(305)).unwrap(),
+                retained_id.clone(),
+                draft.draft_version,
+                ObjectDocument::new(&configuration.to_string(), WORK).unwrap(),
+                draft.probe_configuration_document.clone(),
+            )
+            .unwrap(),
+            authoring,
+            AT.parse().unwrap(),
+            1000,
+            WORK,
+        )
+        .await
+        .unwrap();
+    Integrations::new(business.client_mut().await.unwrap())
+        .publish_revision(
+            &PublishRevision::new(
+                CommandId::new(&uid(306)).unwrap(),
+                retained_id.clone(),
+                draft.draft_version + 1,
+            )
+            .unwrap(),
+            authoring,
+            AT.parse().unwrap(),
+            1000,
+            WORK,
+        )
+        .await
+        .unwrap();
+    let after_profile = Integrations::new(business.client_mut().await.unwrap())
+        .read(retained_id, 1000, WORK)
+        .await
+        .unwrap()
+        .unwrap();
+    let resolve_head =
+        |snapshot: &onlyalpha_backend::persistence::integration_postgres::Snapshot| {
+            let revision = snapshot
+                .integration()
+                .record()
+                .current_revision_fingerprint
+                .as_ref()
+                .unwrap();
+            let reference = Reference::new(
+                retained_id.value(),
+                revision,
+                Some("binance.spot.market_data"),
+            )
+            .unwrap();
+            let selection =
+                Selection::new(reference.clone(), "binance.spot.market_data.live", "GLOBAL")
+                    .unwrap();
+            let authority = Authority::new(
+                "profile-reader",
+                &sha(b"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                vec![Grant::new(selection, vec![Permission::ClosedHistory]).unwrap()],
+            )
+            .unwrap();
+            let session = authority
+                .authenticate(
+                    "Bearer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                )
+                .unwrap();
+            resolver
+                .resolve(snapshot, &reference, &session, None)
+                .unwrap()
+        };
+    let prior = resolve_head(changed);
+    let current = resolve_head(&after_profile);
+    assert_ne!(
+        prior.selection().reference().revision(),
+        current.selection().reference().revision()
+    );
+    assert_ne!(prior.binding_fingerprint(), current.binding_fingerprint());
+    assert_eq!(prior.identity(), current.identity());
+    assert_eq!(
+        current.identity().source_id,
+        "binance.spot.market_data.live"
+    );
 }

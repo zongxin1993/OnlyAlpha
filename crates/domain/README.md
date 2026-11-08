@@ -16,6 +16,10 @@
 
 ## 公开接口
 
+`OnlyStaticLimitRules::compiled_economics` 从经过原正文指纹校验的市场编译结果提取通用经济投影；`normalize_economics` 对实际配置的相同字段规范化比较。投影覆盖标的、产品身份、合约类型、账户模式、结算币、乘数、完整保证金曲线和 Funding schedule，保留原 schedule 语义版本；不识别具体供应商。
+
+[`market_rules::OnlyStaticLimitRules`](src/market_rules.rs) 从市场编译生产者的原正文及原策略指纹推导完整静态约束，保留公共与账户覆盖交集、编译时点和完整内容身份，针对实际价格、数量与经济时点验证。[`market_source::OnlyMarketSourceCut`](src/market_source.rs) 读取运行配置绑定摘要的冻结原始切片，校验有界原文、规范事实和唯一身份；单条 DTO 不授予来源资格。
+
 numeric / value / base 提供精确数值和金融值；identifiers / enums / errors 定义身份与错误；time / ranges / calendar 处理时间和区间；instrument / catalog / venue / market 表达标的及行情；account / trading / market_rules / fee / execution 提供对应领域记录。公开路径见下方导出清单。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。

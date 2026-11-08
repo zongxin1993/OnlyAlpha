@@ -6,8 +6,9 @@ use onlyalpha_domain::{
     enums::{OnlyAdjustmentType, OnlyPriceType},
     identifiers::OnlyInstrumentId,
     market::{
-        OnlyBarFormation, OnlyBarFormationKind, OnlyBarSemantic, OnlyBarSemanticInput,
-        OnlyFixedDurationBarFormation, OnlyFixedDurationBarFormationInput,
+        OnlyBarAlignment, OnlyBarFormation, OnlyBarFormationKind, OnlyBarSemantic,
+        OnlyBarSemanticInput, OnlyCalendarPeriodUnit, OnlyFixedDurationBarFormation,
+        OnlyFixedDurationBarFormationInput,
     },
 };
 use serde_json::{Value, json};
@@ -59,7 +60,7 @@ impl OnlyConstructionCapability {
         origin: Option<BigInt>,
     ) -> OnlyConstructionResult<Self> {
         nonempty(calendar)?;
-        if semantic.adjustment_policy() != &OnlyAdjustmentType::Raw {
+        if semantic.adjustment_policy() != &OnlyAdjustmentType::Raw && !session_day(&semantic) {
             return Err(err("CAPABILITY_ADJUSTMENT"));
         }
         Ok(Self {
@@ -80,6 +81,13 @@ impl OnlyConstructionCapability {
             && self.realtime
             && self.origin.is_some()
     }
+}
+
+fn session_day(semantic: &OnlyBarSemantic) -> bool {
+    semantic.price_type() == &OnlyPriceType::Last
+        && matches!(semantic.formation(), OnlyBarFormation::CalendarPeriod(f)
+            if *f.unit() == OnlyCalendarPeriodUnit::Day && f.count() == &1.into()
+                && *f.alignment() == OnlyBarAlignment::SessionStart)
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnlyConstructionResolutionContext {
@@ -132,6 +140,33 @@ pub(crate) fn positive_mod(value: BigInt, modulus: &BigInt) -> BigInt {
     }
 }
 impl OnlyConstructionResolutionPlan {
+    /// 历史原生日线用已冻结的交易日历定位边界。该入口不授予实时能力。
+    pub fn resolve_historical_day(
+        target: OnlyBarSemantic,
+        capabilities: &[OnlyConstructionCapability],
+        context: OnlyConstructionResolutionContext,
+    ) -> OnlyConstructionResult<Self> {
+        if !session_day(&target) {
+            return Err(err("RESOLUTION_UNSUPPORTED"));
+        }
+        let mut candidates = capabilities.iter().filter(|c| {
+            c.semantic == target
+                && c.calendar == context.calendar
+                && c.historical
+                && c.origin.is_none()
+        });
+        if candidates.next().is_none() || candidates.next().is_some() {
+            return Err(err("RESOLUTION_CAPABILITY_UNAVAILABLE_OR_AMBIGUOUS"));
+        }
+        Ok(Self {
+            recipe: OnlyConstructionRecipe::native(target.clone()),
+            target,
+            requirement: OnlyConstructionRequirement::PreferExactNative,
+            context,
+            // Schema 3 已规定非固定网格的规范值为零。
+            origin: 0.into(),
+        })
+    }
     pub fn resolve(
         target: OnlyBarSemantic,
         capabilities: &[OnlyConstructionCapability],

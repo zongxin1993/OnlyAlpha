@@ -281,3 +281,55 @@ fn target_selection_uses_the_held_generation_wheel_across_distribution_names() {
         assert!(fixture.hold.retained.target_artifact().is_err());
     }
 }
+
+#[test]
+fn retired_market_distribution_uses_only_original_archived_bytes_and_identity() {
+    use sha2::{Digest, Sha256};
+
+    let distribution = "onlyalpha-plugin-generic-t0-cash";
+    for fault in ["none", "foreign", "missing", "missing-manifest", "changed"] {
+        let mut fixture = Fixture::new();
+        let bytes = b"opaque archived Generic market wheel bytes";
+        let digest: String = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        std::fs::create_dir(fixture.root.join("retired-market")).unwrap();
+        let relative = "retired-market/artifact.whl";
+        let path = fixture.root.join(relative);
+        write(&path, bytes);
+        if fault != "missing-manifest" {
+            write(
+                &fixture.root.join("retired-market/manifest.json"),
+                &serde_json::to_vec(&json!({
+                    "distribution_name": if fault == "foreign" { "onlyalpha-other" } else { distribution },
+                    "distribution_version": "original-bound-version",
+                }))
+                .unwrap(),
+            );
+        }
+        fixture.hold.retained.artifacts =
+            vec![(relative.into(), digest.clone(), bytes.len() as u64)];
+        if fault == "missing" {
+            std::fs::remove_file(&path).unwrap();
+        } else if fault == "changed" {
+            std::fs::write(&path, vec![b'x'; bytes.len()]).unwrap();
+        }
+        let result = fixture.hold.retained.distribution_artifact(distribution);
+        match fault {
+            "none" => {
+                let selected = result.unwrap();
+                assert_eq!(selected["sha256"], digest);
+                assert_eq!(selected["path"], json!(path));
+                assert_eq!(selected["distribution_version"], "original-bound-version");
+                assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            }
+            "foreign" => assert_eq!(
+                result.unwrap_err(),
+                "RESEARCH_RUNTIME_DISTRIBUTION_UNAVAILABLE"
+            ),
+            "missing" | "missing-manifest" => assert_eq!(result.unwrap_err(), UNAVAILABLE),
+            _ => assert_eq!(result.unwrap_err(), INVALID),
+        }
+    }
+}

@@ -1,5 +1,7 @@
 use super::*;
-use crate::application::integration_configuration::{Lifecycle, RuntimeBinding};
+use crate::application::integration_configuration::{
+    Lifecycle, Revision, RuntimeBinding, SecretBinding,
+};
 use crate::application::source_access::{Permission, Reference, Selection, Session};
 use crate::persistence::integration_postgres::Snapshot;
 use onlyalpha_domain::base::OnlyDomainModel;
@@ -47,9 +49,57 @@ pub struct Resolved {
     pub(super) implementation: String,
     pub(super) data_version: String,
     pub(super) probe_contract: String,
+    pub(super) probe_checks: Vec<String>,
     pub(super) probe_configuration: Option<String>,
     pub(super) probe_symbol: String,
     pub(super) clock: Arc<dyn Clock>,
+}
+/// 已验证的实现、原 revision 和 binding。取得这些值不会创建 Provider session。
+pub(crate) struct SourceInstallation<'a> {
+    resolver: &'a Resolver,
+    installed: &'a Installed,
+    revision: &'a Revision,
+    bindings: &'a [SecretBinding],
+    pub(crate) binding: RuntimeBinding,
+    pub(crate) implementation: String,
+}
+impl SourceInstallation<'_> {
+    pub(crate) fn artifact(&self) -> &str {
+        &self.installed.artifact
+    }
+    pub(crate) fn needs_secrets(&self) -> bool {
+        !self.bindings.is_empty()
+    }
+
+    /// 调用方须已核准所选 Source 的具体操作。每个绑定在原 Slot/generation 下验证和解密。
+    pub(crate) async fn connect(
+        &self,
+        store: &mut crate::persistence::credential_postgres::Credentials<'_>,
+    ) -> Result<Resolved> {
+        use crate::security::credentials::{CredentialId, Slot};
+        let owner = self.revision.record();
+        let mut secrets = Vec::with_capacity(self.bindings.len());
+        for binding in self.bindings {
+            let slot = Slot::new(
+                "INTEGRATION_SECRET",
+                owner.integration_id.value(),
+                binding.field_id(),
+            )
+            .map_err(|_| Error::Corrupt)?;
+            let id =
+                CredentialId::new(binding.credential_id().value()).map_err(|_| Error::Corrupt)?;
+            let secret = store
+                .read_secret_for_slot(&id, binding.generation(), &slot, 64 * 1024 * 1024)
+                .await
+                .map_err(|_| Error::Unavailable)?;
+            secrets.push((binding.field_id(), secret));
+        }
+        let fields = secrets
+            .iter()
+            .map(|(field, secret)| (*field, secret.expose()))
+            .collect::<Vec<_>>();
+        self.open(&fields)
+    }
 }
 impl Resolver {
     pub(crate) fn public_transport_trust(&self) -> &Trust {
@@ -123,7 +173,9 @@ impl Resolver {
         generation: Option<(&str, &dyn GenerationAdmission)>,
     ) -> Result<Resolved> {
         session.require_reference(reference, Permission::ClosedHistory)?;
-        let resolved = self.resolve_exact(snapshot, reference, generation)?;
+        let resolved = self
+            .installation(snapshot, reference, generation)?
+            .open(&[])?;
         session.require_selection(&resolved.selection, Permission::ClosedHistory)?;
         Ok(resolved)
     }
@@ -139,16 +191,16 @@ impl Resolver {
         if !crate::application::command::uuid4(attempt_id) {
             return Err(Error::Invalid);
         }
-        let resolved = self.resolve_exact(snapshot, reference, None)?;
+        let resolved = self.installation(snapshot, reference, None)?.open(&[])?;
         admission.require_probe(&resolved.selection, attempt_id)?;
         Ok(resolved)
     }
-    fn resolve_exact(
-        &self,
-        snapshot: &Snapshot,
+    pub(crate) fn installation<'a>(
+        &'a self,
+        snapshot: &'a Snapshot,
         reference: &Reference,
         generation: Option<(&str, &dyn GenerationAdmission)>,
-    ) -> Result<Resolved> {
+    ) -> Result<SourceInstallation<'a>> {
         let owner = snapshot.integration().record();
         if owner.integration_id.value() != reference.integration_id()
             || owner.lifecycle != Lifecycle::Active
@@ -205,9 +257,6 @@ impl Resolver {
         {
             return Err(Error::Corrupt);
         }
-        if !bindings.is_empty() {
-            return Err(Error::Unavailable);
-        }
         installed
             .factory
             .validate_configuration(r.configuration_document.raw())
@@ -228,15 +277,46 @@ impl Resolver {
         let binding =
             RuntimeBinding::from_revision(revision, Category::DataSource, admitted_generation)
                 .map_err(|_| Error::Corrupt)?;
-        let resource = installed.factory.create(
+        let implementation = fp(
+            &serde_json::json!({"implementation_contract":installed.factory.implementation_fingerprint(),"executable_artifact":installed.artifact}),
+        )?;
+        Ok(SourceInstallation {
+            resolver: self,
+            installed,
+            revision,
+            bindings,
+            binding,
+            implementation,
+        })
+    }
+}
+impl SourceInstallation<'_> {
+    pub(crate) fn open_public(&self) -> Result<Resolved> {
+        self.open(&[])
+    }
+    fn open(&self, fields: &[(&str, &str)]) -> Result<Resolved> {
+        if self.bindings.len() != fields.len()
+            || self
+                .bindings
+                .iter()
+                .zip(fields)
+                .any(|(b, (name, _))| b.field_id() != *name)
+        {
+            return Err(Error::Unavailable);
+        }
+        let installed = self.installed;
+        let r = self.revision.record();
+        let descriptor = installed.factory.descriptor();
+        let resource = installed.factory.create_with_credentials(
             r.configuration_document.raw(),
-            &self.trust,
-            Arc::clone(&self.clock),
+            &self.resolver.trust,
+            Arc::clone(&self.resolver.clock),
+            fields,
         )?;
         let identity = resource.identity();
         let reference = Reference::new(
-            reference.integration_id(),
-            reference.revision(),
+            r.integration_id.value(),
+            &r.revision_fingerprint,
             Some(r.type_id.value()),
         )?;
         let selection = Selection::new(reference, &identity.source_id, &identity.environment)?;
@@ -265,16 +345,18 @@ impl Resolver {
             )
             .map_err(|_| Error::Corrupt)?,
             selection,
-            clock: Arc::clone(&self.clock),
+            clock: Arc::clone(&self.resolver.clock),
             probe_contract,
+            probe_checks: serde_json::from_value(
+                descriptor_json["probe_contract"]["probe_checks"].clone(),
+            )
+            .map_err(|_| Error::Corrupt)?,
             probe_configuration,
             probe_symbol,
-            binding,
+            binding: self.binding.clone(),
             resource,
             artifact: installed.artifact.clone(),
-            implementation: fp(
-                &serde_json::json!({"implementation_contract":installed.factory.implementation_fingerprint(),"executable_artifact":installed.artifact}),
-            )?,
+            implementation: self.implementation.clone(),
             data_version: format!(
                 "{}@{}",
                 r.type_id.value(),
@@ -289,6 +371,9 @@ impl Resolver {
 impl Resolved {
     pub(crate) fn public_configuration(&self) -> &serde_json::value::RawValue {
         &self.public_configuration
+    }
+    pub(crate) fn resource(&self) -> &dyn Resource {
+        self.resource.as_ref()
     }
     pub fn selection(&self) -> &Selection {
         &self.selection
@@ -306,37 +391,45 @@ impl Resolved {
         self.resource.identity()
     }
 }
+/// 保留原 revision 的只读历史能力和本次安装准入分别取证。
+pub(crate) struct DeclaredSource<'a> {
+    pub snapshot: &'a Snapshot,
+    pub reference: Reference,
+    pub identity: onlyalpha_integration_contract::source::MarketIdentity,
+    pub day: Option<onlyalpha_domain::market::OnlyBarSemantic>,
+    pub current: Result<Resolved>,
+}
 impl Resolver {
-    /// Original metadata and current executable admission are separate facts.
-    /// Explicit pure identity witnesses never qualify a historical executable.
-    pub fn sources_with_history(
+    pub(crate) fn sources_with_history(
         &self,
-        snapshots: &[Snapshot],
         session: &Session,
-        identities: &[(
-            Reference,
-            onlyalpha_integration_contract::source::MarketIdentity,
-        )],
+        sources: Vec<DeclaredSource<'_>>,
     ) -> Result<(Vec<Resolved>, super::queries::AuthorizedBatch)> {
         session.check_active()?;
         let mut resources = vec![];
         let mut rows = vec![];
         let mut selections = vec![];
-        for (reference, identity) in identities {
-            let snapshot = snapshots
-                .iter()
-                .find(|s| {
-                    s.integration().record().integration_id.value() == reference.integration_id()
-                })
-                .ok_or(Error::Selection)?;
+        for DeclaredSource {
+            snapshot,
+            reference,
+            identity,
+            day,
+            current,
+        } in sources
+        {
             let selected =
-                super::history::original_selection(snapshot, reference, session, identity)?;
-            let current = self.resolve(snapshot, reference, session, None);
+                super::history::original_selection(snapshot, &reference, session, &identity)?;
             let (status, code) = match &current {
                 Ok(_) => ("AVAILABLE", None),
                 Err(e) => ("UNAVAILABLE", Some(e.code())),
             };
-            rows.push(serde_json::json!({"integration_id":reference.integration_id(),"integration_revision_fingerprint":reference.revision(),"display_name":snapshot.integration().record().display_name,"type_id":reference.expected_type_id(),"source_id":identity.source_id,"environment":identity.environment,"new_work_status":status,"new_work_unavailable_code":code,"history_read_policy":"EXACT_SEALED_PROOF","is_current_revision":snapshot.integration().record().current_revision_fingerprint.as_deref()==Some(reference.revision()),"time_bar_capability":{"provider_base_semantic":super::queries::semantic(1)?.to_record(),"minimum_window_minutes":1,"maximum_window_minutes":240,"derived_algorithm":"TIME_BAR@1"}}));
+            let mut row = serde_json::json!({"integration_id":reference.integration_id(),"integration_revision_fingerprint":reference.revision(),"display_name":snapshot.integration().record().display_name,"type_id":reference.expected_type_id(),"source_id":identity.source_id,"environment":identity.environment,"new_work_status":status,"new_work_unavailable_code":code,"history_read_policy":"EXACT_SEALED_PROOF","is_current_revision":snapshot.integration().record().current_revision_fingerprint.as_deref()==Some(reference.revision())});
+            if let Some(semantic) = day {
+                row["historical_day_semantic"] = semantic.to_record();
+            } else {
+                row["time_bar_capability"] = serde_json::json!({"provider_base_semantic":super::queries::semantic(1)?.to_record(),"minimum_window_minutes":1,"maximum_window_minutes":240,"derived_algorithm":"TIME_BAR@1"});
+            }
+            rows.push(row);
             selections.push((selected, Permission::ClosedHistory));
             if let Ok(resource) = current {
                 resources.push(resource);

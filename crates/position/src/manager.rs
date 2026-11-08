@@ -37,8 +37,19 @@ impl Manager {
         if config.to_string().len() > 16384 {
             return Err(err("POSITION_CONFIG_BOUND"));
         }
+        let mut shape = config.clone();
+        if config["schema_version"] == 2 {
+            shape["schema_version"] = json!(1);
+            if let Some(t) = shape
+                .as_object_mut()
+                .and_then(|r| r.remove("funding_rules"))
+            {
+                fingerprint(&t["source_cut_sha256"])?;
+                fingerprint(&t["market_binding"])?;
+            }
+        }
         let r = row(
-            &config,
+            &shape,
             &[
                 "engine",
                 "runtime",
@@ -258,6 +269,13 @@ impl Manager {
         fingerprint(&r["cause"])?;
         let at = time(&r["time"])?;
         let op = text(&r["op"])?;
+        if op == "TRADE"
+            && self.config.get("funding_rules").is_some()
+            && (r["payload"]["schema_version"] != 3
+                || r["payload"]["trade_evidence"] != self.trade_input_digest(command)?)
+        {
+            return Err(err("POSITION_TRADE_EVIDENCE_CONFLICT"));
+        }
         let signature = hash(command);
         if let Some(previous) = self.state.commands.get(&command_id) {
             return Ok(Outcome {
@@ -347,9 +365,22 @@ impl Manager {
         match version {
             1 => (),
             2 => fields.push("price_precision"),
+            3 if self.config.get("funding_rules").is_some() => fields.extend([
+                "economic_time",
+                "trade_evidence",
+                "broker_record_digest",
+                "rebates",
+            ]),
             _ => return Err(err("POSITION_TRADE_SCHEMA")),
         }
         let r = row_version(v, &fields, version)?;
+        if version == 3 {
+            fingerprint(&r["broker_record_digest"])?;
+            nonnegative(&r["rebates"])?;
+        }
+        if version == 3 && time(&r["economic_time"])? > *at {
+            return Err(err("POSITION_ECONOMIC_TIME"));
+        }
         let i = id(&r["instrument"])?;
         let spec = self.spec(&i)?.clone();
         let c = if r["cluster"].is_null() {

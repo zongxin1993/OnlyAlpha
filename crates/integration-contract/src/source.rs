@@ -2,9 +2,13 @@
 //! installed executable artifact; Product owns grants, durability and publication.
 use crate::{Descriptor, Error};
 use onlyalpha_domain::{
-    calendar::OnlyTradingCalendar, instrument::OnlyInstrument, market::OnlyBar,
+    calendar::OnlyTradingCalendar,
+    identifiers::OnlyInstrumentId,
+    instrument::OnlyInstrument,
+    market::{OnlyBar, OnlyBarSemantic},
+    time::{OnlyTradingDay, OnlyUtcDateTime},
 };
-use onlyalpha_market_data_construction::OnlyConstructionCapability;
+pub use onlyalpha_market_data_construction::OnlyConstructionCapability;
 use serde_json::{Value, value::RawValue};
 use std::{future::Future, pin::Pin, sync::Arc};
 /// Finite remaining operation budget. Product computes it after queue waits and
@@ -114,6 +118,52 @@ pub struct HistoryRequest {
     pub start_ms: i64,
     pub end_ms: i64,
 }
+
+/// 日线按已封存 Session 日历定位区间；其价格量值不自动授予交易规格或实时权限。
+pub struct HistoricalDayRequest {
+    pub instrument: OnlyInstrumentId,
+    pub semantic: OnlyBarSemantic,
+    pub start: OnlyUtcDateTime,
+    pub end: OnlyUtcDateTime,
+    pub anchor: Option<OnlyTradingDay>,
+}
+/// 原查询只含 Provider 公共参数。Host 逐项封存响应，精确比较请求与响应后交回重放。
+pub struct HistoricalObservation {
+    /// 原采集 attempt 在首次源端 I/O 前落库的时间下界。缓存命中保留原 producer 时间。
+    pub producer_started_at: OnlyUtcDateTime,
+    /// 原始响应在 Host 接收时的时间，来自已核验的物理证据。
+    pub received_at: OnlyUtcDateTime,
+    pub query: Value,
+    pub bytes: Vec<u8>,
+}
+pub struct HistoricalDayResult {
+    pub bars: Vec<OnlyBar>,
+    pub calendar: OnlyTradingCalendar,
+    pub security: Value,
+    pub factor_basis: Option<Value>,
+    pub normalized_daily_fingerprint: String,
+    pub bar_query: Value,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryInputPolicy {
+    PreferCache,
+    ForceRefresh,
+    CacheOnly,
+}
+pub trait HistoricalDays: Send + Sync {
+    fn semantic(&self) -> &OnlyBarSemantic;
+    fn input_policy(&self) -> HistoryInputPolicy;
+    fn inputs(&self, request: &HistoricalDayRequest) -> Result<Vec<Value>, SourceError>;
+    fn fetch<'a>(&'a self, query: &'a Value, budget: Budget) -> FutureResult<'a, Vec<u8>>;
+    fn replay<'a>(
+        &'a self,
+        request: &'a HistoricalDayRequest,
+        observations: Vec<HistoricalObservation>,
+        budget: Budget,
+    ) -> FutureResult<'a, HistoricalDayResult>;
+    /// 供发现界面展示的只读证券元数据。缺少证券交易状态时，显式返回 UNKNOWN。
+    fn instruments<'a>(&'a self, budget: Budget) -> FutureResult<'a, Vec<Value>>;
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Quote {
     pub instrument_id: String,
@@ -144,7 +194,11 @@ pub trait TemporaryStream: Send {
 }
 pub trait Resource: Send + Sync {
     fn identity(&self) -> &MarketIdentity;
-    fn calendar(&self) -> &OnlyTradingCalendar;
+    fn normalizer_id(&self) -> &str;
+    fn calendar(&self) -> Option<&OnlyTradingCalendar>;
+    fn historical_days(&self) -> Option<&dyn HistoricalDays> {
+        None
+    }
     fn capabilities(&self) -> &[OnlyConstructionCapability];
     fn resume_max_bars(&self) -> u16;
     fn instruments<'a>(
@@ -202,6 +256,19 @@ pub trait Factory: Send + Sync {
         trust: &Trust,
         clock: Arc<dyn Clock>,
     ) -> Result<Arc<dyn Resource>, SourceError>;
+    /// 仅在 Host 已验证全部原始 Slot 和 generation 后借用秘密；禁止记录或序列化。
+    fn create_with_credentials(
+        &self,
+        configuration: &RawValue,
+        trust: &Trust,
+        clock: Arc<dyn Clock>,
+        credentials: &[(&str, &str)],
+    ) -> Result<Arc<dyn Resource>, SourceError> {
+        if !credentials.is_empty() {
+            return Err(SourceError::Unsupported);
+        }
+        self.create(configuration, trust, clock)
+    }
 }
 pub fn source_contract_error(_: Error) -> SourceError {
     SourceError::Invalid

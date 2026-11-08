@@ -28,7 +28,7 @@ fn positive(v: &Value) -> Result<BigDecimal> {
     let n = number(v)?;
     if n <= 0 { Err(Error::Shape) } else { Ok(n) }
 }
-fn raw_decimal(v: &Value, normalize: bool) -> Result<OnlyDecimal> {
+pub(crate) fn raw_decimal(v: &Value, normalize: bool) -> Result<OnlyDecimal> {
     let n = number(v)?;
     if normalize {
         let spelling = if n == 0 && text(v)?.starts_with('-') {
@@ -59,6 +59,14 @@ pub fn rest_bar_interval(
     instrument: &OnlyInstrument,
     minutes: u16,
 ) -> Result<OnlyBar> {
+    bar_interval(raw, instrument, minutes, true)
+}
+pub(crate) fn bar_interval(
+    raw: &Value,
+    instrument: &OnlyInstrument,
+    minutes: u16,
+    spot: bool,
+) -> Result<OnlyBar> {
     let stride = crate::spot_rest::native_interval(minutes)?.1;
     let row = raw
         .as_array()
@@ -81,8 +89,13 @@ pub fn rest_bar_interval(
     let f = instrument.specification();
     if f.venue().value() != "BINANCE"
         || f.asset_class().as_str() != "CRYPTOCURRENCY"
-        || f.instrument_type().as_str() != "CRYPTO_SPOT"
-        || f.market_type().as_str() != "CASH"
+        || f.instrument_type().as_str()
+            != if spot {
+                "CRYPTO_SPOT"
+            } else {
+                "CRYPTO_PERPETUAL"
+            }
+        || f.market_type().as_str() != if spot { "CASH" } else { "DERIVATIVE" }
     {
         return Err(Error::Shape);
     }

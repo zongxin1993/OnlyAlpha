@@ -22,7 +22,7 @@ pub struct SendFence {
     permission: Permission,
     implementation: Option<String>,
     resource: Option<Arc<dyn onlyalpha_integration_contract::source::Resource>>,
-    calendar: Arc<onlyalpha_domain::calendar::OnlyTradingCalendar>,
+    calendar: Option<Arc<onlyalpha_domain::calendar::OnlyTradingCalendar>>,
     stream: Option<super::stream::StreamFence>,
     preview: Option<super::stream::PreviewFence>,
     temporary: Option<super::temporary_state::TemporaryFence>,
@@ -48,7 +48,7 @@ impl SendFence {
         if self.permission != Permission::ClosedHistory {
             return Err(Error::Forbidden);
         }
-        Ok(&self.calendar)
+        self.calendar.as_deref().ok_or(Error::Selection)
     }
     pub fn source_session(&self) -> Session {
         self.session.clone()
@@ -113,6 +113,28 @@ pub struct Authorized<T> {
     fence: SendFence,
 }
 impl<T> Authorized<T> {
+    pub(crate) fn original(
+        payload: T,
+        session: &Session,
+        selection: &Selection,
+        calendar: Option<Arc<onlyalpha_domain::calendar::OnlyTradingCalendar>>,
+    ) -> Result<Self> {
+        session.require_selection(selection, Permission::ClosedHistory)?;
+        Ok(Self {
+            payload,
+            fence: SendFence {
+                session: session.clone(),
+                selection: selection.clone(),
+                permission: Permission::ClosedHistory,
+                implementation: None,
+                resource: None,
+                calendar,
+                stream: None,
+                preview: None,
+                temporary: None,
+            },
+        })
+    }
     pub(super) fn history(
         payload: T,
         session: &Session,
@@ -127,7 +149,7 @@ impl<T> Authorized<T> {
                 permission: Permission::ClosedHistory,
                 implementation: c.implementation.clone(),
                 resource: c.resource.clone(),
-                calendar: Arc::clone(&c.calendar),
+                calendar: Some(Arc::clone(&c.calendar)),
                 stream: None,
                 preview: None,
                 temporary: None,
@@ -150,7 +172,7 @@ impl<T> Authorized<T> {
                 permission,
                 implementation: Some(resolved.implementation.clone()),
                 resource: Some(Arc::clone(&resolved.resource)),
-                calendar: Arc::new(resolved.resource.calendar().clone()),
+                calendar: resolved.resource.calendar().cloned().map(Arc::new),
                 stream: None,
                 preview: None,
                 temporary: None,
@@ -263,7 +285,7 @@ pub(super) fn plan(
         &r.identity().source_id,
         id,
         r.selection.reference().revision(),
-        &fp(&r.resource.calendar().to_record())?,
+        &fp(&r.resource.calendar().ok_or(Error::Selection)?.to_record())?,
     )
     .map_err(|_| Error::Invalid)?;
     let plan = OnlyConstructionResolutionPlan::resolve(
@@ -350,6 +372,7 @@ impl Application {
         session.require_selection(&r.selection, Permission::ClosedHistory)?;
         validate_instrument_query(query)?;
         if let [instrument] = query.instrument_ids.as_slice()
+            && r.resource.historical_days().is_none()
             && query.query.trim().is_empty()
             && query.asset_class.is_none()
             && query.instrument_types.is_empty()
@@ -396,6 +419,37 @@ impl Application {
             }
         }
         let end = deadline.min(Instant::now() + Duration::from_secs(8));
+        if let Some(days) = r.resource.historical_days() {
+            let _slot = tokio::time::timeout_at(end.into(), self.slots.acquire())
+                .await
+                .map_err(|_| Error::Source(SourceError::Timeout))?
+                .map_err(|_| Error::Unavailable)?;
+            session.require_selection(&r.selection, Permission::ClosedHistory)?;
+            let rows = tokio::time::timeout_at(end.into(), days.instruments(budget(end)?))
+                .await
+                .map_err(|_| Error::Source(SourceError::Timeout))??;
+            let mut seen = std::collections::BTreeSet::new();
+            if rows.len() > 10001
+                || rows.iter().any(|v| {
+                    v["venue"] != r.identity().venue
+                        || v["market"] != r.identity().market
+                        || v["market_data_capabilities"] != json!(["HISTORICAL_BARS"])
+                        || v["instrument_id"]
+                            .as_str()
+                            .and_then(|s| s.parse::<OnlyInstrumentId>().ok())
+                            .is_none_or(|id| {
+                                id.venue().value() != r.identity().venue
+                                    || !seen.insert(id.to_string())
+                            })
+                        || ["display_symbol", "status", "asset_class", "instrument_type"]
+                            .iter()
+                            .any(|k| v[*k].as_str().is_none_or(str::is_empty))
+                })
+            {
+                return Err(Error::Corrupt);
+            }
+            return Self::project_discovery(r, session, query, rows);
+        }
         let key = format!("{}:{}", r.binding.fingerprint(), r.artifact);
         let cached = {
             let cache = self.cache.lock().map_err(|_| Error::Unavailable)?;
@@ -444,34 +498,50 @@ impl Application {
             );
             rows
         };
+        Self::project_discovery(
+            r,
+            session,
+            query,
+            rows.iter()
+                .map(|i| instrument_row(i, &r.identity().market))
+                .collect(),
+        )
+    }
+    fn project_discovery(
+        r: &Resolved,
+        session: &Session,
+        query: &InstrumentQuery,
+        rows: Vec<Value>,
+    ) -> Result<Authorized<Value>> {
         let q = query
             .query
             .trim_matches(|c: char| c.is_whitespace() || ('\u{001c}'..='\u{001f}').contains(&c))
             .to_uppercase();
         let asset_classes = rows
             .iter()
-            .map(|i| i.specification().asset_class().as_str())
-            .collect::<std::collections::BTreeSet<_>>();
+            .map(|v| v["asset_class"].as_str().ok_or(Error::Corrupt))
+            .collect::<Result<std::collections::BTreeSet<_>>>()?;
         let mut matches = rows
             .iter()
-            .filter(|i| {
-                let s = i.specification();
+            .filter(|v| {
                 query
                     .asset_class
                     .as_deref()
-                    .is_none_or(|v| v == s.asset_class().as_str())
+                    .is_none_or(|a| v["asset_class"] == a)
                     && (query.instrument_types.is_empty()
                         || query
                             .instrument_types
                             .iter()
-                            .any(|v| v == s.instrument_type().as_str()))
+                            .any(|t| v["instrument_type"].as_str() == Some(t.as_str())))
                     && (query.instrument_ids.is_empty()
                         || query
                             .instrument_ids
-                            .contains(&s.instrument_id().to_string()))
-                    && (q.is_empty() || s.raw_symbol().value().contains(&q))
+                            .iter()
+                            .any(|id| v["instrument_id"].as_str() == Some(id.as_str())))
+                    && (q.is_empty()
+                        || v["display_symbol"].as_str().is_some_and(|s| s.contains(&q)))
             })
-            .map(|i| instrument_row(i, &r.identity().market))
+            .cloned()
             .collect::<Vec<_>>();
         matches.sort_by_key(|v| v["instrument_id"].as_str().unwrap_or_default().to_owned());
         let truncated = matches.len() > query.limit || rows.len() > 10000;
@@ -767,7 +837,7 @@ pub(super) fn coalesce_gaps(gaps: &[Value], maximum: i64) -> Result<Vec<Value>> 
     Ok(result)
 }
 
-fn validate_instrument_query(query: &InstrumentQuery) -> Result<()> {
+pub(super) fn validate_instrument_query(query: &InstrumentQuery) -> Result<()> {
     if query.limit == 0
         || query.limit > 25
         || query.query.chars().count() > 128

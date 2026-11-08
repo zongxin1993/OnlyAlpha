@@ -19,6 +19,10 @@ COPY plugs/onlyalpha-data-source-binance/Cargo.toml ./plugs/onlyalpha-data-sourc
 COPY plugs/onlyalpha-data-source-binance/src/*.rs ./plugs/onlyalpha-data-source-binance/src/
 COPY plugs/onlyalpha-data-source-tushare/Cargo.toml ./plugs/onlyalpha-data-source-tushare/Cargo.toml
 COPY plugs/onlyalpha-data-source-tushare/src/*.rs ./plugs/onlyalpha-data-source-tushare/src/
+COPY plugs/onlyalpha-broker-virtual/Cargo.toml ./plugs/onlyalpha-broker-virtual/Cargo.toml
+COPY plugs/onlyalpha-broker-virtual/src/*.rs ./plugs/onlyalpha-broker-virtual/src/
+COPY plugs/onlyalpha-broker-binance/Cargo.toml ./plugs/onlyalpha-broker-binance/Cargo.toml
+COPY plugs/onlyalpha-broker-binance/src/*.rs ./plugs/onlyalpha-broker-binance/src/
 
 FROM rust-manifests AS rust-dependency-resolution
 RUN CARGO_NET_RETRY=0 cargo update --workspace

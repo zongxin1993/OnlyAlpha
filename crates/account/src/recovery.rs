@@ -214,6 +214,27 @@ impl Manager {
         Ok(value)
     }
     pub fn restore(&mut self, bytes: &[u8], expected: &str) -> Result<(), Error> {
+        self.restore_context(bytes, expected, None)
+    }
+    /// 含永续资金费的原 checkpoint 须由同一 Position 及冻结来源重新计算。
+    pub fn restore_with_funding(
+        &mut self,
+        bytes: &[u8],
+        expected: &str,
+        position: &onlyalpha_position::Manager,
+        cut: &onlyalpha_position::MarketSourceCut,
+    ) -> Result<(), Error> {
+        self.restore_context(bytes, expected, Some((position, cut)))
+    }
+    fn restore_context(
+        &mut self,
+        bytes: &[u8],
+        expected: &str,
+        context: Option<(
+            &onlyalpha_position::Manager,
+            &onlyalpha_position::MarketSourceCut,
+        )>,
+    ) -> Result<(), Error> {
         let value = self.checked_checkpoint(bytes, expected)?;
         let record = &value;
         let journal = record["journal"]
@@ -232,7 +253,36 @@ impl Manager {
                 None
             };
             let before = candidate.state.journal.len();
-            candidate.apply_inner(command.as_ref().unwrap_or(encoded))?;
+            let input = command.as_ref().unwrap_or(encoded);
+            if candidate.state.perpetual
+                && input["op"] == "ECONOMIC"
+                && input["payload"]["kind"] == "FUNDING"
+            {
+                let (position, cut) =
+                    context.ok_or_else(|| err("ACCOUNT_FUNDING_PRODUCER_REQUIRED"))?;
+                let effect = position
+                    .funding_at_trade_prefix(
+                        cut,
+                        &input["payload"]["funding_source"],
+                        &candidate
+                            .state
+                            .position_trades
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                    )
+                    .map_err(|e| Error(e.0))?;
+                candidate.apply_funding(input, &effect)?;
+            } else if candidate.state.perpetual && input["op"] == "TRADE" {
+                let (position, _) =
+                    context.ok_or_else(|| err("ACCOUNT_TRADE_PRODUCER_REQUIRED"))?;
+                let evidence = position
+                    .trade_evidence(text(&input["payload"]["trade"])?)
+                    .map_err(|e| Error(e.0))?;
+                candidate.apply_position_trade(input, &evidence)?;
+            } else {
+                candidate.apply_inner(input)?;
+            }
             if candidate.state.journal.len() != before + 1 {
                 return Err(err("ACCOUNT_REPLAY_RECEIPT"));
             }
@@ -283,7 +333,17 @@ impl Manager {
                 None
             };
             let before = candidate.state.journal.len();
-            candidate.apply_inner(command.as_ref().unwrap_or(encoded))?;
+            let input = command.as_ref().unwrap_or(encoded);
+            if candidate.state.perpetual
+                && input["op"] == "ECONOMIC"
+                && input["payload"]["kind"] == "FUNDING"
+            {
+                return Err(err("ACCOUNT_FUNDING_PRODUCER_REQUIRED"));
+            }
+            if candidate.state.perpetual && input["op"] == "TRADE" {
+                return Err(err("ACCOUNT_TRADE_PRODUCER_REQUIRED"));
+            }
+            candidate.apply_inner(input)?;
             if candidate.state.journal.len() != before + 1 {
                 return Err(err("ACCOUNT_REPLAY_RECEIPT"));
             }

@@ -18,7 +18,6 @@ members = [
     "onlyalpha-gateway-protocol",
     "onlyalpha-market-cn-ashare",
     "onlyalpha-market-crypto",
-    "onlyalpha-plugin-generic-t0-cash",
 ]
 
 [[package]]
@@ -1070,33 +1069,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "onlyalpha", editable = "." }]
-
-[[package]]
-name = "onlyalpha-plugin-generic-t0-cash"
-version = "0.11.1"
-source = { editable = "plugs/onlyalpha-plugin-generic-t0-cash" }
-dependencies = [
-    { name = "onlyalpha" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "onlyalpha", editable = "." }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.15" },
-    { name = "pytest", specifier = ">=9.0.3" },
-    { name = "pytest-cov", specifier = ">=6" },
-    { name = "ruff", specifier = ">=0.11" },
-]
 
 [[package]]
 name = "onlyalpha-test-factor-provider"

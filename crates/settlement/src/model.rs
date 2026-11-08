@@ -199,7 +199,7 @@ pub fn compile(mut v: Value) -> Result<Instruction, Error> {
             "provenance",
         ],
     )?;
-    if v["schema_version"] != 1 {
+    if !matches!(v["schema_version"].as_u64(), Some(1 | 2)) {
         return Err(err("SETTLEMENT_SCHEMA"));
     }
     scope(&v["scope"])?;
@@ -231,23 +231,45 @@ pub fn compile(mut v: Value) -> Result<Instruction, Error> {
     }
     v["quantity"] = json!(q.normalized().to_plain_string());
     v["time"] = time(&v["time"])?.to_record()["unix_nanos"].clone();
-    let trade_day = day(&v["trading_day"])?;
-    let calendar = external(OnlyTradingCalendar::from_record(&v["calendar"]))?;
-    v["calendar"] = calendar.to_record();
-    let instrument: onlyalpha_domain::identifiers::OnlyInstrumentId =
-        external(text(&v["scope"]["instrument"])?.parse())?;
-    if calendar.venue_id() != instrument.venue() {
-        return Err(err("SETTLEMENT_CALENDAR_VENUE"));
-    }
-
-    if !calendar.is_effective_on(trade_day) || !calendar.is_trading_day(trade_day) {
-        return Err(err("SETTLEMENT_CALENDAR_COVERAGE"));
-    }
-    let schedule = resolve_schedule(&v["calendar"], &v["policy"], text(&v["trading_day"])?)?;
-    let net = if v["side"] == "SELL" {
-        number(&v["gross_notional"])? - number(&v["charges"])? + number(&v["rebates"])?
+    let (schedule, net) = if v["schema_version"] == 2 {
+        if v["side"] != "BUY"
+            || v["scope"]["runtime_kind"] != "BACKTEST"
+            || !v["calendar"].is_null()
+            || v["policy"]["kind"] != "LINEAR_PERPETUAL_OPEN"
+        {
+            return Err(err("SETTLEMENT_PERPETUAL_SCOPE"));
+        }
+        fields(&v["policy"], &["id", "version", "kind"])?;
+        fingerprint(&v["policy"]["version"])?;
+        if v["policy"]["id"] != "IMMEDIATE_LINEAR_PERPETUAL" {
+            return Err(err("SETTLEMENT_PERPETUAL_POLICY"));
+        }
+        let date = day(&v["trading_day"])?;
+        let mut dates = json!({});
+        for axis in AXES {
+            dates[axis] = date.to_record()["value"].clone();
+        }
+        (dates, number(&v["rebates"])? - number(&v["charges"])?)
     } else {
-        -number(&v["gross_notional"])? - number(&v["charges"])? + number(&v["rebates"])?
+        let trade_day = day(&v["trading_day"])?;
+        let calendar = external(OnlyTradingCalendar::from_record(&v["calendar"]))?;
+        v["calendar"] = calendar.to_record();
+        let instrument: onlyalpha_domain::identifiers::OnlyInstrumentId =
+            external(text(&v["scope"]["instrument"])?.parse())?;
+        if calendar.venue_id() != instrument.venue() {
+            return Err(err("SETTLEMENT_CALENDAR_VENUE"));
+        }
+
+        if !calendar.is_effective_on(trade_day) || !calendar.is_trading_day(trade_day) {
+            return Err(err("SETTLEMENT_CALENDAR_COVERAGE"));
+        }
+        let schedule = resolve_schedule(&v["calendar"], &v["policy"], text(&v["trading_day"])?)?;
+        let net = if v["side"] == "SELL" {
+            number(&v["gross_notional"])? - number(&v["charges"])? + number(&v["rebates"])?
+        } else {
+            -number(&v["gross_notional"])? - number(&v["charges"])? + number(&v["rebates"])?
+        };
+        (schedule, net)
     };
     let body = json!({"schema_version":1,"input":v,"schedule":schedule,"cash_flow":net.with_scale(i64::from(p)).to_plain_string()});
     let mut value = body.clone();

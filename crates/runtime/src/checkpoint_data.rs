@@ -33,7 +33,7 @@ impl SqliteStore {
         };
         // Full aggregate and Trade/Fee checks are independent of body validity.
         // MISMATCHED remains its original diagnostic, not a synthesized MATCHED.
-        exact.reconcile(&view)?;
+        view.compare(&exact)?;
         Ok((exact, view))
     }
     pub(super) fn data_checkpoint_prefix(

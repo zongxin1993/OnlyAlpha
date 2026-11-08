@@ -68,7 +68,6 @@ dev = [
 [tool.uv.workspace]
 members = [
     "plugs/onlyalpha-broker-virtual",
-    "plugs/onlyalpha-plugin-generic-t0-cash",
     "plugs/onlyalpha-market-cn-ashare",
     "plugs/onlyalpha-market-crypto",
     "plugs/onlyalpha-data-source-tushare",
@@ -138,7 +137,6 @@ consider_namespace_packages = true
 testpaths = [
     "scripts/tests",
     "plugs/onlyalpha-broker-virtual/tests",
-    "plugs/onlyalpha-plugin-generic-t0-cash/tests",
     "plugs/onlyalpha-market-cn-ashare/tests",
     "plugs/onlyalpha-market-crypto/tests",
     "plugs/onlyalpha-data-source-binance/tests",
@@ -192,7 +190,6 @@ forbidden_modules = [
     "onlyalpha_plugin_broker_virtual",
     "onlyalpha_plugin_tushare",
     "onlyalpha_plugin_cn_ashare",
-    "onlyalpha_plugin_generic_t0_cash",
     "onlyalpha_market_crypto",
     "onlyalpha_broker_binance",
     "onlyalpha_plugin_binance",
@@ -210,7 +207,6 @@ forbidden_modules = [
     "onlyalpha_plugin_broker_virtual",
     "onlyalpha_plugin_tushare",
     "onlyalpha_plugin_cn_ashare",
-    "onlyalpha_plugin_generic_t0_cash",
     "onlyalpha_market_crypto",
     "onlyalpha_broker_binance",
     "onlyalpha_plugin_binance",

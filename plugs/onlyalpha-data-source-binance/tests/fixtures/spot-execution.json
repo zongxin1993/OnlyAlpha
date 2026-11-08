@@ -1,0 +1,1 @@
+{"symbolRules": [{"symbol": "BTCUSDT", "rules": [{"ruleType": "PRICE_RANGE", "bidLimitMultUp": "1.1", "bidLimitMultDown": "0.9", "askLimitMultUp": "1.1", "askLimitMultDown": "0.9"}]}, {"symbol": "ETHUSDT", "rules": [{"ruleType": "PRICE_RANGE", "bidLimitMultUp": "1.1", "bidLimitMultDown": "0.9", "askLimitMultUp": "1.1", "askLimitMultDown": "0.9"}]}]}

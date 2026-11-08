@@ -104,6 +104,15 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                 .await?
                 .to_record()
         }
+        "history-intent" => store
+            .catalog()
+            .admit_intent(&AcquisitionIntent::build_history(
+                &v["requested_scope"],
+                text(v, "binding")?,
+                text(v, "at")?,
+            )?)
+            .await?
+            .to_record(),
         "intent-load" => store
             .catalog()
             .intent(text(v, "id")?)
@@ -610,7 +619,7 @@ async fn retained_source_prerequisite(
             &resolved.identity().source_id,
             "BTCUSDT.BINANCE".parse()?,
             revision,
-            &fp(&resource.calendar().to_record())?,
+            &fp(&resource.calendar().ok_or("calendar")?.to_record())?,
         )?,
         OnlyConstructionRequirement::PreferExactNative,
     )?;
@@ -825,6 +834,14 @@ fn fixture_reference(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     };
     use onlyalpha_market_data_construction::OnlyConstructionIdentity;
     let action = text(v, "action")?;
+    if action == "day-bar-value-proof" {
+        let payload = &v["update"]["payload"]["value"];
+        let bar = OnlyBar::from_record(payload)?;
+        if bar.to_record() != *payload {
+            return Err("noncanonical day Bar".into());
+        }
+        return Ok(json!({"bar":bar.to_record(), "payload_hash": fixture_fp(&v["update"])?}));
+    }
     if action == "record-hash" {
         return Ok(json!({"fingerprint":fixture_fp(&v["row"])?}));
     }

@@ -26,3 +26,7 @@ A Settlement checkpoint containing an explicit whole-fill admission uses schema2
 Execution metadata schema5 freezes the Settlement owner in its existing six-group transaction, and `SETTLEMENT_MATURITY` updates exact Position/Allocation buckets, Account receivables and the Ledger's non-economic Allocation version/evidence witness atomically. Ledger refresh cannot alter quantity, identity/cycle, cost or PnL; no version/before-proof guard is relaxed. Supported cash execution requires immediate booking and cash trading availability, with explicit T+N asset availability, cash withdrawal and legal settlement. Other economic shapes are rejected explicitly.
 
 The library represents all six axes, including delayed booking; it completes only when all six flags are effective. Strict ID/venue, duplicate/restore and complete-booking behavior are independently tested corrections/extensions, not asserted whole Python parity. Source digest is integrity rather than authenticated producer authority. Native codecs and comparison identities do not decode official Python history. Formal Runtime admission, durable storage drivers, deployment upgrade/old-history activation, futures daily MTM, LIVE and Shipping UI acceptance remain separate R3-R8 gates.
+
+## 线性永续开仓的即时结算
+
+Settlement 指令输入 schema 2 绑定 BACKTEST、BUY 和显式 IMMEDIATE_LINEAR_PERPETUAL 策略版本。日历字段为 null，六个即时生效日期均取原交易日。原成交、数量、名义、Position/Allocation 生命周期、费用及来源证据随指令封存；现金腿为返佣减收费。注册和恢复使用同一 compile，对重用交易或来源、前置订单缺失和策略版本冲突执行原有校验。指令输入 schema 1 继续解析实际现金交易日历。

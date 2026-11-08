@@ -18,6 +18,8 @@
 
 OnlyConstructionGraph / Recipe / Edge 描述构造图，OnlyConstructionPlan::compile 编译。OnlyConstructionResolutionPlan 解析能力与时间网格；OnlyConstructionExecutor / Factory / Registry 提供算法边界；OnlyConstructionManager::register / process 推进实例，OnlyTimeBarExecutor::window_for / preview 处理窗口。
 
+[`OnlyConstructionResolutionPlan::resolve_historical_day`](src/resolution.rs) 仅在来源精确声明同一交易日历和日线语义的历史能力时返回原生计划。调用方按该日历的 Session 确认首开和末收。复权日线的构造身份还要绑定实际复权证据。
+
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
 
 ```rust

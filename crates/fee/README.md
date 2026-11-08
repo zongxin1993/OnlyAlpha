@@ -16,6 +16,10 @@
 
 ## 公开接口
 
+显式永续 GTC 费用上界覆盖冻结 FILL_EFFECTIVE 合同中可达的未来生效档和 MAKER/TAKER 角色；未来覆盖有缺口时拒绝新准入。实际费用仍按原成交经济日选档，迟到投递不改费日。
+
+Catalog::selected_schedules(binding, day) 返回订单绑定在该交易日实际解析到的费表副本。Execution 需要表的版本或适用范围构造 Domain 的 order-fixed 与 fill-effective 身份；assess 和 estimate 仅提供计算输出。查阅该副本不产生费用流水，实际成交仍由同一 Catalog::assess 与 Manager::apply 处理。
+
 Catalog::new / bind / estimate / assess / quote_one_fill 从目录和主题生成 Binding、Assessment 或 FeeQuote；Manager::apply 返回 Application，query / reconcile 查询与核对证据，permits 判断指定风险变化是否获准。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。

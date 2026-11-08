@@ -1191,3 +1191,38 @@ fn schema4_anchor_fault_fixture_preserves_dependent_logical_bytes_and_reaches_or
         "a denied historical observation cannot repair the original source"
     );
 }
+
+#[test]
+fn cash_and_sim_runtimes_do_not_gain_perpetual_broker_reader_authority() {
+    use onlyalpha_broker::{BrokerCommand, Fact, RuntimeReader};
+    let sample: Value = serde_json::from_str(include_str!(
+        "../../../test-data/execution/linear-perpetual.json"
+    ))
+    .unwrap();
+    let fact = Fact::decode(&sample["inputs"][3]["payload"]["broker"]["record"]).unwrap();
+    for (version, kind) in [(1, "BACKTEST"), (2, "BACKTEST"), (1, "SIM")] {
+        let root = Root::new();
+        let mut cfg = config();
+        cfg["schema_version"] = json!(version);
+        cfg["runtime_kind"] = json!(kind);
+        if version == 2 {
+            cfg["account_checkpoint_version"] = json!(5);
+        }
+        let mut scope = json!({});
+        for k in [
+            "engine",
+            "runtime",
+            "gateway",
+            "account",
+            "generation",
+            "runtime_kind",
+        ] {
+            scope[k] = cfg[k].clone();
+        }
+        let command=BrokerCommand::decode(&json!({"schema_version":1,"scope":scope,"operation":"SUBMIT","command_id":"cash-denied","order":"order","client":"client","request":sample["inputs"][1]["payload"]["request"]})).unwrap();
+        let runtime = Runtime::create(&root.0, cfg, &artifact()).unwrap();
+        assert!(runtime.ready_intent(&command).is_err());
+        assert!(runtime.application_receipt(&fact).is_err());
+        assert!(runtime.order_view(&command).is_err());
+    }
+}

@@ -38,5 +38,13 @@ explicit ports, durable command evidence and receipt-bound reconciliation. Its o
 and Runtime read ports are authority boundaries, not self-authenticating JSON/hash claims.
 The design is in `docs/superpowers/specs/2026-10-19-rust-broker-design.md`.
 Provider SDKs, signing, network I/O, file adapters and venue rules remain outside this library.
+
+新增 `Discovery.economic_through_ns` 表示有符号经济时间的封闭前缀，与 `as_of` 供应商序列及本次已观察的最大事件时间分开。较新事实可以已经被观察，仍不能由此推断同刻及之前不会再有事实。Virtual 所有未来事实使用不倒退的实际 now，因此只签发 checked `now−1ns`，当前纳秒仍开放；原 CLOCK、Bar 与 checkpoint Reader 不改变。Funding driver 消费边界成交并推进越界后才取得封闭前缀。旧缺字段 Discovery 保持原编码及身份。
+
+RuntimeReader 的 order_view 对 SUBMIT 核对原 Ready ADMIT 完整请求，对 CANCEL 核对原订单、client 和 scope，返回原 SUBMIT 的 OrderView；它不回显未证明的来件。ready_intent 仍必须另证当前派发资格，取消派发的完整 pending 请求、reason 和 metadata 约束保持。
 The native Execution consumer tests use its exact Ready reader; they do not activate an
 application Runtime, replace the unified Runtime Store, certify LIVE or close a Web product slice.
+
+显式 BACKTEST 来源绑定以同 scope、同代际的原来源库为准。原协议 INTENT、DISPATCHED、观察及回执保留自己的编码及预算。DISPATCHED 前同时核对原准入时刻和场所钟，落后时等待原命令。DISPATCHED 与 INGRESS 热路径均按规范 UTF-8 JSON 字节读取最新 CLOCK 或 BAR。INGRESS 以同一规则读取原事实的 stream_at。空白或对象键序偏离规范时，追加事务失败。来源写者按原前驱原子记入每个 CLOCK、BAR、命令或发布以及该步出生的事实子行。Funding 引用满足其处理时刻可见的首个全局闭合步和此前实际出生的成交。单笔委托的 Discovery 继续服务于该命令的对账。
+
+绑定介质 v2 中，确定的 RESULT 按同一 DISPATCHED 和完整命令的实际场所结果逐值核对。回报不可知时保留 UNKNOWN。每次查询由原场所登记，再由 BoundBrokerJournal 原子核对来源及协议前驱、阶段、完整命令、presence、view 和有序原事实。reconcile_original 开始原命令对账。应用经本 Run 的 Ready 回执执行 acknowledge_original。resolve_original 需要第二次原场所查询；对已存在订单同时核对原 ACK 与当前订单视图。两次强负均须来自此原场所。

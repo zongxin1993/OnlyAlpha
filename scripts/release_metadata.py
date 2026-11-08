@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,57 @@ def validate_release_version(version: str) -> None:
         or re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version) is None
     ):
         raise VersionSyncError(f"release version must be canonical X.Y.Z: {version!r}")
+
+
+def plugin_release_unit(name: str) -> str:
+    """Preserve the original distribution-derived release IDs, including history."""
+    if not isinstance(name, str) or re.fullmatch(r"onlyalpha-[a-z0-9]+(?:-[a-z0-9]+)*", name) is None:
+        raise VersionSyncError(f"invalid plugin distribution name: {name!r}")
+    return "plugin-" + name.removeprefix("onlyalpha-plugin-")
+
+
+def plugin_release_members(
+    root: Path, read_text: Callable[[Path], str] | None = None
+) -> list[tuple[str, Path, dict[str, Any], bool]]:
+    """Resolve plugin ownership from exact workspace members and declared names."""
+    raw = read_text if read_text is not None else lambda path: (root / path).read_text(encoding="utf-8")
+    cargo = tomllib.loads(raw(Path("Cargo.toml")))["workspace"]["members"]
+    python = tomllib.loads(raw(Path("pyproject.toml")))["tool"]["uv"]["workspace"]["members"]
+    result = []
+    owners: dict[str, Path] = {}
+    names: dict[Path, str] = {}
+    seen: set[tuple[Path, bool]] = set()
+    for members, filename, section, rust in (
+        (cargo, "Cargo.toml", "package", True),
+        (python, "pyproject.toml", "project", False),
+    ):
+        for member in members:
+            if not isinstance(member, str):
+                raise VersionSyncError("invalid plugin workspace path")
+            directory = Path(member)
+            if (
+                not directory.parts
+                or directory.is_absolute()
+                or ".." in directory.parts
+                or directory.as_posix() != member
+            ):
+                raise VersionSyncError("invalid plugin workspace path")
+            if directory.parts[0] != "plugs":
+                continue
+            package = tomllib.loads(raw(directory / filename))[section]
+            name = package["name"]
+            unit = plugin_release_unit(name)
+            if (
+                owners.get(unit, directory) != directory
+                or names.get(directory, name) != name
+                or (directory, rust) in seen
+            ):
+                raise VersionSyncError("ambiguous plugin release-unit ownership")
+            owners[unit] = directory
+            names[directory] = name
+            seen.add((directory, rust))
+            result.append((unit, directory, package, rust))
+    return result
 
 
 def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[str, str]:
@@ -62,11 +114,11 @@ def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[s
         # check_versions requires an independent backend authority after cutover.
         units = {"libs": library_version, "backend": resolved_version(backend)}
         units["frontend"] = json.loads(raw(WEB_PACKAGE_PATH))["version"]
-        for member in cargo["workspace"]["members"]:
-            if Path(member).parts[0] == "plugs":
-                package = tomllib.loads(raw(Path(member) / "Cargo.toml"))["package"]
-                value = package["version"]
-                units["plugin-" + package["name"].removeprefix("onlyalpha-plugin-")] = resolved_version(value)
+        for unit, _, package, rust in plugin_release_members(root, raw):
+            value = resolved_version(package["version"]) if rust else package["version"]
+            if unit in units and units[unit] != value:
+                raise VersionSyncError("conflicting plugin version projections")
+            units[unit] = value
         python = tomllib.loads(raw(Path("pyproject.toml")))
         for member in python["tool"]["uv"]["workspace"]["members"]:
             if member == "packages/agent":
@@ -74,10 +126,6 @@ def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[s
                 if package["name"] != "onlyalpha-agent":
                     raise VersionSyncError("invalid Agent distribution authority")
                 units["agent"] = package["version"]
-            if Path(member).parts[0] == "plugs":
-                package = tomllib.loads(raw(Path(member) / "pyproject.toml"))["project"]
-                unit = "plugin-" + package["name"].removeprefix("onlyalpha-plugin-")
-                units.setdefault(unit, package["version"])
         for version in units.values():
             validate_release_version(version)
         return dict(sorted(units.items()))
@@ -86,10 +134,10 @@ def load_release_units(root: Path = ROOT, revision: str | None = None) -> dict[s
 
 
 def validate_inventory(base: dict[str, str], candidate: dict[str, str]) -> bool:
-    """ADR 0146's sole inventory introduction, not a publication or arbitrary inventory override.
+    """Explicit historical introduction and approved single-unit retirements only.
 
     The initial 0.1.0 establishes the line. Later version transitions use normal
-    explicit selections. The approved Agent retirement removes its active release line.
+    explicit selections. Agent and Generic T0 Cash have individually approved retirements.
     """
     if base.keys() == candidate.keys():
         return False
@@ -99,6 +147,6 @@ def validate_inventory(base: dict[str, str], candidate: dict[str, str]) -> bool:
         and candidate["agent"] == "0.1.0"
     ):
         return True
-    if base.keys() - candidate.keys() == {"agent"} and not candidate.keys() - base.keys():
+    if base.keys() - candidate.keys() in ({"agent"}, {"plugin-generic-t0-cash"}) and not candidate.keys() - base.keys():
         return False
     raise VersionSyncError("release-unit inventory changed; explicit inventory migration is required")

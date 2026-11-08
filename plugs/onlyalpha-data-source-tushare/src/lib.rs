@@ -1,4 +1,9 @@
-//! Compiled public configuration authoring only. No runtime or Probe admission.
+//! Tushare authoring and native daily acquisition library. Product installation,
+//! Source grants, credential resolution and durable publication belong to Host.
+pub mod daily;
+pub mod http;
+pub mod mapping;
+pub mod source;
 use onlyalpha_integration_contract::{
     Category, Descriptor, Error,
     authoring::{PluginProjection, Registration},

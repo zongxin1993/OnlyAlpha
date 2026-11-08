@@ -85,6 +85,27 @@ impl Manager {
         Ok(())
     }
     pub fn restore(&mut self, bytes: &[u8], expected: &str) -> Result<(), Error> {
+        self.restore_context(bytes, expected, None)
+    }
+    /// 含永续资金费的原 checkpoint 须由同一 Position 及冻结来源重新计算。
+    pub fn restore_with_funding(
+        &mut self,
+        bytes: &[u8],
+        expected: &str,
+        position: &onlyalpha_position::Manager,
+        cut: &onlyalpha_position::MarketSourceCut,
+    ) -> Result<(), Error> {
+        self.restore_context(bytes, expected, Some((position, cut)))
+    }
+    fn restore_context(
+        &mut self,
+        bytes: &[u8],
+        expected: &str,
+        context: Option<(
+            &onlyalpha_position::Manager,
+            &onlyalpha_position::MarketSourceCut,
+        )>,
+    ) -> Result<(), Error> {
         fingerprint(&json!(expected))?;
         if digest(bytes) != expected {
             return Err(err("LEDGER_CHECKPOINT_DIGEST"));
@@ -100,7 +121,27 @@ impl Manager {
         let mut candidate = Self::new(self.config.clone())?;
         for command in journal {
             let before = candidate.journal.len();
-            candidate.apply(command)?;
+            let input = command;
+            if input["op"] == "FUNDING" {
+                let (position, cut) =
+                    context.ok_or_else(|| err("LEDGER_FUNDING_PRODUCER_REQUIRED"))?;
+                let effect = position
+                    .funding_at_trade_prefix(
+                        cut,
+                        &input["payload"]["funding_source"],
+                        &candidate.trades.keys().cloned().collect::<Vec<_>>(),
+                    )
+                    .map_err(|e| Error(e.0))?;
+                candidate.apply_funding(input, &effect)?;
+            } else if candidate.config["schema_version"] == 2 && input["op"] == "TRADE" {
+                let (position, _) = context.ok_or_else(|| err("LEDGER_TRADE_PRODUCER_REQUIRED"))?;
+                let evidence = position
+                    .trade_evidence(text(&input["payload"]["trade"])?)
+                    .map_err(|e| Error(e.0))?;
+                candidate.apply_position_trade(input, &evidence)?;
+            } else {
+                candidate.apply(input)?;
+            }
             if candidate.journal.len() != before + 1 {
                 return Err(err("LEDGER_REPLAY_RECEIPT"));
             }

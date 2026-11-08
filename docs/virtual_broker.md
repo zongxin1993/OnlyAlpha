@@ -1,71 +1,27 @@
-# Virtual Broker 插件
+# Virtual Broker 模拟场所
 
-Virtual Broker 是独立发行包 `onlyalpha-plugin-broker-virtual`，Python 包名为
-`onlyalpha_plugin_broker_virtual`，插件 ID 为 `virtual`。Core 不包含其实现、兼容模块、默认注册或回退逻辑。
+Virtual Broker 的发行单元是 `plugin-onlyalpha-broker-virtual`，Cargo 包名为 `onlyalpha-broker-virtual`，Provider ID 为 `virtual`。原生库在一个 BACKTEST 或 SIM Scope 中持有模拟场所的订单、成交和查询投影。正式资金、策略、风控、费用和结算继续由各自的 Runtime 模块负责。创建、驱动和查询接口见[插件 README](../plugs/onlyalpha-broker-virtual/README.md)及 [Rust 入口](../plugs/onlyalpha-broker-virtual/src/lib.rs)。
 
-安装：
+## 端口与实际装配
 
-```bash
-pip install onlyalpha onlyalpha-plugin-broker-virtual
-```
+一个场所实例接收作用域、原生工件摘要、初始资金和显式配置。宿主通过 Broker 的 RuntimeReader 和 Journal 提交原命令；确定性驱动使用已闭合 Bar 和显式纳秒时钟。发布端通过 Broker 持久化规范化观察。只有拥有方 Runtime 的应用回执能证明观察已被本地应用。
 
-产品配置继续使用：
+产品现行回测由 [PreparedNextOpen](../packages/backend/src/workers/backtest.rs) 装配已绑定的 SpotSimulationPolicy 和 [NextOpenPolicy](../crates/backtest/src/next_open.rs)，其固定全量、开盘成交和费用依据保持原绑定。该产品路径尚未安装 Virtual Broker；库的可构造性也不代表 SIM 产品或 LIVE 已经开放。
 
-```yaml
-brokers:
-  - gateway_id: virtual-main
-    plugin: virtual
-    extensions:
-      matching:
-        type: NEXT_BAR
-        partial_fill:
-          mode: SCHEDULE
-          dispatch_mode: ONE_PER_BAR
-          steps:
-            - {bar_offset: 1, quantity: "300"}
-            - {bar_offset: 2, quantity: "400"}
-            - {bar_offset: 3, quantity: "300"}
-      latency:
-        submit_ns: 0
-        acceptance_ns: 0
-        fill_ns: 0
-      slippage:
-        type: NONE
-      maximum_fill_quantity: null  # legacy: null → WHOLE, positive → MAX_PER_BAR
-```
+## 价格、数量与外部投影
 
-Core Parser 只保留 `extensions`；具体 Matching、Latency、Slippage 和最大成交量由插件 Factory 解析和拒绝未知字段。
-Backtest 装配要求 Broker 声明 `simulated_execution` 且 `OnlyBrokerComponent.deterministic_driver` 非空，否则 Runtime
-启动前失败。
+市价单在参考行情到达后可被接受，下一合格 Bar 使用开盘价。限价先按买单 low、卖单 high 判断是否触价，再按委托价计算。固定滑点采用可带符号的偏移量，买加卖减，改善成交价时仍核对限价与最终价格。提交、接受、成交发布与撤单延迟由配置给出。
 
-插件职责限于模拟外部 Broker：连接与生命周期、请求接收、拒绝与撤单、Next-Bar 撮合、部分成交、滑点、延迟、
-稳定调度、标准 Broker Update，以及 Order/Trade/Account/Position 查询投影。插件 Store 是
-`external simulated broker projection`，不是 Runtime accounting truth。
+[ADR 0051](adr/0051-virtual-broker-partial-fill-plan-and-multi-fill-recovery.md) 定义了按单冻结的成交计划。WHOLE、MAX_PER_BAR 或 SCHEDULE 决定数量，ONE_PER_BAR 或 ALL_DUE 决定一次推进几步。比例前缀按数量精度向下截断，末步承担余量。部分成交后撤单仅释放剩余额度；已经发生但尚未发布的成交保留原始身份。
 
-Trading Runtime 独占 Order、Runtime Transaction Store、Applied Projection Ledger、Position、Allocation、Account、Strategy
-Ledger、Fee、Settlement、Margin、Risk、
-Audit、Reconciliation 和 Result。Broker Update 只能进入 Runtime-owned `OnlyBrokerInboundQueue`，再由
-`OnlyExecutionProcessor` 应用。成功成交在完整事务提交后进入 Runtime Persistence Store 的 Projection Ready Query；
-Collector、Analytics、Artifact 和 Backtest Result 只读取该权威，`query_trades()` 仅用于 Broker 查询和对账。
+场所独立持有模拟现金、预留和 LONG/SHORT 头寸。加权均价沿用 [Domain 十进制运算](../crates/domain/src/numeric.rs)。有限商精确计算，非终止商按明确的 28 位有效数字除法政策计算，再按成交价精度作 HALF_EVEN 量化。多头权益按实际市值计入。空头开仓不收本金、平仓只结算价差，因此新 Rust 工件下按现金加未实现盈亏计算空头权益。旧 Python 查询曾将整个空头市值加到现金中，原有观察和已冻结历史按原始工件处理。此项修正仅作用于新原生场所投影。
 
-Virtual Broker 服务于目标 Backtest/Sim Trading Runtime。Research Runtime 没有 Broker 或 trading authorities；目标 Sim
-必须复用本插件与完整 Trading Kernel，绝不能连接或提交到 Real Broker。
+## 恢复与历史绑定
 
-Virtual Broker 不接收完整 `OnlyMarketRuleEngine`，不使用后置 `bind_market_rules`，不访问 Runtime Manager。市场规则、
-T+1、本地 Settlement/Margin 和费用仍由 Runtime 权威链处理。模拟 Fill 不携带本地或外部费用权威；插件不持有第二套
-Runtime Commission/Fee 公式。Runtime 通过显式 Market Fee Pack 与 Account Broker Fee Contract 评估本地费用。
+原生检查点 schema 4 绑定发行身份、Scope、原 Rust 工件 SHA、原配置及初始资金，保留有序输入、计划、待决动作、事实和发布游标。宿主从原持久化引用读取独立摘要，并按原输入重建及核对状态。在向 Broker 发布前必须确保场所事实可恢复。队列满、发布失败或 Journal 写入结果未知时保留当前待发事实，重新投递沿用原身份。UNKNOWN 提交或撤单只按原命令查询与对账。已拒绝的原撤单仍可通过已存在的同一场所订单、完整事实和 Runtime 回执收敛。断连或恢复时重交同一原命令会读取已登记的结果。未就绪时首次命令也绑定原身份并明确拒绝，重新认证不改变该结果。
 
-确定性约束：Matching 只读取当前及已经到达的历史 Bar；Scheduler 按 `(due_ns, sequence)` 稳定排序；不读取系统时间、
-不 sleep、不使用随机隐式状态。同一输入应产生相同 Order/Trade/Update 顺序与结果指纹。
+历史 Python entry point、wheel 及 schema 1–3 属原实现。读取历史事实须使用原身份与精确工件；缺失绑定时保持不可恢复。原生实现、同版本号和 Git 源码归档均不能代替旧 wheel。原始设计与交易状态约束见 [ADR 0015](adr/0015-account-broker-ports-and-virtual-broker.md) 与 [ADR 0066](adr/0066-durable-broker-driven-order-lifecycle.md)。
 
-PR4.3.3 将 WHOLE、旧 `maximum_fill_quantity` 的 MAX_PER_BAR 和显式 SCHEDULE 统一归一化为订单级 immutable Fill
-Plan。ONE_PER_BAR 每 Bar执行一个到期 Step；ALL_DUE 可按 Step Index 同 Bar执行多个 Step。Ratio schedule 以前 N-1
-项向下量化、最后一项接收 remainder，严格保持订单总量。Plan 使用 canonical JSON + SHA-256 identity，cursor 与
-Order/Trade/Scheduler 与 submission control 一起进入 Gateway checkpoint schema 3；`broker.virtual` participant 与插件
-capability 同为 version 3。Version 1/2 checkpoint fail fast。Broker execute 先推进 Account/Order/Trade/Plan，`PUBLISH_FILL` 后续才进入 Runtime，因此
-execute-before-publish checkpoint 只恢复发布，不重复 Broker 成交。详见 ADR 0051。
+新 BACKTEST 配置 3 通过 BoundVirtualActor 持有对应原 Run 的 broker.sqlite3。一个来源步在真实场所状态上运行原输入，核对前驱、原命令或发布证据，在同一 SQLite 事务中逐行保存实际新增事实。只有提交可读时才推进公开游标。失败后按同一序号和摘要读回，旧实例须从原库重开。绑定检查点只保存原绑定与位置；重开按序重跑真实撮合并核对每一条输出。配置 1/2 和独立 Virtual checkpoint4 继续使用原 Reader。
 
-PR4.4.2 不修改 Fill Plan 或 Gateway 的 BUY/SELL 中立设计。同一 SCHEDULE 已通过 OnlyEngine 正式产品链验证 Long Close
-`300 → 400 → 300`：ONE_PER_BAR 跨三个 Bar，ALL_DUE 可在同 Bar按 Step Index 连续发布；每个 Step 进入 Runtime 后形成
-独立 durable Trade Transaction。Close Fill 1/2 后的 Plan cursor checkpoint、延迟 publish、Commit、Projection、Outbox 与
-A→B→C 恢复均与无故障基线一致。Virtual Broker 不计算 Runtime realized PnL、Fee、Reservation 或 Risk。
+显式绑定模拟场所使用 broker.sqlite3 v2。每次命令生效时原 DISPATCHED 必须仍是当前协议头，场所结果和本步出生事实一并提交。observe_command 保存当前协议前缀和场所前缀上的发现结果，包括尚未流发布的事实及空查询；重开在相同位置重放。正常流发布按实际 stream_at 推进，已由查询观察的事实复用原观察。规范 genesis、CLOCK/BAR/命令和出生事实正文按原始 UTF-8 字节读取。

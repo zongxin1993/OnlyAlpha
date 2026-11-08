@@ -40,6 +40,34 @@ def digest(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
 
 
+def test_runtime_injection_checks_original_slot_and_generation_before_decryption(
+    native_probe: Path, credential_db: str
+) -> None:
+    slot = {"credential_kind": "INTEGRATION_SECRET", "subject_id": SUBJECT, "secret_name": "token"}
+    metadata = call(native_probe, request("create", **slot, secret="original"))["metadata"]
+    bound = dict(**slot, credential_id=metadata["credential_id"], generation=1)
+
+    def read(**changes: Any) -> dict[str, Any]:
+        return call(native_probe, request("read_for_slot", **(bound | changes)))
+
+    assert read() == {"secret_sha256": digest("original")}
+    for mismatch in ({"credential_kind": "OTHER"}, {"subject_id": str(uuid4())}, {"secret_name": "api_key"}):
+        assert read(**mismatch) == {"error": "CREDENTIAL_SLOT_INVALID"}
+    assert read(credential_id=str(uuid4())) == {"error": "CREDENTIAL_NOT_FOUND"}
+    rotated = call(native_probe, request("rotate", credential_id=bound["credential_id"], generation=1, secret="next"))
+    assert rotated["metadata"]["generation"] == 2
+    assert read() == {"error": "CREDENTIAL_GENERATION_MISMATCH"}
+    assert read(generation=2) == {"secret_sha256": digest("next")}
+    with psycopg.connect(credential_db) as connection:
+        connection.execute(
+            "UPDATE product_credential SET ciphertext=set_byte(ciphertext,0,get_byte(ciphertext,0)#1) "
+            "WHERE credential_id=%s",
+            (bound["credential_id"],),
+        )
+    assert read(generation=2, subject_id=str(uuid4())) == {"error": "CREDENTIAL_SLOT_INVALID"}
+    assert read(generation=2) == {"error": "CREDENTIAL_CIPHERTEXT_INVALID"}
+
+
 def stored_secret(dsn: str, credential_id: str, generation: int, *, key: bytes = MASTER_KEY) -> str:
     """Independent AES-GCM reader of the actual stored native envelope.
 

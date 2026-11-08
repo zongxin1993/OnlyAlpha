@@ -345,44 +345,21 @@ OnlyClusterRunConfig
 
 ## 8. Market Product Composition
 
-P5.3 已在 P5.1/P5.2 合同上完成 Generic 与 CN A-share Trading Runtime one-shot cutover。唯一生产组合链是：
+市场相关制度由 `plugs/onlyalpha-market-*` 拥有，通用金融值和交易状态由 Rust 库负责。
+当前源码职责与集成方向以[仓库与产品架构](repository-product-architecture.md)及 [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md) 为准。
+`onlyalpha-market-cn-ashare` 提供 Reference、PolicyCompiler 和 FeePack；`onlyalpha-market-crypto` 提供版本化现货规则输入。
+插件提供规则不等于获准运行，正式权限、准入、风控和恢复仍由 OnlyAlpha 的所属组件负责。
 
-```text
-OnlyMarketProductConfig
-→ OnlyMarketProductFactoryRegistry
-→ selected OnlyMarketProductFactory
-→ OnlyResolvedMarketProductBinding
-→ Trading Runtime composition
-```
+市场规则表达标的、交易时段、价格和数量限制、仓位制度、卖空、结算与保证金等经济约束。
+撮合、滑点、模拟流动性、延迟、成交计划与调度属于 Broker / Execution Simulation，不能混入市场规则。
+市场规则、券商和数据源分别遵守插件边界，Core 不依赖具体服务商，也不在缺少规则时使用 Generic 回退。
 
-Core 只定义市场中立的 Plugin/Product identity、不可变配置 envelope、Reference/Policy ports、Factory、fail-closed Registry、minimal canonical instrument terms 和 immutable Binding。Concrete Market Product Plugin 拥有具体市场知识并向下依赖 Core Contract；Core 不依赖具体市场 package。Binding 携带 provider/product evidence、resolved reference authority、pure policy compiler、immutable Market Fee Pack 和 effective composition identity，不暴露 Runtime mutable manager。
-
-Product identity 是 evidence，不是行为选择器。Composition fingerprint 在 resolution 后基于 effective product/reference/compiler/fee/config authorities 生成，不直接 fingerprint raw YAML；Runtime type 不进入 Market Product economic contract。Market Product 与 Broker、DataSource、Risk、Execution Support 正交，Research 不要求 Market Product Binding。详见 [ADR 0069](adr/0069-market-product-contract-and-composition-authority.md)。
-
-Canonical `OnlyCompiledMarketPolicy` 只包含：
-
-```text
-Instrument Market Terms
-+ Session / Price / Quantity
-+ Position / Short / Settlement / Margin
-```
-
-`Matching / Slippage / Simulation Liquidity / Latency / Fill Plan / Fill Schedule` 不属于 Market Product IR；它们属于 Virtual Broker / Execution Simulation。该边界由 [ADR 0070](adr/0070-generic-t0-cash-market-product-and-canonical-market-ir.md) 和静态门禁冻结。
-
-`onlyalpha-plugin-generic-t0-cash` 与 `onlyalpha-plugin-cn-ashare` 通过 `onlyalpha.market_products` entry point 自动发现，各自拥有 plugin-local Reference、deterministic Reference Authority、pure Policy Compiler 和 Market Fee Pack。Core composition root 只持有 neutral `OnlyMarketProductFactoryRegistry`，没有 concrete import、hard registration 或 Generic fallback。tests-only `TEST_T2_MARKET` 以 tick `0.25`、quantity step `7`、T+2 证明同一 IR 不依赖 Generic branch。
-
-当前生产组合已经是：
-
-```text
-OnlyMarketProductConfig
-→ Factory Registry
-→ Plugin-owned Reference / Compiler / Fee Pack
-→ Resolved Binding
-→ OnlyMarketRuleEngine
-→ Restricted Decision / Instruction
-```
-
-Resolution 在 Runtime Factory 之上执行一次，Backtest/SIM Factory 只消费 Binding。旧 Profile Registry、Core A-share Reference/Rules、legacy concrete compiler 与 concrete fee registry selection 已删除；没有 adapter、fallback、compatibility wrapper 或按 product ID dispatch 的 Runtime branch。
+旧 Python `onlyalpha-plugin-generic-t0-cash`（`GENERIC_T0_CASH@1`）已退役，当前不再通过
+`onlyalpha.market_products` 自动发现或发行该插件。[ADR 0069](adr/0069-market-product-contract-and-composition-authority.md)
+和 [ADR 0070](adr/0070-generic-t0-cash-market-product-and-canonical-market-ir.md) 保留原决策及历史身份。
+`test-data/` 中已有场景、结果、恢复基线及其插件引用保持原字节；它们不代表当前可执行入口。
+历史运行按原 Generation、manifest、SHA 和归档工件读取与校验，不通过当前源码重建旧实现。
+原工件缺失、不可读或校验失败时保留明确失败，不使用现役插件或当前源码替代。
 
 市场合法性与执行实现能力仍是两个 Authority：
 

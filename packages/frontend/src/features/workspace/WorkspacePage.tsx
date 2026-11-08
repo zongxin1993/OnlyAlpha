@@ -18,6 +18,7 @@ import type { FinancialChartType } from "../../charts/lightweight/marketDataChar
 import { DataSourceManager } from "../data/sources/DataSourceManager";
 import { WorkspaceIcon, type WorkspaceIconName } from "../../shared/components/WorkspaceIcon";
 import { useMarketDataChart } from "./useMarketDataChart";
+import { SealedDayControls } from "./SealedDayControls";
 import { LocalReadAccess } from "./LocalReadAccess";
 import { ChartStudies } from "./ChartStudies";
 import { onlyMarketDataChartContextKey } from "./marketDataChartContext";
@@ -154,9 +155,13 @@ export function WorkspacePage() {
     const market = useMarketDataApi();
     const watchlists = useWatchlists(credentials);
     const realInstrument = marketData.instrument;
+    const source = marketData.selectableSources.find(
+        (s) => marketDataSourceChoiceKey(s) === marketData.sourceId
+    );
+    const dayMode = source?.historical_day_semantic !== undefined;
     const studyContext = useMemo(
         () =>
-            marketData.reference === null || realInstrument === null
+            marketData.reference === null || realInstrument === null || dayMode
                 ? null
                 : {
                       key: onlyMarketDataChartContextKey(
@@ -168,7 +173,7 @@ export function WorkspacePage() {
                       instrumentId: realInstrument.instrument_id,
                       barSemantic: marketData.barSemantic
                   },
-        [marketData.reference, realInstrument, marketData.barSemantic]
+        [marketData.reference, realInstrument, marketData.barSemantic, dayMode]
     );
     const latestBar = marketData.liveBar ?? marketData.bars.at(-1);
     const olderHistoryCopy =
@@ -179,22 +184,27 @@ export function WorkspacePage() {
               : marketData.olderHistoryStatus === "empty"
                 ? "当前范围暂无更早临时行情，可重试"
                 : null;
-    const duration = fixedDurationMinutes(marketData.barSemantic);
+    const duration =
+        marketData.barSemantic.formation.kind === "FIXED_DURATION"
+            ? fixedDurationMinutes(marketData.barSemantic)
+            : null;
     const preset = realBarPresets.includes(duration as (typeof realBarPresets)[number]);
     const statusCopy =
         marketData.message ??
         (marketData.status === "ready"
-            ? `行情已加载 · ${
-                  marketData.realtimeStatus === "ready"
-                      ? "● 实时"
-                      : marketData.realtimeStatus === "recovering"
-                        ? "● 恢复中"
-                        : marketData.realtimeStatus === "degraded"
-                          ? "● 行情中断"
-                          : marketData.realtimeStatus === "failed"
-                            ? `● 实时失败${marketData.streamError === null ? "" : `：${marketData.streamError}`}`
-                            : "● 连接中"
-              }`
+            ? dayMode
+                ? "已加载封存日线"
+                : `行情已加载 · ${
+                      marketData.realtimeStatus === "ready"
+                          ? "● 实时"
+                          : marketData.realtimeStatus === "recovering"
+                            ? "● 恢复中"
+                            : marketData.realtimeStatus === "degraded"
+                              ? "● 行情中断"
+                              : marketData.realtimeStatus === "failed"
+                                ? `● 实时失败${marketData.streamError === null ? "" : `：${marketData.streamError}`}`
+                                : "● 连接中"
+                  }`
             : marketData.status === "loading"
               ? "正在加载行情…"
               : marketData.reference === null
@@ -212,30 +222,38 @@ export function WorkspacePage() {
                   },
                   { label: "Source", value: marketData.resolvedSourceId ?? "尚未读取行情" },
                   { label: "Bar semantic", value: formatBarSemantic(marketData.barSemantic) },
-                  { label: "Coverage", value: marketData.coverage?.status ?? "尚未查询" },
-                  {
-                      label: "Temporary window",
-                      value: marketData.windowFingerprint ?? "尚未验证"
-                  },
-                  { label: "Realtime", value: marketData.realtimeStatus },
-                  {
-                      label: "延迟样本",
-                      value:
-                          marketData.timing === null
-                              ? "暂无实时样本"
-                              : marketData.realtimeStatus === "ready" &&
-                                  marketData.timing.currentConnection
-                                ? "当前连接样本"
-                                : "最后样本 · 非当前"
-                  },
-                  {
-                      label: "接收延迟",
-                      value: formatMarketDataDelay(marketData.timing?.receiveDelayNs ?? null)
-                  },
-                  {
-                      label: "收盘到达延迟",
-                      value: formatMarketDataDelay(marketData.timing?.closedArrivalDelayNs ?? null)
-                  }
+                  ...(dayMode
+                      ? [{ label: "封存修订", value: marketData.sealedRevisionId ?? "尚未读取" }]
+                      : [
+                            { label: "Coverage", value: marketData.coverage?.status ?? "尚未查询" },
+                            {
+                                label: "Temporary window",
+                                value: marketData.windowFingerprint ?? "尚未验证"
+                            },
+                            { label: "Realtime", value: marketData.realtimeStatus },
+                            {
+                                label: "延迟样本",
+                                value:
+                                    marketData.timing === null
+                                        ? "暂无实时样本"
+                                        : marketData.realtimeStatus === "ready" &&
+                                            marketData.timing.currentConnection
+                                          ? "当前连接样本"
+                                          : "最后样本 · 非当前"
+                            },
+                            {
+                                label: "接收延迟",
+                                value: formatMarketDataDelay(
+                                    marketData.timing?.receiveDelayNs ?? null
+                                )
+                            },
+                            {
+                                label: "收盘到达延迟",
+                                value: formatMarketDataDelay(
+                                    marketData.timing?.closedArrivalDelayNs ?? null
+                                )
+                            }
+                        ])
               ];
 
     const tray = (
@@ -351,7 +369,9 @@ export function WorkspacePage() {
                     <select
                         className="chart-region__timeframe"
                         aria-label="时间周期"
-                        value={preset && !customBarOpen ? String(duration) : "custom"}
+                        value={
+                            dayMode ? "day" : preset && !customBarOpen ? String(duration) : "custom"
+                        }
                         disabled={marketData.reference === null}
                         onChange={(event) => {
                             if (event.target.value === "custom") setCustomBarOpen(true);
@@ -361,24 +381,28 @@ export function WorkspacePage() {
                             }
                         }}
                     >
-                        {realBarPresets.map((minutes) => (
-                            <option
-                                key={minutes}
-                                value={minutes}
-                                disabled={
-                                    marketData.barCapability === null ||
-                                    minutes < marketData.barCapability.minimum_window_minutes ||
-                                    minutes > marketData.barCapability.maximum_window_minutes
-                                }
-                            >
-                                {minutes < 60
-                                    ? `${String(minutes)} 分钟`
-                                    : `${String(minutes / 60)} 小时`}
-                            </option>
-                        ))}
-                        <option value="custom">自定义…</option>
+                        {dayMode ? (
+                            <option value="day">1 日 · 封存历史</option>
+                        ) : (
+                            realBarPresets.map((minutes) => (
+                                <option
+                                    key={minutes}
+                                    value={minutes}
+                                    disabled={
+                                        marketData.barCapability === null ||
+                                        minutes < marketData.barCapability.minimum_window_minutes ||
+                                        minutes > marketData.barCapability.maximum_window_minutes
+                                    }
+                                >
+                                    {minutes < 60
+                                        ? `${String(minutes)} 分钟`
+                                        : `${String(minutes / 60)} 小时`}
+                                </option>
+                            ))
+                        )}
+                        {!dayMode && <option value="custom">自定义…</option>}
                     </select>
-                    {customBarOpen || !preset ? (
+                    {!dayMode && (customBarOpen || !preset) ? (
                         <form
                             onSubmit={(event) => {
                                 event.preventDefault();
@@ -487,6 +511,13 @@ export function WorkspacePage() {
                         </details>
                     ) : null}
                 </header>
+                {dayMode && (
+                    <SealedDayControls
+                        key={marketData.sourceId}
+                        chart={marketData}
+                        source={source}
+                    />
+                )}
                 <ChartStudies
                     toolbarTarget={pickerHost}
                     context={studyContext}
@@ -530,7 +561,11 @@ export function WorkspacePage() {
                                         configuration={workspaceConfiguration}
                                         ready={configurationReady}
                                         dirty={workspaceDirty}
-                                        notice={restoreNotice}
+                                        notice={
+                                            dayMode
+                                                ? "1 日封存历史无法保存为工作区，可用原采集编号恢复。"
+                                                : restoreNotice
+                                        }
                                     />
                                 ) : (
                                     createPortal(
@@ -539,7 +574,11 @@ export function WorkspacePage() {
                                             configuration={workspaceConfiguration}
                                             ready={configurationReady}
                                             dirty={workspaceDirty}
-                                            notice={restoreNotice}
+                                            notice={
+                                                dayMode
+                                                    ? "1 日封存历史无法保存为工作区，可用原采集编号恢复。"
+                                                    : restoreNotice
+                                            }
                                         />,
                                         managementHost
                                     )
@@ -558,6 +597,7 @@ export function WorkspacePage() {
                                     data-temporary-window-fingerprint={
                                         marketData.windowFingerprint ?? ""
                                     }
+                                    data-sealed-revision-id={marketData.sealedRevisionId ?? ""}
                                     data-loaded-bar-count={marketData.loadedClosedBarCount}
                                     data-older-history-status={marketData.olderHistoryStatus}
                                     data-testid="market-data-status"
@@ -572,7 +612,9 @@ export function WorkspacePage() {
                                       (marketData.status === "incomplete" ||
                                           marketData.status === "failed" ||
                                           marketData.realtimeStatus === "failed") &&
-                                      realInstrument !== null ? (
+                                      realInstrument !== null &&
+                                      duration !== null &&
+                                      !dayMode ? (
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -608,7 +650,7 @@ export function WorkspacePage() {
                                         liveBar={marketData.liveBar}
                                         contextKey={marketData.chartContextKey}
                                         onNearLeftEdge={() => {
-                                            void marketData.loadOlderHistory();
+                                            if (!dayMode) void marketData.loadOlderHistory();
                                         }}
                                     />
                                     {latestBar == null ? (

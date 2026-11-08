@@ -202,8 +202,11 @@ impl Application {
                 p.recipe().clone(),
             )
             .map_err(|_| Error::Invalid)?;
-            let mut owner = OnlyTimeBarExecutor::new(edge, Arc::new(r.resource.calendar().clone()))
-                .map_err(|_| Error::Invalid)?;
+            let mut owner = OnlyTimeBarExecutor::new(
+                edge,
+                Arc::new(r.resource.calendar().ok_or(Error::Selection)?.clone()),
+            )
+            .map_err(|_| Error::Invalid)?;
             let window: i64 = target
                 .stride_minutes()
                 .map_err(|_| Error::Invalid)?
@@ -941,6 +944,28 @@ async fn drain_capture(
         } else {
             Some(segment.recovery_scope()?)
         };
+        if scope
+            .as_ref()
+            .is_some_and(market_data::Scope::is_session_day)
+        {
+            let attempt_id = metadata["capture_session_id"]
+                .as_str()
+                .ok_or(Error::Corrupt)?;
+            let (intent, attempt) = store.catalog().original_attempt(attempt_id).await?;
+            // 未绑定完整准备的本地候选仍属于原 UNKNOWN，重启不能把它当新采样发布。
+            if store
+                .catalog()
+                .history_preparation(&attempt)
+                .await?
+                .is_some()
+            {
+                store
+                    .publish_prepared_day(wal, &intent, &attempt, at, |_| true)
+                    .await?;
+                drained += 1;
+            }
+            continue;
+        }
         if let Some(scope) = &scope {
             let prior = store
                 .read_range(scope, &queries::native_intervals(scope)?)

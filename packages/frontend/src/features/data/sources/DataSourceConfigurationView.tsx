@@ -125,10 +125,13 @@ export function DataSourceConfigurationView({
     const values = valueEdits ?? working.public_configuration;
     const probeValues = probeEdits === undefined ? working.probe_configuration : probeEdits;
     const editedInstrument = probeValues?.instrument;
+    const defaults = working.type_descriptor.probe_contract?.configured_instruments;
+    const defaultInstrument =
+        defaults?.instruments[String(values[defaults.field_id])] ??
+        working.type_descriptor.probe_contract?.default_probe_instrument ??
+        "";
     const probeInstrument =
-        typeof editedInstrument === "string"
-            ? editedInstrument
-            : (working.type_descriptor.probe_contract?.default_probe_instrument ?? "");
+        typeof editedInstrument === "string" ? editedInstrument : defaultInstrument;
     const currentAttempt: IntegrationProbeAttempt | undefined = attempts.data?.find(
         (attempt) => attempt.revision_fingerprint === model.current_revision_fingerprint
     );

@@ -189,6 +189,10 @@ impl Reservation {
 #[derive(Clone)]
 pub(crate) struct State {
     pub cash: D,
+    pub perpetual: bool,
+    pub last_confirmed_maintenance: Value,
+    // Last complete aggregate before any Margin changes from the same economic input.
+    pub maintenance_origin: Option<(String, Value)>,
     pub realized: D,
     pub realized_rounding_adjustment: D,
     pub unrealized: D,
@@ -217,6 +221,9 @@ impl State {
     pub fn new(cash: D) -> Self {
         Self {
             cash,
+            perpetual: false,
+            last_confirmed_maintenance: Value::Null,
+            maintenance_origin: None,
             realized: D::zero(),
             realized_rounding_adjustment: D::zero(),
             unrealized: D::zero(),
@@ -264,13 +271,21 @@ impl State {
             .sum()
     }
     pub fn available(&self) -> D {
-        &self.cash - self.reserved() - self.margin_total("reserved") - self.margin_total("occupied")
+        let collateral = if self.perpetual {
+            &self.cash + &self.market_value
+        } else {
+            self.cash.clone()
+        };
+        collateral - self.reserved() - self.margin_total("reserved") - self.margin_total("occupied")
     }
     pub fn withdrawable(&self) -> D {
         self.available() - self.unsettled()
     }
-    pub fn validate(&self) -> Result<(), Error> {
-        if self.cash < D::zero() || self.market_value < D::zero() || self.withdrawable() < D::zero()
+    pub fn validate(&self, perpetual: bool) -> Result<(), Error> {
+        if !perpetual
+            && (self.cash < D::zero()
+                || self.market_value < D::zero()
+                || self.withdrawable() < D::zero())
         {
             return Err(err("ACCOUNT_CASH_CONSERVATION"));
         }
@@ -322,7 +337,7 @@ impl State {
     }
 }
 pub(crate) fn validate_config(v: &Value) -> Result<u8, Error> {
-    if v["schema_version"] != 2 {
+    if !matches!(v["schema_version"].as_u64(), Some(2 | 3)) {
         return Err(err("ACCOUNT_CONFIG_SCHEMA"));
     }
     let mut shape = v.clone();
@@ -345,7 +360,13 @@ pub(crate) fn validate_config(v: &Value) -> Result<u8, Error> {
         id(&r[f])?;
     }
     fingerprint(&r["position_configuration"])?;
-    if text(&r["account_type"])? != "CASH" {
+    if text(&r["account_type"])?
+        != if v["schema_version"] == 3 {
+            "LINEAR_PERPETUAL"
+        } else {
+            "CASH"
+        }
+    {
         return Err(err("ACCOUNT_UNSUPPORTED_TYPE"));
     }
     let c = OnlyCurrency::from_record(&r["currency"])?;
@@ -412,6 +433,19 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
                 "fee_instruction",
             ],
         ),
+        "ECONOMIC" if v.get("funding_source").is_some() => (
+            &[
+                "cashflow",
+                "kind",
+                "amount",
+                "source_fact",
+                "instrument",
+                "funding_source",
+                "trade_lineage",
+            ],
+            &["amount"],
+            &["cashflow", "source_fact"],
+        ),
         "ECONOMIC" => (
             &["cashflow", "kind", "amount", "source_fact", "instrument"],
             &["amount"],
@@ -446,7 +480,12 @@ pub(crate) fn normalize_payload(op: &str, v: &Value, p: u8) -> Result<Value, Err
         ),
         _ => return Err(err("ACCOUNT_OP_UNSUPPORTED")),
     };
-    let mut r = row(v, fields)?.clone();
+    let mut fields = fields.to_vec();
+    if op == "TRADE" && v.get("trade_evidence").is_some() {
+        fingerprint(&v["trade_evidence"])?;
+        fields.push("trade_evidence");
+    }
+    let mut r = row(v, &fields)?.clone();
     for f in ids {
         id(&r[*f])?;
     }

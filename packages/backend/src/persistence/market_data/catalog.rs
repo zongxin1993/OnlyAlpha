@@ -5,18 +5,32 @@ use tokio_postgres::{Client, Transaction, types::ToSql};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AcquisitionIntent {
     record: Value,
-    pub(super) scope: Scope,
+    scope: Option<Scope>,
 }
 impl AcquisitionIntent {
     pub fn build(scope: Scope, provenance: &str, binding: &str, admitted_at: &str) -> Result<Self> {
         let mut value = json!({"source_id":scope.record["source_id"],"requested_scope":scope.record,"provenance":provenance,"integration_binding_fingerprint":binding,"identity_version":2,"admitted_at":utc(admitted_at)?.1});
-        let fp = Self::identity(&value, &scope)?;
+        let fp = Self::identity(&value, Some(&scope))?;
         value["acquisition_id"] = format!("acquisition:{fp}").into();
         value["request_fingerprint"] = fp.into();
         Self::read(value)
     }
-    fn identity(v: &Value, scope: &Scope) -> Result<String> {
+    /// 新历史请求在首次外部 I/O 前提交，此时 Calendar 和复权证据尚未产生。
+    pub fn build_history(request: &Value, binding: &str, admitted_at: &str) -> Result<Self> {
+        let mut value = json!({"source_id":request["source_id"],"requested_scope":request,
+            "provenance":"REST_BACKFILL","integration_binding_fingerprint":binding,
+            "identity_version":3,"admitted_at":utc(admitted_at)?.1});
+        let fp = Self::identity(&value, None)?;
+        value["acquisition_id"] = format!("acquisition:{fp}").into();
+        value["request_fingerprint"] = fp.into();
+        Self::read(value)
+    }
+    fn identity(v: &Value, scope: Option<&Scope>) -> Result<String> {
         provenance(&v["provenance"])?;
+        if v["identity_version"] == 3 {
+            return super::preparation::request_fingerprint(v);
+        }
+        let scope = scope.ok_or(Error::Unprovable)?;
         if v["source_id"] != scope.record["source_id"] {
             return Err(Error::Unprovable);
         }
@@ -46,8 +60,12 @@ impl AcquisitionIntent {
                 "identity_version",
             ],
         )?;
-        let scope = Scope::from_record(&v["requested_scope"])?;
-        let fp = Self::identity(&v, &scope)?;
+        let scope = if v["identity_version"] == 3 {
+            None
+        } else {
+            Some(Scope::from_record(&v["requested_scope"])?)
+        };
+        let fp = Self::identity(&v, scope.as_ref())?;
         if v["request_fingerprint"] != fp || v["acquisition_id"] != format!("acquisition:{fp}") {
             return Err(Error::Unprovable);
         }
@@ -59,6 +77,29 @@ impl AcquisitionIntent {
     }
     pub fn id(&self) -> &str {
         self.record["acquisition_id"].as_str().expect("validated")
+    }
+    pub(super) async fn attempt_scope(
+        &self,
+        tx: &Transaction<'_>,
+        attempt: &AcquisitionAttempt,
+        bytes: usize,
+    ) -> Result<Scope> {
+        if attempt.record["acquisition_id"] != self.id() {
+            return Err(Error::Unprovable);
+        }
+        if let Some(scope) = &self.scope {
+            return Ok(scope.clone());
+        }
+        let record = get(
+            tx,
+            "market_history_prepared_scope",
+            "attempt_id",
+            attempt.id(),
+            bytes,
+        )
+        .await?
+        .ok_or(Error::Unknown)?;
+        super::preparation::bound_scope(self, attempt, &record)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,6 +192,44 @@ impl<'a> Catalog<'a> {
     pub async fn admit_intent(&mut self, intent: &AcquisitionIntent) -> Result<AcquisitionIntent> {
         let tx = self.client.transaction().await?;
         bounds(&tx).await?;
+        if intent.record["identity_version"] == 3 {
+            let uuid = text(&intent.record["requested_scope"]["original_request_id"])?;
+            tx.query_one(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 8142))",
+                &[&uuid],
+            )
+            .await?;
+            let mut subject = intent.record["requested_scope"].clone();
+            let object = subject.as_object_mut().ok_or(Error::Invalid)?;
+            for field in [
+                "original_request_id",
+                "implementation_fingerprint",
+                "artifact_fingerprint",
+            ] {
+                object.remove(field);
+            }
+            let subject = canonical(&subject)?;
+            tx.query_one(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 8143))",
+                &[&subject],
+            )
+            .await?;
+            if let Some(existing) = original_history_intent(&tx, uuid, self.byte_limit).await? {
+                if existing.id() != intent.id() {
+                    return Err(Error::Conflict);
+                }
+            } else {
+                let active=rows(&tx,"SELECT to_jsonb(i)::text FROM market_acquisition_intent i WHERE i.identity_version=3 AND (i.requested_scope - ARRAY['original_request_id','implementation_fingerprint','artifact_fingerprint'])=$1::text::jsonb AND NOT EXISTS (SELECT 1 FROM market_data_acquisition_attempt a JOIN market_data_acquisition_attempt_outcome o USING(attempt_id) WHERE a.acquisition_id=i.acquisition_id)",&[&subject],2,self.byte_limit).await?;
+                if let Some(row) = active.first() {
+                    if active.len() != 1 {
+                        return Err(Error::Unprovable);
+                    }
+                    let original = AcquisitionIntent::read(row.clone())?;
+                    tx.commit().await?;
+                    return Ok(original);
+                }
+            }
+        }
         let existing = get(
             &tx,
             "market_acquisition_intent",
@@ -161,6 +240,18 @@ impl<'a> Catalog<'a> {
         .await?;
         if existing.is_none() {
             insert(&tx, "market_acquisition_intent", &intent.record).await?;
+        }
+        if intent.record["identity_version"] == 3 {
+            let original = original_history_intent(
+                &tx,
+                text(&intent.record["requested_scope"]["original_request_id"])?,
+                self.byte_limit,
+            )
+            .await?
+            .ok_or(Error::Unknown)?;
+            if original.id() != intent.id() {
+                return Err(Error::Conflict);
+            }
         }
         let stored = AcquisitionIntent::read(
             get(
@@ -184,6 +275,11 @@ impl<'a> Catalog<'a> {
     pub async fn intent(&mut self, id: &str) -> Result<Option<AcquisitionIntent>> {
         let tx = self.client.transaction().await?;
         bounds(&tx).await?;
+        if crate::application::command::uuid4(id) {
+            let original = original_history_intent(&tx, id, self.byte_limit).await?;
+            tx.commit().await?;
+            return Ok(original);
+        }
         let result = get(
             &tx,
             "market_acquisition_intent",
@@ -205,6 +301,184 @@ impl<'a> Catalog<'a> {
             .pop();
         tx.commit().await?;
         Ok(result)
+    }
+    pub async fn original_attempt(
+        &mut self,
+        id: &str,
+    ) -> Result<(AcquisitionIntent, AcquisitionAttempt)> {
+        let tx = self.client.transaction().await?;
+        bounds(&tx).await?;
+        let r = get(
+            &tx,
+            "market_data_acquisition_attempt",
+            "attempt_id",
+            id,
+            self.byte_limit,
+        )
+        .await?
+        .ok_or(Error::Unprovable)?;
+        let owner = text(&r["acquisition_id"])?;
+        let intent = AcquisitionIntent::read(
+            get(
+                &tx,
+                "market_acquisition_intent",
+                "acquisition_id",
+                owner,
+                self.byte_limit,
+            )
+            .await?
+            .ok_or(Error::Unprovable)?,
+        )?;
+        let mut history = attempts(&tx, owner, self.row_limit, self.byte_limit).await?;
+        if intent.record["identity_version"] != 3 || history.len() != 1 {
+            return Err(Error::Unprovable);
+        }
+        let attempt = history.pop().ok_or(Error::Unprovable)?;
+        if attempt.id() != id {
+            return Err(Error::Unprovable);
+        }
+        tx.commit().await?;
+        Ok((intent, attempt))
+    }
+
+    /// 已完成的同一 integration、source、规范请求的原始输入缓存。只返回完整准备的确切原 attempt。
+    pub async fn previous_history_inputs(
+        &mut self,
+        intent: &AcquisitionIntent,
+    ) -> Result<Option<String>> {
+        let tx = self.client.transaction().await?;
+        bounds(&tx).await?;
+        let request = &intent.record["requested_scope"];
+        let result=tx.query_opt("SELECT a.attempt_id FROM market_acquisition_intent i JOIN market_data_acquisition_attempt a USING(acquisition_id) JOIN market_data_acquisition_attempt_outcome o USING(attempt_id) JOIN market_history_prepared_scope p USING(attempt_id) WHERE i.identity_version=3 AND i.acquisition_id<>$1 AND o.outcome='COMPLETE' AND (i.requested_scope - ARRAY['original_request_id','integration_revision_fingerprint','artifact_fingerprint','implementation_fingerprint'])=($2::text::jsonb - ARRAY['original_request_id','integration_revision_fingerprint','artifact_fingerprint','implementation_fingerprint']) ORDER BY o.completed_at DESC,a.attempt_id DESC LIMIT 1",&[&intent.id(),&canonical(request)?]).await?;
+        let id = result.map(|r| r.try_get(0)).transpose()?;
+        tx.commit().await?;
+        Ok(id)
+    }
+    async fn history_attempt<'c>(
+        &'c mut self,
+        attempt: &AcquisitionAttempt,
+        lease: &ExecutionLease,
+    ) -> Result<(Transaction<'c>, AcquisitionIntent)> {
+        if attempt.record["acquisition_id"] != lease.intent_id() {
+            return Err(Error::Conflict);
+        }
+        lease.verify().await?;
+        let tx = self.client.transaction().await?;
+        bounds(&tx).await?;
+        tx.query_one("SELECT acquisition_id FROM market_acquisition_intent WHERE acquisition_id=$1 FOR UPDATE", &[&lease.intent_id()]).await?;
+        let intent = AcquisitionIntent::read(
+            get(
+                &tx,
+                "market_acquisition_intent",
+                "acquisition_id",
+                lease.intent_id(),
+                self.byte_limit,
+            )
+            .await?
+            .ok_or(Error::Unprovable)?,
+        )?;
+        let history = attempts(&tx, intent.id(), self.row_limit, self.byte_limit).await?;
+        if intent.record["identity_version"] != 3
+            || history.last() != Some(attempt)
+            || !attempt.is_unknown()
+        {
+            return Err(Error::Conflict);
+        }
+        Ok((tx, intent))
+    }
+    pub(super) async fn link_history_input(
+        &mut self,
+        attempt: &AcquisitionAttempt,
+        lease: &ExecutionLease,
+        input: &Value,
+    ) -> Result<()> {
+        super::preparation::validate_input(input, attempt.id())?;
+        let bytes = self.byte_limit;
+        let (tx, _) = self.history_attempt(attempt, lease).await?;
+        if get(
+            &tx,
+            "market_history_prepared_scope",
+            "attempt_id",
+            attempt.id(),
+            bytes,
+        )
+        .await?
+        .is_some()
+        {
+            return Err(Error::Conflict);
+        }
+        insert(&tx, "market_history_preparation_input", input).await?;
+        let stored = rows(&tx, "SELECT (CASE WHEN i.producer_attempt_id IS NULL THEN to_jsonb(i)-'producer_attempt_id' ELSE to_jsonb(i) END)::text FROM market_history_preparation_input i WHERE attempt_id=$1 AND query_fingerprint=$2",
+            &[&attempt.id(), &text(&input["query_fingerprint"])?], 1, bytes).await?;
+        if stored.as_slice() != std::slice::from_ref(input) {
+            return Err(Error::Conflict);
+        }
+        lease.verify().await?;
+        tx.commit().await.map_err(|_| Error::Unknown)
+    }
+    pub(super) async fn bind_history_scope(
+        &mut self,
+        attempt: &AcquisitionAttempt,
+        lease: &ExecutionLease,
+        record: &Value,
+    ) -> Result<Scope> {
+        let bytes = self.byte_limit;
+        let limit = self.row_limit;
+        let (tx, intent) = self.history_attempt(attempt, lease).await?;
+        let scope = super::preparation::bound_scope(&intent, attempt, record)?;
+        let inputs = rows(&tx, "SELECT (CASE WHEN i.producer_attempt_id IS NULL THEN to_jsonb(i)-'producer_attempt_id' ELSE to_jsonb(i) END)::text FROM market_history_preparation_input i WHERE attempt_id=$1 ORDER BY query_fingerprint",
+            &[&attempt.id()], limit, bytes).await?;
+        if array(&record["input_manifest"]["inputs"])? != &inputs {
+            return Err(Error::Unprovable);
+        }
+        put(
+            &tx,
+            "market_history_prepared_scope",
+            "attempt_id",
+            attempt.id(),
+            record,
+            bytes,
+        )
+        .await?;
+        lease.verify().await?;
+        tx.commit().await.map_err(|_| Error::Unknown)?;
+        Ok(scope)
+    }
+    pub async fn history_preparation(
+        &mut self,
+        attempt: &AcquisitionAttempt,
+    ) -> Result<Option<Value>> {
+        let tx = self.client.transaction().await?;
+        bounds(&tx).await?;
+        let record = get(
+            &tx,
+            "market_history_prepared_scope",
+            "attempt_id",
+            attempt.id(),
+            self.byte_limit,
+        )
+        .await?;
+        if let Some(r) = &record {
+            let intent = AcquisitionIntent::read(
+                get(
+                    &tx,
+                    "market_acquisition_intent",
+                    "acquisition_id",
+                    text(&attempt.record["acquisition_id"])?,
+                    self.byte_limit,
+                )
+                .await?
+                .ok_or(Error::Unprovable)?,
+            )?;
+            super::preparation::bound_scope(&intent, attempt, r)?;
+            let inputs = rows(&tx, "SELECT (CASE WHEN i.producer_attempt_id IS NULL THEN to_jsonb(i)-'producer_attempt_id' ELSE to_jsonb(i) END)::text FROM market_history_preparation_input i WHERE attempt_id=$1 ORDER BY query_fingerprint",
+                &[&attempt.id()], self.row_limit, self.byte_limit).await?;
+            if array(&r["input_manifest"]["inputs"])? != &inputs {
+                return Err(Error::Unprovable);
+            }
+        }
+        tx.commit().await?;
+        Ok(record)
     }
     pub(super) async fn submission(
         &mut self,
@@ -531,6 +805,25 @@ impl<'a> Catalog<'a> {
         tx.commit().await?;
         Ok(result)
     }
+    pub(super) async fn revision_for_candidates(
+        &mut self,
+        scope: &Scope,
+        candidates: &Value,
+    ) -> Result<Option<String>> {
+        let tx = self.client.transaction().await?;
+        bounds(&tx).await?;
+        let pairs = refs(candidates)?;
+        let [(segment, hash)] = pairs.as_slice() else {
+            return Err(Error::Unprovable);
+        };
+        let ids=tx.query("SELECT r.revision_id FROM market_revision_segment rs JOIN market_data_revision r USING(revision_id) WHERE r.scope=$1::text::jsonb AND rs.segment_id=$2 AND rs.segment_content_hash=$3 LIMIT 2",&[&canonical(&scope.record)?,segment,hash]).await?;
+        if ids.len() > 1 {
+            return Err(Error::Conflict);
+        }
+        let id = ids.first().map(|r| r.try_get(0)).transpose()?;
+        tx.commit().await?;
+        Ok(id)
+    }
     pub async fn revision(&mut self, id: &str) -> Result<SealedRevision> {
         let tx = self.client.transaction().await?;
         bounds(&tx).await?;
@@ -746,9 +1039,42 @@ impl<'a> Catalog<'a> {
             .await?
             .ok_or(Error::Unprovable)?,
         )?;
+        if intent.record["identity_version"] == 3 {
+            tx.query_one("SELECT acquisition_id FROM market_acquisition_intent WHERE acquisition_id=$1 FOR UPDATE",
+                &[&intent.id()]).await?;
+            if revision.is_none()
+                && get(
+                    &tx,
+                    "market_history_prepared_scope",
+                    "attempt_id",
+                    attempt.id(),
+                    self.byte_limit,
+                )
+                .await?
+                .is_some()
+            {
+                return Err(Error::Conflict);
+            }
+        }
         if let Some(r) = revision {
             let stored = load_revision(&tx, r.id(), self.byte_limit).await?;
-            if stored != *r || intent.scope != r.manifest.scope {
+            if intent.record["identity_version"] == 3 {
+                let prepared = get(
+                    &tx,
+                    "market_history_prepared_scope",
+                    "attempt_id",
+                    attempt.id(),
+                    self.byte_limit,
+                )
+                .await?
+                .ok_or(Error::Unknown)?;
+                if prepared["input_manifest"]["candidate_refs"] != r.revision["segment_refs"] {
+                    return Err(Error::Conflict);
+                }
+            }
+            if stored != *r
+                || intent.attempt_scope(&tx, attempt, self.byte_limit).await? != r.manifest.scope
+            {
                 return Err(Error::Unprovable);
             }
         }
@@ -779,6 +1105,10 @@ impl<'a> Catalog<'a> {
         let prior = attempts(&tx, &lease.id, self.row_limit, self.byte_limit).await?;
         // A new lease-owned historical execution is a distinct occurrence. The
         // previous started row remains UNKNOWN; this never grants CH resend.
+        let kind=tx.query_one("SELECT identity_version::integer FROM market_acquisition_intent WHERE acquisition_id=$1",&[&lease.id]).await?.try_get::<_,i32>(0)?;
+        if kind == 3 && !prior.is_empty() {
+            return Err(Error::Conflict);
+        }
         let number = prior.len() + 1;
         let fp = fingerprint(&json!({"acquisition_id":lease.id,"attempt_number":number}))?;
         let started = json!({"attempt_id":format!("acquisition-attempt:{fp}"),"acquisition_id":lease.id,"attempt_number":number,"identity_version":2,"started_at":utc(at)?.1});
@@ -805,6 +1135,22 @@ impl<'a> Catalog<'a> {
     ) -> Result<AcquisitionAttempt> {
         self.finish(attempt, "FAILED", None, detail, at).await
     }
+}
+async fn original_history_intent(
+    tx: &Transaction<'_>,
+    uuid: &str,
+    bytes: usize,
+) -> Result<Option<AcquisitionIntent>> {
+    let mut records = rows(tx, "SELECT to_jsonb(i)::text FROM market_acquisition_intent i WHERE identity_version=3 AND requested_scope->>'original_request_id'=$1",
+        &[&uuid], 1, bytes).await?;
+    let result = records.pop().map(AcquisitionIntent::read).transpose()?;
+    if result
+        .as_ref()
+        .is_some_and(|i| i.record["requested_scope"]["original_request_id"] != uuid)
+    {
+        return Err(Error::Unprovable);
+    }
+    Ok(result)
 }
 async fn bounds(tx: &Transaction<'_>) -> Result<()> {
     tx.batch_execute(

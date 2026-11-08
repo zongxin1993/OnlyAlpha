@@ -314,3 +314,246 @@ fn an_explicit_zero_increment_can_follow_a_front_loaded_collateral_fill() {
     assert_eq!(m.snapshot(&id).unwrap()["open"], "2");
     assert_eq!(m.snapshot(&id).unwrap()["occupied"], "1.00");
 }
+
+#[test]
+fn maintenance_observations_preserve_admitted_lifecycle_capacity() {
+    // 原 schema 1 的独立固定哈希来自 common-v1 和原有空历史 envelope。
+    let legacy = json!({"schema_version":1,"config":fixture()["config"],"capacity":8,"states":{},"records":[]});
+    let mut legacy_owner = manager(8);
+    legacy_owner
+        .restore(
+            &legacy,
+            "b4cdef10e1b25a7b6f02f009259a7a75642e2d324383e5c8d9eca597db722d22",
+        )
+        .unwrap();
+    assert_eq!(legacy_owner.checkpoint(), legacy);
+    let mut config = fixture()["config"].clone();
+    config["observation_capacity"] = json!(8);
+    let mut m = Manager::new(config.clone(), 8).unwrap();
+    let reserve = m.apply(&reserve("3")).unwrap().record();
+    let id = reserve["after"]["id"].as_str().unwrap();
+    m.apply(&next(&m, id, 2, "OCCUPY", "1", "0.33", "0.20"))
+        .unwrap();
+    let mark = |m: &Manager, n: u64| {
+        let mut v = next(
+            m,
+            id,
+            n,
+            "MARK_MAINTENANCE",
+            "1",
+            "0.00",
+            if n.is_multiple_of(2) { "0.21" } else { "0.20" },
+        );
+        v["schema_version"] = json!(2);
+        v["source_trade"] = Value::Null;
+        v
+    };
+    for n in 3..=10 {
+        m.apply(&mark(&m, n)).unwrap();
+    }
+    let full = m.checkpoint();
+    assert_eq!(
+        m.apply(&mark(&m, 11)).unwrap_err().0,
+        "MARGIN_OBSERVATION_HISTORY_LIMIT"
+    );
+    assert_eq!(m.checkpoint(), full);
+    assert_eq!(full["schema_version"], 2);
+    assert!(manager(8).restore(&full, &digest(&full)).is_err());
+    let mut fresh = Manager::new(config, 8).unwrap();
+    fresh.restore(&full, &digest(&full)).unwrap();
+    for owner in [&mut m, &mut fresh] {
+        owner
+            .apply(&next(owner, id, 12, "OCCUPY", "1", "0.33", "0.20"))
+            .unwrap();
+        owner
+            .apply(&next(owner, id, 13, "OCCUPY", "1", "0.34", "0.20"))
+            .unwrap();
+        owner
+            .apply(&next(
+                owner,
+                id,
+                14,
+                "RELEASE_RESERVED",
+                "0",
+                "0.00",
+                "0.00",
+            ))
+            .unwrap();
+        let close = owner.release_quote(id, "3").unwrap();
+        owner
+            .apply(&next(
+                owner,
+                id,
+                15,
+                "RELEASE_OCCUPIED",
+                "3",
+                close["amount"].as_str().unwrap(),
+                close["maintenance"].as_str().unwrap(),
+            ))
+            .unwrap();
+        assert_eq!(owner.snapshot(id).unwrap()["status"], "CLOSED");
+    }
+    assert_eq!(m.checkpoint(), fresh.checkpoint());
+}
+
+fn entry_profile_config() -> Value {
+    let mut config = fixture()["config"].clone();
+    config["observation_capacity"] = json!(8);
+    config["entry_profile"] = json!("LINEAR_LONG_NETTING_CROSS_OPEN");
+    config
+}
+fn entry_order(
+    m: &mut Manager,
+    order: &str,
+    sequence: u64,
+    scope_change: Option<(&str, &str)>,
+    amount: &str,
+) -> String {
+    let mut command = reserve("1");
+    command["id"] = json!(format!("entry-reserve-{sequence}"));
+    command["source_ref"] = json!(format!("entry-source-{sequence}"));
+    command["source_order"] = json!(order);
+    command["scope"]["request"] = json!(format!("entry-request-{sequence}"));
+    command["amount"] = json!(amount);
+    command["time"] = json!(sequence);
+    if let Some((key, value)) = scope_change {
+        command["scope"][key] = json!(value);
+    }
+    m.apply(&command).unwrap().record()["after"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+fn entry_occupy(m: &Manager, id: &str, sequence: u64, amount: &str, maintenance: &str) -> Value {
+    let state = m.snapshot(id).unwrap();
+    let mut command = next(m, id, sequence, "OCCUPY", "1", amount, maintenance);
+    command["scope"] = state["scope"].clone();
+    command["source_order"] = state["order"].clone();
+    command
+}
+
+#[test]
+fn explicit_entry_profile_shares_only_the_same_cross_pool() {
+    for difference in [
+        None,
+        Some(("cluster", "another-cluster")),
+        Some(("revision", "another-revision")),
+        Some(("instrument", "600001.XSHG")),
+    ] {
+        let mut manager = Manager::new(entry_profile_config(), 512).unwrap();
+        let first = entry_order(&mut manager, "entry-order-1", 1, None, "0.10");
+        manager
+            .apply(&entry_occupy(&manager, &first, 2, "0.10", "0.00"))
+            .unwrap();
+        let second = entry_order(&mut manager, "entry-order-2", 3, difference, "0.01");
+        let before = manager.checkpoint();
+        let command = entry_occupy(&manager, &second, 4, "0.00", "0.01");
+        if difference.is_none() {
+            manager.apply(&command).unwrap();
+            assert_eq!(manager.snapshot(&first).unwrap()["occupied"], "0.10");
+            assert_eq!(manager.snapshot(&second).unwrap()["occupied"], "0.00");
+            assert_eq!(
+                manager.snapshot(&second).unwrap()["entry_maintenance"],
+                "0.01"
+            );
+        } else {
+            assert_eq!(manager.apply(&command).unwrap_err().0, "MARGIN_OCCUPY");
+            assert_eq!(manager.checkpoint(), before);
+        }
+    }
+}
+
+#[test]
+fn retained_profiles_keep_the_original_delta_guard_and_positive_reservation() {
+    for observations in [false, true] {
+        let mut config = fixture()["config"].clone();
+        if observations {
+            config["observation_capacity"] = json!(8);
+        }
+        let mut manager = Manager::new(config, 512).unwrap();
+        let first = entry_order(&mut manager, "entry-order-1", 1, None, "0.10");
+        manager
+            .apply(&entry_occupy(&manager, &first, 2, "0.10", "0.00"))
+            .unwrap();
+        let second = entry_order(&mut manager, "entry-order-2", 3, None, "0.01");
+        let before = manager.checkpoint();
+        assert_eq!(
+            manager
+                .apply(&entry_occupy(&manager, &second, 4, "0.00", "0.01"))
+                .unwrap_err()
+                .0,
+            "MARGIN_OCCUPY"
+        );
+        assert_eq!(manager.checkpoint(), before);
+        assert!(
+            manager
+                .snapshot(&first)
+                .unwrap()
+                .get("entry_maintenance")
+                .is_none()
+        );
+        assert!(manager.release_quote(&first, "1").is_ok());
+    }
+    let mut manager = Manager::new(entry_profile_config(), 512).unwrap();
+    let mut zero = reserve("1");
+    zero["amount"] = json!("0.00");
+    assert_eq!(manager.apply(&zero).unwrap_err().0, "MARGIN_RESERVE");
+    assert!(
+        manager.checkpoint()["records"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn entry_profile_replays_entry_requirements_and_rejects_close_and_rehashed_state() {
+    let config = entry_profile_config();
+    let mut manager = Manager::new(config.clone(), 512).unwrap();
+    let id = entry_order(&mut manager, "entry-order-1", 1, None, "0.10");
+    manager
+        .apply(&entry_occupy(&manager, &id, 2, "0.10", "0.01"))
+        .unwrap();
+    let mut mark = next(&manager, &id, 3, "MARK_MAINTENANCE", "1", "0.00", "0.50");
+    mark["schema_version"] = json!(2);
+    mark["scope"] = manager.snapshot(&id).unwrap()["scope"].clone();
+    mark["source_order"] = manager.snapshot(&id).unwrap()["order"].clone();
+    mark["source_trade"] = Value::Null;
+    manager.apply(&mark).unwrap();
+    assert_eq!(manager.snapshot(&id).unwrap()["entry_maintenance"], "0.01");
+    assert_eq!(manager.snapshot(&id).unwrap()["maintenance"], "0.50");
+    let checkpoint = manager.checkpoint();
+    let mut restored = Manager::new(config.clone(), 512).unwrap();
+    restored.restore(&checkpoint, &digest(&checkpoint)).unwrap();
+    assert_eq!(restored.checkpoint(), checkpoint);
+    let mut changed = checkpoint.clone();
+    changed["states"][&id]["entry_maintenance"] = json!("0.00");
+    let mut fresh = Manager::new(config, 512).unwrap();
+    assert!(fresh.restore(&changed, &digest(&changed)).is_err());
+    assert_eq!(
+        manager.release_quote(&id, "1").unwrap_err().0,
+        "MARGIN_ENTRY_PROFILE_CLOSE_UNSUPPORTED"
+    );
+    assert_eq!(
+        manager
+            .apply(&next(
+                &manager,
+                &id,
+                4,
+                "RELEASE_OCCUPIED",
+                "1",
+                "0.10",
+                "0.50"
+            ))
+            .unwrap_err()
+            .0,
+        "MARGIN_ENTRY_PROFILE_CLOSE_UNSUPPORTED"
+    );
+    assert_eq!(manager.checkpoint(), checkpoint);
+    let mut missing_observations = entry_profile_config();
+    missing_observations
+        .as_object_mut()
+        .unwrap()
+        .remove("observation_capacity");
+    assert!(Manager::new(missing_observations, 512).is_err());
+}

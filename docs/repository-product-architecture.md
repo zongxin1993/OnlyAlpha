@@ -45,6 +45,8 @@ Each library directory uses its responsibility name, with a Cargo package name p
 Provider dependencies stay outside the Kernel. Concrete Rust plugins use their own `src/` under `plugs/`. Each independently
 deployable unit requires a distinct lifecycle, resource, fault or upgrade boundary.
 
+插件职责、实际装配限制及发行单元对应关系见[插件能力与历史边界](plugin-capabilities.md)。
+
 ### Rust 库的内部目录与说明
 
 `crates/<lib>/` 只允许以下一级目录，按需创建，不要求空目录占位：

@@ -6,6 +6,10 @@
 
 The native semantic identity is `BACKTEST_RESULT@1`, schema1. This isolated result is not wire-compatible with the currently admitted Python Result (whose actual serializer is schema4). ADR0034's schema3 decision established Account/Cluster authority separation; it does not grant language/artifact equivalence. Native results retain distinct exact implementation provenance.
 
+`ProjectionData::transcript` 复用相同的统计与明细组装，返回 `TranscriptDraft`。候选数据可以重算尚未在 Runtime 提交或确认 Ready 的行，因此其正文不含 `final_seal`、`determinism_fingerprint`、`result_fingerprint` 和最终 `id`。
+
+原生 Run 的 `Runtime::backtest_result` 及 `VerifiedReplaySnapshot::backtest_result` 返回 `onlyalpha_runtime::RunBacktestResult`。两者从原 SQLite 完整重读 Ready 前缀、核对工件与六组当前投影。配置 3 还要按原场所和行情逐笔重推。只读快照先重新验证已绑定的原切片。结果先附加 `READ_ONLY_OBSERVATION`，再计算两个指纹，最后计算 `BTR-` 身份。结果与现行 BACKTEST_RESULT@1 使用同一字段和字节规则。
+
 ## Explicit completion boundary
 
 The mandatory caller-declared manifest is an exact schema1 object with:

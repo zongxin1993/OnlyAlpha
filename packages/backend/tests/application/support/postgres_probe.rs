@@ -466,10 +466,15 @@ async fn credential(
                 let secret=Secret::new(request["secret"].as_str().ok_or(Error::SlotInvalid)?)?;
                 json!({"metadata":metadata(&owner.rotate(&id,generation,&secret,now,work).await?)})
             },
-            Some("read")=> {
+            Some(action @ ("read" | "read_for_slot"))=> {
                 let id=CredentialId::new(request["credential_id"].as_str().ok_or(Error::SlotInvalid)?)?;
                 let generation=i32::try_from(request["generation"].as_i64().ok_or(Error::GenerationMismatch)?).map_err(|_|Error::GenerationMismatch)?;
-                let secret=owner.read_secret(&id,generation,work).await?;
+                let secret=if action=="read_for_slot" {
+                    let slot=Slot::new(request["credential_kind"].as_str().ok_or(Error::SlotInvalid)?,request["subject_id"].as_str().ok_or(Error::SlotInvalid)?,request["secret_name"].as_str().ok_or(Error::SlotInvalid)?)?;
+                    owner.read_secret_for_slot(&id,generation,&slot,work).await?
+                } else {
+                    owner.read_secret(&id,generation,work).await?
+                };
                 json!({"secret_sha256":Sha256::digest(secret.expose().as_bytes()).iter().map(|byte|format!("{byte:02x}")).collect::<String>()})
             },
             Some("list")=> {

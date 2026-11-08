@@ -321,30 +321,32 @@ impl Field {
     }
 }
 pub struct Probe {
+    configured_defaults: Option<(String, BTreeMap<String, String>)>,
     default_instrument: String,
     user_selectable: bool,
     fingerprint: String,
 }
 impl Probe {
-    fn restore(raw: &RawValue, work: usize) -> Result<Self, Error> {
+    fn restore(raw: &RawValue, work: usize, definitions: &[Field]) -> Result<Self, Error> {
         let fields = object(raw)?;
-        closed(
-            &fields,
-            &[
-                "probe_version",
-                "probe_mode",
-                "default_probe_instrument",
-                "user_selectable_probe_instrument",
-                "probe_checks",
-                "fingerprint",
-            ],
-        )?;
         let version: u32 = read(&fields, "probe_version")?;
+        let mut keys = vec![
+            "probe_version",
+            "probe_mode",
+            "default_probe_instrument",
+            "user_selectable_probe_instrument",
+            "probe_checks",
+            "fingerprint",
+        ];
+        if version == 2 {
+            keys.push("configured_instruments");
+        }
+        closed(&fields, &keys)?;
         let mode: String = read(&fields, "probe_mode")?;
         let default_instrument: String = read(&fields, "default_probe_instrument")?;
         let user_selectable: bool = read(&fields, "user_selectable_probe_instrument")?;
         let checks: Vec<String> = read(&fields, "probe_checks")?;
-        if version != 1
+        if !matches!(version, 1 | 2)
             || mode != "DEFAULT_INSTRUMENT"
             || !nonblank(&default_instrument)
             || checks.is_empty()
@@ -363,11 +365,71 @@ impl Probe {
         {
             return Err(Error::Probe);
         }
+        let configured_defaults = if version == 2 {
+            let configured = object(fields.get("configured_instruments").ok_or(Error::Probe)?)?;
+            closed(&configured, &["field_id", "instruments"])?;
+            let key: String = read(&configured, "field_id")?;
+            let field = definitions
+                .iter()
+                .find(|f| f.id == key && f.kind == ValueKind::Enum && !f.secret)
+                .ok_or(Error::Probe)?;
+            let defaults: BTreeMap<String, String> = read(&configured, "instruments")?;
+            let fallback: String = serde_json::from_str(field.default().ok_or(Error::Probe)?.get())
+                .map_err(|_| Error::Probe)?;
+            if defaults.keys().ne(field.enum_values.iter())
+                || defaults.get(&fallback) != Some(&default_instrument)
+                || defaults.values().any(|v| {
+                    v.parse::<onlyalpha_domain::identifiers::OnlyInstrumentId>()
+                        .map_or(true, |id| id.to_string() != *v)
+                })
+            {
+                return Err(Error::Probe);
+            }
+            Some((key, defaults))
+        } else {
+            None
+        };
         Ok(Self {
+            configured_defaults,
             default_instrument,
             user_selectable,
             fingerprint: component(&fields, work)?,
         })
+    }
+    pub fn configuration_field(&self) -> Option<&str> {
+        self.configured_defaults
+            .as_ref()
+            .map(|(field, _)| field.as_str())
+    }
+    /// 已解析公开枚举的默认证券。显式选择必须属于相同交易所，其余标识保留原值。
+    pub fn instrument_for(
+        &self,
+        configured: Option<&str>,
+        explicit: Option<&str>,
+    ) -> Result<String, Error> {
+        let fallback = if let Some((_, map)) = &self.configured_defaults {
+            let default = match configured {
+                Some(v) => map.get(v).ok_or(Error::Probe)?,
+                None => &self.default_instrument,
+            };
+            if let Some(v) = explicit {
+                use onlyalpha_domain::identifiers::OnlyInstrumentId;
+                let id: OnlyInstrumentId = v.parse().map_err(|_| Error::Probe)?;
+                if id.to_string() != v
+                    || id.venue()
+                        != default
+                            .parse::<OnlyInstrumentId>()
+                            .map_err(|_| Error::Probe)?
+                            .venue()
+                {
+                    return Err(Error::Probe);
+                }
+            }
+            default.as_str()
+        } else {
+            self.default_instrument.as_str()
+        };
+        Ok(explicit.unwrap_or(fallback).into())
     }
     pub fn default_instrument(&self) -> &str {
         &self.default_instrument
@@ -461,14 +523,23 @@ impl Descriptor {
         let probe = if probe_raw.get() == "null" {
             None
         } else {
-            Some(Probe::restore(probe_raw, work).map_err(|error| {
-                if error == Error::Unavailable {
-                    error
-                } else {
-                    Error::Probe
-                }
-            })?)
+            Some(
+                Probe::restore(probe_raw, work, &definitions).map_err(|error| {
+                    if error == Error::Unavailable {
+                        error
+                    } else {
+                        Error::Probe
+                    }
+                })?,
+            )
         };
+        if probe
+            .as_ref()
+            .is_some_and(|p| p.configured_defaults.is_some())
+            && read::<String>(&fields, "public_api_version")? != "1.2"
+        {
+            return Err(Error::Probe);
+        }
         Ok(Self {
             document,
             id,

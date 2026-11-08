@@ -21,5 +21,4 @@ onlyalpha-account = { path = "../account" }
 onlyalpha-strategy-ledger = { path = "../strategy-ledger" }
 onlyalpha-risk = { path = "../risk" }
 
-[dev-dependencies]
 onlyalpha-broker = { path = "../broker" }

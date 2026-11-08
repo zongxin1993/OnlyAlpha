@@ -1,6 +1,6 @@
 //! Opaque read-only source proof. This cannot recover or acknowledge a Store.
-use crate::SqliteStore;
-use onlyalpha_execution::{BacktestResult, Components, Error, Record};
+use crate::{RunBacktestResult, SqliteStore};
+use onlyalpha_execution::{Components, Error, Record};
 use serde_json::Value;
 #[cfg(not(target_os = "linux"))]
 use std::io::Read;
@@ -116,7 +116,7 @@ impl Source {
                 store.logical_step(reference)?;
             }
         }
-        let state = store.with_ready_source(&components, |source| components.state(source))?;
+        let state = store.with_ready_source(&components, |source| source.state(&components))?;
         verify_file(&source_path(root)?, &store.read_lease()?)?;
         Ok(Self {
             store,
@@ -287,17 +287,13 @@ impl VerifiedReplaySnapshot {
         &self,
         manifest: &Value,
         outcome: &Value,
-    ) -> Result<BacktestResult, Error> {
+    ) -> Result<RunBacktestResult, Error> {
         let source = self.current()?;
         if manifest["kernel_artifact"] != self.artifact {
             return Err(bad("RESULT_ARTIFACT"));
         }
         source
             .store
-            .with_ready_source(&source.components, |records| {
-                source
-                    .components
-                    .backtest_result(records, manifest, outcome)
-            })
+            .backtest_result_at_ready(&source.components, manifest, outcome)
     }
 }

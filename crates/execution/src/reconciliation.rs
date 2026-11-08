@@ -67,6 +67,30 @@ impl FeeFold {
         if input["op"] != "FILL" {
             return Ok(());
         }
+        let mut native_input;
+        let input = if input["payload"]["schema_version"] == 2
+            && input["payload"]["broker"].is_object()
+        {
+            let id = text(&input["payload"]["broker"]["id"])?;
+            let row = &record.prepared().value()["projections"][5]["result"]["perpetual"]["broker_facts"]
+                [id];
+            if row["broker"] != input["payload"]["broker"] {
+                return Err(err("RECONCILIATION_BROKER_SOURCE"));
+            }
+            if record.prepared().value()["projections"][5]["result"]["perpetual"]["last_disposition"]
+                == "DUPLICATE"
+            {
+                return Ok(());
+            }
+            native_input = input.clone();
+            native_input["assessment"] = row["fee_assessment"].clone();
+            native_input["payload"]["trade"] =
+                input["payload"]["broker"]["record"]["payload"]["fill"]["trade_id"]["value"]
+                    .clone();
+            &native_input
+        } else {
+            input
+        };
         if let Some(cached) = &self.cached {
             if cached.inputs.get(self.matched) == Some(input) {
                 self.matched += 1;
@@ -302,7 +326,12 @@ fn record_fee_input(
     }
     #[cfg(test)]
     FEE_FOLD_APPLICATIONS.with(|count| count.set(count.get() + 1));
-    let application = boundary(owner.apply_admitted_target(&input["payload"]["fees"]))?.record();
+    let application = if let Some(native) = input.get("assessment") {
+        boundary(owner.apply(&crate::perpetual_fees::decode_assessment(native)?))?
+    } else {
+        boundary(owner.apply_admitted_target(&input["payload"]["fees"]))?
+    }
+    .record();
     let trade = text(&application["trade"])?;
     if application["subject"]["cluster"] != cluster
         || application["order"] != input["payload"]["order"]

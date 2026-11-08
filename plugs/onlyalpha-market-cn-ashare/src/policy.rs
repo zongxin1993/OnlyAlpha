@@ -16,6 +16,14 @@ pub struct PolicyCompiler {
     record: Value,
 }
 impl PolicyCompiler {
+    /// 指定交易日适用的冻结政策版本。日历消费者和交易规则共用同一生效边界。
+    pub fn version_for(day: OnlyTradingDay) -> Result<&'static str, Error> {
+        match day_text(day).as_str() {
+            date if date >= "2026-07-06" => Ok("2026.07"),
+            date if date >= "2025-01-01" => Ok("2025.1"),
+            _ => Err(bad("MARKET_PRODUCT_VERSION_NOT_EFFECTIVE")),
+        }
+    }
     pub fn new(version: &str) -> Result<Self, Error> {
         if !matches!(version, "2025.1" | "2026.07") {
             return Err(bad("UNSUPPORTED_MARKET_PRODUCT_VERSION"));
@@ -41,9 +49,7 @@ impl PolicyCompiler {
         trading_day: OnlyTradingDay,
     ) -> Result<CompiledPolicy, Error> {
         let date = day_text(trading_day);
-        if (self.version == "2025.1" && !("2025-01-01".."2026-07-06").contains(&date.as_str()))
-            || (self.version == "2026.07" && date.as_str() < "2026-07-06")
-        {
+        if Self::version_for(trading_day)? != self.version {
             return Err(bad("MARKET_PRODUCT_VERSION_NOT_EFFECTIVE"));
         }
         let reference = authority.resolve(instrument, trading_day)?;

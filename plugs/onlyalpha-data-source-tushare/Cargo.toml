@@ -13,3 +13,14 @@ workspace = true
 onlyalpha-integration-contract = { path = "../../crates/integration-contract" }
 onlyalpha-metadata-json = { path = "../../crates/metadata-json" }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision", "raw_value"] }
+onlyalpha-domain = { path = "../../crates/domain" }
+onlyalpha-market-cn-ashare = { path = "../onlyalpha-market-cn-ashare" }
+bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
+jiff = { version = "=0.2.38", default-features = false, features = ["std"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time", "sync", "macros"] }
+sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }

@@ -1,6 +1,6 @@
 # Plugin API Version
 
-公共版本为 `ONLYALPHA_PLUGIN_API_VERSION = OnlyPluginApiVersion(1, 0)`。
+Rust [PluginProjection](../crates/integration-contract/src/authoring.rs) 支持公共接口 1.0、1.1、1.2。1.2 增加 Probe V2，允许对已声明的非敏感枚举配置逐值给出默认证券。发布时将所选默认证券写入原 Revision 的 probe 配置。V1 的固定默认值及原配置指纹继续按各自原始声明读取。
 
 - major 不同：`PLUGIN_API_VERSION_INCOMPATIBLE`；
 - 插件 minor 高于核心：`PLUGIN_API_VERSION_INCOMPATIBLE`；

@@ -13,7 +13,23 @@ use std::collections::BTreeSet;
 pub struct BacktestResult {
     value: Value,
 }
+/// 根据给定行重算出的统计与明细。候选数据没有封存、结果指纹或结果身份。
+#[derive(Debug, PartialEq, Eq)]
+pub struct TranscriptDraft {
+    value: Value,
+}
+impl TranscriptDraft {
+    pub fn record(&self) -> Value {
+        self.value.clone()
+    }
+    pub fn into_record(self) -> Value {
+        self.value
+    }
+}
 impl BacktestResult {
+    pub fn into_record(self) -> Value {
+        self.value
+    }
     pub fn record(&self) -> Value {
         self.value.clone()
     }
@@ -44,6 +60,26 @@ impl Components {
         manifest: &Value,
         outcome: &Value,
     ) -> Result<BacktestResult, Error> {
+        if self.projection_data {
+            return Err(err("RESULT_ORIGINAL_READY_REQUIRED"));
+        }
+        let mut value = self
+            .transcript_draft(store, manifest, outcome)?
+            .into_record();
+        value["final_seal"] = json!({"kind":"READ_ONLY_OBSERVATION","time":manifest["final_time"],"source":value["source"]});
+        let fingerprint = hash(&value);
+        value["determinism_fingerprint"] = json!(fingerprint);
+        value["result_fingerprint"] = json!(fingerprint);
+        value["id"] = json!(format!("BTR-{}", hash(&value)));
+        Ok(BacktestResult { value })
+    }
+
+    pub(crate) fn transcript_draft<S: Store>(
+        &self,
+        store: &S,
+        manifest: &Value,
+        outcome: &Value,
+    ) -> Result<TranscriptDraft, Error> {
         row(
             manifest,
             &[
@@ -235,18 +271,13 @@ impl Components {
             } else {
                 requested
             };
-        let mut value = json!({"schema_version":1,"semantic_version":"BACKTEST_RESULT@1","completion_scope":"EXECUTION_TRANSCRIPT","scope":self.config,"manifest":manifest,"source":source,
+        let value = json!({"schema_version":1,"semantic_version":"BACKTEST_RESULT@1","completion_scope":"EXECUTION_TRANSCRIPT","scope":self.config,"manifest":manifest,"source":source,
             "run":{"status":status,"requested_outcome":outcome,"initial_time":manifest["initial_time"],"final_time":manifest["final_time"]},
             "closure":{"complete":complete,"observed":facts.len(),"expected":expected.len()},
             "execution":{"transaction_count":facts.len(),"order_count":orders["state"]["orders"].as_array().ok_or_else(||err("RESULT_ORDER_STATE"))?.len(),"trade_count":trades.len()},
             "runtime_performance":runtime_performance,"final_account":account,"final_positions":position["accounts"],"final_allocations":position["allocations"],"final_ledgers":final_ledgers,
             "orders":orders["state"]["orders"],"trades":trades,"facts":facts,"cluster_results":clusters,
-            "account_equity_timeline":runtime_performance["timeline"],"cluster_equity_timelines":timelines,"reconciliation":reconciliation,"diagnostics":diagnostics,
-            "final_seal":{"kind":"READ_ONLY_OBSERVATION","time":manifest["final_time"],"source":source}});
-        let fingerprint = hash(&value);
-        value["determinism_fingerprint"] = json!(fingerprint);
-        value["result_fingerprint"] = json!(fingerprint);
-        value["id"] = json!(format!("BTR-{}", hash(&value)));
-        Ok(BacktestResult { value })
+            "account_equity_timeline":runtime_performance["timeline"],"cluster_equity_timelines":timelines,"reconciliation":reconciliation,"diagnostics":diagnostics});
+        Ok(TranscriptDraft { value })
     }
 }

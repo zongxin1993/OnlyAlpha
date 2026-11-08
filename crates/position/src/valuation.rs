@@ -62,23 +62,37 @@ impl Manager {
             .ok_or_else(|| err("POSITION_VALUATION_MARKS"))?;
         let mut marks = BTreeMap::new();
         for m in rows {
-            row(
-                m,
-                &[
-                    "instrument",
-                    "mark",
-                    "source_ref",
-                    "family",
-                    "version",
-                    "time",
-                    "as_of_sequence",
-                ],
-            )?;
+            let perpetual = self.config["schema_version"] == 2;
+            let mut keys = vec![
+                "instrument",
+                "mark",
+                "source_ref",
+                "family",
+                "version",
+                "time",
+                "as_of_sequence",
+            ];
+            if perpetual {
+                keys.push("precision");
+            }
+            row(m, &keys)?;
             let i = id(&m["instrument"])?;
             let spec = self.spec(&i)?;
-            spec.price(&m["mark"])?;
+            if perpetual {
+                let value = positive(&m["mark"])?;
+                let p = u8::try_from(uint(&m["precision"])?)
+                    .map_err(|_| err("POSITION_MARK_PRECISION"))?;
+                onlyalpha_domain::value::OnlyPrice::new(value.to_string().parse()?, p)?;
+            } else {
+                spec.price(&m["mark"])?;
+            }
             id(&m["source_ref"])?;
-            if m["family"] != "CLOSED_BAR"
+            if m["family"]
+                != if self.config["schema_version"] == 2 {
+                    "MARK"
+                } else {
+                    "CLOSED_BAR"
+                }
                 || uint(&m["version"])? == 0
                 || uint(&m["as_of_sequence"])? == 0
                 || time(&m["time"])? > at
@@ -103,25 +117,23 @@ impl Manager {
                 return Err(err("POSITION_VALUATION_STALE_MARK"));
             }
             let spec = &self.instruments[i];
-            let mv = (&b.qty * decimal(&m["mark"])? * &spec.multiplier)
-                .with_scale_round(i64::from(self.currency.precision()), RoundingMode::HalfEven);
+            let gross = &b.qty * decimal(&m["mark"])? * &spec.multiplier;
+            let mv = if self.config["schema_version"] == 2 {
+                gross
+            } else {
+                gross.with_scale_round(i64::from(self.currency.precision()), RoundingMode::HalfEven)
+            };
             let c = &b.cost * &spec.multiplier;
             market += &mv;
             cost += &c;
         }
-        let mut replay = Self::new(self.config.clone())?;
-        let mut trades = serde_json::Map::new();
-        for command in &self.state.journal {
-            let outcome = replay.apply(command)?;
-            if command["op"] == "TRADE" && outcome.status == crate::Status::Applied {
-                let p = &command["payload"];
-                let fact = outcome
-                    .fact
-                    .ok_or_else(|| err("POSITION_VALUATION_TRADE_FACT"))?;
-                trades.insert(id(&p["trade"])?,json!({"position_evidence":hash(&fact["details"]["account"]),"cause":command["cause"],"time":command["time"],"order":p["order"],"execution":p["execution"],"venue_trade":p["venue_trade"],"sequence":p["sequence"]}));
-            }
+        let (trades, _) = self.trade_lineage()?;
+        let unrealized = &market - &cost;
+        if self.config["schema_version"] == 2 {
+            market = unrealized
+                .with_scale_round(i64::from(self.currency.precision()), RoundingMode::HalfEven);
         }
-        let result = json!({"schema_version":1,"scope":self.config,"configuration":hash(&self.config),"trades":trades,"intent":intent,"market_value":rounded(&market,self.currency.precision()),"unrealized_pnl":(&market-&cost).normalized().to_plain_string()});
+        let result = json!({"schema_version":1,"scope":self.config,"configuration":hash(&self.config),"trades":trades,"intent":intent,"market_value":rounded(&market,self.currency.precision()),"unrealized_pnl":unrealized.normalized().to_plain_string()});
         Ok(ValuationEffect {
             input: json!({"schema_version":1,"position":serde_json::from_slice::<Value>(&bytes)?,"intent":intent}),
             result,

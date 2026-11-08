@@ -128,13 +128,17 @@ export const marketDataBarsSchema = z
     })
     .refine((value) => {
         const complete = value.coverage.status === "COMPLETE";
+        const day =
+            value.bar_semantic.formation.kind === "CALENDAR_PERIOD" &&
+            value.bar_semantic.formation.unit === "DAY" &&
+            value.bar_semantic.formation.count === 1;
         const derived = value.resolution_mode === "DERIVED";
         return (
             value.bars.length > 0 === complete &&
             (!complete || value.revision_evidence.length > 0) &&
             (value.history_projection_fingerprint !== null) === complete &&
-            (value.resume_after_sequence !== null) === complete &&
-            (value.resume_plan_fingerprint !== null) === complete &&
+            (value.resume_after_sequence !== null) === (complete && !day) &&
+            (value.resume_plan_fingerprint !== null) === (complete && !day) &&
             (value.derived_projection_fingerprint !== null) === (complete && derived)
         );
     });

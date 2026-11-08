@@ -44,17 +44,12 @@ impl Application {
         let started = utc(raw["started_at_ns"].as_i64().ok_or(Error::Corrupt)?)?;
         let completed = utc(raw["completed_at_ns"].as_i64().ok_or(Error::Corrupt)?)?;
         let raw_checks = raw["checks"].as_array().ok_or(Error::Corrupt)?;
-        let expected = [
-            "CONNECTIVITY",
-            "HISTORICAL_DATA",
-            "REALTIME_DATA",
-            "REFERENCE_DATA",
-        ];
+        let expected = &r.probe_checks;
         let mut checks = vec![];
         for name in expected {
             let rows = raw_checks
                 .iter()
-                .filter(|c| c["check"] == name)
+                .filter(|c| c["check"].as_str() == Some(name.as_str()))
                 .collect::<Vec<_>>();
             if rows.len() != 1 {
                 return Err(Error::Corrupt);
@@ -65,10 +60,14 @@ impl Application {
                 .as_i64()
                 .filter(|n| *n >= start)
                 .ok_or(Error::Corrupt)?;
-            let passed = c["status"] == "READY";
+            let passed = match c["status"].as_str() {
+                Some("READY") => true,
+                Some("FAILED" | "UNAVAILABLE") => false,
+                _ => return Err(Error::Corrupt),
+            };
             checks.push(json!({"check":name,"status":if passed{"PASS"}else{"FAIL"},"latency_ms":(end-start)/1_000_000,"failure_kind":if passed{None}else{Some(if name=="CONNECTIVITY"{"OFFLINE"}else{"DEGRADED"})},"error_code":if passed{Value::Null}else{c["detail"].clone()},"detail":"","observations":[]}));
         }
-        if raw_checks.len() != 4 || completed < started {
+        if raw_checks.len() != expected.len() || completed < started {
             return Err(Error::Corrupt);
         }
         let status = overall(&checks)?;
@@ -225,12 +224,7 @@ fn validate_document(value: &Value, r: &Resolved) -> Result<()> {
         r.selection.reference().integration_id(),
         r.selection.reference().revision(),
         Some(&r.probe_symbol),
-        &[
-            "CONNECTIVITY".into(),
-            "HISTORICAL_DATA".into(),
-            "REALTIME_DATA".into(),
-            "REFERENCE_DATA".into(),
-        ],
+        &r.probe_checks,
     )
 }
 fn validate_original_document(

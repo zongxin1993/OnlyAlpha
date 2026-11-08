@@ -16,11 +16,13 @@
 
 ## 公开接口
 
-object_fields 接收 JSON 对象，返回字段到 RawValue 的映射并拒绝重复键；canonical_json / integral_float_json 接收字符串和 max_work，输出对应规范 JSON；fingerprint 输出规范身份摘要。Error::Invalid / Unavailable 区分确定非法与无法完成。
+object_fields 接收 JSON 对象，返回字段到 RawValue 的映射并拒绝重复键；canonical_json / integral_float_json / python_json 接收字符串和 max_work，输出对应规范 JSON；fingerprint 输出规范身份摘要。Error::Invalid / Unavailable 区分确定非法与无法完成。
+
+python_json 仅用于原来采用普通 Python `json.dumps(sort_keys=True,separators=(",",":"),ensure_ascii=False)` 的证据边界，浮点保留数字类型、整值浮点 `.0` 和负零；不改变 canonical_json 的浮点字符串策略或 integral_float_json 的整值归整数策略。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
 
-库根直接声明：`Error`、`object_fields`、`canonical_json`、`integral_float_json`、`fingerprint`。
+库根直接声明：`Error`、`object_fields`、`canonical_json`、`integral_float_json`、`python_json`、`fingerprint`。
 
 ## 状态与生命周期
 

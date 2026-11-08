@@ -26,6 +26,13 @@ pub(crate) struct OwnerAdmission {
     pub operation: Operation,
 }
 impl OwnerAdmission {
+    pub(crate) fn day(&self, selection: &Selection) -> Result<(), market_product::Error> {
+        self.human()?;
+        if !matches!(&self.operation,Operation::Acquisition(s) if s==selection) {
+            return Err(market_product::Error::Forbidden);
+        }
+        Ok(())
+    }
     fn human(&self) -> Result<(), market_product::Error> {
         if self.human.subject_id().ok() != Some("local-developer") {
             return Err(market_product::Error::Forbidden);
@@ -81,6 +88,14 @@ impl Host {
                 .ok_or_else(invalid)?,
             source["expected_type_id"].as_str(),
         )?;
+        if raw["bar_semantic"]["formation"]["kind"] == "CALENDAR_PERIOD" {
+            return self
+                .day_acquisition(&reference, &raw, human, deadline)
+                .await;
+        }
+        if raw.get("original_request_id").is_some() || raw.get("adjustment_anchor").is_some() {
+            return Err(invalid());
+        }
         let (resolved, session) = self.resolve(&reference).await?;
         let admission = Arc::new(OwnerAdmission {
             human,

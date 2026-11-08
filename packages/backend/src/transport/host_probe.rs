@@ -60,14 +60,14 @@ impl Host {
             )?;
             let admission = Arc::new(OwnerAdmission {
                 human,
-                operation: Operation::Probe(selected, attempt.clone()),
+                operation: Operation::Probe(selected.clone(), attempt.clone()),
             });
-            let resolved = Arc::new(self.resolver.resolve_for_probe(
-                snapshot,
-                &reference,
-                admission.as_ref(),
-                &attempt,
-            )?);
+            use crate::application::market_product::ProbeAdmission;
+            admission.require_probe(&selected, &attempt)?;
+            let resolved = Arc::new(self.connect_source(snapshot, &reference).await?);
+            if resolved.selection() != &selected || resolved.identity() != &identity {
+                return Err(invalid());
+            }
             let completed = self
                 .app
                 .execute_probe(resolved, admission, &attempt, deadline)
@@ -87,11 +87,13 @@ impl Host {
                 .ok_or_else(|| Failure::unavailable("INTEGRATION_PROBE_RESULT_CORRUPT"))?;
             return Ok(Json(result).into_response());
         }
-        let mut read = self.reader.lock().await;
-        let client = read
-            .as_mut()
-            .ok_or_else(|| Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-        let attempts = probe_attempts(client, snapshot, ROWS).await?;
+        let attempts = {
+            let mut read = self.reader.lock().await;
+            let client = read
+                .as_mut()
+                .ok_or_else(|| Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+            probe_attempts(client, snapshot, ROWS).await?
+        };
         match pieces.as_slice() {
             ["", "api", "v2", "integrations", _, "probe-attempts"] => {
                 Ok(Json(json!({"items":attempts})).into_response())
@@ -113,8 +115,8 @@ impl Host {
                 let pin = owner.current_revision_fingerprint.as_deref();
                 let current = if let Some(pin) = pin {
                     let reference = Reference::new(integration, pin, Some(owner.type_id.value()))?;
-                    self.resolver
-                        .resolve(snapshot, &reference, &self.source_session().await, None)
+                    self.current_source(snapshot, &reference, &self.source_session().await)
+                        .await
                         .is_ok()
                 } else {
                     false
