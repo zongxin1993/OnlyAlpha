@@ -159,7 +159,14 @@ def test_private_asset_product_discovery_and_exact_read_paths_are_canonical() ->
         parameters = {item["name"]: item for item in operation["parameters"]}
         assert parameters["revision_fingerprint"]["required"] is True
         assert parameters["content_fingerprint"]["required"] is True
-        assert ("501" if "/strategies/" in path else "400") in operation["responses"]
+        # native 化后精确读取路径的响应集合逐操作固定：factors 行保持
+        # utoipa 注册的 400/429/500 全家（packages/backend/src/transport/routes.rs），
+        # strategies 行已实现且无 404（指纹不存在走 403/409 语义）。
+        assert set(operation["responses"]) == (
+            {"200", "400", "401", "403", "409", "503"}
+            if "/strategies/" in path
+            else {"200", "400", "401", "403", "404", "409", "429", "500", "503"}
+        )
         assert "422" not in operation["responses"]
 
 
@@ -553,22 +560,130 @@ def test_unknown_schema_semantics_fail_closed() -> None:
         governance.compare_contracts(old, new)
 
 
-def test_strategy_and_backtest_routes_declare_exact_product_errors_without_422() -> None:
-    document = governance.render_document()
-    operations = [
-        operation
+# 策略/回测路由逐操作精确响应允许清单。依据：packages/backend/src/transport/routes.rs
+# 中逐操作 `utoipa::path` 的显式 responses 注册与处理函数错误映射；native 场景链路证据见
+# packages/backend/tests/application/backtest_native_host.py。native 集成落地后仅
+# POST /api/v2/backtest/runs 与 POST /api/v2/strategies/{strategy_fingerprint}/promotions
+# 两处仍未实现、保留 501 占位（NativeErrorEnvelope 断言保留）；422 全链路禁止，
+# 验证失败按既有语义走 400。
+_PRODUCTIVE_ROUTE_RESPONSES = {"200", "400", "401", "403", "404", "409", "429", "500", "503"}
+_PRODUCTIVE_ROUTE_RESPONSES_NO_CAPACITY = {"200", "400", "401", "403", "404", "409", "503"}
+_FINGERPRINT_ROUTE_RESPONSES = {"200", "400", "401", "403", "409", "503"}
+_WORKFLOW_ROUTE_RESPONSES = {"200", "400", "401", "403", "404", "503"}
+_NOT_IMPLEMENTED_ROUTE_RESPONSES = {"501"}
+
+_STRATEGY_BACKTEST_ROUTE_ALLOWLIST: dict[tuple[str, str], set[str]] = {
+    ("/api/v2/backtest/creation-context", "get"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/preparations", "post"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/preparations/commands/{command_id}", "get"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/preparations/{command_id}/cancellation", "post"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/preparations/{command_id}/ready", "get"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/preparations/{command_id}/resume", "post"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/preparations/{command_id}/submit", "post"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/runs", "get"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/runs", "post"): _NOT_IMPLEMENTED_ROUTE_RESPONSES,
+    ("/api/v2/backtest/runs/{run_id}", "get"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/runs/{run_id}/cancellation", "post"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/runs/{run_id}/evidence", "get"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/runs/{run_id}/evidence/artifacts/{artifact_name}", "get"): (
+        _PRODUCTIVE_ROUTE_RESPONSES_NO_CAPACITY
+    ),
+    ("/api/v2/backtest/runs/{run_id}/result", "get"): _PRODUCTIVE_ROUTE_RESPONSES,
+    ("/api/v2/backtest/strategy-context", "get"): _PRODUCTIVE_ROUTE_RESPONSES_NO_CAPACITY,
+    ("/api/v2/strategies/{strategy_fingerprint}", "get"): _FINGERPRINT_ROUTE_RESPONSES,
+    ("/api/v2/strategies/{strategy_fingerprint}/promotions", "post"): _NOT_IMPLEMENTED_ROUTE_RESPONSES,
+    ("/api/v2/strategies/{strategy_fingerprint}/qualification-decisions", "get"): _FINGERPRINT_ROUTE_RESPONSES,
+    ("/api/v2/strategies/{strategy_fingerprint}/qualification-promotions", "post"): _FINGERPRINT_ROUTE_RESPONSES,
+    ("/api/v2/strategies/{strategy_fingerprint}/qualification-promotions/commands/{command_id}", "get"): (
+        _FINGERPRINT_ROUTE_RESPONSES
+    ),
+    ("/api/v2/strategies/{strategy_fingerprint}/qualification-promotions/commands/{command_id}/resume", "post"): (
+        _FINGERPRINT_ROUTE_RESPONSES
+    ),
+    ("/api/v2/strategies/{strategy_fingerprint}/qualifications", "post"): _FINGERPRINT_ROUTE_RESPONSES,
+    ("/api/v2/strategies/{strategy_fingerprint}/qualifications/commands/{command_id}", "get"): (
+        _FINGERPRINT_ROUTE_RESPONSES
+    ),
+    ("/api/v2/strategies/{strategy_fingerprint}/qualifications/commands/{command_id}/resume", "post"): (
+        _FINGERPRINT_ROUTE_RESPONSES
+    ),
+    ("/api/v2/strategy-creation-context", "get"): _PRODUCTIVE_ROUTE_RESPONSES_NO_CAPACITY,
+    ("/api/v2/strategy-freezes", "post"): _FINGERPRINT_ROUTE_RESPONSES,
+    ("/api/v2/strategy-freezes/commands/{command_id}", "get"): _FINGERPRINT_ROUTE_RESPONSES,
+    ("/api/v2/strategy-freezes/commands/{command_id}/resume", "post"): _FINGERPRINT_ROUTE_RESPONSES,
+    ("/api/v2/strategy-workflows", "get"): _WORKFLOW_ROUTE_RESPONSES,
+    ("/api/v2/strategy-workflows/{strategy_id}", "get"): _WORKFLOW_ROUTE_RESPONSES,
+}
+
+
+def _strategy_backtest_routes(document: dict) -> dict[tuple[str, str], dict]:
+    return {
+        (path, method): operation
         for path, item in document["paths"].items()
         if path.startswith("/api/v2/strateg") or path.startswith("/api/v2/backtest")
         for method, operation in item.items()
         if method in governance.HTTP_METHODS
-    ]
-    assert operations
-    for operation in operations:
-        assert "422" not in operation["responses"]
-        assert set(operation["responses"]) == {"501"}
-        assert operation["responses"]["501"]["content"]["application/json"]["schema"] == {
-            "$ref": "#/components/schemas/NativeErrorEnvelope"
-        }
+    }
+
+
+def _assert_strategy_backtest_route_responses(document: dict) -> None:
+    routes = _strategy_backtest_routes(document)
+    # 操作集合本身也必须精确匹配：新增或删改路由必须同步修订允许清单，防止悄悄绕过契约审查。
+    assert set(routes) == set(_STRATEGY_BACKTEST_ROUTE_ALLOWLIST)
+    for (path, method), operation in sorted(routes.items()):
+        expected = _STRATEGY_BACKTEST_ROUTE_ALLOWLIST[(path, method)]
+        assert set(operation["responses"]) == expected, f"{path} {method}"
+        assert "422" not in operation["responses"], f"{path} {method}"
+        if "501" in expected:
+            assert operation["responses"]["501"]["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/NativeErrorEnvelope"
+            }
+
+
+def test_strategy_and_backtest_routes_declare_exact_product_errors_without_422() -> None:
+    document = governance.render_document()
+    _assert_strategy_backtest_route_responses(document)
+
+
+@pytest.fixture(scope="module")
+def _rendered_contract_document() -> dict:
+    return governance.render_document()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "path", "method"),
+    (
+        ("inject-422", "/api/v2/backtest/runs", "post"),
+        ("inject-extra-status", "/api/v2/strategy-workflows", "get"),
+        ("drop-status", "/api/v2/backtest/creation-context", "get"),
+    ),
+)
+def test_strategy_backtest_allowlist_fails_closed_on_route_mutations(
+    _rendered_contract_document: dict, mutation: str, path: str, method: str
+) -> None:
+    # 变异夹具：注入 422、注入额外成功码或删除登记码都必须被拦截，证明规则未被弱化。
+    document = copy.deepcopy(_rendered_contract_document)
+    operation = document["paths"][path][method]
+    if mutation == "inject-422":
+        operation["responses"]["422"] = {"description": "injected"}
+    elif mutation == "inject-extra-status":
+        operation["responses"]["204"] = {"description": "injected"}
+    else:
+        del operation["responses"]["404"]
+    with pytest.raises(AssertionError):
+        _assert_strategy_backtest_route_responses(document)
+
+
+def test_strategy_backtest_allowlist_fails_closed_on_unregistered_route(
+    _rendered_contract_document: dict,
+) -> None:
+    # 新增路由未登记允许清单必须立即失败，堵住"新路由悄悄绕过契约审查"。
+    document = copy.deepcopy(_rendered_contract_document)
+    document["paths"]["/api/v2/strategies/{strategy_fingerprint}/experimental"] = {
+        "get": {"responses": {"200": {"description": "sneaky"}}}
+    }
+    with pytest.raises(AssertionError):
+        _assert_strategy_backtest_route_responses(document)
 
 
 @pytest.mark.parametrize("direction", ("request", "response"))
