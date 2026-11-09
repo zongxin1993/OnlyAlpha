@@ -9,6 +9,13 @@ use std::collections::BTreeMap;
 /// ```
 pub struct AppendIntent {
     value: Value,
+    admitted_at: Option<Value>,
+}
+impl AppendIntent {
+    /// 来源绑定介质单独保存原 Runtime 准入时刻，原协议 record 及其预算保持原格式。
+    pub fn admitted_at(&self) -> Option<&Value> {
+        self.admitted_at.as_ref()
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record(Value);
@@ -384,7 +391,8 @@ impl Broker {
         self.history = records;
         Ok(())
     }
-    fn refresh(&mut self, j: &impl Journal) -> Result<(), Error> {
+    /// 从原序 Journal 更新已有协议对象，不派发或追加事件。
+    pub fn refresh(&mut self, j: &impl Journal) -> Result<(), Error> {
         let result = self.reload(j);
         if result.is_err() {
             self.stream_trusted = false;
@@ -392,13 +400,24 @@ impl Broker {
         result
     }
     fn append(&mut self, j: &mut impl Journal, event: Value) -> Result<(), Error> {
+        self.append_at(j, event, None)
+    }
+    fn append_at(
+        &mut self,
+        j: &mut impl Journal,
+        event: Value,
+        admitted_at: Option<Value>,
+    ) -> Result<(), Error> {
         self.refresh(j)?;
         let mut candidate = self.state.clone();
         apply(&mut candidate, &self.scope, &event, self.capacity)?;
         let mut v = json!({"schema_version":1,"sequence":self.history.len()+1,"previous":self.history.last().map(|r|text(&r.0["hash"]).expect("validated")).unwrap_or(&"0".repeat(64)),"scope":self.scope.record(),"event":event});
         v["hash"] = json!(digest(&v));
         Record::decode(&v)?;
-        let intent = AppendIntent { value: v.clone() };
+        let intent = AppendIntent {
+            value: v.clone(),
+            admitted_at,
+        };
         if let Err(e) = j.append(&intent) {
             self.stream_trusted = false;
             return Err(e);
@@ -491,14 +510,19 @@ impl Broker {
                 .state
                 .commands
                 .get(command.id())
-                .is_some_and(|e| e.intent != intent)
+                .is_some_and(|e| e.intent.record() != intent.record())
         {
             return Err(err("BROKER_RUNTIME_INTENT_RELATION"));
         }
+        adapter.check_dispatch(&intent)?;
         if !self.state.commands.contains_key(command.id()) {
             self.append(j, json!({"kind":"INTENT","intent":intent.record()}))?;
         }
-        self.append(j, json!({"kind":"DISPATCHED","command_id":command.id()}))?;
+        self.append_at(
+            j,
+            json!({"kind":"DISPATCHED","command_id":command.id()}),
+            intent.admitted_at().cloned(),
+        )?;
         let outcome = adapter.dispatch(command).unwrap_or(DispatchResult::Unknown);
         self.append(j,json!({"kind":"RESULT","command_id":command.id(),"result":match outcome{DispatchResult::Received=>"RECEIVED",DispatchResult::Rejected=>"REJECTED",DispatchResult::Unknown=>"UNKNOWN"}}))?;
         Ok(self.state.commands[command.id()].state)
@@ -604,5 +628,102 @@ impl Broker {
         let d = discovery.discover(&e.intent.command)?;
         let local = runtime.order_view(&e.intent.command)?;
         self.append(j,json!({"kind":"RESOLVE","command_id":command_id,"discovery":d.record(),"local":local.map(|v|v.record()),"receipts":receipts}))
+    }
+}
+
+/// 已恢复的原提交命令、DISPATCHED 和原场所观察。不能由单条 Fact DTO 构造。
+pub struct ObservedFact {
+    fact: Fact,
+    intent: ReadyIntent,
+    source: Value,
+}
+impl ObservedFact {
+    pub fn source(&self) -> &Value {
+        &self.source
+    }
+    pub fn fact(&self) -> &Fact {
+        &self.fact
+    }
+    pub fn intent(&self) -> &ReadyIntent {
+        &self.intent
+    }
+}
+impl Broker {
+    /// 返回此 Journal 中第一条原观察的完整内容，并验证同订单的原命令先已派发。
+    pub fn observed(&self, identity: &str) -> Result<ObservedFact, Error> {
+        if self.state.conflict {
+            return Err(err("BROKER_FACT_CONFLICT"));
+        }
+        let mut dispatched = std::collections::BTreeSet::new();
+        for r in &self.history {
+            let event = &r.0["event"];
+            let rows = match event["kind"].as_str() {
+                Some("DISPATCHED") => {
+                    dispatched.insert(text(&event["command_id"])?);
+                    continue;
+                }
+                Some("INGRESS") => &event["facts"],
+                Some("DISCOVERY" | "RESOLVE") => &event["discovery"]["facts"],
+                _ => continue,
+            };
+            for raw in rows.as_array().ok_or_else(|| err("BROKER_FACTS"))? {
+                let fact = Fact::decode(raw)?;
+                if fact.identity() != identity {
+                    continue;
+                }
+                let mut entries = self.state.commands.values().filter(|e| {
+                    e.intent.command.operation() == Operation::Submit
+                        && fact.order() == Some(e.intent.command.order())
+                        && dispatched.contains(e.intent.command.id())
+                });
+                let intent = entries
+                    .next()
+                    .ok_or_else(|| err("BROKER_ORIGINAL_DISPATCH_MISSING"))?
+                    .intent
+                    .clone();
+                if entries.next().is_some() {
+                    return Err(err("BROKER_ORIGINAL_DISPATCH_AMBIGUOUS"));
+                }
+                return Ok(ObservedFact {
+                    fact,
+                    intent,
+                    source: json!({"sequence":r.0["sequence"],"hash":r.0["hash"]}),
+                });
+            }
+        }
+        Err(err("BROKER_ORIGINAL_OBSERVATION_MISSING"))
+    }
+    pub fn economic_prefix(
+        &self,
+        order: &str,
+        boundary: u64,
+        visible: u64,
+    ) -> Result<Value, Error> {
+        for row in &self.history {
+            let event = &row.0["event"];
+            if !matches!(event["kind"].as_str(), Some("DISCOVERY" | "RESOLVE")) {
+                continue;
+            }
+            let d = &event["discovery"];
+            if d["command"]["operation"] == "SUBMIT"
+                && d["command"]["order"] == order
+                && matches!(d["presence"].as_str(), Some("PRESENT" | "ABSENT_PROVEN"))
+                && integer(&d["economic_through_ns"], false).is_ok_and(|n| {
+                    n >= bigdecimal::num_bigint::BigInt::from(boundary)
+                        && n <= bigdecimal::num_bigint::BigInt::from(visible)
+                })
+            {
+                return Ok(json!({"sequence":row.0["sequence"],"hash":row.0["hash"]}));
+            }
+        }
+        Err(err("BROKER_ECONOMIC_PREFIX_UNPROVEN"))
+    }
+    pub fn observed_trades(&self) -> Result<Vec<ObservedFact>, Error> {
+        self.state
+            .seen
+            .keys()
+            .filter(|k| k.starts_with("EFILL-"))
+            .map(|k| self.observed(k))
+            .collect()
     }
 }

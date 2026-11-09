@@ -22,10 +22,10 @@ fn sql<T>(value: rusqlite::Result<T>) -> Result<T, Error> {
 fn sha(v: &Value) -> String {
     #[cfg(test)]
     REFERENCE_INPUT_HASHES.with(|watch| {
-        if let Some((input, count)) = watch.borrow_mut().as_mut() {
-            if input == v {
-                *count += 1;
-            }
+        if let Some((input, count)) = watch.borrow_mut().as_mut()
+            && input == v
+        {
+            *count += 1;
         }
     });
     digest(v.to_string().as_bytes())
@@ -369,7 +369,11 @@ impl SqliteStore {
         };
         match current {
             Some(current) => self.with_ready_source(current, |source| read(source.records())),
-            None => read(&self.read_records()?),
+            None => {
+                let records = self.read_records()?;
+                self.verify_perpetual_inputs(&records)?;
+                read(&records)
+            }
         }
     }
     pub(crate) fn fresh_refs(&self) -> Result<Vec<ReplayEntryRef>, Error> {
@@ -647,7 +651,7 @@ impl SqliteStore {
                 }
                 // A pending-observation error belongs to delivery, not to the
                 // already successful Replay completion. Keep it as local data.
-                let events = onlyalpha_execution::pending_events(source, current);
+                let events = source.pending_events(current);
                 Ok(ReplayCompletion {
                     references: observed,
                     pending_events: events,
@@ -706,7 +710,7 @@ impl Runtime {
             if self.store.replay_refs_from_source(source.records())? != expected {
                 return Err(bad("SOURCE_CHANGED"));
             }
-            onlyalpha_execution::pending_events(source, &self.components)
+            source.pending_events(&self.components)
         })
     }
     pub fn read_replay_step(&self, reference: &ReplayEntryRef) -> Result<Value, Error> {

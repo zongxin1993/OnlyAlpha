@@ -1,0 +1,148 @@
+{
+  "observed_at": "2026-08-28T10:00:00+00:00",
+  "authority": {
+    "semantic_schema_version": 1,
+    "authority_fingerprint": "83e1fcf0caa557998b3b251daac5d55f1aeb8a3b14e956ae5b9bd9e905c2dfe4",
+    "authority_version": "2",
+    "compatibility_status": "COMPATIBLE",
+    "exchange_rules": [],
+    "references": [
+      {
+        "instrument_id": "BTCUSDT.BINANCE",
+        "raw_symbol": "BTCUSDT",
+        "base_currency": "BTC",
+        "quote_currency": "USDT",
+        "provider_status": "TRADING",
+        "spot_trading_allowed": true,
+        "price_tick": "0.01",
+        "minimum_price": "0.01",
+        "maximum_price": "1000000",
+        "quantity_step": "0.00001",
+        "minimum_quantity": "0.00001",
+        "maximum_quantity": "9000",
+        "market_quantity_step": null,
+        "market_minimum_quantity": null,
+        "market_maximum_quantity": null,
+        "minimum_notional": "5",
+        "maximum_notional": "100",
+        "minimum_notional_applies_to_market": true,
+        "maximum_notional_applies_to_market": false,
+        "notional_reference_window_minutes": 5,
+        "venue_order_types": [
+          "LIMIT",
+          "MARKET"
+        ],
+        "time_in_force": [
+          "GTC",
+          "IOC",
+          "FOK"
+        ],
+        "order_group_capabilities": [
+          "OCO",
+          "OTO",
+          "OPO"
+        ],
+        "default_stp_mode": "NONE",
+        "allowed_stp_modes": [
+          "NONE"
+        ],
+        "permission_sets": [
+          [
+            "SPOT"
+          ]
+        ],
+        "capabilities": [],
+        "rules": [
+          {
+            "rule_type": "PERCENT_PRICE",
+            "category": "DYNAMIC",
+            "values": [
+              [
+                "avgPriceMins",
+                5
+              ],
+              [
+                "multiplierDown",
+                "0.2"
+              ],
+              [
+                "multiplierUp",
+                "5"
+              ]
+            ]
+          }
+        ],
+        "compatibility_status": "COMPATIBLE",
+        "content_fingerprint": "46bc189ceb1b3d50d00c00301daeed51dcb2ef56a40c24285205e187346f645d"
+      },
+      {
+        "instrument_id": "ETHUSDT.BINANCE",
+        "raw_symbol": "ETHUSDT",
+        "base_currency": "ETH",
+        "quote_currency": "USDT",
+        "provider_status": "TRADING",
+        "spot_trading_allowed": true,
+        "price_tick": "0.01",
+        "minimum_price": "0.01",
+        "maximum_price": "1000000",
+        "quantity_step": "0.0001",
+        "minimum_quantity": "0.0001",
+        "maximum_quantity": "9000",
+        "market_quantity_step": null,
+        "market_minimum_quantity": null,
+        "market_maximum_quantity": null,
+        "minimum_notional": "5",
+        "maximum_notional": "100",
+        "minimum_notional_applies_to_market": true,
+        "maximum_notional_applies_to_market": false,
+        "notional_reference_window_minutes": 5,
+        "venue_order_types": [
+          "LIMIT",
+          "MARKET"
+        ],
+        "time_in_force": [
+          "GTC",
+          "IOC",
+          "FOK"
+        ],
+        "order_group_capabilities": [
+          "OCO",
+          "OTO",
+          "OPO"
+        ],
+        "default_stp_mode": "NONE",
+        "allowed_stp_modes": [
+          "NONE"
+        ],
+        "permission_sets": [
+          [
+            "SPOT"
+          ]
+        ],
+        "capabilities": [],
+        "rules": [
+          {
+            "rule_type": "PERCENT_PRICE",
+            "category": "DYNAMIC",
+            "values": [
+              [
+                "avgPriceMins",
+                5
+              ],
+              [
+                "multiplierDown",
+                "0.2"
+              ],
+              [
+                "multiplierUp",
+                "5"
+              ]
+            ]
+          }
+        ],
+        "compatibility_status": "COMPATIBLE",
+        "content_fingerprint": "470eeba909a714d9f9c204f17f5e2e4efe31160756e9b1fcbcf21bb0d92cc717"
+      }
+    ]
+  }
+}

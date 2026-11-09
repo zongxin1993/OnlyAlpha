@@ -23,24 +23,49 @@ impl Effect {
 pub struct Manager {
     config: Value,
     capacity: usize,
+    observation_capacity: Option<usize>,
     states: BTreeMap<String, Value>,
     records: Vec<Value>,
 }
 impl Manager {
     pub fn new(config: Value, capacity: usize) -> Result<Self, Error> {
         bounded(&config, 2048)?;
-        fields(
-            &config,
-            &[
-                "engine",
-                "runtime",
-                "account",
-                "gateway",
-                "generation",
-                "runtime_kind",
-                "currency",
-            ],
-        )?;
+        let mut keys = vec![
+            "engine",
+            "runtime",
+            "account",
+            "gateway",
+            "generation",
+            "runtime_kind",
+            "currency",
+        ];
+        let observation_capacity = if let Some(v) = config.get("observation_capacity") {
+            keys.push("observation_capacity");
+            let limit =
+                usize::try_from(uint(v)?).map_err(|_| err("MARGIN_OBSERVATION_CAPACITY"))?;
+            if limit == 0 || limit > capacity || config["runtime_kind"] != "BACKTEST" {
+                return Err(err("MARGIN_OBSERVATION_CAPACITY"));
+            }
+            Some(limit)
+        } else {
+            None
+        };
+        if let Some(limit) = config.get("model_notional_limit") {
+            if observation_capacity.is_none() || (!limit.is_null() && number(limit)?.is_zero()) {
+                return Err(err("MARGIN_MODEL_LIMIT"));
+            }
+            keys.push("model_notional_limit");
+        }
+        if let Some(profile) = config.get("entry_profile") {
+            keys.push("entry_profile");
+            if observation_capacity.is_none()
+                || config["runtime_kind"] != "BACKTEST"
+                || profile.as_str() != Some("LINEAR_LONG_NETTING_CROSS_OPEN")
+            {
+                return Err(err("MARGIN_ENTRY_PROFILE"));
+            }
+        }
+        fields(&config, &keys)?;
         for k in OWNER {
             id(&config[k])?;
         }
@@ -55,9 +80,48 @@ impl Manager {
         Ok(Self {
             config,
             capacity,
+            observation_capacity,
             states: BTreeMap::new(),
             records: vec![],
         })
+    }
+    /// 只读观测已有历史；到达上界的实例继续处理既有订单的成交及终态。
+    pub fn observation_capacity_reached(&self) -> bool {
+        self.observation_capacity.is_some_and(|limit| {
+            self.records
+                .iter()
+                .filter(|r| r["command"]["action"] == "MARK_MAINTENANCE")
+                .count()
+                >= limit
+        })
+    }
+    /// 使用同一 instrument 实际已开仓数量和冻结的模型上界核对标记名义。
+    pub fn covers_open_notional(
+        &self,
+        instrument: &str,
+        marked_unit_notional: &str,
+    ) -> Result<bool, Error> {
+        if marked_unit_notional.len() > 256 {
+            return Err(err("MARGIN_MARK_EXPOSURE"));
+        }
+        let unit: BigDecimal = external(marked_unit_notional.parse())?;
+        let (_, scale) = unit.as_bigint_and_exponent();
+        if unit <= BigDecimal::zero() || !(-128..=36).contains(&scale) {
+            return Err(err("MARGIN_MARK_EXPOSURE"));
+        }
+        let limit = &self.config["model_notional_limit"];
+        if limit.is_null() {
+            return Ok(true);
+        }
+        let mut quantity = BigDecimal::zero();
+        for state in self
+            .states
+            .values()
+            .filter(|s| s["scope"]["instrument"] == instrument)
+        {
+            quantity += number(&state["open"])?;
+        }
+        Ok(quantity * unit <= number(limit)?)
     }
     pub fn snapshot(&self, id: &str) -> Result<Value, Error> {
         self.states
@@ -69,6 +133,9 @@ impl Manager {
         self.states.values().cloned().collect()
     }
     pub fn release_quote(&self, id: &str, quantity: &str) -> Result<Value, Error> {
+        if self.entry_profile() {
+            return Err(err("MARGIN_ENTRY_PROFILE_CLOSE_UNSUPPORTED"));
+        }
         let state = self.snapshot(id)?;
         let p = currency(&self.config["currency"])?;
         let precision = u8::try_from(uint(&state["quantity_precision"])?)
@@ -82,37 +149,86 @@ impl Manager {
             json!({"amount":proportional(&number(&state["occupied"])?,part,whole,p)?.to_plain_string(),"maintenance":proportional(&number(&state["maintenance"])?,part,whole,p)?.to_plain_string(),"version":state["version"],"before_hash":digest(&state)}),
         )
     }
+    fn entry_profile(&self) -> bool {
+        self.config.get("entry_profile").is_some()
+    }
+    // 当前 Mark 可改变维护额，不能改变已占用的入场证明。
+    fn entry_pool_supports(
+        &self,
+        command: &Value,
+        amount: &BigDecimal,
+        maintenance: &BigDecimal,
+    ) -> Result<bool, Error> {
+        let mut occupied = amount.clone();
+        let mut entry_maintenance = maintenance.clone();
+        for state in self.states.values().filter(|s| same_entry_pool(s, command)) {
+            occupied += number(&state["occupied"])?;
+            entry_maintenance += number(&state["entry_maintenance"])?;
+        }
+        Ok(entry_maintenance <= occupied)
+    }
+    fn checkpoint_version(&self) -> u8 {
+        if self.observation_capacity.is_some() {
+            2
+        } else {
+            1
+        }
+    }
     pub fn checkpoint(&self) -> Value {
-        json!({"schema_version":1,"config":self.config,"capacity":self.capacity,"states":self.states,"records":self.records})
+        json!({"schema_version":self.checkpoint_version(),"config":self.config,"capacity":self.capacity,"states":self.states,"records":self.records})
     }
     pub fn apply(&mut self, input: &Value) -> Result<Effect, Error> {
         bounded(input, 8192)?;
-        fields(
-            input,
-            &[
-                "schema_version",
-                "id",
-                "scope",
-                "reservation",
-                "source_order",
-                "source_trade",
-                "source_ref",
-                "source_fingerprint",
-                "mode",
-                "isolation",
-                "position_side",
-                "action",
-                "quantity",
-                "quantity_precision",
-                "amount",
-                "maintenance",
-                "time",
-                "expected_version",
-                "before_hash",
-            ],
-        )?;
-        if input["schema_version"] != 1 {
+        let mut keys = vec![
+            "schema_version",
+            "id",
+            "scope",
+            "reservation",
+            "source_order",
+            "source_trade",
+            "source_ref",
+            "source_fingerprint",
+            "mode",
+            "isolation",
+            "position_side",
+            "action",
+            "quantity",
+            "quantity_precision",
+            "amount",
+            "maintenance",
+            "time",
+            "expected_version",
+            "before_hash",
+        ];
+        let action = text(&input["action"])?;
+        let observation = matches!(
+            action,
+            "MARK_MAINTENANCE" | "MARK_UNAVAILABLE" | "MARK_OUTSIDE_MODEL"
+        );
+        let domain_proof = observation && self.config.get("model_notional_limit").is_some();
+        if domain_proof {
+            keys.push("marked_unit_notional");
+        }
+        fields(input, &keys)?;
+        if action == "MARK_OUTSIDE_MODEL" && !domain_proof {
+            return Err(err("MARGIN_MARK_DOMAIN"));
+        }
+        if input["schema_version"] != if observation { 2 } else { 1 }
+            || (observation
+                && (self.observation_capacity.is_none()
+                    || input["scope"]["runtime_kind"] != "BACKTEST"
+                    || input["mode"] != "CROSS"
+                    || input["position_side"] != "LONG"))
+        {
             return Err(err("MARGIN_SCHEMA"));
+        }
+        if self.entry_profile() {
+            if action == "RELEASE_OCCUPIED" {
+                return Err(err("MARGIN_ENTRY_PROFILE_CLOSE_UNSUPPORTED"));
+            }
+            if input["mode"] != "CROSS" || input["position_side"] != "LONG" {
+                return Err(err("MARGIN_ENTRY_PROFILE"));
+            }
         }
         scope(&input["scope"])?;
         bounded(&input["scope"], 2048)?;
@@ -127,10 +243,15 @@ impl Manager {
             id(&input[k])?;
         }
         fingerprint(&input["source_fingerprint"])?;
-        let action = text(&input["action"])?;
         if !matches!(
             action,
-            "RESERVE" | "OCCUPY" | "RELEASE_RESERVED" | "RELEASE_OCCUPIED"
+            "RESERVE"
+                | "OCCUPY"
+                | "RELEASE_RESERVED"
+                | "RELEASE_OCCUPIED"
+                | "MARK_MAINTENANCE"
+                | "MARK_UNAVAILABLE"
+                | "MARK_OUTSIDE_MODEL"
         ) {
             return Err(err("MARGIN_ACTION"));
         }
@@ -155,8 +276,13 @@ impl Manager {
         let precision = u8::try_from(uint(&input["quantity_precision"])?)
             .map_err(|_| err("MARGIN_QUANTITY_PRECISION"))?;
         let mut command = input.clone();
-        for k in ["amount", "maintenance"] {
-            command[k] = money(&input[k], p)?;
+        command["amount"] = money(&input["amount"], p)?;
+        if action == "MARK_OUTSIDE_MODEL" {
+            if !input["maintenance"].is_null() {
+                return Err(err("MARGIN_MARK_DOMAIN"));
+            }
+        } else {
+            command["maintenance"] = money(&input["maintenance"], p)?;
         }
         command["quantity"] = json!(number(&input["quantity"])?.normalized().to_plain_string());
         let quanta = units(&command["quantity"], precision)?;
@@ -212,6 +338,17 @@ impl Manager {
                 Err(err("MARGIN_INSTRUCTION_CONFLICT"))
             };
         }
+        if matches!(action, "RESERVE" | "MARK_MAINTENANCE") && self.observation_capacity_reached() {
+            return Err(err("MARGIN_OBSERVATION_HISTORY_LIMIT"));
+        }
+        if action == "RESERVE"
+            && self
+                .states
+                .values()
+                .any(|s| s.get("observation_gap").is_some())
+        {
+            return Err(err("MARGIN_MAINTENANCE_UNAVAILABLE"));
+        }
         let key = text(&command["reservation"])?;
         let old = self.states.get(key).cloned().unwrap_or(Value::Null);
         let expected = uint(&input["expected_version"])?;
@@ -250,7 +387,12 @@ impl Manager {
             }
         }
         let amount = number(&command["amount"])?;
-        let maintenance = number(&command["maintenance"])?;
+        // The model supplies no numeric requirement outside its domain. Retain only the prior witness.
+        let maintenance = if action == "MARK_OUTSIDE_MODEL" {
+            number(&old["maintenance"])?
+        } else {
+            number(&command["maintenance"])?
+        };
         let mut state = old.clone();
         if action == "RESERVE" {
             if !old.is_null()
@@ -265,6 +407,10 @@ impl Manager {
                 return Err(err("MARGIN_RESERVE"));
             }
             state = json!({"schema_version":1,"id":key,"scope":command["scope"],"order":command["source_order"],"currency":self.config["currency"],"mode":command["mode"],"isolation":command["isolation"],"position_side":command["position_side"],"quantity_precision":precision,"quantity":command["quantity"],"unfilled":command["quantity"],"open":"0","closed":"0","cancelled":"0","original":command["amount"],"reserved":command["amount"],"occupied":money(&json!("0"),p)?,"released":money(&json!("0"),p)?,"maintenance":money(&json!("0"),p)?,"reserved_released":false,"version":1,"created_at":command["time"],"time":command["time"]});
+            if self.entry_profile() {
+                state["schema_version"] = json!(2);
+                state["entry_maintenance"] = money(&json!("0"), p)?;
+            }
         } else {
             if old.is_null() {
                 return Err(err("MARGIN_RESERVATION_UNKNOWN"));
@@ -290,9 +436,21 @@ impl Manager {
                         || quanta == 0
                         || quantity > number(&old["unfilled"])?
                         || amount > number(&old["reserved"])?
-                        || maintenance > amount
+                        || if self.entry_profile() {
+                            !self.entry_pool_supports(&command, &amount, &maintenance)?
+                        } else {
+                            maintenance > amount
+                        }
                     {
                         return Err(err("MARGIN_OCCUPY"));
+                    }
+                    if self.entry_profile() {
+                        set_money(
+                            &mut state,
+                            "entry_maintenance",
+                            number(&old["entry_maintenance"])? + &maintenance,
+                            p,
+                        );
                     }
                     set_number(
                         &mut state,
@@ -318,6 +476,35 @@ impl Manager {
                         number(&old["maintenance"])? + maintenance,
                         p,
                     );
+                }
+                "MARK_MAINTENANCE" | "MARK_UNAVAILABLE" | "MARK_OUTSIDE_MODEL" => {
+                    if quanta == 0 || quantity != number(&old["open"])? || !amount.is_zero() {
+                        return Err(err("MARGIN_MARK_EXPOSURE"));
+                    }
+                    if domain_proof
+                        && self.covers_open_notional(
+                            text(&command["scope"]["instrument"])?,
+                            text(&command["marked_unit_notional"])?,
+                        )? == (action == "MARK_OUTSIDE_MODEL")
+                    {
+                        return Err(err("MARGIN_MARK_DOMAIN"));
+                    }
+                    if action == "MARK_MAINTENANCE" {
+                        state
+                            .as_object_mut()
+                            .expect("reservation")
+                            .remove("observation_gap");
+                        set_money(&mut state, "maintenance", maintenance, p);
+                    } else {
+                        if old.get("observation_gap").is_some()
+                            || (action == "MARK_UNAVAILABLE"
+                                && (!self.observation_capacity_reached()
+                                    || maintenance == number(&old["maintenance"])?))
+                        {
+                            return Err(err("MARGIN_UNAVAILABLE_PRECONDITION"));
+                        }
+                        state["observation_gap"] = json!({"kind":action,"source_ref":command["source_ref"],"time":command["time"],"source_fingerprint":command["source_fingerprint"]});
+                    }
                 }
                 "RELEASE_RESERVED" => {
                     if old["reserved_released"] == true
@@ -428,7 +615,16 @@ impl Manager {
         })
     }
     fn check_budget(&self) -> Result<(), Error> {
-        let mut budget = self.records.len() as u64;
+        let mut budget = self
+            .records
+            .iter()
+            .filter(|r| {
+                !matches!(
+                    r["command"]["action"].as_str(),
+                    Some("MARK_MAINTENANCE" | "MARK_UNAVAILABLE" | "MARK_OUTSIDE_MODEL")
+                )
+            })
+            .count() as u64;
         for state in self.states.values() {
             let p = u8::try_from(uint(&state["quantity_precision"])?)
                 .map_err(|_| err("MARGIN_QUANTITY_PRECISION"))?;
@@ -452,7 +648,7 @@ impl Manager {
             v,
             &["schema_version", "config", "capacity", "states", "records"],
         )?;
-        if v["schema_version"] != 1
+        if v["schema_version"] != self.checkpoint_version()
             || v["config"] != self.config
             || v["capacity"] != self.capacity
             || digest(v) != expected
@@ -468,7 +664,14 @@ impl Manager {
         }
         let rows = v["records"]
             .as_array()
-            .filter(|a| a.len() <= self.capacity)
+            .filter(|a| {
+                a.len()
+                    <= self
+                        .observation_capacity
+                        .map_or(self.capacity, |observations| {
+                            2 * self.capacity + 2 * observations
+                        })
+            })
             .ok_or_else(|| err("MARGIN_CHECKPOINT_RECORDS"))?;
         let mut fresh = Self::new(self.config.clone(), self.capacity)?;
         for row in rows {
@@ -495,6 +698,15 @@ fn set_number(v: &mut Value, k: &str, n: BigDecimal) {
 fn set_money(v: &mut Value, k: &str, n: BigDecimal, p: u8) {
     v[k] = json!(n.with_scale(i64::from(p)).to_plain_string());
 }
+fn same_entry_pool(state: &Value, command: &Value) -> bool {
+    ["mode", "isolation", "position_side"]
+        .iter()
+        .all(|key| state[*key] == command[*key])
+        && OWNER
+            .into_iter()
+            .chain(["cluster", "revision", "instrument"])
+            .all(|key| state["scope"][key] == command["scope"][key])
+}
 fn projection(state: &Value) -> Value {
     if state.is_null() {
         return Value::Null;
@@ -517,6 +729,12 @@ fn projection(state: &Value) -> Value {
         "version",
     ] {
         result[k] = state[k].clone();
+    }
+    if let Some(entry) = state.get("entry_maintenance") {
+        result["entry_maintenance"] = entry.clone();
+    }
+    if let Some(gap) = state.get("observation_gap") {
+        result["observation_gap"] = gap.clone();
     }
     result
 }

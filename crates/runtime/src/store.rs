@@ -189,6 +189,8 @@ struct DecodedRow {
 
 /// Sole native durable Store. Holds an OS inode lock until drop; never swaps database files.
 pub struct SqliteStore {
+    writer: std::sync::Arc<()>,
+    root: std::path::PathBuf,
     pub(crate) storage_version: u32,
     decoded_rows: RefCell<BTreeMap<u64, DecodedRow>>,
     // Pure configuration-derived hashes only; never observed Store state.
@@ -233,6 +235,14 @@ impl SqliteStore {
         if !root.is_dir() {
             return Err(error("STATE_ROOT"));
         }
+        if identity["configuration"]["schema_version"] == 3 {
+            let binding = identity["configuration"]["perpetual"]["execution_source_binding"]
+                .as_str()
+                .ok_or_else(|| error("SOURCE_BINDING"))?;
+            crate::BoundBrokerJournal::open(&root, binding)
+                .and_then(|journal| journal.check_run(&identity["configuration"], create))
+                .map_err(|e| Error(e.to_string()))?;
+        }
         let path = root.join("runtime.sqlite3");
         if path.is_symlink() {
             return Err(error("DATABASE_SYMLINK"));
@@ -261,6 +271,8 @@ impl SqliteStore {
             sql(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?
         };
         let mut store = Self {
+            writer: std::sync::Arc::new(()),
+            root: root.clone(),
             storage_version,
             decoded_rows: RefCell::new(BTreeMap::new()),
             genesis_hashes: OnceLock::new(),
@@ -355,6 +367,8 @@ impl SqliteStore {
         let storage_version =
             sql(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
         let store = Self {
+            writer: std::sync::Arc::new(()),
+            root: io(root.canonicalize())?,
             storage_version,
             decoded_rows: RefCell::new(BTreeMap::new()),
             genesis_hashes: OnceLock::new(),
@@ -377,6 +391,7 @@ impl SqliteStore {
     /// No Store recovery, planner, projection completion or acknowledgement runs.
     pub(crate) fn read_ready_components(&self) -> Result<(Components, Vec<Record>, Value), Error> {
         let records = self.read_records()?;
+        self.verify_perpetual_inputs(&records)?;
         if records
             .iter()
             .any(|record| !record.ready() || !record.delivered())
@@ -394,6 +409,7 @@ impl SqliteStore {
             ))
         }))?
         .collect::<rusqlite::Result<Vec<_>>>())?;
+        self.verify_perpetual_inputs(&records)?;
         let mut current = None;
         let mut witnesses = Vec::new();
         for (sequence, raw, expected) in rows {
@@ -409,7 +425,7 @@ impl SqliteStore {
             let view = Replay {
                 rows: prefix.to_vec(),
             };
-            components.reconcile(&view)?;
+            view.compare(&components)?;
             if self.checkpoint_value(&components, prefix)? != checkpoint {
                 return Err(error("CHECKPOINT_SOURCE_OR_COMPONENTS"));
             }
@@ -511,6 +527,9 @@ impl SqliteStore {
     }
     pub(crate) fn validate_identity_for_reference(&self) -> Result<(), Error> {
         self.validate_identity()
+    }
+    pub(crate) fn root(&self) -> &Path {
+        &self.root
     }
     pub(crate) fn identity(&self) -> &Value {
         &self.identity
@@ -1019,6 +1038,36 @@ impl SqliteStore {
             json!({"schema_version":1,"identity":hash(&self.identity),"sequence":records.len(),"source":source,"components":c.checkpoint()?}),
         )
     }
+    pub(crate) fn prepare_input(
+        &self,
+        owners: &Components,
+        prefix: &Replay,
+        input: &Value,
+    ) -> Result<Prepared, Error> {
+        crate::perpetual_sources::prepare(
+            &self.root,
+            &self.identity["configuration"],
+            owners,
+            prefix,
+            input,
+        )
+    }
+    pub(crate) fn verify_perpetual_inputs(&self, records: &[Record]) -> Result<(), Error> {
+        if self.identity["configuration"]["schema_version"] == 3 {
+            // 原始 Broker/Mark/Funding 与完整输出重新推导。临时 Replay 的 Ready 标记只用于纯前缀核对。
+            let mut derived = Components::new(self.identity["configuration"].clone())?;
+            let mut prior = Replay { rows: Vec::new() };
+            for record in records {
+                let expected = self.prepare_input(&derived, &prior, record.prepared().input())?;
+                if expected.value() != record.prepared().value() {
+                    return Err(error("PERPETUAL_REPLAY_ORIGINAL_INPUT"));
+                }
+                prior.rows.push(record.compact_snapshot());
+                prior.recover_data(&mut derived)?;
+            }
+        }
+        Ok(())
+    }
     fn validate_checkpoints(&self) -> Result<(), Error> {
         let records = self.read_records()?;
         self.verified_checkpoint_prefix(&records).map(|_| ())
@@ -1029,6 +1078,7 @@ impl SqliteStore {
         &self,
         records: &[Record],
     ) -> Result<(Components, Replay), Error> {
+        self.verify_perpetual_inputs(records)?;
         if let Some(validated) = self.data_checkpoint_prefix(records)? {
             return Ok(validated);
         }
@@ -1046,8 +1096,8 @@ impl SqliteStore {
         let mut exact = Components::new(self.identity["configuration"].clone())?;
         let mut view = Replay { rows: Vec::new() };
         if rows.is_empty() {
-            recover(&mut view, &mut exact)?;
-            exact.reconcile(&view)?;
+            view.recover_data(&mut exact)?;
+            view.compare(&exact)?;
         }
         for (n, raw, expected) in rows {
             let value = decoded(&raw, &expected)?;
@@ -1061,8 +1111,8 @@ impl SqliteStore {
                 return Err(error("CHECKPOINT_UNREADY"));
             }
             view.rows.extend_from_slice(suffix);
-            recover(&mut view, &mut exact)?;
-            exact.reconcile(&view)?;
+            view.recover_data(&mut exact)?;
+            view.compare(&exact)?;
             if value != self.checkpoint_value(&exact, prefix)? {
                 return Err(error("CHECKPOINT_SOURCE_OR_COMPONENTS"));
             }
@@ -1079,7 +1129,10 @@ impl SqliteStore {
         let view = Replay {
             rows: self.read_records()?,
         };
-        current.reconcile(&view)?;
+        if current.configuration()["schema_version"] == 3 && view.has_funding() {
+            self.verify_perpetual_inputs(&view.rows)?;
+        }
+        view.compare(current)?;
         read(&view)
     }
     pub(crate) fn fork_ready(
@@ -1093,7 +1146,13 @@ impl SqliteStore {
         }
         let view = Replay { rows: records };
         // Execution reconciles the actual source before copying its Ready head.
-        let isolated = current.fork_ready(&view)?;
+        let isolated = if let Some(data) = view.funded_data(current) {
+            self.verify_perpetual_inputs(&view.rows)?;
+            data.compare()?;
+            data.components()
+        } else {
+            current.fork_ready(&view)?
+        };
         check(&view.rows)?;
         Ok((isolated, view.rows))
     }
@@ -1105,8 +1164,8 @@ impl SqliteStore {
         }
         if view.rows.len() < records.len() {
             view.rows.extend_from_slice(&records[view.rows.len()..]);
-            recover(&mut view, &mut exact)?;
-            exact.reconcile(&view)?;
+            view.recover_data(&mut exact)?;
+            view.compare(&exact)?;
         }
         drop(view);
         if exact.checkpoint()? != c.checkpoint()? {
@@ -1164,6 +1223,21 @@ impl SqliteStore {
             let checkpoint = decoded(&raw, &expected)?;
             c.restore(&checkpoint["components"], &hash(&checkpoint["components"]))?;
         }
+        if self.identity["configuration"]["schema_version"] == 3
+            && records
+                .iter()
+                .any(|r| r.prepared().input()["op"] == "FUNDING")
+        {
+            let mut data = onlyalpha_execution::ProjectionData::new(&c, &records);
+            data.replay()?;
+            data.compare()?;
+            let derived = data.components();
+            for record in records.iter().filter(|r| !r.ready()) {
+                self.change_flag(record.prepared().sequence(), "ready")?;
+            }
+            self.with_ready_source(&derived, |_| Ok(()))?;
+            return Ok(derived);
+        }
         recover(self, &mut c)?;
         Ok(c)
     }
@@ -1202,36 +1276,67 @@ impl SqliteStore {
         sql(tx.commit())
     }
 }
-impl Store for SqliteStore {
-    fn head(&self) -> Result<u64, Error> {
-        self.verified_head()
+/// 只有本 Run 的持锁准备过程可生成。观察数据来自本次计算，签发资格随这个 Store handle 结束。
+#[derive(Debug)]
+pub struct RunPlan {
+    writer: std::sync::Arc<()>,
+    body: Prepared,
+}
+/// 既有 Funding 专用入口签发的同一持锁 Run 计划。
+pub type RunFundingPlan = RunPlan;
+
+impl RunPlan {
+    pub fn value(&self) -> &Value {
+        self.body.value()
     }
-    fn get(&self, sequence: u64) -> Result<Option<Record>, Error> {
-        if sequence == 0 {
-            return Err(error("SEQUENCE"));
-        }
-        let head = self.verified_head()?;
-        if sequence > head {
-            return Ok(None);
-        }
-        self.read_one(sequence)?
-            .map(|(record, _)| Some(record))
-            .ok_or_else(|| error("MISSING_RECORD"))
+}
+
+impl SqliteStore {
+    pub(crate) fn requires_run_plan(&self, prefix: &Replay, input: &Value) -> bool {
+        self.identity["configuration"]["schema_version"] == 3
+            && (input["op"] == "FUNDING" || prefix.has_funding())
     }
-    fn read_prefix(&self, sequence: u64) -> Result<Option<Vec<Record>>, Error> {
-        // This operation always observes the complete actual source first,
-        // including header/head and any legal pending tail, even for zero.
-        let mut records = self.read_records()?;
-        let end = usize::try_from(sequence).map_err(|_| error("SEQUENCE_OVERFLOW"))?;
-        if end > records.len() {
-            return Err(error("MISSING_RECORD"));
+    pub(crate) fn plan_from_prefix(
+        &self,
+        owners: &Components,
+        source: &Replay,
+        input: &Value,
+    ) -> Result<RunPlan, Error> {
+        if !self.requires_run_plan(source, input) {
+            return Err(error("RUN_PLAN_INPUT"));
         }
-        records.truncate(end);
-        Ok(Some(records))
+        // 首次 Funding 也须核对其整个前缀。已有 Funding 的原件已由 with_ready_source 重读。
+        if !source.has_funding() {
+            self.verify_perpetual_inputs(source.records())?;
+        }
+        let body = self.prepare_input(owners, source, input)?;
+        Ok(RunPlan {
+            writer: self.writer.clone(),
+            body,
+        })
     }
-    fn commit(&mut self, intent: &CommitIntent) -> Result<Record, Error> {
+    pub(crate) fn commit_run_plan(&mut self, plan: &RunPlan) -> Result<(), Error> {
+        let p = &plan.body;
+        if !std::sync::Arc::ptr_eq(&self.writer, &plan.writer) {
+            let reason = if p.input()["op"] == "FUNDING" {
+                "FUNDING_WRITER_CONFLICT"
+            } else {
+                "RUN_PLAN_WRITER_CONFLICT"
+            };
+            return Err(error(reason));
+        }
+        let observed = Record::decode(
+            &json!({"schema_version":1,"prepared":p.value(),"ready":false,"delivered":false}),
+        )?;
+        let row = self.write_prepared(observed)?;
+        if row.prepared() != p || self.get(p.sequence())?.as_ref().is_none_or(|r| r != &row) {
+            return Err(error("COMMIT_READBACK"));
+        }
+        Ok(())
+    }
+    fn write_prepared(&mut self, record: Record) -> Result<Record, Error> {
         let records = self.read_records()?;
-        let p = intent.prepared();
+        let p = record.prepared();
         if let Some(old) = records
             .iter()
             .find(|r| r.prepared().input()["input_id"] == p.input()["input_id"])
@@ -1239,6 +1344,7 @@ impl Store for SqliteStore {
             if old.prepared() != p {
                 return Err(error("IDENTITY_CONFLICT"));
             }
+            self.verify_perpetual_inputs(&records)?;
             return Ok(old.clone());
         }
         if p.sequence() != records.len() as u64 + 1
@@ -1246,6 +1352,18 @@ impl Store for SqliteStore {
             || p.value()["config_hash"] != hash(&self.identity["configuration"])
         {
             return Err(error("COMMIT_CONTEXT_OR_PREDECESSOR"));
+        }
+        if self.identity["configuration"]["schema_version"] == 3 {
+            let mut prefix = Replay {
+                rows: records.clone(),
+            };
+            let mut owners = Components::new(self.identity["configuration"].clone())?;
+            self.verify_perpetual_inputs(&records)?;
+            prefix.recover_data(&mut owners)?;
+            let expected = self.prepare_input(&owners, &prefix, p.input())?;
+            if &expected != p {
+                return Err(error("PERPETUAL_COMMIT_SOURCE"));
+            }
         }
         let before = if let Some(last) = records.last() {
             last.prepared()
@@ -1264,7 +1382,7 @@ impl Store for SqliteStore {
         {
             return Err(error("COMMIT_DESTINATION_LINEAGE"));
         }
-        let record = Record::new(intent);
+
         let prepared_bytes = if matches!(self.storage_version, 3 | 4) {
             let bytes = p.encode()?;
             record_bound(bytes.len(), false, false)?;
@@ -1328,7 +1446,15 @@ impl Store for SqliteStore {
             "UPDATE state SET head=?1,last_hash=?2 WHERE singleton=1",
             params![integer(p.sequence())?, prepared_digest],
         ))?;
+        #[cfg(test)]
+        if p.input()["op"] == "FUNDING" {
+            funding_interruption(false)?;
+        }
         sql(tx.commit())?;
+        #[cfg(test)]
+        if p.input()["op"] == "FUNDING" {
+            funding_interruption(true)?;
+        }
         if self.storage_version == 4 {
             // The actual just-published row and base must pass the same complete
             // codec/scope reader before sharing the original passive body. Only
@@ -1352,10 +1478,66 @@ impl Store for SqliteStore {
         }
         Ok(record)
     }
+    pub(crate) fn acknowledge_original(&mut self, n: u64) -> Result<(), Error> {
+        self.change_flag(n, "delivered")
+    }
+    fn require_generic_flags(&self) -> Result<(), Error> {
+        if self.identity["configuration"]["schema_version"] == 3
+            && self
+                .read_records()?
+                .iter()
+                .any(|r| r.prepared().input()["op"] == "FUNDING")
+        {
+            return Err(error("ORIGINAL_FUNDING_WRITER_REQUIRED"));
+        }
+        Ok(())
+    }
+}
+impl Store for SqliteStore {
+    fn head(&self) -> Result<u64, Error> {
+        self.verified_head()
+    }
+    fn get(&self, sequence: u64) -> Result<Option<Record>, Error> {
+        if sequence == 0 {
+            return Err(error("SEQUENCE"));
+        }
+        let head = self.verified_head()?;
+        if sequence > head {
+            return Ok(None);
+        }
+        self.read_one(sequence)?
+            .map(|(record, _)| Some(record))
+            .ok_or_else(|| error("MISSING_RECORD"))
+    }
+    fn read_prefix(&self, sequence: u64) -> Result<Option<Vec<Record>>, Error> {
+        // This operation always observes the complete actual source first,
+        // including header/head and any legal pending tail, even for zero.
+        let mut records = self.read_records()?;
+        let end = usize::try_from(sequence).map_err(|_| error("SEQUENCE_OVERFLOW"))?;
+        if end > records.len() {
+            return Err(error("MISSING_RECORD"));
+        }
+        records.truncate(end);
+        Ok(Some(records))
+    }
+    fn commit(&mut self, intent: &CommitIntent) -> Result<Record, Error> {
+        if self.identity["configuration"]["schema_version"] == 3
+            && (intent.prepared().input()["op"] == "FUNDING"
+                || self
+                    .read_records()?
+                    .iter()
+                    .any(|r| r.prepared().input()["op"] == "FUNDING"))
+        {
+            return Err(error("ORIGINAL_FUNDING_WRITER_REQUIRED"));
+        }
+        self.write_prepared(Record::new(intent))
+    }
     fn mark_ready(&mut self, sequence: u64) -> Result<(), Error> {
+        self.require_generic_flags()?;
         self.change_flag(sequence, "ready")
     }
     fn acknowledge(&mut self, sequence: u64) -> Result<(), Error> {
+        self.require_generic_flags()?;
         self.change_flag(sequence, "delivered")
     }
 }
@@ -1364,6 +1546,54 @@ pub(crate) struct Replay {
     rows: Vec<Record>,
 }
 impl Replay {
+    pub(crate) fn has_funding(&self) -> bool {
+        self.rows
+            .iter()
+            .any(|r| r.prepared().input()["op"] == "FUNDING")
+    }
+    pub(crate) fn funded_data(
+        &self,
+        c: &Components,
+    ) -> Option<onlyalpha_execution::ProjectionData> {
+        (c.configuration()["schema_version"] == 3 && self.has_funding())
+            .then(|| onlyalpha_execution::ProjectionData::new(c, &self.rows))
+    }
+    fn recover_data(&mut self, c: &mut Components) -> Result<(), Error> {
+        if let Some(mut data) = self.funded_data(c) {
+            data.replay()?;
+            data.compare()?;
+            *c = data.components();
+            for row in &mut self.rows {
+                if !row.ready() {
+                    *row = row.with_observed_flags(true, row.delivered())?;
+                }
+            }
+            Ok(())
+        } else {
+            recover(self, c)
+        }
+    }
+    fn compare(&self, c: &Components) -> Result<(), Error> {
+        if let Some(data) = self.funded_data(c) {
+            data.compare()
+        } else {
+            c.reconcile(self).map(|_| ())
+        }
+    }
+    pub(crate) fn state(&self, c: &Components) -> Result<Value, Error> {
+        if let Some(data) = self.funded_data(c) {
+            data.state()
+        } else {
+            c.state(self)
+        }
+    }
+    pub(crate) fn pending_events(&self, c: &Components) -> Result<Vec<Value>, Error> {
+        if let Some(data) = self.funded_data(c) {
+            data.pending_event_data()
+        } else {
+            onlyalpha_execution::pending_events(self, c)
+        }
+    }
     pub(crate) fn records(&self) -> &[Record] {
         &self.rows
     }
@@ -1402,11 +1632,27 @@ fn replay(config: Value, records: &[Record]) -> Result<Components, Error> {
     let mut view = Replay {
         rows: records.to_vec(),
     };
-    recover(&mut view, &mut c)?;
-    c.reconcile(&view)?;
+    view.recover_data(&mut c)?;
+    view.compare(&c)?;
     Ok(c)
 }
 
 #[cfg(test)]
 #[path = "tests/checkpoint_work.rs"]
 mod checkpoint_work_tests;
+
+#[cfg(test)]
+std::thread_local! {static INTERRUPT_FUNDING_COMMIT:std::cell::Cell<Option<bool>>=const {std::cell::Cell::new(None)};}
+#[cfg(test)]
+fn funding_interruption(committed: bool) -> Result<(), Error> {
+    INTERRUPT_FUNDING_COMMIT.with(|point| {
+        if point.get() == Some(committed) {
+            point.set(None);
+            return Err(Error("TEST_COMMIT_UNKNOWN".into()));
+        }
+        Ok(())
+    })
+}
+#[cfg(test)]
+#[path = "tests/funding_commit.rs"]
+mod funding_commit_tests;

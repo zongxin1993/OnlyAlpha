@@ -119,6 +119,7 @@ fn resume<S: Store>(
         Some(_) => return Err(err("EXECUTION_STORE_PAYLOAD_CONFLICT")),
         None => record.prepared(),
     };
+    c.check_projection_scope(p)?;
     let observed = store
         .get(p.sequence())?
         .ok_or_else(|| err("EXECUTION_COMMIT_NOT_OBSERVABLE"))?;
@@ -133,7 +134,17 @@ fn resume<S: Store>(
             return Err(err("EXECUTION_PREDECESSOR_UNREADY"));
         }
     }
-    Components::ready_prefix(store, &c.config, p.sequence() - 1)?;
+    if c.projection_data {
+        Components::ready_prefix_with_genesis(
+            store,
+            &c.config,
+            p.sequence() - 1,
+            c.cached_genesis_payload_hashes()?,
+            true,
+        )?;
+    } else {
+        Components::ready_prefix(store, &c.config, p.sequence() - 1)?;
+    }
     if c.sequence >= p.sequence() {
         c.ready_source(store)?;
         if c.meta["transactions"][p.sequence().to_string()] != p.id() {
@@ -180,6 +191,7 @@ fn resume<S: Store>(
 }
 /// Commit never mutates components until the exact durable record can be queried.
 pub fn coordinate<S: Store>(store: &mut S, c: &mut Components, p: &Prepared) -> Result<(), Error> {
+    c.check_projection_scope(p)?;
     if p.value()["config_hash"] != hash(&c.config) {
         return Err(err("EXECUTION_CONTEXT"));
     }
@@ -246,6 +258,7 @@ pub fn pending_events<S: Store>(store: &S, c: &Components) -> Result<Vec<Value>,
         if record.prepared().sequence() != sequence {
             return Err(err("EXECUTION_STORE_SEQUENCE"));
         }
+        c.check_projection_scope(record.prepared())?;
         if !record.ready() {
             break;
         }
@@ -262,6 +275,16 @@ pub fn pending_events<S: Store>(store: &S, c: &Components) -> Result<Vec<Value>,
             );
         }
     }
-    Components::ready_prefix(store, &c.config, ready_count)?;
+    if c.projection_data {
+        Components::ready_prefix_with_genesis(
+            store,
+            &c.config,
+            ready_count,
+            c.cached_genesis_payload_hashes()?,
+            true,
+        )?;
+    } else {
+        Components::ready_prefix(store, &c.config, ready_count)?;
+    }
     Ok(result)
 }

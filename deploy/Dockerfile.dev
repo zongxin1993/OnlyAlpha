@@ -19,6 +19,10 @@ COPY plugs/onlyalpha-data-source-binance/Cargo.toml ./plugs/onlyalpha-data-sourc
 COPY plugs/onlyalpha-data-source-binance/src/*.rs ./plugs/onlyalpha-data-source-binance/src/
 COPY plugs/onlyalpha-data-source-tushare/Cargo.toml ./plugs/onlyalpha-data-source-tushare/Cargo.toml
 COPY plugs/onlyalpha-data-source-tushare/src/*.rs ./plugs/onlyalpha-data-source-tushare/src/
+COPY plugs/onlyalpha-broker-virtual/Cargo.toml ./plugs/onlyalpha-broker-virtual/Cargo.toml
+COPY plugs/onlyalpha-broker-virtual/src/*.rs ./plugs/onlyalpha-broker-virtual/src/
+COPY plugs/onlyalpha-broker-binance/Cargo.toml ./plugs/onlyalpha-broker-binance/Cargo.toml
+COPY plugs/onlyalpha-broker-binance/src/*.rs ./plugs/onlyalpha-broker-binance/src/
 
 FROM rust-manifests AS rust-dependency-resolution
 RUN CARGO_NET_RETRY=0 cargo update --workspace
@@ -220,14 +224,19 @@ manifest_bytes = (root / "algorithm-installation.json").read_bytes()
 manifest = json.loads(manifest_bytes)
 assert hashlib.sha256(manifest_bytes).hexdigest() == Path("/opt/onlyalpha/algorithm-artifact.sha256").read_text().strip()
 assert version("onlyalpha") == manifest["distribution_version"]
-for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator", "onlyalpha_plugin_operators"):
+for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator", "onlyalpha_plugin_operators", "onlyalpha_plugin_broker_virtual", "onlyalpha_broker_binance", "onlyalpha_plugin_cn_ashare", "onlyalpha_market_crypto", "onlyalpha_plugin_binance", "onlyalpha_plugin_tushare"):
     assert importlib.util.find_spec(name) is None, name
-try:
-    distribution("onlyalpha-plugin-operators")
-except PackageNotFoundError:
-    pass
-else:
-    raise AssertionError("retired Python operators distribution is installed")
+for name in (
+    "onlyalpha-plugin-operators", "onlyalpha-broker-virtual", "onlyalpha-broker-binance",
+    "onlyalpha-market-cn-ashare", "onlyalpha-market-crypto",
+    "onlyalpha-data-source-tushare", "onlyalpha-data-source-binance",
+):
+    try:
+        distribution(name)
+    except PackageNotFoundError:
+        pass
+    else:
+        raise AssertionError(f"retired Python distribution is installed: {name}")
 for name in ("onlyalpha", "onlyalpha-gateway-protocol"):
     assert not distribution(name).entry_points, name
 entries = distribution("onlyalpha-backend-algorithms").entry_points

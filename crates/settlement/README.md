@@ -16,6 +16,8 @@
 
 ## 公开接口
 
+compile 的指令输入 schema 2 选择 BACKTEST 线性永续即时开仓。指令保存原交易与名义，现金腿只包含成交费用及返佣。明确的策略版本和各项拒绝条件见[结算契约](../../docs/settlement_model.md#线性永续开仓的即时结算)。
+
 compile 将规范记录校验为 Instruction；resolve_schedule 解析明确日程。Authority::admit_order / register 登记指令，due 查询指定时间前到期项，mature 返回 Maturity；snapshot / snapshots 查询状态。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。

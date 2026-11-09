@@ -2,9 +2,10 @@
 use super::*;
 use onlyalpha_domain::{
     base::OnlyDomainModel,
+    calendar::OnlyTradingCalendar,
     enums::OnlyAdjustmentType,
     market::{OnlyBar, OnlyBarSemantic},
-    time::OnlyTimestamp,
+    time::{OnlyTimestamp, OnlyTradingDay},
 };
 use onlyalpha_market_data_construction::{
     OnlyConstructionIdentity, only_construction_expected_ends,
@@ -52,6 +53,15 @@ pub fn coverage(
     facts: &[Value],
     limit: usize,
 ) -> Result<Manifest> {
+    coverage_with_calendar(scope, segments, facts, limit, None)
+}
+pub(super) fn coverage_with_calendar(
+    scope: &Scope,
+    segments: &[Segment],
+    facts: &[Value],
+    limit: usize,
+    calendar: Option<&OnlyTradingCalendar>,
+) -> Result<Manifest> {
     if limit == 0 || facts.len() > limit || segments.len() > limit {
         return Err(Error::Unavailable);
     }
@@ -98,6 +108,82 @@ pub fn coverage(
             return Err(Error::Unprovable);
         }
         let semantic = construction.plan().target();
+        if scope.is_session_day() {
+            let Some(calendar) = calendar else {
+                return Err(Error::Unprovable);
+            };
+            if construction.plan().context().calendar_fingerprint()
+                != fingerprint(&calendar.to_record())?
+            {
+                return Err(Error::Unprovable);
+            }
+            let expected = day_intervals(calendar, scope.start_ns(), scope.end_ns(), limit)?;
+            let mut actual = BTreeMap::new();
+            let mut valid = true;
+            for fact in &facts {
+                let bar = OnlyBar::from_record(&fact["canonical_payload"]["payload"]["value"])
+                    .map_err(|_| Error::Unprovable)?;
+                let start = bar.bar_start().timestamp().total_nanoseconds();
+                let end = bar.bar_end().timestamp().total_nanoseconds();
+                let end = i64::try_from(end).map_err(|_| Error::Unprovable)?;
+                let start = i64::try_from(start).map_err(|_| Error::Unprovable)?;
+                valid &= *bar.is_closed()
+                    && bar.ts_event() == bar.bar_end()
+                    && bar.bar_type().semantic() == semantic
+                    && bar.adjustment_type() == semantic.adjustment_policy()
+                    && bar.instrument_id().to_string() == scope.record["instrument_id"]
+                    && fact["ts_event_ns"] == end
+                    && fact["canonical_payload"]["data_version"] == scope.record["data_version"]
+                    && fact["quality_state"] == "VALID"
+                    && fact["canonical_payload"]["sequence_semantics"] == "MONOTONIC"
+                    && fact["canonical_payload"]["source_sequence"] == end;
+                if actual.insert((start, end), *bar.trading_day()).is_some() {
+                    return Err(Error::Conflict);
+                }
+            }
+            for &(start, end) in &expected {
+                let day = calendar
+                    .timezone()
+                    .to_civil(
+                        OnlyTimestamp::from_unix_nanos(start.into())
+                            .to_datetime_exact()
+                            .map_err(|_| Error::Invalid)?,
+                    )
+                    .map_err(|_| Error::Unprovable)?
+                    .date();
+                if actual.remove(&(start, end)) != Some(day) {
+                    gaps.push(json!({"start_ns":start,"end_ns":end}));
+                }
+            }
+            valid &= actual.is_empty();
+            if !valid {
+                issues.push("BAR_SEMANTICS_INVALID".into());
+            }
+            if !gaps.is_empty() {
+                issues.push("SESSION_DAY_INCOMPLETE".into());
+            }
+            proof.extend([
+                format!("bar_grid_count={}", expected.len()),
+                format!("closed_external_bar={valid}"),
+                format!(
+                    "calendar_fingerprint={}",
+                    construction.plan().context().calendar_fingerprint()
+                ),
+            ]);
+            let status = if issues.is_empty() {
+                CoverageStatus::Complete
+            } else {
+                CoverageStatus::Incomplete
+            };
+            return Manifest::build(
+                scope.clone(),
+                references.into(),
+                status,
+                json!(proof),
+                json!(issues),
+                json!(gaps),
+            );
+        }
         let stride: i64 = semantic
             .stride_minutes()
             .map_err(|_| Error::Unprovable)?
@@ -249,6 +335,75 @@ pub fn coverage(
         json!(issues),
         json!(gaps),
     )
+}
+/// 列出已冻结日历中完整落入半开请求区间的交易日 Session；区间截断某一交易日时拒绝。
+pub fn day_intervals(
+    calendar: &OnlyTradingCalendar,
+    start: i64,
+    end: i64,
+    limit: usize,
+) -> Result<Vec<(i64, i64)>> {
+    if start >= end || limit == 0 || start % 1000 != 0 || end % 1000 != 0 {
+        return Err(Error::Invalid);
+    }
+    let civil = |n: i64| {
+        calendar
+            .timezone()
+            .to_civil(
+                OnlyTimestamp::from_unix_nanos(n.into())
+                    .to_datetime_exact()
+                    .map_err(|_| Error::Invalid)?,
+            )
+            .map(|v| v.date())
+            .map_err(|_| Error::Unprovable)
+    };
+    let mut day = civil(start)?;
+    let last = civil(end.checked_sub(1000).ok_or(Error::Invalid)?)?;
+    let mut result = vec![];
+    let mut dates = 0;
+    loop {
+        dates += 1;
+        if dates > 5001 {
+            return Err(Error::Unavailable);
+        }
+        let trading_day = OnlyTradingDay::new(day).map_err(|_| Error::Unprovable)?;
+        if !calendar.is_effective_on(trading_day) {
+            return Err(Error::Unprovable);
+        }
+        if calendar.is_trading_day(trading_day) {
+            let sessions = calendar
+                .session_intervals_for_trading_day(trading_day)
+                .map_err(|_| Error::Unprovable)?;
+            let open = sessions
+                .iter()
+                .map(|s| s.0.timestamp().total_nanoseconds())
+                .min()
+                .ok_or(Error::Unprovable)?;
+            let close = sessions
+                .iter()
+                .map(|s| s.1.timestamp().total_nanoseconds())
+                .max()
+                .ok_or(Error::Unprovable)?;
+            let (open, close) = (
+                i64::try_from(open).map_err(|_| Error::Unprovable)?,
+                i64::try_from(close).map_err(|_| Error::Unprovable)?,
+            );
+            if open < end && close > start {
+                if open < start || close > end || open >= close {
+                    return Err(Error::Invalid);
+                }
+                result.push((open, close));
+                if result.len() > limit {
+                    return Err(Error::Unavailable);
+                }
+            }
+        }
+        if day == last {
+            break;
+        }
+        day = day.tomorrow().map_err(|_| Error::Unprovable)?;
+    }
+    Ok(result)
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowPlan {

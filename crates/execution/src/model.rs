@@ -41,10 +41,10 @@ pub(crate) fn hash(v: &Value) -> String {
     let canonical = v.to_string();
     #[cfg(test)]
     HASHED_CANONICAL_WATCH.with(|watch| {
-        if let Some((expected, count)) = watch.borrow_mut().as_mut() {
-            if expected.as_str() == canonical.as_str() {
-                *count += 1;
-            }
+        if let Some((expected, count)) = watch.borrow_mut().as_mut()
+            && expected.as_str() == canonical.as_str()
+        {
+            *count += 1;
         }
     });
     digest(canonical.as_bytes())
@@ -241,8 +241,8 @@ impl Prepared {
             data: None,
             input_fingerprint: std::sync::Arc::new(std::sync::OnceLock::new()),
             validated_transition_data: std::sync::Arc::new(std::sync::OnceLock::new()),
-            planned: true,
-            typed_after: after.map(Box::new),
+            planned: !after.as_ref().is_some_and(|c| c.projection_data),
+            typed_after: after.filter(|c| !c.projection_data).map(Box::new),
         };
         result.validate_with_payload_hash(Some(&payload_hash))?;
         let bytes = serde_json::to_vec(result.value())?;

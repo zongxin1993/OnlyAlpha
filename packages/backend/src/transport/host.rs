@@ -575,19 +575,97 @@ impl Host {
         snapshot: &Snapshot,
         reference: &Reference,
     ) -> Result<onlyalpha_integration_contract::source::MarketIdentity, Failure> {
+        Self::declared_source(snapshot, reference)?
+            .map(|(id, _)| id)
+            .ok_or_else(|| Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE"))
+    }
+    pub(crate) fn declared_source(
+        snapshot: &Snapshot,
+        reference: &Reference,
+    ) -> Result<
+        Option<(
+            onlyalpha_integration_contract::source::MarketIdentity,
+            Option<onlyalpha_domain::market::OnlyBarSemantic>,
+        )>,
+        Failure,
+    > {
         let (revision, _) = snapshot
             .history()
             .iter()
             .find(|(r, _)| r.record().revision_fingerprint == reference.revision())
-            .ok_or(Failure::with_status(
-                StatusCode::NOT_FOUND,
-                "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED",
-            ))?;
+            .ok_or_else(|| {
+                Failure::with_status(
+                    StatusCode::NOT_FOUND,
+                    "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED",
+                )
+            })?;
         let r = revision.record();
         let d = Descriptor::from_json(r.type_descriptor_document.raw().get(), WORK)
             .map_err(|_| Failure::unavailable("INTEGRATION_REVISION_CORRUPT"))?;
-        onlyalpha_data_source_binance::spot_history_identity(&d, r.configuration_document.raw())
-            .map_err(|_| Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE"))
+        if d.fingerprint() != r.type_descriptor_fingerprint || d.id() != &r.type_id {
+            return Err(Failure::unavailable("INTEGRATION_REVISION_CORRUPT"));
+        }
+        let cfg = r.configuration_document.raw();
+        let unprovable = || Failure::unavailable("MARKET_DATA_HISTORY_CONTEXT_UNPROVABLE");
+        match d.id().value() {
+            "binance.spot.market_data" => Ok(Some((
+                onlyalpha_data_source_binance::spot_history_identity(&d, cfg)
+                    .map_err(|_| unprovable())?,
+                None,
+            ))),
+            "tushare.daily.market_data" => {
+                match onlyalpha_data_source_tushare::source::history_identity(&d, cfg) {
+                    Ok(identity) => Ok(Some((
+                        identity,
+                        Some(
+                            onlyalpha_data_source_tushare::source::day_semantic(cfg)
+                                .map_err(|_| unprovable())?
+                                .1,
+                        ),
+                    ))),
+                    Err(onlyalpha_integration_contract::source::SourceError::Unsupported) => {
+                        Ok(None)
+                    }
+                    Err(_) => Err(unprovable()),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+    pub(crate) async fn connect_source(
+        &self,
+        snapshot: &Snapshot,
+        reference: &Reference,
+    ) -> Result<Resolved, crate::application::market_product::Error> {
+        use crate::application::market_product::Error;
+        let installed = self.resolver.installation(snapshot, reference, None)?;
+        if !installed.needs_secrets() {
+            return installed.open_public();
+        }
+        let mut reader = self.reader.lock().await;
+        let mut credentials = crate::persistence::credential_postgres::Credentials::new(
+            reader.as_mut().ok_or(Error::Unavailable)?,
+            self.inputs.key(),
+        );
+        installed.connect(&mut credentials).await
+    }
+    pub(crate) async fn current_source(
+        &self,
+        snapshot: &Snapshot,
+        reference: &Reference,
+        session: &Session,
+    ) -> Result<Resolved, crate::application::market_product::Error> {
+        use crate::application::market_product::Error;
+        let identity = Self::identity(snapshot, reference).map_err(|_| Error::Selection)?;
+        let selected = crate::application::market_product::original_selection(
+            snapshot, reference, session, &identity,
+        )?;
+        let resolved = self.connect_source(snapshot, reference).await?;
+        if resolved.identity() != &identity || resolved.selection() != &selected {
+            return Err(Error::Conflict);
+        }
+        session.require_selection(&selected, Permission::ClosedHistory)?;
+        Ok(resolved)
     }
     pub(crate) async fn resolve(
         &self,
@@ -603,7 +681,7 @@ impl Host {
                 "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED",
             ))?;
         Ok((
-            Arc::new(self.resolver.resolve(snapshot, reference, &session, None)?),
+            Arc::new(self.current_source(snapshot, reference, &session).await?),
             session,
         ))
     }
@@ -617,7 +695,7 @@ impl Host {
         let session = self.source_session().await;
         let snapshots = self.snapshots().await?;
         if path == "/api/v2/market-data/sources" {
-            let (_, batch) = self.source_descriptions(&snapshots, &session)?;
+            let (_, batch) = self.source_descriptions(&snapshots, &session).await?;
             let (value, fence) = batch.into_parts()?;
             return Ok(ingress::attach(
                 Json(value).into_response(),
@@ -625,7 +703,7 @@ impl Host {
             ));
         }
         if path == "/api/v2/market/instruments/search" {
-            let (sources, _) = self.source_descriptions(&snapshots, &session)?;
+            let (sources, _) = self.source_descriptions(&snapshots, &session).await?;
             let references = sources
                 .iter()
                 .filter(|source| {
@@ -666,6 +744,13 @@ impl Host {
                 StatusCode::NOT_FOUND,
                 "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED",
             ))?;
+        if let Some(id) = path.strip_prefix("/api/v2/market-data/acquisitions/")
+            && let Some(response) = self
+                .original_day_status(snapshot, &reference, &session, id)
+                .await?
+        {
+            return Ok(response);
+        }
         if matches!(
             path,
             "/api/v2/market-data/bars" | "/api/v2/market-data/latest-bar"
@@ -673,6 +758,76 @@ impl Host {
             let instrument = required(&p, "instrument_id")?;
             let semantic = semantic(&p)?;
             let clock_ns = now_ns()?;
+            if !semantic.is_fixed_duration() {
+                let (identity, declared) =
+                    Self::declared_source(snapshot, &reference)?.ok_or_else(invalid)?;
+                if declared.as_ref() != Some(&semantic) {
+                    return Err(invalid());
+                }
+                let selected = crate::application::market_product::original_selection(
+                    snapshot, &reference, &session, &identity,
+                )?;
+                let latest = path.ends_with("latest-bar");
+                let before = p
+                    .get("before_ns")
+                    .map(|s| s.parse::<i64>().map_err(|_| invalid()))
+                    .transpose()?;
+                if !latest
+                    && !matches!(
+                        (p.get("anchor_kind").map(String::as_str), before),
+                        (Some("LATEST_CLOSED"), None) | (Some("BEFORE_TIME"), Some(_))
+                    )
+                {
+                    return Err(invalid());
+                }
+                let count = if latest {
+                    1
+                } else {
+                    p.get("target_bar_count")
+                        .map(|s| s.parse().map_err(|_| invalid()))
+                        .transpose()?
+                        .unwrap_or(1)
+                };
+                let request = WindowRequest {
+                    instrument_id: instrument.into(),
+                    semantic,
+                    before_ns: before,
+                    bar_count: count,
+                    clock_ns,
+                };
+                let mut read = self.reader.lock().await;
+                let mut store = Storage::new(
+                    Catalog::new(
+                        read.as_mut().ok_or_else(|| {
+                            Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE")
+                        })?,
+                        ROWS,
+                        WORK,
+                    )?,
+                    &self.clickhouse,
+                    100000,
+                )?;
+                let result = crate::application::market_product::day::window(
+                    &session,
+                    &selected,
+                    &identity,
+                    &mut store,
+                    &request,
+                    p.get("revision_id").map(String::as_str),
+                )
+                .await
+                .map_err(|error| match error {
+                    crate::application::market_product::Error::Store(
+                        crate::persistence::market_data::Error::NotFound,
+                    ) => Failure::with_status(StatusCode::NOT_FOUND, "SEALED_REVISION_NOT_FOUND"),
+                    other => Failure::from(other),
+                })?;
+                let (value, fence) = result.into_parts()?;
+                return Ok(ingress::attach(
+                    Json(value).into_response(),
+                    Release::Source(fence),
+                ));
+            }
             let current = self.resolver.resolve(snapshot, &reference, &session, None);
             let mut read = self.reader.lock().await;
             let mut store = Storage::new(
@@ -762,7 +917,19 @@ impl Host {
                 Release::Source(fence),
             ));
         }
-        let resolved = match self.resolver.resolve(snapshot, &reference, &session, None) {
+        let declared_day =
+            Self::declared_source(snapshot, &reference)?.is_some_and(|(_, day)| day.is_some());
+        let sealed_only = match p.get("sealed_only").map(String::as_str) {
+            None | Some("false") => false,
+            Some("true") if declared_day && path == "/api/v2/market/instruments" => true,
+            _ => return Err(invalid()),
+        };
+        let current = if sealed_only {
+            Err(crate::application::market_product::Error::Unavailable)
+        } else {
+            self.current_source(snapshot, &reference, &session).await
+        };
+        let resolved = match current {
             Ok(r) => r,
             Err(error) => {
                 if path != "/api/v2/market/instruments" {
@@ -782,8 +949,27 @@ impl Host {
                         .get("instrument_ids")
                         .map(|s| s.split(',').map(String::from).collect())
                         .unwrap_or_default(),
-                    limit: 100,
+                    limit: if declared_day {
+                        instrument_limit(&p)?
+                    } else {
+                        100
+                    },
                 };
+                if declared_day {
+                    let identity = Self::identity(snapshot, &reference)?;
+                    let selected = crate::application::market_product::original_selection(
+                        snapshot, &reference, &session, &identity,
+                    )?;
+                    let (value, fence) = crate::application::market_product::day::instruments(
+                        &session, &selected, &identity, &mut store, &query,
+                    )
+                    .await?
+                    .into_parts()?;
+                    return Ok(ingress::attach(
+                        Json(value).into_response(),
+                        Release::Batch(fence),
+                    ));
+                }
                 let (value, fence) = self
                     .app
                     .historical_instruments(
@@ -1026,9 +1212,7 @@ pub(crate) fn grants(snapshots: &[Snapshot]) -> Result<Vec<Grant>, Failure> {
     let mut grants = vec![];
     for snapshot in snapshots {
         let owner = snapshot.integration().record();
-        if owner.lifecycle != crate::application::integration_configuration::Lifecycle::Active
-            || owner.type_id.value() != "binance.spot.market_data"
-        {
+        if owner.lifecycle != crate::application::integration_configuration::Lifecycle::Active {
             continue;
         }
         for (revision, _) in snapshot.history() {
@@ -1037,10 +1221,16 @@ pub(crate) fn grants(snapshots: &[Snapshot]) -> Result<Vec<Grant>, Failure> {
                 &revision.record().revision_fingerprint,
                 Some(owner.type_id.value()),
             )?;
-            let identity = Host::identity(snapshot, &reference)?;
+            let Some((identity, day)) = Host::declared_source(snapshot, &reference)? else {
+                continue;
+            };
+            let mut permissions = vec![Permission::ClosedHistory];
+            if day.is_none() {
+                permissions.push(Permission::RealtimePreview);
+            }
             grants.push(Grant::new(
                 Selection::new(reference, &identity.source_id, &identity.environment)?,
-                vec![Permission::ClosedHistory, Permission::RealtimePreview],
+                permissions,
             )?);
         }
     }

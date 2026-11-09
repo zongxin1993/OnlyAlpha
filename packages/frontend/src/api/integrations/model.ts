@@ -61,7 +61,13 @@ export const integrationTypeSchema = z.strictObject({
     }),
     probe_contract: z
         .strictObject({
-            probe_version: z.literal(1),
+            probe_version: z.union([z.literal(1), z.literal(2)]),
+            configured_instruments: z
+                .strictObject({
+                    field_id: z.string(),
+                    instruments: z.record(z.string(), z.string())
+                })
+                .nullish(),
             probe_mode: z.literal("DEFAULT_INSTRUMENT"),
             default_probe_instrument: z.string().nullable(),
             user_selectable_probe_instrument: z.boolean(),
@@ -76,6 +82,9 @@ export const integrationTypeSchema = z.strictObject({
             ),
             fingerprint: sha256
         })
+        .transform(({ configured_instruments, ...probe }) =>
+            configured_instruments === undefined ? probe : { ...probe, configured_instruments }
+        )
         .nullable(),
     fingerprint: sha256
 }) satisfies z.ZodType<IntegrationType>;

@@ -177,7 +177,7 @@ ClickHouse 写入重发是不同边界：先前不明 submission 的 durable wit
 
 ## 日内 Time-Bar Product 投影
 
-Product 的 Bar Specification 使用 Core 的 `TIME + step + LAST` 语义；当前支持 1–240 整数分钟，优先选择 Source
+分钟产品的 Bar Specification 使用 Core 的 `TIME + step + LAST` 语义；当前支持 1–240 整数分钟，优先选择 Source
 capability 精确声明的 provider-native interval。当前 Binance Spot 原生分钟为 **1、3、5、15、30、60、120、240**。
 原生 plan 的历史查询、显式 Acquisition 和 Realtime 都使用该选定 interval 与原生 canonical Bar，不得把已支持的原生
 interval 静默改成 1m 派生身份。原生 cursor 使用 bar start 除以选定 interval stride 的序号；session Calendar 和原生
@@ -293,3 +293,15 @@ conversion or compatibility loader. This development cutover does not delete unr
 The configuration and Source/Study validation remain unchanged: restoring must reprove exact references and current capability;
 missing/unsupported references remain explicit, never upgraded. Values are fetched/recomputed through the temporary display
 path, and a saved workspace never preserves a temporary window across restart.
+
+### 沪深股票封存日线
+
+每份原生 Tushare 来源配置绑定 XSHG 或 XSHE 一个交易所。来源目录的 `historical_day_semantic` 声明 `CALENDAR_PERIOD / DAY / 1 / SESSION_START / LAST` 和价格调整方式。配置所选交易所决定 Probe V2 的默认证券。新采集和 Probe 分别要求有效的人工命令准入、来源权限与原发布版本绑定的凭据 Slot、代次。来源只授予 `ClosedHistory`。证券信息只表达标识、市场、资产类别和行情单位，交易状态为未知。
+
+在图表设置选择来源后，周期显示「1 日 · 封存历史」。可以查询已封存证券、读取指定根数，或显式从源端查询证券并采集一段闭合日线。日期范围使用 UTC 的左闭右开区间，横切交易日须改选完整交易日。前复权还须选择实际基准交易日。价格以元计，成交量为股，成交额为元。上游的手和千元由插件规范化。真实交易日由完整 `trade_cal` 证明，沪深 Session 由该日期有效的已接受 CN 制度版本提供；跨制度切换须分段采集。
+
+DAY 采集 POST 须携带客户端在发送前已保存的 `original_request_id`（UUIDv4）。服务器在获取日历、证券、行情或复权输入前持久化 V3 原请求与单次执行。回复未收到时，按原来源版本和 UUID GET 查询，或以原 body 和 UUID POST 恢复。每个执行的规范 Query 都绑定其原 OAMD raw-only sealed Segment、raw 事件与哈希。日线 producer 接收已核验的原输入，按原请求和实际安装工件重放，封存计算所得的候选 Bar 并签发只在进程内传递的准备凭据。Storage 凭该凭据核实原输入与候选段后，Catalog 一次性绑定最终 Scope。准备提交后，未确认的 COMMIT 或发布超时只沿原执行观察；已有准备的执行不能再写入 FAILED。缺少完整准备的 UNKNOWN 只观察原执行；相同请求的新 UUID 返回原未决操作。上一次终局后才能明确开启新采样。缓存命中直接引用原 producer attempt、规范 Query 和原 sealed Segment/hash/raw ID；新 attempt 只记录复用关联并生成自己的规范化候选。缓存链压平到实际原始输入。原 producer 的采集开始时间在首次外部请求前持久化，接收时间由原 raw 物理证据给出。日线及计算所用因子必须在各自原采集开始时已收盘，窗口外前复权基准也由原因子采集时刻证明。消费时钟与后来发生的收盘不能给旧输入补证。失败、错关联和不可读证据分别保留原状态或显式错误。
+
+规范金融身份绑定实际插件工件、实现、日历及 Session、证券和单位、逐交易日规范化价量额，以及调整方式、实际使用的因子和前复权基准数值。原接收时间、响应行顺序、客户端 UUID 和 Segment ID 归属于观察或执行身份。原输入即使含区间外另一个完整 Session，该 Session 的行情和未使用因子也不参与已选 Bar 的金融身份。日线内部排序取原 Session 收盘 UTC 纳秒；原始行情没有 provider 连续序号，不暴露实时恢复游标。
+
+历史读取要求原 Source grant，并校验原数据版本、准备关联和实际 PG/ClickHouse 证据。当前凭据轮换后仍可按原 UUID 查询采集、以 `sealed_only=true` 查证券、以 `revision_id` 精确读取封存日线。存在多个金融版本时需要明确修订。图表读取不会触发新采集、临时页或实时订阅。1 日视图可按原采集编号恢复。工作区配置、回测与图表 Study 继续使用固定周期。分钟请求的旧身份、原行为与已存工件保持可精确读取。

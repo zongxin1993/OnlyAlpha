@@ -38,7 +38,7 @@ impl From<crate::application::private_assets::Error> for Failure {
     }
 }
 impl Host {
-    pub(crate) fn source_descriptions(
+    pub(crate) async fn source_descriptions(
         &self,
         snapshots: &[Snapshot],
         session: &Session,
@@ -52,9 +52,7 @@ impl Host {
         let mut identities = vec![];
         for snapshot in snapshots {
             let owner = snapshot.integration().record();
-            if owner.lifecycle != crate::application::integration_configuration::Lifecycle::Active
-                || owner.type_id.value() != "binance.spot.market_data"
-            {
+            if owner.lifecycle != crate::application::integration_configuration::Lifecycle::Active {
                 continue;
             }
             for (revision, _) in snapshot.history() {
@@ -63,11 +61,31 @@ impl Host {
                     &revision.record().revision_fingerprint,
                     Some(owner.type_id.value()),
                 )?;
-                identities.push((reference.clone(), Self::identity(snapshot, &reference)?));
+                let Some((identity, day)) = Self::declared_source(snapshot, &reference)? else {
+                    continue;
+                };
+                if session
+                    .require_reference(
+                        &reference,
+                        crate::application::source_access::Permission::ClosedHistory,
+                    )
+                    .is_err()
+                {
+                    session.check_active()?;
+                    continue;
+                }
+                let current = self.current_source(snapshot, &reference, session).await;
+                identities.push(crate::application::market_product::DeclaredSource {
+                    snapshot,
+                    reference,
+                    identity,
+                    day,
+                    current,
+                });
             }
         }
         self.resolver
-            .sources_with_history(snapshots, session, &identities)
+            .sources_with_history(session, identities)
             .map_err(Into::into)
     }
     pub(crate) async fn chart_evaluate(

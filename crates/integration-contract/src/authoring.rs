@@ -24,8 +24,8 @@ impl PluginProjection {
         if !matches!(category, Category::DataSource | Category::Broker | Category::AgentProvider)
             || !stable(implementation_id)
             || !nonblank(implementation_version)
-            // Preserve the existing Plugin API 1.1 supported requirements.
-            || !matches!(public_api_version, "1.0" | "1.1")
+            // 原声明继续按对应 minor 准入。1.2 增加配置枚举限定的 Probe 默认证券。
+            || !matches!(public_api_version, "1.0" | "1.1" | "1.2")
             || !sorted(&capabilities)
             || capabilities.iter().any(|value| !capability(value))
         {

@@ -2,6 +2,8 @@
 use super::physical::{self, PhysicalState};
 use super::*;
 use crate::persistence::market_data_wal::{Recovery, SealedWal, Wal};
+use onlyalpha_domain::{base::OnlyDomainModel, calendar::OnlyTradingCalendar};
+use onlyalpha_integration_contract::source::HistoricalObservation;
 use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DrainBoundary {
@@ -34,6 +36,17 @@ pub struct VerifiedRange {
     pub expected_base_fact_count: usize,
     pub complete_interval_count: usize,
 }
+/// 只由原输入关联写入及实际物理读取共同产生。拆开后的字段不能重新组成已核验输入。
+pub(crate) struct VerifiedHistoryInput {
+    link: Value,
+    observation: HistoricalObservation,
+}
+impl VerifiedHistoryInput {
+    pub(crate) fn into_parts(self) -> (Value, HistoricalObservation) {
+        (self.link, self.observation)
+    }
+}
+
 /// Actual storage capability. The Host retains access policy, deployment admission
 /// and singleton lifecycle; this module never creates a provider or HTTP ingress.
 pub struct Storage<'a> {
@@ -54,6 +67,269 @@ impl<'a> Storage<'a> {
     }
     pub fn catalog(&mut self) -> &mut Catalog<'a> {
         &mut self.catalog
+    }
+    /// 重读单个原始输入的所有物理列，与原 PG proof 和请求归属同时核对。
+    async fn history_observation(
+        &mut self,
+        intent: &AcquisitionIntent,
+        attempt: &AcquisitionAttempt,
+        input: &Value,
+    ) -> Result<HistoricalObservation> {
+        super::preparation::validate_input(input, attempt.id())?;
+        if let Some(producer) = input.get("producer_attempt_id") {
+            let (owner, original) = self.catalog.original_attempt(text(producer)?).await?;
+            let target = intent.to_record();
+            let origin = owner.to_record();
+            if attempt.record["acquisition_id"] != intent.id()
+                || original.record["outcome"] != "COMPLETE"
+                || [
+                    "integration_id",
+                    "source_id",
+                    "market",
+                    "provider",
+                    "venue",
+                    "environment",
+                ]
+                .iter()
+                .any(|k| target["requested_scope"][k] != origin["requested_scope"][k])
+            {
+                return Err(Error::Conflict);
+            }
+            let prep = self
+                .catalog
+                .history_preparation(&original)
+                .await?
+                .ok_or(Error::Unprovable)?;
+            let observed = array(&prep["input_manifest"]["inputs"])?
+                .iter()
+                .find(|r| r["query_fingerprint"] == input["query_fingerprint"])
+                .ok_or(Error::Unprovable)?;
+            let mut link = input.clone();
+            let obj = link.as_object_mut().ok_or(Error::Invalid)?;
+            obj.remove("producer_attempt_id");
+            obj.insert("attempt_id".into(), producer.clone());
+            if *observed != link {
+                return Err(Error::Conflict);
+            }
+            return self
+                .physical_history_input(&owner, &original, observed)
+                .await;
+        }
+        self.physical_history_input(intent, attempt, input).await
+    }
+    async fn physical_history_input(
+        &mut self,
+        intent: &AcquisitionIntent,
+        attempt: &AcquisitionAttempt,
+        input: &Value,
+    ) -> Result<HistoricalObservation> {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let i = intent.to_record();
+        let request = &i["requested_scope"];
+        let (s, p) = self.catalog.segment(text(&input["segment_id"])?).await?;
+        let meta = s.to_record();
+        if i["identity_version"] != 3
+            || attempt.record["acquisition_id"] != intent.id()
+            || s.content_hash() != text(&input["segment_content_hash"])?
+            || meta["integration_binding_fingerprint"] != i["integration_binding_fingerprint"]
+            || meta["capture_session_id"] != attempt.id()
+            || meta["stream"] != input["query_fingerprint"]
+            || meta["canonical_count"] != 0
+            || meta["raw_count"] != 1
+            || meta["capture_mode"] != "REST_BACKFILL"
+            || ["source_id", "market", "provider", "venue"]
+                .iter()
+                .any(|k| meta[k] != request[k])
+        {
+            return Err(Error::Unprovable);
+        }
+        let rows = self.clickhouse.snapshot(&s).await?;
+        if physical::proof(&s, &rows, true)? != p {
+            return Err(Error::Unprovable);
+        }
+        let [raw] = rows.get(TABLES[0]).ok_or(Error::Unprovable)?.as_slice() else {
+            return Err(Error::Unprovable);
+        };
+        if raw["capture_session_id"] != attempt.id()
+            || raw["raw_event_id"] != input["raw_event_id"]
+            || raw["stream"] != input["query_fingerprint"]
+            || raw["raw_sha256"] != input["raw_sha256"]
+            || raw["segment_id"] != meta["segment_id"]
+            || raw["segment_content_hash"] != meta["content_hash"]
+        {
+            return Err(Error::Unprovable);
+        }
+        let bytes = STANDARD
+            .decode(text(&raw["raw_payload_base64"])?)
+            .map_err(|_| Error::Unprovable)?;
+        if hash(&bytes) != text(&input["raw_sha256"])? {
+            return Err(Error::Unprovable);
+        }
+        let producer_started_at = utc(text(&attempt.record["started_at"])?)?.0;
+        let receive_ns: i64 = text(&raw["ts_receive_ns"])?
+            .parse()
+            .map_err(|_| Error::Unprovable)?;
+        let received_at = onlyalpha_domain::time::OnlyTimestamp::from_unix_nanos(receive_ns.into())
+            .to_datetime_exact()
+            .map_err(|_| Error::Unprovable)?;
+        if received_at < producer_started_at {
+            return Err(Error::Unprovable);
+        }
+        Ok(HistoricalObservation {
+            query: input["query_document"].clone(),
+            bytes,
+            producer_started_at,
+            received_at,
+        })
+    }
+    pub(crate) async fn link_history_input(
+        &mut self,
+        intent: &AcquisitionIntent,
+        attempt: &AcquisitionAttempt,
+        lease: &ExecutionLease,
+        input: &Value,
+    ) -> Result<VerifiedHistoryInput> {
+        let observation = self.history_observation(intent, attempt, input).await?;
+        self.catalog
+            .link_history_input(attempt, lease, input)
+            .await?;
+        Ok(VerifiedHistoryInput {
+            link: input.clone(),
+            observation,
+        })
+    }
+    /// 所有输入的原始来源与物理字节必须再次匹配。按总字节预算限制跨 Query 的读放大。
+    pub async fn prepared_inputs(
+        &mut self,
+        intent: &AcquisitionIntent,
+        attempt: &AcquisitionAttempt,
+        manifest: &Value,
+    ) -> Result<Vec<(Value, Vec<u8>)>> {
+        let inputs = array(&manifest["inputs"])?;
+        if inputs.is_empty() || inputs.len() > self.limit {
+            return Err(Error::Unavailable);
+        }
+        let mut left = self.catalog.byte_limit;
+        let mut observations = vec![];
+        for input in inputs {
+            let bytes = self
+                .history_observation(intent, attempt, input)
+                .await?
+                .bytes;
+            left = left.checked_sub(bytes.len()).ok_or(Error::Unavailable)?;
+            observations.push((input.clone(), bytes));
+        }
+        Ok(observations)
+    }
+    pub async fn day_preparation(
+        &mut self,
+        id: &str,
+    ) -> Result<(AcquisitionIntent, AcquisitionAttempt, Value)> {
+        let (intent, attempt) = self.catalog.original_attempt(id).await?;
+        let prepared = self
+            .catalog
+            .history_preparation(&attempt)
+            .await?
+            .ok_or(Error::Unknown)?;
+        self.prepared_inputs(&intent, &attempt, &prepared["input_manifest"])
+            .await?;
+        Ok((intent, attempt, prepared))
+    }
+
+    fn validate_day_candidate(
+        intent: &AcquisitionIntent,
+        attempt: &AcquisitionAttempt,
+        record: &Value,
+        segment: &Segment,
+    ) -> Result<()> {
+        let scope = super::preparation::bound_scope(intent, attempt, record)?;
+        let m = &record["input_manifest"];
+        let meta = &segment.record;
+        if meta["capture_session_id"] != attempt.id()
+            || meta["integration_binding_fingerprint"]
+                != intent.to_record()["integration_binding_fingerprint"]
+            || meta["capture_mode"] != "REST_BACKFILL"
+            || meta["canonical_count"].as_i64().is_none_or(|n| n <= 0)
+            || meta["raw_count"] != 1
+            || meta["stream"] != m["bar_query_fingerprint"]
+            || !scope.family_matches(&segment.recovery_scope()?)
+            || m["candidate_refs"] != json!([[segment.id(), segment.content_hash()]])
+            || ["source_id", "market", "provider", "venue"]
+                .iter()
+                .any(|k| meta[k] != intent.to_record()["requested_scope"][k])
+        {
+            return Err(Error::Unprovable);
+        }
+        Ok(())
+    }
+
+    /// Canonical candidate 与准备中的 daily 原响应必须是同一组字节。
+    fn validate_candidate_raw(record: &Value, raw: &Value) -> Result<()> {
+        let m = &record["input_manifest"];
+        let input = array(&m["inputs"])?
+            .iter()
+            .find(|i| i["query_fingerprint"] == m["bar_query_fingerprint"])
+            .ok_or(Error::Unprovable)?;
+        if raw["raw_sha256"] != input["raw_sha256"]
+            || raw["stream"] != input["query_fingerprint"]
+            || raw["capture_session_id"] != m["attempt_id"]
+            || raw["provider_event_id"] != input["raw_event_id"]
+        {
+            return Err(Error::Unprovable);
+        }
+        Ok(())
+    }
+    async fn day_calendar(
+        &mut self,
+        scope: &Scope,
+        segments: &[Segment],
+    ) -> Result<Option<OnlyTradingCalendar>> {
+        if !scope.is_session_day() {
+            return Ok(None);
+        }
+        let mut result = None;
+        for segment in segments {
+            let (intent, attempt, record) = self
+                .day_preparation(text(&segment.record["capture_session_id"])?)
+                .await?;
+            Self::validate_day_candidate(&intent, &attempt, &record, segment)?;
+            if !scope.family_matches(&Scope::from_record(&record["requested_scope"])?) {
+                return Err(Error::Conflict);
+            }
+            let calendar = OnlyTradingCalendar::from_record(&record["input_manifest"]["calendar"])
+                .map_err(|_| Error::Unprovable)?;
+            if result.as_ref().is_some_and(|prior| prior != &calendar) {
+                return Err(Error::Conflict);
+            }
+            result = Some(calendar);
+        }
+        Ok(result)
+    }
+    pub(crate) async fn bind_history_scope(
+        &mut self,
+        intent: &AcquisitionIntent,
+        attempt: &AcquisitionAttempt,
+        lease: &ExecutionLease,
+        prepared: crate::application::market_product::day::PreparedDay,
+        wal: &mut SealedWal,
+    ) -> Result<Scope> {
+        let record = prepared.record();
+        super::preparation::bound_scope(intent, attempt, record)?;
+        self.prepared_inputs(intent, attempt, &record["input_manifest"])
+            .await?;
+        let candidates = refs(&record["input_manifest"]["candidate_refs"])?;
+        let (id, _) = candidates.first().ok_or(Error::Unprovable)?;
+        let segment = Segment::from_record(&wal.load_segment(id)?)?;
+        Self::validate_day_candidate(intent, attempt, record, &segment)?;
+        let records = wal.read_sealed(id)?;
+        let [bundle] = records.as_slice() else {
+            return Err(Error::Unprovable);
+        };
+        Self::validate_candidate_raw(record, &bundle["evidence"])?;
+        physical::expected(&segment, &records)?;
+        self.catalog
+            .bind_history_scope(attempt, lease, record)
+            .await
     }
     pub async fn drain(
         &mut self,
@@ -137,9 +413,33 @@ impl<'a> Storage<'a> {
         if let Some(parent) = parent {
             text(&json!(parent))?;
         }
-        let manifest = scope
-            .map(|scope| coverage(scope, &segments, &facts, self.limit))
-            .transpose()?;
+        let manifest = if let Some(scope) = scope {
+            let calendar = self.day_calendar(scope, &segments).await?;
+            if scope.is_session_day() {
+                for (segment, _, _, _, _) in &batches {
+                    let (_, _, record) = self
+                        .day_preparation(text(&segment.record["capture_session_id"])?)
+                        .await?;
+                    if scope.record != record["requested_scope"] {
+                        return Err(Error::Conflict);
+                    }
+                    let records = wal.read_sealed(segment.id())?;
+                    let [bundle] = records.as_slice() else {
+                        return Err(Error::Unprovable);
+                    };
+                    Self::validate_candidate_raw(&record, &bundle["evidence"])?;
+                }
+            }
+            Some(coverage::coverage_with_calendar(
+                scope,
+                &segments,
+                &facts,
+                self.limit,
+                calendar.as_ref(),
+            )?)
+        } else {
+            None
+        };
         let normalizers = normalizers(&facts)?;
         for (segment, proof, expected, state, _) in &batches {
             if !proceed(DrainBoundary::BeforeStore) {
@@ -215,7 +515,14 @@ impl<'a> Storage<'a> {
         let selected = refs(&json!(selected))?;
         let mut used = 0;
         let (segments, facts) = self.durable_facts(&selected, scope, &mut used).await?;
-        let manifest = coverage(scope, &segments, &facts, self.limit)?;
+        let calendar = self.day_calendar(scope, &segments).await?;
+        let manifest = coverage::coverage_with_calendar(
+            scope,
+            &segments,
+            &facts,
+            self.limit,
+            calendar.as_ref(),
+        )?;
         let revision = self
             .catalog
             .publish_coverage(
@@ -253,6 +560,16 @@ impl<'a> Storage<'a> {
             if physical::proof(&segment, &rows, true)? != proof {
                 return Err(Error::Unprovable);
             }
+            if scope.is_session_day() {
+                let (intent, attempt, record) = self
+                    .day_preparation(text(&segment.record["capture_session_id"])?)
+                    .await?;
+                Self::validate_day_candidate(&intent, &attempt, &record, &segment)?;
+                let [raw] = rows.get(TABLES[0]).ok_or(Error::Unprovable)?.as_slice() else {
+                    return Err(Error::Unprovable);
+                };
+                Self::validate_candidate_raw(&record, raw)?;
+            }
             let batch = physical::facts(&segment, &rows)?;
             if facts
                 .len()
@@ -269,6 +586,99 @@ impl<'a> Storage<'a> {
     /// Select latest current sealed metadata in the exact BAR family, then
     /// certify that exact occurrence physically. Bounds on the family template
     /// do not invent a window relative to an ambient clock. No older fallback.
+    pub async fn original_day_revision(
+        &mut self,
+        scope: &Scope,
+        candidates: &Value,
+        known: Option<&str>,
+    ) -> Result<Option<SealedRevision>> {
+        let id = if let Some(known) = known {
+            known.to_owned()
+        } else {
+            let Some(id) = self
+                .catalog
+                .revision_for_candidates(scope, candidates)
+                .await?
+            else {
+                return Ok(None);
+            };
+            id
+        };
+        let (revision, _) = self.read_exact(&id).await?;
+        if revision.manifest.scope != *scope || revision.revision["segment_refs"] != *candidates {
+            return Err(Error::Conflict);
+        }
+        Ok(Some(revision))
+    }
+    /// 已提交准备证明时只取对应具体候选。GC 后通过原物理证明和精确 Scope 继续完成。
+    pub async fn publish_prepared_day(
+        &mut self,
+        wal: &mut SealedWal,
+        intent: &AcquisitionIntent,
+        attempt: &AcquisitionAttempt,
+        at: &str,
+        mut proceed: impl FnMut(DrainBoundary) -> bool,
+    ) -> Result<SealedRevision> {
+        if !proceed(DrainBoundary::BeforeStore) {
+            return Err(Error::Stopped);
+        }
+        let (_, _, p) = self.day_preparation(attempt.id()).await?;
+        let scope = super::preparation::bound_scope(intent, attempt, &p)?;
+        let candidates = &p["input_manifest"]["candidate_refs"];
+        let revision = if let Some(rev) = self
+            .original_day_revision(&scope, candidates, attempt.record["revision_id"].as_str())
+            .await?
+        {
+            rev
+        } else {
+            let selected = refs(candidates)?;
+            let (id, h) = selected.first().ok_or(Error::Unprovable)?;
+            let publication = RevisionPublication {
+                parent: None,
+                reason: "REST_BACKFILL",
+                at,
+            };
+            if wal.published_sealed()?.iter().any(|s| s == id) {
+                let segment = Segment::from_record(&wal.load_segment(id)?)?;
+                Self::validate_day_candidate(intent, attempt, &p, &segment)?;
+                self.drain(
+                    wal,
+                    std::slice::from_ref(id),
+                    Some(&scope),
+                    publication,
+                    &mut proceed,
+                )
+                .await?
+                .revision
+                .ok_or(Error::Unprovable)?
+            } else {
+                let (segment, _) = self
+                    .catalog
+                    .published_segment(id)
+                    .await?
+                    .ok_or(Error::Unknown)?;
+                if segment.content_hash() != h {
+                    return Err(Error::Conflict);
+                }
+                Self::validate_day_candidate(intent, attempt, &p, &segment)?;
+                if !proceed(DrainBoundary::Verified) {
+                    return Err(Error::Stopped);
+                }
+                self.commit_scope(&scope, &selected, publication)
+                    .await?
+                    .1
+                    .ok_or(Error::Unprovable)?
+            }
+        };
+        if !proceed(DrainBoundary::CatalogCommitted) {
+            return Err(Error::Stopped);
+        }
+        if attempt.is_unknown() {
+            self.complete_acquisition(attempt, revision.id(), "HISTORICAL_DAY_SEALED", at)
+                .await?;
+        }
+        Ok(revision)
+    }
     pub async fn read_latest(&mut self, family: &Scope) -> Result<(SealedRevision, Vec<Value>)> {
         if family.kind() != "BAR" {
             return Err(Error::Invalid);
@@ -354,7 +764,16 @@ impl<'a> Storage<'a> {
                 used,
             )
             .await?;
-        let manifest = coverage(&revision.manifest.scope, &segments, &facts, self.limit)?;
+        let calendar = self
+            .day_calendar(&revision.manifest.scope, &segments)
+            .await?;
+        let manifest = coverage::coverage_with_calendar(
+            &revision.manifest.scope,
+            &segments,
+            &facts,
+            self.limit,
+            calendar.as_ref(),
+        )?;
         if manifest != revision.manifest || normalizers(&facts)? != revision.revision["normalizers"]
         {
             return Err(Error::Unprovable);
@@ -439,6 +858,9 @@ impl<'a> Storage<'a> {
         let mut status = CoverageStatus::Complete;
         let mut complete = 0;
         let mut expected_count = 0;
+        let calendar = self
+            .day_calendar(family, &segments.values().cloned().collect::<Vec<_>>())
+            .await?;
         for (s, e) in &intervals {
             let scope = family.with_range(*s, *e)?;
             let selected = segments
@@ -462,7 +884,13 @@ impl<'a> Storage<'a> {
                     Err(error) => Some(Err(error)),
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let c = coverage(&scope, &selected, &inputs, self.limit)?;
+            let c = coverage::coverage_with_calendar(
+                &scope,
+                &selected,
+                &inputs,
+                self.limit,
+                calendar.as_ref(),
+            )?;
             if c.status() == CoverageStatus::Unprovable {
                 status = CoverageStatus::Unprovable;
             } else if c.status() == CoverageStatus::Incomplete
@@ -529,7 +957,15 @@ impl<'a> Storage<'a> {
                     &mut used,
                 )
                 .await?;
-            if coverage(&manifest.scope, &segments, &facts, self.limit)? != manifest {
+            let calendar = self.day_calendar(&manifest.scope, &segments).await?;
+            if coverage::coverage_with_calendar(
+                &manifest.scope,
+                &segments,
+                &facts,
+                self.limit,
+                calendar.as_ref(),
+            )? != manifest
+            {
                 return Err(Error::Unprovable);
             }
             if let Some(revision) = revision
@@ -595,6 +1031,23 @@ impl<'a> Storage<'a> {
                 continue;
             }
             let scope = segment.recovery_scope()?;
+            if scope.is_session_day() {
+                let (intent, attempt) = self
+                    .catalog
+                    .original_attempt(text(&segment.record["capture_session_id"])?)
+                    .await?;
+                if self.catalog.history_preparation(&attempt).await?.is_some() {
+                    let revision = self
+                        .publish_prepared_day(&mut sealed, &intent, &attempt, at, &mut proceed)
+                        .await?;
+                    result.push(DrainOutcome {
+                        coverage: Some(revision.manifest().clone()),
+                        revision: Some(revision),
+                        segment_ids: vec![id],
+                    });
+                }
+                continue;
+            }
             let mut key = segment.record.clone();
             for field in [
                 "segment_id",
@@ -672,14 +1125,7 @@ impl<'a> Storage<'a> {
         at: &str,
     ) -> Result<AcquisitionAttempt> {
         let (revision, _) = self.read_exact(revision_id).await?;
-        let intent = self
-            .catalog
-            .intent(text(&attempt.record["acquisition_id"])?)
-            .await?
-            .ok_or(Error::Unprovable)?;
-        if intent.scope != revision.manifest.scope {
-            return Err(Error::Unprovable);
-        }
+        // finish 在同一事务重读原 intent、attempt、已封存 Scope 与精确 Revision。
         self.catalog
             .finish(attempt, "COMPLETE", Some(&revision), detail, at)
             .await

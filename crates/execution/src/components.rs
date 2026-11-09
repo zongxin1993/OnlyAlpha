@@ -11,6 +11,7 @@ std::thread_local! {
 }
 /// Technical component composition. Queries fail while a committed projection prefix is incomplete.
 pub struct Components {
+    pub(crate) projection_data: bool,
     pub(crate) config: Value,
     pub(crate) precision: u8,
     pub(crate) order: Arc<onlyalpha_order::Manager>,
@@ -48,9 +49,20 @@ impl Components {
                 row(&config, &fields)?;
                 4
             }
-            Some(2) => {
+            Some(2 | 3) => {
                 let r = config.as_object().ok_or_else(|| err("EXECUTION_RECORD"))?;
-                if r.len() != fields.len() + 2
+                let perpetual = config["schema_version"] == 3;
+                let observation_budget = perpetual && r.contains_key("margin_observation_capacity");
+                if observation_budget
+                    && !config["margin_observation_capacity"]
+                        .as_u64()
+                        .is_some_and(|n| (1..=512).contains(&n))
+                {
+                    return Err(err("EXECUTION_MARGIN_OBSERVATION_CAPACITY"));
+                }
+                if r.len()
+                    != fields.len() + 2 + usize::from(perpetual) + usize::from(observation_budget)
+                    || (perpetual && !r.contains_key("perpetual"))
                     || fields.iter().any(|field| !r.contains_key(*field))
                     || !r.contains_key("account_checkpoint_version")
                 {
@@ -91,7 +103,7 @@ impl Components {
             .filter(|a| !a.is_empty())
             .ok_or_else(|| err("EXECUTION_INSTRUMENTS"))?;
         for i in instruments {
-            if i["multiplier"] != "1" {
+            if config["schema_version"] != 3 && i["multiplier"] != "1" {
                 return Err(err("EXECUTION_T0_MULTIPLIER"));
             }
         }
@@ -119,20 +131,40 @@ impl Components {
                 return Err(err("EXECUTION_CONFIG_NONCANONICAL"));
             }
         }
+        let perpetual = config["schema_version"] == 3;
+        if perpetual {
+            crate::perpetual::validate_config(&config)?;
+        }
         let base = json!({"schema_version":1,"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"generation":config["generation"]});
         let mut pc = base.clone();
         pc["gateway"] = config["gateway"].clone();
         pc["currency"] = config["currency"].clone();
         pc["clusters"] = json!(profiles.keys().collect::<Vec<_>>());
         pc["instruments"] = config["instruments"].clone();
+        if perpetual {
+            pc["schema_version"] = json!(2);
+            let t = &config["perpetual"];
+            pc["funding_rules"] = json!({"source_cut_sha256":t["source_cut_sha256"],"source":t["source"],"data_version":t["data_version"],"instrument":t["instrument"],"cluster":t["cluster"],"schedule":t["funding_schedule"],"market_binding":t["market_binding"],"revision":config["profiles"][t["cluster"].as_str().expect("validated")]["revision"]});
+        }
         let mut ac = base.clone();
         ac["gateway"] = config["gateway"].clone();
         ac["currency"] = config["currency"].clone();
         ac["schema_version"] = json!(2);
         ac["position_configuration"] = json!(hash(&pc));
-        ac["account_type"] = json!("CASH");
+        ac["account_type"] = json!(if perpetual {
+            "LINEAR_PERPETUAL"
+        } else {
+            "CASH"
+        });
+        if perpetual {
+            ac["schema_version"] = json!(3);
+        }
         ac["initial_cash"] = config["initial_cash"].clone();
         let mut lc = base.clone();
+        if perpetual {
+            lc["schema_version"] = json!(2);
+            lc["position_configuration"] = json!(hash(&pc));
+        }
         lc["runtime_kind"] = config["runtime_kind"].clone();
         lc["currency"] = config["currency"].clone();
         lc["account_initial_cash"] = config["initial_cash"].clone();
@@ -142,7 +174,13 @@ impl Components {
         rc["currency"] = config["currency"].clone();
         rc["clusters"] = config["profiles"].clone();
         rc["admission_limits"] = json!({"schema_version":1,"commands":4096,"journal_bytes":8388608,"checkpoint_bytes":33554432,"reservations":1024});
+        let mut meta = json!({"schema_version":5,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(margin_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{},"valuation_marks":{},"valuation_sources":{}});
+        if perpetual {
+            meta["schema_version"] = json!(6);
+            meta["perpetual"] = json!({"marks":{},"funding":{},"boundaries":{},"broker_facts":{},"latest_mark":null,"last_disposition":null});
+        }
         Ok(Self {
+            projection_data: false,
             precision: currency.precision(),
             order: Arc::new(boundary(onlyalpha_order::Manager::new(
                 json!({"schema_version":1,"engine_id":config["engine"],"runtime_id":config["runtime"],"gateway_id":config["gateway"],"generation":config["generation"]}),
@@ -156,9 +194,7 @@ impl Components {
             ledger: Arc::new(boundary(onlyalpha_strategy_ledger::Manager::new(lc))?),
             risk: Arc::new(boundary(onlyalpha_risk::Manager::new(rc))?),
             config: config.clone(),
-            meta: Arc::new(
-                json!({"schema_version":5,"orders":{},"inputs":{},"sources":{},"fee_authority":boundary(onlyalpha_fee::Manager::new(json!({"engine":config["engine"],"runtime":config["runtime"],"account":config["account"],"gateway":config["gateway"],"runtime_kind":config["runtime_kind"],"generation":config["generation"]}),4096))?.checkpoint(),"margin_authority":boundary(onlyalpha_margin::Manager::new(settlement_config(&config),512))?.checkpoint(),"settlement_authority":boundary(onlyalpha_settlement::Authority::new(settlement_config(&config),512))?.checkpoint(),"markets":{},"valuations":{},"last_runtime_sequence":0,"transactions":{},"marks":{},"valuation_marks":{},"valuation_sources":{}}),
-            ),
+            meta: Arc::new(meta),
             sequence: 0,
             pending: None,
             reconciliation_data: Arc::new(std::sync::Mutex::new(None)),
@@ -173,6 +209,7 @@ impl Components {
     /// Independent data only; callers still prove their current owning Store.
     pub(crate) fn clone_data(&self) -> Self {
         Self {
+            projection_data: self.projection_data,
             config: self.config.clone(),
             precision: self.precision,
             order: self.order.clone(),
@@ -230,8 +267,13 @@ impl Components {
         if self.pending.is_some() || store.head()? != self.sequence {
             return Err(err("EXECUTION_NOT_PROJECTION_READY"));
         }
-        let expected =
-            Self::ready_prefix_with_genesis(store, &self.config, self.sequence, genesis.to_vec())?;
+        let expected = Self::ready_prefix_with_genesis(
+            store,
+            &self.config,
+            self.sequence,
+            genesis.to_vec(),
+            self.projection_data,
+        )?;
         if expected.as_slice() != current {
             return Err(err("EXECUTION_READY_SOURCE_CONFLICT"));
         }
@@ -247,13 +289,15 @@ impl Components {
             config,
             sequence,
             Self::genesis_payload_hashes(config)?,
+            false,
         )
     }
-    fn ready_prefix_with_genesis<S: crate::Store>(
+    pub(crate) fn ready_prefix_with_genesis<S: crate::Store>(
         store: &S,
         config: &Value,
         sequence: u64,
         mut previous: Vec<String>,
+        projection_data: bool,
     ) -> Result<Vec<String>, Error> {
         let configuration_hash = hash(config);
         match store.read_prefix(sequence)? {
@@ -268,6 +312,7 @@ impl Components {
                         &configuration_hash,
                         index as u64 + 1,
                         &mut previous,
+                        projection_data,
                     )?;
                 }
             }
@@ -284,6 +329,7 @@ impl Components {
                         &configuration_hash,
                         n,
                         &mut previous,
+                        projection_data,
                     )?;
                 }
             }
@@ -296,8 +342,13 @@ impl Components {
         configuration_hash: &str,
         n: u64,
         previous: &mut [String],
+        projection_data: bool,
     ) -> Result<(), Error> {
         let prepared = record.prepared();
+        if !projection_data && config["schema_version"] == 3 && prepared.input()["op"] == "FUNDING"
+        {
+            return Err(err("EXECUTION_ORIGINAL_FUNDING_STORE_REQUIRED"));
+        }
         Self::require_account_checkpoint_version(config, prepared.account_checkpoint_version())?;
         if !record.ready()
             || prepared.sequence() != n
@@ -462,7 +513,7 @@ impl Components {
         config: &Value,
         version: Option<u64>,
     ) -> Result<(), Error> {
-        let expected = if config["schema_version"] == 2 { 5 } else { 4 };
+        let expected = if config["schema_version"] == 1 { 4 } else { 5 };
         if version != Some(expected) {
             return Err(err("EXECUTION_ACCOUNT_CHECKPOINT_FORMAT"));
         }
@@ -651,16 +702,46 @@ impl Components {
             1 => boundary(Arc::make_mut(&mut self.position).restore(&b, &h))?,
             2 => {
                 self.require_account_checkpoint(p)?;
-                boundary(Arc::make_mut(&mut self.account).restore(&b, &h))?;
+                if self.config["schema_version"] == 3 {
+                    let cut = self.funding_cut()?;
+                    boundary(Arc::make_mut(&mut self.account).restore_with_funding(
+                        &b,
+                        &h,
+                        &self.position,
+                        &cut,
+                    ))?;
+                } else {
+                    boundary(Arc::make_mut(&mut self.account).restore(&b, &h))?;
+                }
             }
-            3 => boundary(Arc::make_mut(&mut self.ledger).restore(&b, &h))?,
+            3 => {
+                if self.config["schema_version"] == 3 {
+                    let cut = self.funding_cut()?;
+                    boundary(Arc::make_mut(&mut self.ledger).restore_with_funding(
+                        &b,
+                        &h,
+                        &self.position,
+                        &cut,
+                    ))?;
+                } else {
+                    boundary(Arc::make_mut(&mut self.ledger).restore(&b, &h))?;
+                }
+            }
             4 => boundary(Arc::make_mut(&mut self.risk).restore(&b, &h))?,
             5 => {
-                if p["schema_version"] != 5 {
+                let perpetual = self.config["schema_version"] == 3;
+                if p["schema_version"] != if perpetual { 6 } else { 5 } {
                     return Err(err("EXECUTION_ECONOMIC_METADATA_SCHEMA"));
                 }
                 let mut shape = p.clone();
                 shape["schema_version"] = json!(1);
+                if perpetual {
+                    shape
+                        .as_object_mut()
+                        .ok_or_else(|| err("EXECUTION_METADATA"))?
+                        .remove("perpetual");
+                    crate::perpetual::validate_metadata(&self.config, &p["perpetual"])?;
+                }
                 row(
                     &shape,
                     &[
@@ -724,7 +805,7 @@ impl Components {
                         counts.set(observed);
                     });
                     let mut margin = boundary(onlyalpha_margin::Manager::new(
-                        settlement_config(&self.config),
+                        margin_config(&self.config),
                         512,
                     ))?;
                     boundary(margin.restore(
@@ -766,12 +847,31 @@ impl Components {
         }
         Ok(typed_after)
     }
+    pub(crate) fn check_projection_scope(&self, p: &Prepared) -> Result<(), Error> {
+        if !self.projection_data
+            && self.config["schema_version"] == 3
+            && (p.input()["op"] == "FUNDING"
+                || self.meta["perpetual"]["funding"]
+                    .as_object()
+                    .is_some_and(|f| !f.is_empty())
+                || p.value()["projections"][5]["result"]["perpetual"]["funding"]
+                    .as_object()
+                    .is_some_and(|f| !f.is_empty()))
+        {
+            return Err(err("EXECUTION_ORIGINAL_FUNDING_STORE_REQUIRED"));
+        }
+        Ok(())
+    }
     pub fn install_projection<S: crate::Store>(
         &mut self,
         store: &S,
         p: &Prepared,
         i: usize,
     ) -> Result<(), Error> {
+        self.check_projection_scope(p)?;
+        if !self.projection_data && self.config["schema_version"] == 3 {
+            Self::ready_prefix(store, &self.config, p.sequence() - 1)?;
+        }
         let committed = store
             .get(p.sequence())?
             .ok_or_else(|| err("EXECUTION_COMMIT_REQUIRED"))?;
@@ -826,7 +926,7 @@ impl Components {
                     4 => self.risk = after.risk.clone(),
                     _ => return Err(err("EXECUTION_PROJECTION_INDEX")),
                 }
-            } else if matches!(i, 2 | 3) {
+            } else if matches!(i, 2 | 3) && self.config["schema_version"] != 3 {
                 // The actual owning before-hash was proved above. Extend
                 // only that exact reconstructed journal; arbitrary cold
                 // Components::restore still uses install_payload.
@@ -876,6 +976,10 @@ impl Components {
     }
     /// Technical acknowledgement after the owning Store has durably marked Ready.
     pub fn complete<S: crate::Store>(&mut self, store: &S, p: &Prepared) -> Result<(), Error> {
+        self.check_projection_scope(p)?;
+        if !self.projection_data && self.config["schema_version"] == 3 {
+            Self::ready_prefix(store, &self.config, p.sequence() - 1)?;
+        }
         let ready = store
             .get(p.sequence())?
             .ok_or_else(|| err("EXECUTION_READY_REQUIRED"))?;
@@ -897,6 +1001,25 @@ impl Components {
         self.pending = None;
         Ok(())
     }
+}
+
+pub(crate) fn margin_config(config: &Value) -> Value {
+    let mut v = settlement_config(config);
+    if config["schema_version"] == 3 {
+        v["entry_profile"] = json!("LINEAR_LONG_NETTING_CROSS_OPEN");
+        v["model_notional_limit"] = config["perpetual"]["margin_segments"]
+            .as_array()
+            .expect("validated segments")
+            .last()
+            .expect("nonempty segments")["upper_bound"]
+            .clone();
+        v["observation_capacity"] = json!(
+            config["margin_observation_capacity"]
+                .as_u64()
+                .unwrap_or(512)
+        );
+    }
+    v
 }
 
 pub(crate) fn settlement_config(config: &Value) -> Value {

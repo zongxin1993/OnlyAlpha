@@ -1,5 +1,5 @@
 //! Consume compiled collateral instructions within the existing owning transaction.
-use crate::{Components, components::settlement_config, model::*};
+use crate::{Components, components::margin_config, model::*};
 use bigdecimal::{BigDecimal, Zero};
 use onlyalpha_domain::base::OnlyDomainModel;
 use serde_json::{Value, json};
@@ -18,9 +18,9 @@ fn declaration(input: &Value) -> Result<&Value, Error> {
     Ok(value)
 }
 impl Components {
-    fn margin_owner(&self) -> Result<onlyalpha_margin::Manager, Error> {
+    pub(crate) fn margin_owner(&self) -> Result<onlyalpha_margin::Manager, Error> {
         let mut owner = boundary(onlyalpha_margin::Manager::new(
-            settlement_config(&self.config),
+            margin_config(&self.config),
             512,
         ))?;
         boundary(owner.restore(
@@ -65,7 +65,7 @@ impl Components {
         }
         Ok(())
     }
-    fn consume_margin(
+    pub(crate) fn consume_margin(
         &mut self,
         input: &Value,
         owner: &mut onlyalpha_margin::Manager,

@@ -25,8 +25,6 @@ EXCLUDED_DIRECTORY_NAMES = {
 }
 
 FULL_RUFF_TARGETS = (
-    "src",
-    "tests",
     "examples",
     "packages",
     "scripts",
@@ -50,21 +48,22 @@ class MypyScope:
 
 MYPY_SCOPES = (
     MypyScope(
-        name="Core",
+        name="SDK",
         config_file="pyproject.toml",
-        source_path="src/onlyalpha",
-        trigger_paths=(
-            "src/onlyalpha",
-            "tests",
-            "examples",
-            "scripts",
-        ),
+        source_path="packages/backend/python/algorithms/sdk/onlyalpha",
+        trigger_paths=("packages/backend/python/algorithms/sdk", "examples/private-assets", "scripts"),
     ),
     MypyScope(
-        name="Tushare",
-        config_file=("plugs/onlyalpha-data-source-tushare/pyproject.toml"),
-        source_path=("plugs/onlyalpha-data-source-tushare/src/onlyalpha_plugin_tushare"),
-        trigger_paths=("plugs/onlyalpha-data-source-tushare",),
+        name="Gateway",
+        config_file="pyproject.toml",
+        source_path="packages/backend/python/gateway_protocol/src/onlyalpha_gateway_protocol",
+        trigger_paths=("packages/backend/python/gateway_protocol", "contracts/gateway", "scripts/gateway_protocol.py"),
+    ),
+    MypyScope(
+        name="AlgorithmRunner",
+        config_file="pyproject.toml",
+        source_path="packages/backend/python/algorithms/src/onlyalpha_backend_algorithms",
+        trigger_paths=("packages/backend/python/algorithms/src", "packages/backend/python/algorithms/tests", "scripts"),
     ),
 )
 

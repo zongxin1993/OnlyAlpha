@@ -975,3 +975,40 @@ fn valuation_view_retains_every_cluster_and_exact_current_lines_after_trade_and_
     );
     assert_eq!(manager.checkpoint().unwrap(), original);
 }
+
+#[test]
+fn perpetual_ledger_rejects_unproved_raw_funding_cashflow() {
+    let mut cfg = config();
+    cfg["schema_version"] = json!(2);
+    let mut owner = Manager::new(cfg).unwrap();
+    owner
+        .apply(&command(
+            "c1",
+            "activate",
+            1,
+            "ACTIVATE",
+            json!({"schema_version":1}),
+        ))
+        .unwrap();
+    let before = owner.checkpoint().unwrap();
+    let input = command(
+        "c1",
+        "funding",
+        2,
+        "FUNDING",
+        json!({"schema_version":1,"cashflow":"claimed-flow","source_fact":"claimed-funding","amount":"91.00"}),
+    );
+    assert!(owner.apply(&input).is_err());
+    assert_eq!(owner.checkpoint().unwrap(), before);
+    let mut forged: Value = serde_json::from_slice(&before.0).unwrap();
+    forged["journal"].as_array_mut().unwrap().push(input);
+    let bytes = serde_json::to_vec(&forged).unwrap();
+    assert_eq!(
+        owner
+            .restore(&bytes, &onlyalpha_strategy_ledger::digest(&bytes))
+            .unwrap_err()
+            .0,
+        "LEDGER_FUNDING_PRODUCER_REQUIRED"
+    );
+    assert_eq!(owner.checkpoint().unwrap(), before);
+}

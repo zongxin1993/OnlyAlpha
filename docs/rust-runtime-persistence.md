@@ -12,7 +12,7 @@ Native Store schema4 (with exact retained schema2 raw and schema3 ZLIB readers) 
 
 One SQLite database contains identity, contiguous head, immutable Prepared records and their input identity index, embedded immutable Events, monotone Projection Ready/delivered flags, and complete Execution checkpoints. There is no second Outbox database, trade writer or derived Result cache. SQLite uses rollback journal DELETE, synchronous FULL, zero busy timeout and explicit immediate transactions. I/O/SQL/codec errors retain their cause in the technical error; an uncertain commit never authorizes a replacement input/order identity. No automatic retry is introduced. SQLite's durability assumptions still depend on the actual filesystem/storage stack.
 
-Only opaque `CommitIntent` from the canonical coordinator can introduce a record. Same identity/exact payload is idempotent; changed payload, missing predecessor, unready predecessor or foreign context fails closed. Record+index+embedded Events+head commit atomically. Before any SQL insertion, all six incoming projection `before_hash` values must equal the destination Store's actual predecessor results or configured genesis. A canonical intent produced against another complete same-config/same-head history cannot advance this Store. Ready is durable before component completion/outward visibility; acknowledgement requires Ready. Event delivery remains at least once: an external send followed by a crash before acknowledgement can redeliver the same stable Event ID. Consumers retain their owning idempotence obligation.
+The generic Store commit port accepts an opaque `CommitIntent` from the canonical coordinator. The explicit perpetual Runtime uses the bound Run plan described below for Funding and all later writes. Same identity/exact payload is idempotent; changed payload, missing predecessor, unready predecessor or foreign context fails closed. Record+index+embedded Events+head commit atomically. Before any SQL insertion, all six incoming projection `before_hash` values must equal the destination Store's actual predecessor results or configured genesis. A canonical intent produced against another complete same-config/same-head history cannot advance this Store. Ready is durable before component completion/outward visibility; acknowledgement requires Ready. Event delivery remains at least once: an external send followed by a crash before acknowledgement can redeliver the same stable Event ID. Consumers retain their owning idempotence obligation.
 
 ## Checkpoints and recovery
 
@@ -83,3 +83,23 @@ Cold and warm Record observations hold compact canonical data with independent e
 For storage4 commit readback only, the current invocation may supply its original opaque validated Record to the private target reader. The actual target and fixed base still pass the complete physical digest, base64, bounded single-Zstd-frame, checksum, logical digest and canonical JSON decoder. The complete decoded Value must equal that exact original Prepared; ordinary cold reads and recovery use the independent Prepared decoder. Readback still compares the exact originally encoded stored bytes and physical digest, then preserves all normal index, scope, lineage, coordinator and Ready checks. Only passive data is reused through `observation_snapshot`: flags come from the actual columns and planner/typed origin is dropped. A dependent Execution point read requires its actual base Record to be Ready; a pending self-contained anchor itself remains readable. Missing, changed or malformed source is never completed from the local original object.
 
 `Runtime::pending_events_at_replay_refs` is one read-only composition of the existing complete actual Execution/reconciliation, expected Replay prefix and pending Events queries. The same invocation-local source supplies all three; no source proof or acknowledgement is returned. A changed actual Replay/Execution source is rejected even when there are no pending Events. Consumer execution, actual acknowledgement and a subsequent complete source check remain separate boundaries.
+
+## 显式永续经济配置的恢复
+
+配置 schema 3 与 Account checkpoint 5、Execution metadata 6 成套绑定。同一 SQLite 事务保存原始 Broker/Mark/Funding 输入、订单、费用、结算、保证金及账户/策略状态。恢复核对配置与工件，从原始输入及冻结配置重新推导六组完整 Prepared，与实际日志逐笔比对后再核对检查点。只读读取要求完整 Ready、已投递前缀和头检查点。验证器在独立内存视图中推导，SQLite 的 Ready、投递与写权限仍由原 Store 持有。现金配置继续选择原版本，不尝试其他 Reader。
+
+线性永续配置 3 整体绑定可选 margin_observation_capacity。重开时原配置和完整历史必须一致，Margin 按已冻结的实际观测额度重新推导每次维护额或首次缺证，Account 从同一事务前的完整投影恢复最后确认值。配置 1/2 的现金 Runtime 仍使用未带观测额度的 Margin schema 1。
+
+配置 3 在新 Run 创建时显式绑定模拟场所来源。先由 BoundVirtualActor 创建 broker.sqlite3 的原 genesis，再以同 scope、代际和配置创建 Runtime。market-source-cut.json、broker.sqlite3、runtime.sqlite3 与对应工件共同标识此 Run。备份时停住写者，按同一原位置成套保留数据库及其 SQLite 恢复文件和市场切片。恢复先重开原来源并重放每个输入，再由 Runtime 核对原派发、原观察及每条 Funding 的首次闭合引用。文件缺失、代际不符或只有旧场所 checkpoint 时拒绝接管。旧 broker.jsonl 介质保留原格式和读取预算。新 RuntimeReader 三入口只允许显式配置 3/BACKTEST。
+
+恢复新的 Funding 投影必须先重建实际 Position 与冻结来源，再由 Position 重签 FundingEffect，核对 Account 和 Ledger 原金额及引用。缺原 cut、缺原 Journal、原内容不匹配或重算摘要后的金额篡改均拒绝。Discovery 的 as_of 保持供应商序列语义；可选 economic_through_ns 只有实际 producer 能证明完整前缀时签发，旧缺字段记录不改写。
+
+配置 3 选择的 Margin OPEN profile 在原检查点中记录独立 entry_maintenance，并通过原 OCCUPY 有序历史重推，再比较全部 reservation、记录及效果；摘要匹配而原历史不符仍拒绝。入场基数读取已重建 Position 的精确成本，不能从 Settlement 的货币投影反推。该 profile 不增加平仓恢复语义；现金及未选该 profile 的 Margin 原 Reader 保持。
+
+原 Funding 后若继续成交，Account/Ledger 的恢复按各自在旧 Funding 处已经重放的完整成交 ID 选择 Position 原 Journal 的连续前缀，重新验证 effect 的配置、来源及接收方原交易 lineage，不以最终 Position 的全量交易替代旧前缀。空、未知和非连续前缀分别按真实历史验证，不能从调用方摘要或金额恢复。lineage 在 effect 中为固定大小摘要，只有真实生产者重推可生成，消费者也独立重推；Funding 命令和检查点不重复嵌入整套 Position 历史。
+
+Runtime 的 Broker order_view 从本 Run 原 Ready ADMIT 核对完整 scope、client、SUBMIT 请求或规范 CANCEL 的订单关系，并返回原 scope、原 SUBMIT 请求及当前本地状态。只读取消查询不授予派发资格，ready_intent 的原操作约束保持。
+
+显式绑定来源库要求 user_version=2。来源命令的实际结果、来源和协议两个前驱上的查询原件与子事实分别持久保存；原 v1 缺少这些关系，打开时拒绝。在配置 3 的首笔 Funding 及已有 Funding 的实际前缀上，`Runtime::prepare_run_plan` 从原件签发绑定当前持锁写者的 `RunPlan`。`Runtime::apply_run_plan` 写前重读来源、目的前驱及完整结果，提交后读回原行，重演六组投影并确认 Ready。`Runtime::apply` 自动执行两步。专用 Funding 入口沿用同一持锁计划，额外核对操作种类。重新打开后须从原件重新准备。现金和首笔 Funding 前的普通输入继续使用原 Prepared 端口。
+
+前缀已有 Funding 时，技术入口 `prepare` 对新普通输入返回 `RUNTIME_RUN_PLAN_REQUIRED`。`apply_prepared` 只对其中已真实存在的普通 Ready 行按确切序号和完整 Prepared 正文确认幂等，缺行或不匹配时在写入前返回错误。事务头、预留及六组经济投影由原事务统一维护。

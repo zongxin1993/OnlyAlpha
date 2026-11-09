@@ -20,7 +20,7 @@ run_journey() {
 }
 
 # This explicit functional selection retains the default performance gate.
-# It is a complete A-D plan, not an argument forwarded to the native runner.
+# It is a complete functional plan, not an argument forwarded to the native runner.
 functional_only=false
 for argument in "$@"; do
     if [[ "$argument" == "--functional-only" ]]; then
@@ -65,7 +65,11 @@ run_journey --restart-check e2e/private-factor-authoring.spec.ts
 run_journey --controlled-source-https --retained-market-input --chart-sma-market-input \
     e2e/chart-native-sma.spec.ts
 
-# D: complete financial/result and same-Run restart evidence, independent of latency.
+# D: the daily Source journey owns controlled input and original-operation restart evidence.
+run_journey --controlled-source-https --retained-market-input --tushare-daily-market-input \
+    --restart-check e2e/tushare-daily.spec.ts
+
+# E: complete financial/result and same-Run restart evidence, independent of latency.
 run_journey --controlled-source-https --retained-market-input --backtest-market-input \
     --restart-check e2e/backtest.spec.ts \
     --grep 'normal backtest functional (correctness reopens the same run|cancellation reopens the same cancelled run|running recovery completes the same run) after restart$'
@@ -74,7 +78,7 @@ if [[ "$functional_only" == true ]]; then
     exit 0
 fi
 
-# E: the existing fixed 120s performance gate remains mandatory in the default plan.
+# F: the existing fixed 120s performance gate remains mandatory in the default plan.
 run_journey --controlled-source-https --retained-market-input --backtest-market-input \
     --restart-check e2e/backtest.spec.ts \
     --grep 'normal backtest works without Agent and reopens the same run after restart$'

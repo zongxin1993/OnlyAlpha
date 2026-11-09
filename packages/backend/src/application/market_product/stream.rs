@@ -202,8 +202,11 @@ impl Application {
                 p.recipe().clone(),
             )
             .map_err(|_| Error::Invalid)?;
-            let mut owner = OnlyTimeBarExecutor::new(edge, Arc::new(r.resource.calendar().clone()))
-                .map_err(|_| Error::Invalid)?;
+            let mut owner = OnlyTimeBarExecutor::new(
+                edge,
+                Arc::new(r.resource.calendar().ok_or(Error::Selection)?.clone()),
+            )
+            .map_err(|_| Error::Invalid)?;
             let window: i64 = target
                 .stride_minutes()
                 .map_err(|_| Error::Invalid)?
@@ -509,6 +512,12 @@ impl ProductStream {
         }
         Ok(authorized)
     }
+    /// Deliver the next pending event on the original stream. After a terminal
+    /// provider failure such as Backpressure, this yields the `STATE FAILED`
+    /// event, then the `ERROR` event carrying the terminal error code, then
+    /// `Ok(None)`; once the stream is closed it yields `Ok(None)` with no new
+    /// events. The terminal state is observable only here, never through the
+    /// `close` receipt.
     pub async fn next(&mut self) -> Result<Option<PendingStreamEvent>> {
         if self.pending.is_some() {
             return Err(Error::Busy);
@@ -573,6 +582,13 @@ impl ProductStream {
             tokio::select! {_ = self.session.withdrawn()=>return Err(Error::Forbidden),event=self.receiver.recv()=>{if let Some(event)=event{return self.issue(event,None)}},_=notified=>{}}
         }
     }
+    /// Close the original stream and return only the resource-cleanup and
+    /// worker-join receipt. A terminal provider failure (for example
+    /// Backpressure) stays retained on the original stream and is surfaced by
+    /// `next` as the `STATE FAILED`/`ERROR` events; it never turns a fully
+    /// successful cleanup into an error receipt. `Ok(())` therefore means both
+    /// upstream close and recorder finish succeeded and the worker joined; any
+    /// real cleanup or state failure still returns the corresponding `Err`.
     pub async fn close(&mut self) -> Result<()> {
         self.pending = None;
         self.state.cancel.store(true, Ordering::Release);
@@ -766,6 +782,7 @@ mod close_join_tests {
             Ok(()),
             Err(Error::Forbidden),
             Err(Error::Source(SourceError::Timeout)),
+            Err(Error::Backpressure),
         ] {
             for state_failure in [false, true] {
                 for close_failure in [
@@ -941,6 +958,28 @@ async fn drain_capture(
         } else {
             Some(segment.recovery_scope()?)
         };
+        if scope
+            .as_ref()
+            .is_some_and(market_data::Scope::is_session_day)
+        {
+            let attempt_id = metadata["capture_session_id"]
+                .as_str()
+                .ok_or(Error::Corrupt)?;
+            let (intent, attempt) = store.catalog().original_attempt(attempt_id).await?;
+            // 未绑定完整准备的本地候选仍属于原 UNKNOWN，重启不能把它当新采样发布。
+            if store
+                .catalog()
+                .history_preparation(&attempt)
+                .await?
+                .is_some()
+            {
+                store
+                    .publish_prepared_day(wal, &intent, &attempt, at, |_| true)
+                    .await?;
+                drained += 1;
+            }
+            continue;
+        }
         if let Some(scope) = &scope {
             let prior = store
                 .read_range(scope, &queries::native_intervals(scope)?)

@@ -124,6 +124,7 @@ fn document(fields: BTreeMap<String, Box<RawValue>>, work: usize) -> Result<Obje
 fn probe_values(
     descriptor: &Descriptor,
     probe: Option<&ObjectDocument>,
+    public: &BTreeMap<String, Box<RawValue>>,
     publish: bool,
 ) -> Result<Option<BTreeMap<String, Box<RawValue>>>, Error> {
     let input = probe
@@ -145,11 +146,17 @@ fn probe_values(
         .filter(|value| value.get() != "null")
         .map(|value| serde_json::from_str::<String>(value.get()).map_err(|_| Error::ProbeInvalid))
         .transpose()?;
-    let instrument = match instrument {
-        Some(value) => value,
-        None if publish => contract.default_instrument().into(),
-        None => return Ok(probe.map(|_| BTreeMap::new())),
-    };
+    if instrument.is_none() && !publish {
+        return Ok(probe.map(|_| BTreeMap::new()));
+    }
+    let configured = contract
+        .configuration_field()
+        .and_then(|field| public.get(field))
+        .map(|v| serde_json::from_str::<String>(v.get()).map_err(|_| Error::ProbeInvalid))
+        .transpose()?;
+    let instrument = contract
+        .instrument_for(configured.as_deref(), instrument.as_deref())
+        .map_err(|_| Error::ProbeInvalid)?;
     if !instrument
         .chars()
         .any(|c| !(c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')))
@@ -169,7 +176,7 @@ pub fn validate_draft(
     work: usize,
 ) -> Result<(ObjectDocument, Option<ObjectDocument>), Error> {
     let public = public_values(descriptor, public, work)?;
-    let probe = probe_values(descriptor, probe, false)?;
+    let probe = probe_values(descriptor, probe, &public, false)?;
     Ok((
         document(public, work)?,
         probe.map(|probe| document(probe, work)).transpose()?,
@@ -243,7 +250,7 @@ pub fn resolve_publication(
 ) -> Result<Publication, Error> {
     let mut public = public_values(descriptor, public, work)?;
     // Match Draft validation before checking publication completeness.
-    probe_values(descriptor, probe, false)?;
+    probe_values(descriptor, probe, &public, false)?;
     for field in descriptor.fields() {
         if !field.secret() && !public.contains_key(field.id()) {
             if let Some(default) = field.default() {
@@ -268,7 +275,7 @@ pub fn resolve_publication(
     {
         return Err(Error::SecretRequired);
     }
-    let probe = probe_values(descriptor, probe, true)?
+    let probe = probe_values(descriptor, probe, &public, true)?
         .map(|probe| document(probe, work))
         .transpose()?;
     let mut bindings = bindings.to_vec();

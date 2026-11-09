@@ -3,6 +3,7 @@ pub mod endpoint;
 pub mod host;
 pub(crate) mod host_acquisition;
 pub(crate) mod host_commands;
+mod host_day;
 pub(crate) mod host_observations;
 pub(crate) mod host_probe;
 pub(crate) mod host_storage;

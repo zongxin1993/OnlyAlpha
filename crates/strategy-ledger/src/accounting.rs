@@ -55,10 +55,25 @@ impl Ledger {
             &realized - &existing.realized
         };
         let buy = text(&p["side"])? == "BUY";
+        let multiplier = positive(&p["multiplier"])?;
+        let perpetual = self.funding.is_some();
+        if perpetual && !buy {
+            return Err(err("LEDGER_PERPETUAL_OPEN_ONLY"));
+        }
+        let cost_factor = if perpetual {
+            multiplier.clone()
+        } else {
+            Decimal::from(1)
+        };
+        let principal = if perpetual {
+            Decimal::zero()
+        } else {
+            notional.clone()
+        };
         if buy {
             if quantity <= existing.quantity
                 || cost <= existing.cost
-                || (&cost - &existing.cost)
+                || ((&cost - &existing.cost) * &cost_factor)
                     .with_scale_round(i64::from(precision), bigdecimal::RoundingMode::HalfEven)
                     != notional
                 || rd != Decimal::zero()
@@ -71,18 +86,21 @@ impl Ledger {
                 .reservations
                 .get_mut(rid)
                 .ok_or_else(|| err("LEDGER_RESERVATION_UNKNOWN"))?;
-            let gross = &notional + &charges;
+            let gross = &principal + &charges;
             let terminal = boolean(&p["terminal_fill"])?;
             if r.order != text(&p["order"])?
-                || r.remaining == Decimal::zero()
-                || gross > r.remaining
-                || (!terminal && gross == r.remaining)
+                || r.terminal_outcome.is_some()
+                || (!perpetual
+                    && (r.remaining.is_zero()
+                        || gross > r.remaining
+                        || (!terminal && gross == r.remaining)))
             {
                 return Err(err("LEDGER_RESERVATION_SCOPE_OR_AMOUNT"));
             }
             r.sent = true;
-            r.consumed += &gross;
-            r.remaining -= &gross;
+            let covered = gross.min(r.remaining.clone());
+            r.consumed += &covered;
+            r.remaining -= &covered;
             if terminal {
                 let released = r.remaining.clone();
                 r.released += &released;
@@ -94,7 +112,7 @@ impl Ledger {
                     self.entry("RELEASE", released, false, p, sequence, precision);
                 }
             }
-            self.cash -= &notional + &fee;
+            self.cash -= &principal + &fee;
         } else {
             if !p["reservation"].is_null()
                 || quantity >= existing.quantity
@@ -111,8 +129,10 @@ impl Ledger {
             self.cash += &notional - &fee;
         }
         // Residual is accumulated from validated trade deltas, independently of the equity invariant.
-        self.rounding_residual += if buy {
-            &cost - &existing.cost - &notional
+        self.rounding_residual += if perpetual {
+            Decimal::zero()
+        } else if buy {
+            (&cost - &existing.cost) * &cost_factor - &notional
         } else {
             &notional - (&existing.cost - &cost) - &rd
         };
@@ -121,7 +141,6 @@ impl Ledger {
         self.trade_sequence = Some(uint(&p["source_sequence"])?);
         self.economic_version += 1;
         let mark = positive(&p["mark"])?;
-        let multiplier = positive(&p["multiplier"])?;
         if self
             .lines
             .get(&inst)
@@ -131,7 +150,16 @@ impl Ledger {
         }
         let market = (&quantity * &mark * &multiplier)
             .with_scale_round(i64::from(precision), bigdecimal::RoundingMode::HalfEven);
-        let unrealized = &market - &cost;
+        let unrealized = if perpetual {
+            (&quantity * &mark - &cost) * &multiplier
+        } else {
+            &market - &cost * &cost_factor
+        };
+        let market = if perpetual {
+            unrealized.with_scale_round(i64::from(precision), bigdecimal::RoundingMode::HalfEven)
+        } else {
+            market
+        };
         self.lines.insert(
             inst,
             Line {
@@ -151,18 +179,20 @@ impl Ledger {
                 unrealized,
             },
         );
-        self.entry(
-            if buy {
-                "BUY_SETTLEMENT"
-            } else {
-                "SELL_SETTLEMENT"
-            },
-            if buy { -notional } else { notional },
-            true,
-            p,
-            sequence,
-            precision,
-        );
+        if !perpetual {
+            self.entry(
+                if buy {
+                    "BUY_SETTLEMENT"
+                } else {
+                    "SELL_SETTLEMENT"
+                },
+                if buy { -notional } else { notional },
+                true,
+                p,
+                sequence,
+                precision,
+            );
+        }
         if fee != Decimal::zero() || charges != Decimal::zero() || rebates != Decimal::zero() {
             self.fee_entries.push(json!({"fee_instruction":p["fee_instruction"],"trade":p["trade"],"order":p["order"],"charges":formatted(&charges,precision),"rebates":formatted(&rebates,precision)}));
             self.entry("FEE", -fee, true, p, sequence, precision);

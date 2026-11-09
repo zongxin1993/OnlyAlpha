@@ -80,6 +80,25 @@ impl<'a> Credentials<'a> {
         expected: i32,
         work: usize,
     ) -> Result<Secret, Error> {
+        self.read_envelope(id, expected, None, work).await
+    }
+    /// Runtime 注入只接受所属 Integration、字段和 generation 全部匹配的密文。
+    pub async fn read_secret_for_slot(
+        &mut self,
+        id: &CredentialId,
+        expected: i32,
+        slot: &Slot,
+        work: usize,
+    ) -> Result<Secret, Error> {
+        self.read_envelope(id, expected, Some(slot), work).await
+    }
+    async fn read_envelope(
+        &mut self,
+        id: &CredentialId,
+        expected: i32,
+        slot: Option<&Slot>,
+        work: usize,
+    ) -> Result<Secret, Error> {
         let limit = i64::try_from(work).map_err(|_| Error::Unavailable)?;
         let tx = self
             .client
@@ -91,6 +110,9 @@ impl<'a> Credentials<'a> {
         bounds(&tx).await?;
         let row=tx.query_opt(&format!("SELECT {COLUMNS},CASE WHEN octet_length(ciphertext)<=$2::bigint THEN ciphertext END AS ciphertext FROM product_credential WHERE credential_id=$1::text::uuid"),&[&id.value(),&limit]).await.map_err(|_|Error::Unavailable)?.ok_or(Error::NotFound)?;
         let metadata = restore(&row, &mut { work })?;
+        if slot.is_some_and(|required| metadata.context.slot() != required) {
+            return Err(Error::SlotInvalid);
+        }
         if metadata.context.generation() != expected {
             return Err(Error::GenerationMismatch);
         }

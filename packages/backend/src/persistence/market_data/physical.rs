@@ -239,8 +239,11 @@ impl ClickHouse {
     }
     pub async fn drop_test_database(&self) -> Result<()> {
         self.test_database()?;
-        self.schema_execute("default", format!("DROP DATABASE {} SYNC", self.database))
-            .await?;
+        self.schema_execute(
+            "default",
+            format!("DROP DATABASE IF EXISTS {} SYNC", self.database),
+        )
+        .await?;
         Ok(())
     }
     fn test_database(&self) -> Result<()> {

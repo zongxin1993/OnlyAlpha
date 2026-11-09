@@ -110,7 +110,7 @@ fn malformed_projection_and_unsupported_plugin_api_cannot_be_registered() {
         (Category::AgentProvider, "invalid id", "1", "1.1", vec![]),
         (Category::DataSource, "bad..id", "1", "1.1", vec![]),
         (Category::DataSource, "controlled", "\u{1c}", "1.1", vec![]),
-        (Category::DataSource, "controlled", "1", "1.2", vec![]),
+        (Category::DataSource, "controlled", "1", "1.3", vec![]),
         (Category::DataSource, "controlled", "1", "2.0", vec![]),
         (
             Category::DataSource,

@@ -751,3 +751,128 @@ fn unavailable_reconciliation_after_command_receipt_clears_discovery_readiness()
     assert!(b.reconcile(&mut j, &mut Unavailable, "submit").is_err());
     assert!(!b.ready());
 }
+
+#[test]
+fn domain_canonical_precision_eight_money_and_quantity_survive_broker_validation() {
+    use onlyalpha_domain::{
+        base::OnlyDomainModel,
+        enums::OnlyCurrencyType,
+        value::{OnlyCurrency, OnlyMoney, OnlyQuantity},
+    };
+    let currency = OnlyCurrency::new("USDT", 8, OnlyCurrencyType::Crypto).unwrap();
+    let money = |s: &str| {
+        OnlyMoney::new(s.parse().unwrap(), currency.clone())
+            .unwrap()
+            .to_record()
+    };
+    let tiny = money("0.00000001");
+    let zero = money("0.00000000");
+    assert_eq!(tiny["amount"], "1E-8");
+    assert_eq!(zero["amount"], "0E-8");
+    let balance = json!({"scope":scope().record(),"kind":"BALANCE","source_sequence":1,"snapshot_time":1,
+        "payload":{"currency":currency.to_record(),"ledger_cash":tiny,"trade_available_cash":tiny,"order_reserved_cash":zero}});
+    assert_eq!(Snapshot::decode(&balance).unwrap().record(), balance);
+    for valid in ["-0.00000001", "1E+127"] {
+        let mut signed = balance.clone();
+        signed["payload"]["ledger_cash"] = money(valid);
+        signed["payload"]["trade_available_cash"] = money(valid);
+        assert_eq!(Snapshot::decode(&signed).unwrap().record(), signed);
+    }
+    for invalid in [
+        "0.00000000",
+        "1E-9999999999",
+        "1E+9999999999",
+        "NaN",
+        "Infinity",
+        "1e-8",
+        "1E-9",
+    ] {
+        let mut bad = balance.clone();
+        bad["payload"]["order_reserved_cash"]["amount"] = json!(invalid);
+        assert!(Snapshot::decode(&bad).is_err(), "{invalid}");
+    }
+    let q = |s: &str| {
+        OnlyQuantity::new(s.parse().unwrap(), 8)
+            .unwrap()
+            .to_record()
+    };
+    let position = json!({"scope":scope().record(),"kind":"POSITION","source_sequence":1,"snapshot_time":1,"payload":{
+        "instrument":command("small").record()["request"]["instrument_id"],"side":"LONG","quantity":q("0.00000001"),
+        "available":q("0.00000000"),"frozen":q("0.00000001"),"average_price":null}});
+    assert_eq!(Snapshot::decode(&position).unwrap().record(), position);
+    for invalid in [
+        "-1E-8",
+        "1E-9999999999",
+        "1E+9999999999",
+        "NaN",
+        "1E-9",
+        "0.00000000",
+    ] {
+        let mut bad = position.clone();
+        bad["payload"]["available"]["value"] = json!(invalid);
+        assert!(Snapshot::decode(&bad).is_err(), "{invalid}");
+    }
+}
+
+#[test]
+fn legacy_discovery_keeps_original_record_identity_without_economic_time() {
+    let (mut journal, mut broker, _) = unknown();
+    let mut venue = Venue {
+        n: 0,
+        presence: Presence::Present,
+        facts: vec![],
+        view: Some(view()),
+    };
+    broker
+        .reconcile(&mut journal, &mut venue, "submit")
+        .unwrap();
+    let original = journal.rows.last().unwrap().record();
+    let discovery = &original["event"]["discovery"];
+    assert_eq!(discovery["as_of"], 1);
+    assert!(discovery.get("economic_through_ns").is_none());
+    assert_eq!(discovery.as_object().unwrap().len(), 6);
+    let encoded = original.to_string();
+    assert_eq!(
+        Record::decode(&serde_json::from_str(&encoded).unwrap())
+            .unwrap()
+            .record()
+            .to_string(),
+        encoded
+    );
+    let recovered = Broker::recover(scope(), &journal, 8).unwrap();
+    assert!(
+        recovered.economic_prefix("order", 1, 1).is_err(),
+        "provider sequence is not an economic timestamp"
+    );
+    assert_eq!(journal.rows.last().unwrap().record(), original);
+}
+
+#[test]
+fn economic_prefix_can_precede_observed_facts_and_roundtrips_signed_time() {
+    struct Prefix(Discovery);
+    impl DiscoveryPort for Prefix {
+        fn discover(&mut self, _: &BrokerCommand) -> Result<Discovery, Error> {
+            Ok(self.0.clone())
+        }
+    }
+    let (mut journal, mut broker, _) = unknown();
+    let discovery = Discovery::new(
+        command("submit"),
+        "sealed-earlier".into(),
+        1,
+        Presence::Present,
+        Some(view()),
+        vec![fact("ACCEPTED", "seen-later")],
+    )
+    .unwrap()
+    .with_economic_through(-1_i64)
+    .unwrap();
+    broker
+        .reconcile(&mut journal, &mut Prefix(discovery), "submit")
+        .unwrap();
+    let original = journal.rows.last().unwrap().record();
+    assert_eq!(original["event"]["discovery"]["economic_through_ns"], -1);
+    assert_eq!(Record::decode(&original).unwrap().record(), original);
+    let restored = Broker::recover(scope(), &journal, 8).unwrap();
+    assert!(restored.economic_prefix("order", 0, 1).is_err());
+}

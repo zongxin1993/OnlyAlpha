@@ -1,9 +1,6 @@
 //! Pure owner-image codec reuse; never a Ready/source-proof cache.
 use super::*;
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../tests/support/mod.rs"]
-mod support;
+use crate::support;
 use support::{Harness, config, fill, open, stage, terminal};
 fn capture_bytes() -> u64 {
     PAYLOAD_CAPTURE_BYTES.with(std::cell::Cell::get)
@@ -192,10 +189,10 @@ fn warmed_large_owner_hash_is_not_reencoded_by_fresh_source_queries() {
         history.components.ready_records(&history.store).unwrap();
         history.components.state(&history.store).unwrap();
         history.components.reconcile(&history.store).unwrap();
-        for index in 0..6 {
+        for (index, image) in actual.iter().enumerate() {
             assert_eq!(
                 history.components.payload_digest(index).unwrap(),
-                digest(actual[index].to_string().as_bytes())
+                digest(image.to_string().as_bytes())
             );
         }
     }

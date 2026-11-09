@@ -62,7 +62,9 @@ export interface MarketDataChartState {
     readonly instruments: readonly MarketDataInstrument[];
     readonly instrument: MarketDataInstrument | null;
     readonly barSemantic: MarketDataBarSemantic;
-    readonly barCapability: MarketDataSource["time_bar_capability"] | null;
+    readonly sealedRevisionId: string | null;
+    readonly readSealedDay: (revision?: string, count?: number) => Promise<void>;
+    readonly barCapability: NonNullable<MarketDataSource["time_bar_capability"]> | null;
     readonly status: MarketDataChartStatus;
     readonly message: string | null;
     readonly pageReloadRequired: boolean;
@@ -81,7 +83,7 @@ export interface MarketDataChartState {
     readonly lastClosedCursor: string | null;
     readonly selectSource: (integrationId: string) => void;
     readonly refreshSources: () => void;
-    readonly searchInstruments: (query: string) => Promise<void>;
+    readonly searchInstruments: (query: string, sealedOnly?: boolean) => Promise<void>;
     readonly selectInstrument: (instrument: MarketDataInstrument) => Promise<void>;
     readonly selectWatchlistInstrument: (
         source: MarketDataSourceReference,
@@ -107,6 +109,8 @@ export function useMarketDataChart({
     const [pageId] = useState(() => crypto.randomUUID());
     const credentials = useLocalReadCredentials();
     const [catalogStatus, setCatalogStatus] = useState<"loading" | "ready" | "failed">("loading");
+    const sourceCatalog = useRef<readonly MarketDataSource[]>([]);
+    const [sealedRevisionId, setSealedRevisionId] = useState<string | null>(null);
     const [sources, setSources] = useState<readonly MarketDataSource[]>([]);
     const [sourceRefresh, setSourceRefresh] = useState(0);
     const refreshSources = useCallback(() => {
@@ -209,6 +213,7 @@ export function useMarketDataChart({
             olderNoProgress.current = null;
             setLedgerSnapshot(null);
             setWindowFingerprint(null);
+            setSealedRevisionId(null);
             setStatus("failed");
             if (
                 credentials.localSession &&
@@ -234,6 +239,7 @@ export function useMarketDataChart({
         olderNoProgress.current = null;
         // A retained equal fingerprint is not proof after contradictory facts.
         setWindowFingerprint(null);
+        setSealedRevisionId(null);
         setLedgerSnapshot((current) =>
             current === null ? null : { ...current, preview: null, version: current.version + 1 }
         );
@@ -251,7 +257,9 @@ export function useMarketDataChart({
             target: MarketDataInstrument,
             specification: MarketDataBarSemantic,
             generation: number,
-            recovery = false
+            recovery = false,
+            sealedRevision?: string,
+            dayCount = 1
         ) => {
             if (!recovery) automaticFullRefreshUsed.current = false;
             historyAbort.current?.abort();
@@ -277,6 +285,7 @@ export function useMarketDataChart({
             lastClosedEnd.current = null;
             olderNoProgress.current = null;
             setWindowFingerprint(null);
+            setSealedRevisionId(null);
             setCoverage(null);
             setResolvedSourceId(null);
             setOlderHistoryStatus("idle");
@@ -287,6 +296,67 @@ export function useMarketDataChart({
             setMessage(null);
             const progress: { lastWindow: TemporaryMarketDataWindow | null } = { lastWindow: null };
             try {
+                if (source?.historical_day_semantic !== undefined) {
+                    if (
+                        JSON.stringify(specification) !==
+                        JSON.stringify(source.historical_day_semantic)
+                    )
+                        throw new MarketDataWebError(
+                            "CONTRACT_ERROR",
+                            "当前封存日线周期与来源不匹配"
+                        );
+                    const result = await client.queryBars(
+                        active,
+                        {
+                            instrument_id: target.instrument_id,
+                            bar_semantic: specification,
+                            anchor_kind: "LATEST_CLOSED",
+                            target_bar_count: dayCount,
+                            ...(sealedRevision === undefined ? {} : { revision_id: sealedRevision })
+                        },
+                        controller.signal
+                    );
+                    if (!current()) return;
+                    const selection = result.source_selection;
+                    const proof = result.revision_evidence[0];
+                    if (
+                        selection.integration_id !== active.integration_id ||
+                        selection.integration_revision_fingerprint !==
+                            active.integration_revision_fingerprint ||
+                        selection.type_id !== active.expected_type_id ||
+                        selection.source_id !== expectedSourceId ||
+                        selection.environment !== source.environment ||
+                        result.instrument_id !== target.instrument_id ||
+                        result.market !== target.market ||
+                        result.venue !== target.venue ||
+                        !result.closed_only ||
+                        result.anchor_kind !== "LATEST_CLOSED" ||
+                        result.requested_before_ns !== null ||
+                        result.requested_bar_count !== dayCount ||
+                        result.resume_after_sequence !== null ||
+                        result.resume_plan_fingerprint !== null ||
+                        result.resolution_mode !== "PROVIDER_NATIVE" ||
+                        result.calendar_fingerprint === null ||
+                        result.revision_evidence.length !== 1 ||
+                        proof === undefined ||
+                        (sealedRevision !== undefined && proof.revision_id !== sealedRevision) ||
+                        result.bars.some((b) => !b.closed)
+                    )
+                        throw new MarketDataWebError(
+                            "CONTRACT_ERROR",
+                            "封存日线与所选来源、标的或修订不匹配"
+                        );
+                    admitMarketDataChartBars(result.bars);
+                    setLedgerSnapshot(
+                        activeLedger.mergeHistory(result.bars, result.resolved_end_ns).snapshot
+                    );
+                    setSealedRevisionId(proof.revision_id);
+                    setResolvedSourceId(selection.source_id);
+                    const complete = result.coverage.status === "COMPLETE";
+                    setStatus(complete ? "ready" : "incomplete");
+                    setMessage(complete ? null : "所选修订的日线数量不足，请缩小读取根数。");
+                    return;
+                }
                 if (
                     source === undefined ||
                     target.market_data_capabilities.includes("HISTORICAL_ONLY")
@@ -344,6 +414,16 @@ export function useMarketDataChart({
             } catch (error) {
                 if (!current()) return;
                 if (
+                    source?.historical_day_semantic !== undefined &&
+                    error instanceof MarketDataWebError &&
+                    error.code === "SEALED_REVISION_NOT_FOUND" &&
+                    sealedRevision === undefined
+                ) {
+                    setStatus("idle");
+                    setMessage("该标的尚无封存日线。");
+                    return;
+                }
+                if (
                     error instanceof MarketDataWebError &&
                     progress.lastWindow !== null &&
                     activeLedger.snapshot().closedBars.length > 0 &&
@@ -365,7 +445,7 @@ export function useMarketDataChart({
                 else apply(error);
             }
         },
-        [apply, credentials, failLedger, pageId, sources]
+        [apply, client, credentials, failLedger, pageId, sources]
     );
     useEffect(
         () => () => {
@@ -392,6 +472,7 @@ export function useMarketDataChart({
                 setLedgerSnapshot(null);
                 setCoverage(null);
                 setWindowFingerprint(null);
+                setSealedRevisionId(null);
                 setResolvedSourceId(null);
                 setOlderHistoryStatus("idle");
                 setOlderHistoryMessage(null);
@@ -615,6 +696,7 @@ export function useMarketDataChart({
                                 event.code === "MARKET_DATA_CONTINUITY_UNPROVEN"
                             ) {
                                 setWindowFingerprint(null);
+                                setSealedRevisionId(null);
                                 if (automaticFullRefreshUsed.current) {
                                     setRealtimeStatus("failed");
                                     setStreamError("MARKET_DATA_REFRESH_EXHAUSTED");
@@ -732,7 +814,12 @@ export function useMarketDataChart({
         streamGeneration.current += 1;
         historyGeneration.current += 1;
         setSourceId(integrationId);
-        if (!preservePeriod) setBarSemantic(marketDataBarSemantic(15));
+        if (!preservePeriod) {
+            const selected = sourceCatalog.current.find(
+                (s) => marketDataSourceChoiceKey(s) === integrationId
+            );
+            setBarSemantic(selected?.historical_day_semantic ?? marketDataBarSemantic(15));
+        }
         setInstruments([]);
         setInstrument(null);
         setCoverage(null);
@@ -743,6 +830,7 @@ export function useMarketDataChart({
         setOlderHistoryStatus("idle");
         setOlderHistoryMessage(null);
         setWindowFingerprint(null);
+        setSealedRevisionId(null);
         setResolvedSourceId(null);
         setLastClosedCursor(null);
         resume.current = null;
@@ -767,6 +855,7 @@ export function useMarketDataChart({
                         "CONTRACT_ERROR",
                         "数据源 exact Revision reference 重复"
                     );
+                sourceCatalog.current = found;
                 setSources((current) =>
                     found.map((item) => {
                         const previous = current.find(
@@ -796,6 +885,7 @@ export function useMarketDataChart({
                     ledger.current = null;
                     setLedgerSnapshot(null);
                     setWindowFingerprint(null);
+                    setSealedRevisionId(null);
                     setStatus("failed");
                     setRealtimeStatus("disabled");
                     setMessage("原数据源 Revision 已不可用，请明确重新选择来源，不会自动换源。");
@@ -869,6 +959,7 @@ export function useMarketDataChart({
                     return;
                 }
                 if (
+                    selectedSource.time_bar_capability === undefined ||
                     selectedSource.time_bar_capability.minimum_window_minutes > 15 ||
                     selectedSource.time_bar_capability.maximum_window_minutes < 15
                 )
@@ -899,7 +990,7 @@ export function useMarketDataChart({
     }, [apply, client, instrument, load, selectedSource, startup]);
 
     const searchInstruments = useCallback(
-        async (query: string) => {
+        async (query: string, sealedOnly = false) => {
             if (reference === null) {
                 setInstruments([]);
                 return;
@@ -909,7 +1000,13 @@ export function useMarketDataChart({
             // Searching is an input operation, not a replacement of an active chart incarnation.
             if (instrument === null) setStatus("searching");
             try {
-                const found = await client.listInstruments(reference, query);
+                const found = await client.listInstruments(
+                    reference,
+                    query,
+                    undefined,
+                    undefined,
+                    sealedOnly
+                );
                 if (generation !== historyGeneration.current || search !== searchGeneration.current)
                     return;
                 setInstruments(found);
@@ -992,14 +1089,23 @@ export function useMarketDataChart({
                     ? semantic.formation.window_minutes
                     : 0;
             if (
-                minutes < source.time_bar_capability.minimum_window_minutes ||
-                minutes > source.time_bar_capability.maximum_window_minutes
+                source.historical_day_semantic === undefined
+                    ? source.time_bar_capability === undefined ||
+                      minutes < source.time_bar_capability.minimum_window_minutes ||
+                      minutes > source.time_bar_capability.maximum_window_minutes
+                    : JSON.stringify(source.historical_day_semantic) !== JSON.stringify(semantic)
             ) {
                 setMessage("该数据源不支持当前图表周期；请先明确修改周期");
                 return false;
             }
             try {
-                const found = await client.listInstruments(active, "", undefined, [instrumentId]);
+                const found = await client.listInstruments(
+                    active,
+                    "",
+                    undefined,
+                    [instrumentId],
+                    source.historical_day_semantic !== undefined
+                );
                 if (search !== searchGeneration.current || history !== historyGeneration.current)
                     return false;
                 const target = found.find((item) => item.instrument_id === instrumentId);
@@ -1040,9 +1146,45 @@ export function useMarketDataChart({
 
     const selectWatchlistInstrument = useCallback(
         async (source: MarketDataSourceReference, instrumentId: string) => {
-            await selectExactContext(source, instrumentId, barSemantic);
+            const matched = sources.find(
+                (s) =>
+                    s.integration_id === source.integration_id &&
+                    s.integration_revision_fingerprint ===
+                        source.integration_revision_fingerprint &&
+                    s.type_id === source.expected_type_id
+            );
+            await selectExactContext(
+                source,
+                instrumentId,
+                matched?.historical_day_semantic ??
+                    (barSemantic.formation.kind === "FIXED_DURATION"
+                        ? barSemantic
+                        : marketDataBarSemantic(15))
+            );
         },
-        [barSemantic, selectExactContext]
+        [barSemantic, selectExactContext, sources]
+    );
+
+    const readSealedDay = useCallback(
+        async (revision?: string, count = 1) => {
+            if (
+                reference === null ||
+                instrument === null ||
+                selectedSource?.historical_day_semantic === undefined
+            )
+                return;
+            await load(
+                reference,
+                selectedSource.source_id,
+                instrument,
+                selectedSource.historical_day_semantic,
+                ++historyGeneration.current,
+                false,
+                revision,
+                count
+            );
+        },
+        [reference, instrument, selectedSource, load]
     );
 
     const selectBarDuration = useCallback(
@@ -1195,6 +1337,8 @@ export function useMarketDataChart({
         instrument,
         barSemantic,
         barCapability,
+        sealedRevisionId,
+        readSealedDay,
         status,
         message,
         pageReloadRequired,

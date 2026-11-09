@@ -64,7 +64,10 @@ pub(crate) fn row(v: &Value, fields: &[&str]) -> Result<(), Error> {
     }
     Ok(())
 }
-fn integer(v: &Value, nonnegative: bool) -> Result<bigdecimal::num_bigint::BigInt, Error> {
+pub(crate) fn integer(
+    v: &Value,
+    nonnegative: bool,
+) -> Result<bigdecimal::num_bigint::BigInt, Error> {
     let text = v
         .as_number()
         .ok_or_else(|| err("BROKER_INTEGER"))?
@@ -83,12 +86,30 @@ fn integer(v: &Value, nonnegative: bool) -> Result<bigdecimal::num_bigint::BigIn
     }
     Ok(n)
 }
-pub(crate) fn decimal(v: &Value) -> Result<BigDecimal, Error> {
-    let s = text(v)?;
-    if s.is_empty() || s.len() > 128 || s.contains(['e', 'E', '+']) {
+// Domain 对小额及带刻度零使用 E 记法。先限制指数，再允许任何展开或比较。
+fn bounded_decimal(s: &str) -> Result<BigDecimal, Error> {
+    if s.is_empty() || s.len() > 128 || s.contains('e') || s.starts_with('+') {
         return Err(err("BROKER_DECIMAL"));
     }
+    if let Some((_, exponent)) = s.split_once('E') {
+        let exponent: i16 = exponent.parse().map_err(|_| err("BROKER_DECIMAL"))?;
+        if !(-18..=127).contains(&exponent) {
+            return Err(err("BROKER_DECIMAL"));
+        }
+        let canonical = onlyalpha_domain::numeric::OnlyDecimal::from_str(s)
+            .map_err(|_| err("BROKER_DECIMAL"))?;
+        if canonical.to_string() != s {
+            return Err(err("BROKER_DECIMAL"));
+        }
+    }
     let n = BigDecimal::from_str(s).map_err(|_| err("BROKER_DECIMAL"))?;
+    if n.as_bigint_and_exponent().1 > 18 || n.to_plain_string().len() > 128 {
+        return Err(err("BROKER_DECIMAL"));
+    }
+    Ok(n)
+}
+pub(crate) fn decimal(v: &Value) -> Result<BigDecimal, Error> {
+    let n = bounded_decimal(text(v)?)?;
     if n < BigDecimal::zero() {
         return Err(err("BROKER_DECIMAL"));
     }
@@ -545,9 +566,7 @@ impl Snapshot {
                 }
                 for f in fields.iter().filter(|f| **f != "currency") {
                     let amount = text(&p[*f]["amount"])?;
-                    if amount.len() > 128 || amount.contains(['e', 'E', '+']) {
-                        return Err(err("BROKER_MONEY_BOUND"));
-                    }
+                    bounded_decimal(amount).map_err(|_| err("BROKER_MONEY_BOUND"))?;
                     let money = OnlyMoney::from_record(&p[*f]).map_err(|_| err("BROKER_MONEY"))?;
                     if money.to_record() != p[*f] || p[*f]["currency"] != p["currency"] {
                         return Err(err("BROKER_MONEY_CURRENCY"));

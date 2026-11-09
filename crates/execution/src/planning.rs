@@ -67,6 +67,29 @@ impl Components {
         Ok(n)
     }
     pub fn prepare<S: crate::Store>(&self, store: &S, input: &Value) -> Result<Prepared, Error> {
+        if self.config["schema_version"] == 3
+            && matches!(
+                input["op"].as_str(),
+                Some("ACCEPT" | "FILL" | "TERMINAL" | "MARK" | "FUNDING")
+            )
+        {
+            return Err(err("EXECUTION_ORIGINAL_EVIDENCE_REQUIRED"));
+        }
+        self.prepare_input(store, input)
+    }
+    pub(crate) fn prepare_input<S: crate::Store>(
+        &self,
+        store: &S,
+        input: &Value,
+    ) -> Result<Prepared, Error> {
+        self.prepare_with_origin(store, input, Value::Null)
+    }
+    pub(crate) fn prepare_with_origin<S: crate::Store>(
+        &self,
+        store: &S,
+        input: &Value,
+        origin: Value,
+    ) -> Result<Prepared, Error> {
         self.ready_source(store)?;
         if self.pending.is_some() {
             return Err(err("EXECUTION_PENDING"));
@@ -75,17 +98,20 @@ impl Components {
         let before = self.payload_hashes()?;
         let mut candidate = self.clone_data();
         candidate.invalidate_payloads();
-        match text(&input["op"])? {
-            "ADMIT" => candidate.admit(input)?,
-            "SUBMISSION" => candidate.submission(input)?,
-            "ACCEPT" => candidate.accept(input)?,
-            "CANCEL" => candidate.cancel(input)?,
-            "FILL" => candidate.fill(input)?,
-            "VALUATION" => candidate.valuation(input)?,
-            "SETTLEMENT_MATURITY" => candidate.settlement_maturity(input)?,
-            "TERMINAL" => candidate.terminal(input)?,
-            _ => return Err(err("EXECUTION_OPERATION")),
-        };
+        candidate.apply_operation(input)?;
+        if !origin.is_null() {
+            let p = &input["payload"];
+            let econ = &mut Arc::make_mut(&mut candidate.meta)["perpetual"];
+            // 首次事实固定其原件关系，重复投递维护同一个经济身份。
+            let row = if input["op"] == "FUNDING" {
+                &mut econ["funding"][text(&p["fact"]["fact_id"])?]
+            } else {
+                &mut econ["broker_facts"][text(&p["broker"]["id"])?]
+            };
+            if row.get("origin").is_none() {
+                row["origin"] = origin;
+            }
+        }
         Arc::make_mut(&mut candidate.meta)["inputs"][text(&input["input_id"])?] =
             json!(hash(input));
         Arc::make_mut(&mut candidate.meta)["sources"][text(&input["source_ref"])?] =
@@ -110,8 +136,25 @@ impl Components {
         body["projections"] = Value::Array(projections);
         Prepared::new_with_typed_after(body, candidate)
     }
+    fn apply_operation(&mut self, input: &Value) -> Result<(), Error> {
+        if self.config["schema_version"] == 3 {
+            return self.perpetual_operation(input);
+        }
+        match text(&input["op"])? {
+            "ADMIT" => self.admit(input)?,
+            "SUBMISSION" => self.submission(input)?,
+            "ACCEPT" => self.accept(input)?,
+            "CANCEL" => self.cancel(input)?,
+            "FILL" => self.fill(input)?,
+            "VALUATION" => self.valuation(input)?,
+            "SETTLEMENT_MATURITY" => self.settlement_maturity(input)?,
+            "TERMINAL" => self.terminal(input)?,
+            _ => return Err(err("EXECUTION_OPERATION")),
+        };
+        Ok(())
+    }
     pub(crate) fn command(&self, input: &Value, op: &str, payload: Value, suffix: u64) -> Value {
-        json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"command_id":format!("{}-{suffix}",input["input_id"].as_str().expect("validated")),"cause":hash(input),"time":input["time"],"op":op,"payload":payload})
+        json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"command_id":format!("{}-{suffix}",input["input_id"].as_str().expect("validated")),"cause":super::perpetual::cause(input),"time":input["time"],"op":op,"payload":payload})
     }
     pub(crate) fn ledger_command(
         &self,
@@ -154,6 +197,17 @@ impl Components {
         c["event_at"] = input["time"].clone();
         c["event_id"] = input["source_ref"].clone();
         c["sequence"] = input["runtime_sequence"].clone();
+        if let Some(b) = input.get("broker_record") {
+            c["at"] = b["ts_init"].clone();
+            c["event_at"] = b["ts_event"].clone();
+            c["event_id"] = b["update_id"].clone();
+            c["sequence"] = b["source_sequence"].clone();
+            if op == "FILL" {
+                let f = &b["payload"]["fill"];
+                c["event_id"] = f["external_event_id"].clone();
+                c["sequence"] = f["external_sequence"].clone();
+            }
+        }
         c
     }
     fn order_apply(&mut self, c: &Value) -> Result<Value, Error> {
@@ -300,7 +354,7 @@ impl Components {
         }
         candidate.validate_planning_input(input)?;
         candidate.invalidate_payloads();
-        match candidate.admit(input) {
+        match candidate.apply_operation(input) {
             Ok(()) => Ok(None),
             Err(error)
                 if matches!(
@@ -313,7 +367,7 @@ impl Components {
             Err(error) => Err(error),
         }
     }
-    fn admit(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn admit(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         let whole_fill = match p["schema_version"].as_u64() {
             Some(1) => false,
@@ -385,7 +439,7 @@ impl Components {
         if price.is_zero() || quantity.is_zero() {
             return Err(err("EXECUTION_POSITIVE"));
         }
-        let notional = &price * &quantity;
+        let notional = &price * &quantity * self.contract_multiplier()?;
         let amount = settled_money(
             &p["market"],
             "notional",
@@ -419,7 +473,7 @@ impl Components {
             }
         }
         let cash_requirement = nonnegative(&funding["principal_reservation"]["amount"])?;
-        if (buy && cash_requirement < dec(&json!(amount))?)
+        if (buy && self.config["schema_version"] != 3 && cash_requirement < dec(&json!(amount))?)
             || fee < nonnegative(&funding["fee_reservation"]["amount"])?
             || fee < nonnegative(&contract["estimate"]["reservation_charge"]["amount"])?
         {
@@ -477,7 +531,12 @@ impl Components {
                 0,
             ))?;
         }
-        let mut req = json!({"schema_version":1,"request_id":r["request_id"]["value"],"instrument":inst,"side":side,"effect":if buy{"OPEN"}else{"CLOSE"},"position_side":"LONG","position_mode":"NETTING","order_type":r["order_type"],"quantity":quantity.to_plain_string(),"price":if is_market{Value::Null}else{json!(price.to_plain_string())},"notional":amount,"fee":money(&fee,self.precision)?,"cash_requirement":if buy{money(&cash_requirement,self.precision)?}else{money(&BigDecimal::zero(),self.precision)?}});
+        let risk_cash = if self.config["schema_version"] == 3 {
+            nonnegative(&p["collateral"]["instruction"]["amount"])?
+        } else {
+            cash_requirement.clone()
+        };
+        let mut req = json!({"schema_version":1,"request_id":r["request_id"]["value"],"instrument":inst,"side":side,"effect":if buy{"OPEN"}else{"CLOSE"},"position_side":"LONG","position_mode":"NETTING","order_type":r["order_type"],"quantity":quantity.to_plain_string(),"price":if is_market{Value::Null}else{json!(price.to_plain_string())},"notional":amount,"fee":money(&fee,self.precision)?,"cash_requirement":if buy{money(&risk_cash,self.precision)?}else{money(&BigDecimal::zero(),self.precision)?}});
         for f in ["quantity", "price", "notional", "fee", "cash_requirement"] {
             if !req[f].is_null() {
                 req[f] = json!(dec(&req[f])?.normalized().to_plain_string());
@@ -510,7 +569,12 @@ impl Components {
             }
             (aa.to_plain_string(), ca.to_plain_string())
         };
-        let views = json!({"schema_version":1,"account":envelope("ACCOUNT",json!({"schema_version":1,"status":account["status"],"cash":account["cash"]})),"ledger":envelope("LEDGER",json!({"schema_version":1,"status":ledger["status"],"cash":ledger["cash"]})),"position":envelope("POSITION",json!({"schema_version":1,"account_available":aq,"allocation_available":cq,"position_side":"LONG","position_mode":"NETTING"})),"market":envelope("MARKET",json!({"schema_version":1,"request_digest":hash(&req),"verdict":"ACCEPT","code":"OK"}))});
+        let cash_field = if self.config["schema_version"] == 3 {
+            "equity"
+        } else {
+            "cash"
+        };
+        let views = json!({"schema_version":1,"account":envelope("ACCOUNT",json!({"schema_version":1,"status":account["status"],"cash":account[cash_field]})),"ledger":envelope("LEDGER",json!({"schema_version":1,"status":ledger["status"],"cash":ledger[cash_field]})),"position":envelope("POSITION",json!({"schema_version":1,"account_available":aq,"allocation_available":cq,"position_side":"LONG","position_mode":"NETTING"})),"market":envelope("MARKET",json!({"schema_version":1,"request_digest":hash(&req),"verdict":"ACCEPT","code":"OK"}))});
         let decision = self
             .risk_apply(&self.risk_command(
                 input,
@@ -522,7 +586,7 @@ impl Components {
         if decision["outcome"] != "ACCEPT" {
             return Err(err("EXECUTION_RISK_DENIED"));
         }
-        let created=self.order_apply(&json!({"schema_version":1,"op":"CREATE","cluster_id":cluster,"account_id":input["account"],"request":r,"cause":hash(input),"at":input["time"]}))?;
+        let created=self.order_apply(&json!({"schema_version":1,"op":"CREATE","cluster_id":cluster,"account_id":input["account"],"request":r,"cause":super::perpetual::cause(input),"at":input["time"]}))?;
         if created["order_id"]["value"] != order {
             return Err(err("EXECUTION_ORDER_IDENTITY"));
         }
@@ -574,7 +638,7 @@ impl Components {
         self.admit_collateral(input)?;
         Ok(())
     }
-    fn submission(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn submission(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         row(p, &["order", "outcome"])?;
         let r = self.relation(input)?;
@@ -609,7 +673,7 @@ impl Components {
         ))?;
         Ok(())
     }
-    fn accept(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn accept(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         row(p, &["order", "venue_order"])?;
         let relation = self.relation(input)?;
@@ -634,7 +698,7 @@ impl Components {
         ))?;
         Ok(())
     }
-    fn cancel(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn cancel(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         row(p, &["order", "request_id", "reason"])?;
         let relation = self.relation(input)?;
@@ -660,7 +724,7 @@ impl Components {
         ))?;
         Ok(())
     }
-    fn fill(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn fill(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         let relation = self.relation(input)?;
         let is_market = relation["request"]["order_type"] == "MARKET";
@@ -705,24 +769,29 @@ impl Components {
             id(&p[f])?;
         }
         let fee = &p["fees"];
-        row(
-            fee,
-            &[
-                "instruction",
-                "source_ref",
-                "policy",
-                "order",
-                "trade",
-                "currency",
-                "charge_target",
-                "rebate_target",
-                "scope",
-                "family",
-                "version",
-                "as_of_sequence",
-                "source_digest",
-            ],
-        )?;
+        let perpetual = self.config["schema_version"] == 3;
+        let mut fee_fields = vec![
+            "instruction",
+            "source_ref",
+            "policy",
+            "order",
+            "trade",
+            "currency",
+            "scope",
+            "family",
+            "version",
+            "as_of_sequence",
+            "source_digest",
+        ];
+        if perpetual {
+            fee_fields.push("assessment_fingerprint");
+            if fee["assessment_fingerprint"] != onlyalpha_fee::digest(&input["fee_assessment"]) {
+                return Err(err("EXECUTION_FEE_ASSESSMENT_SOURCE"));
+            }
+        } else {
+            fee_fields.extend(["charge_target", "rebate_target"]);
+        }
+        row(fee, &fee_fields)?;
         let settlement = &p["settlement"];
         row(
             settlement,
@@ -802,14 +871,24 @@ impl Components {
                 return Err(err("EXECUTION_ECONOMIC_PROOF_SCOPE"));
             }
         }
-        if settlement["model"] != "CASH_SETTLEMENT" {
+        if settlement["model"]
+            != if perpetual {
+                "LINEAR_PERPETUAL_OPEN"
+            } else {
+                "CASH_SETTLEMENT"
+            }
+        {
             return Err(err("EXECUTION_SETTLEMENT_UNAVAILABLE"));
         }
-        let schedule = boundary(onlyalpha_settlement::resolve_schedule(
-            &settlement["calendar"],
-            &settlement["policy"],
-            text(&input["trading_day"])?,
-        ))?;
+        let schedule = if perpetual {
+            json!({"asset_booked":input["trading_day"],"cash_booked":input["trading_day"],"cash_trade_available":input["trading_day"],"asset_trade_available":input["trading_day"],"cash_withdrawable":input["trading_day"]})
+        } else {
+            boundary(onlyalpha_settlement::resolve_schedule(
+                &settlement["calendar"],
+                &settlement["policy"],
+                text(&input["trading_day"])?,
+            ))?
+        };
         // These existing cash consumers book immediately. Other shapes need explicit owning support.
         if ["asset_booked", "cash_booked", "cash_trade_available"]
             .iter()
@@ -834,7 +913,16 @@ impl Components {
             &self.meta["fee_authority"],
             &onlyalpha_fee::digest(&self.meta["fee_authority"]),
         ))?;
-        let application = boundary(fee_owner.apply_admitted_target(fee))?.record();
+        let application = if perpetual {
+            let a = crate::perpetual_fees::decode_assessment(&input["fee_assessment"])?;
+            boundary(fee_owner.apply(&a))?
+        } else {
+            boundary(fee_owner.apply_admitted_target(fee))?
+        }
+        .record();
+        if application["id"] != fee["instruction"] {
+            return Err(err("EXECUTION_FEE_APPLICATION"));
+        }
         let charges = money(&nonnegative(&application["charges"])?, self.precision)?;
         let rebates = money(&nonnegative(&application["rebates"])?, self.precision)?;
         Arc::make_mut(&mut self.meta)["fee_authority"] = fee_owner.checkpoint();
@@ -857,7 +945,8 @@ impl Components {
                 return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
             }
         }
-        let notional = &price * &qty;
+        let multiplier = self.contract_multiplier()?;
+        let notional = &price * &qty * &multiplier;
         let notional_s = settled_money(
             settlement,
             "gross_notional",
@@ -867,6 +956,9 @@ impl Components {
         )?;
         let mut oc = self.external(input, "FILL", order);
         oc["fill"] = json!({"schema_version":1,"trade_id":{"schema_version":1,"value":p["trade"]},"order_id":{"schema_version":1,"value":order},"price":{"schema_version":1,"value":p["price"],"precision":pp},"quantity":{"schema_version":1,"value":p["quantity"],"precision":qp},"ts_event":{"schema_version":1,"unix_nanos":input["time"]},"ts_init":{"schema_version":1,"unix_nanos":input["time"]},"venue_trade_id":{"schema_version":1,"value":p["venue_trade"]},"venue_order_id":{"schema_version":1,"value":p["venue_order"]},"liquidity_side":"UNKNOWN","external_sequence":input["runtime_sequence"],"external_event_id":input["source_ref"],"metadata":{},"reference_price":null});
+        if perpetual {
+            oc["fill"] = input["broker_record"]["payload"]["fill"].clone();
+        }
         let after_order = self.order_apply(&oc)?;
         let terminal = after_order["status"] == "FILLED";
         let before_alloc = match self.position.cluster(cluster, inst) {
@@ -875,11 +967,28 @@ impl Components {
             Err(e) => return Err(Error(e.to_string())),
         };
         let before_account = self.account.snapshot();
-        let mut position_trade = json!({"schema_version":if is_market {2} else {1},"instrument":inst,"cluster":cluster,"order":order,"trade":p["trade"],"venue_trade":p["venue_trade"],"execution":format!("ETX-{}",hash(input)),"sequence":input["runtime_sequence"],"side":relation["side"],"position_side":"LONG","position_mode":"NETTING","price":p["price"],"quantity":p["quantity"],"fee":charges,"bucket":initial_bucket,"terminal_fill":terminal});
+        let mut position_trade = json!({"schema_version":if is_market {2} else {1},"instrument":inst,"cluster":cluster,"order":order,"trade":p["trade"],"venue_trade":p["venue_trade"],"execution":format!("ETX-{}",super::perpetual::cause(input)),"sequence":input["runtime_sequence"],"side":relation["side"],"position_side":"LONG","position_mode":"NETTING","price":p["price"],"quantity":p["quantity"],"fee":charges,"bucket":initial_bucket,"terminal_fill":terminal});
+        if perpetual {
+            position_trade["schema_version"] = json!(3);
+            position_trade["economic_time"] = input["broker_record"]["ts_event"].clone();
+            position_trade["broker_record_digest"] = json!(hash(&input["broker_record"]));
+            position_trade["rebates"] = json!(rebates);
+        }
         if is_market {
             position_trade["price_precision"] = p["price_precision"].clone();
         }
-        let fact = self.position_apply(&self.command(input, "TRADE", position_trade, 0))?;
+        let mut position_command = self.command(input, "TRADE", position_trade, 0);
+        if perpetual {
+            position_command["payload"]["trade_evidence"] = json!(boundary(
+                self.position.trade_input_digest(&position_command)
+            )?);
+        }
+        let fact = self.position_apply(&position_command)?;
+        let original_trade = if perpetual {
+            Some(boundary(self.position.trade_evidence(text(&p["trade"])?))?)
+        } else {
+            None
+        };
         let allocation = boundary(self.position.cluster(cluster, inst))?;
         let pos = boundary(self.position.account(inst))?;
         let rd = exact(&fact["realized_pnl"])?;
@@ -899,22 +1008,46 @@ impl Components {
             let snapshot = &book["snapshot"];
             let owner = text(&book["cluster"])?;
             let mark = exact(&self.meta["marks"][owner][instrument])?;
-            new_market += (&exact(&snapshot["quantity"])? * mark).with_scale_round(
-                i64::from(self.precision),
-                bigdecimal::RoundingMode::HalfEven,
-            );
-            total_cost += exact(&snapshot["cost"])?;
+            let gross = exact(&snapshot["quantity"])? * mark * &multiplier;
+            new_market += if perpetual {
+                gross
+            } else {
+                gross.with_scale_round(
+                    i64::from(self.precision),
+                    bigdecimal::RoundingMode::HalfEven,
+                )
+            };
+            total_cost += exact(&snapshot["cost"])? * &multiplier;
         }
         let old_market = dec(&before_account["market_value"])?;
-        let account_market_delta = &new_market - &old_market;
         let unrealized = &new_market - total_cost;
+        let account_market_delta = if perpetual {
+            unrealized.with_scale_round(
+                i64::from(self.precision),
+                bigdecimal::RoundingMode::HalfEven,
+            )
+        } else {
+            new_market
+        } - old_market;
         let ledger_before = if let Some(b) = before_alloc {
             allocation_witness(&b, self.precision)?
         } else {
             json!({"schema_version":1,"identity":null,"cycle":0,"realized_exact":money(&BigDecimal::zero(),self.precision)?,"quantity":"0","cost":money(&BigDecimal::zero(),self.precision)?,"realized":money(&BigDecimal::zero(),self.precision)?,"version":0})
         };
         let ledger_after = allocation_witness(&allocation, self.precision)?;
-        self.ledger_apply(&self.ledger_command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",hash(input)),"venue_trade":p["venue_trade"],"order":order,"fee_instruction":fee["instruction"],"source_sequence":input["runtime_sequence"],"side":relation["side"],"instrument":inst,"notional":notional_s,"charges":charges,"rebates":rebates,"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"before":ledger_before,"after":ledger_after,"allocation_evidence":hash(&allocation),"mark":valuation["mark"],"multiplier":"1"}),0))?;
+        let ledger_trade = self.ledger_command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",super::perpetual::cause(input)),"venue_trade":p["venue_trade"],"order":order,"fee_instruction":fee["instruction"],"source_sequence":input["runtime_sequence"],"side":relation["side"],"instrument":inst,"notional":notional_s,"charges":charges,"rebates":rebates,"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"before":ledger_before,"after":ledger_after,"allocation_evidence":hash(&allocation),"mark":valuation["mark"],"multiplier":multiplier.normalized().to_plain_string()}),0);
+        if let Some(original) = &original_trade {
+            if boundary(
+                Arc::make_mut(&mut self.ledger).apply_position_trade(&ledger_trade, original),
+            )?
+            .status
+                != onlyalpha_strategy_ledger::Status::Applied
+            {
+                return Err(err("EXECUTION_LEDGER_NOT_APPLIED"));
+            }
+        } else {
+            self.ledger_apply(&ledger_trade)?;
+        }
         let mut rounding_adjustment = BigDecimal::zero();
         for cluster in self.config["profiles"]
             .as_object()
@@ -924,9 +1057,21 @@ impl Components {
             rounding_adjustment +=
                 exact(&boundary(self.ledger.snapshot(cluster))?["realized_rounding_adjustment"])?;
         }
-        self.account_apply(&self.command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",hash(input)),"venue_trade":p["venue_trade"],"order":order,"sequence":input["runtime_sequence"],"side":relation["side"],"notional":notional_s,"fee_instruction":fee["instruction"],"charges":charges,"rebates":rebates,"realized_pnl_delta":exact_record(&rd,self.precision),"position_evidence":hash(&pos),"market_value_delta":money(&account_market_delta,self.precision)?,"unrealized_pnl":exact_record(&unrealized,self.precision),"realized_rounding_adjustment":exact_record(&rounding_adjustment,self.precision),"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"cash_withdrawable":cash_withdrawable}),0))?;
+        let account_trade = self.command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",super::perpetual::cause(input)),"venue_trade":p["venue_trade"],"order":order,"sequence":input["runtime_sequence"],"side":relation["side"],"notional":notional_s,"fee_instruction":fee["instruction"],"charges":charges,"rebates":rebates,"realized_pnl_delta":exact_record(&rd,self.precision),"position_evidence":hash(&pos),"market_value_delta":money(&account_market_delta,self.precision)?,"unrealized_pnl":exact_record(&unrealized,self.precision),"realized_rounding_adjustment":exact_record(&rounding_adjustment,self.precision),"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"cash_withdrawable":cash_withdrawable}),0);
+        if let Some(original) = &original_trade {
+            if boundary(
+                Arc::make_mut(&mut self.account).apply_position_trade(&account_trade, original),
+            )?
+            .status
+                != onlyalpha_account::Status::Applied
+            {
+                return Err(err("EXECUTION_ACCOUNT_NOT_APPLIED"));
+            }
+        } else {
+            self.account_apply(&account_trade)?;
+        }
         let instruction = boundary(onlyalpha_settlement::compile(
-            json!({"schema_version":1,"scope":settlement["scope"],"order":order,"trade":p["trade"],"currency":self.config["currency"],"side":relation["side"],"quantity":p["quantity"],"gross_notional":notional_s,"charges":charges,"rebates":rebates,"trading_day":input["trading_day"],"time":input["time"],"calendar":settlement["calendar"],"policy":settlement["policy"],"position":pos["id"],"position_cycle":pos["cycle"],"allocation":allocation["id"],"allocation_cycle":allocation["cycle"],"provenance":{"reference":settlement["source_ref"],"fingerprint":settlement["source_digest"],"instruction":settlement["instruction"]}}),
+            json!({"schema_version":if perpetual{2}else{1},"scope":settlement["scope"],"order":order,"trade":p["trade"],"currency":self.config["currency"],"side":relation["side"],"quantity":p["quantity"],"gross_notional":notional_s,"charges":charges,"rebates":rebates,"trading_day":input["trading_day"],"time":input["time"],"calendar":settlement["calendar"],"policy":settlement["policy"],"position":pos["id"],"position_cycle":pos["cycle"],"allocation":allocation["id"],"allocation_cycle":allocation["cycle"],"provenance":{"reference":settlement["source_ref"],"fingerprint":settlement["source_digest"],"instruction":settlement["instruction"]}}),
         ))?;
         let mut owner = self.settlement_owner()?;
         boundary(owner.register(&instruction))?;
@@ -935,7 +1080,7 @@ impl Components {
         self.fill_collateral(input)?;
         Ok(())
     }
-    fn terminal(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn terminal(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         row(p, &["order", "outcome", "collateral"])?;
         let relation = self.relation(input)?;
@@ -946,7 +1091,11 @@ impl Components {
         }
         let mut oc = self.external(input, outcome, order);
         if outcome == "REJECTED" {
-            oc["rejection"] = json!({"schema_version":1,"code":"EXTERNAL_REJECTION","message":"explicit external rejection"});
+            let reason = input["broker_record"]["payload"]["reason"]
+                .as_str()
+                .unwrap_or("explicit external rejection");
+            oc["rejection"] =
+                json!({"schema_version":1,"code":"EXTERNAL_REJECTION","message":reason});
         }
         if outcome == "FAILED" {
             oc["failure"] = json!({"schema_version":1,"code":"EXTERNAL_FAILURE","message":"explicit external failure"});

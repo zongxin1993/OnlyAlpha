@@ -1,0 +1,38 @@
+{
+  "kind": "PUBLIC",
+  "authority_fingerprint": "f001e07b0cb19daff4597d76a77db82d8c2d80972c9fc23f6a30af4e5fcceb88",
+  "references": [
+    {
+      "instrument_id": "BTCUSDT-PERP.BINANCE",
+      "raw_symbol": "BTCUSDT",
+      "provider_status": "TRADING",
+      "settlement_currency": "USDT",
+      "contract_multiplier": "1",
+      "price_tick": "0.10",
+      "minimum_price": "0.10",
+      "maximum_price": "1000000",
+      "quantity_step": "0.001",
+      "minimum_quantity": "0.001",
+      "maximum_quantity": "1000",
+      "minimum_notional": "5",
+      "funding_schedule": {
+        "interval_seconds": 14400,
+        "boundary_offset_seconds": 0,
+        "valuation_price_kind": "MARK",
+        "provider_semantic_version": "BINANCE_USDM_FUNDING_INFO@1788249600000"
+      },
+      "coverage_start": "2026-08-01T00:00:00+00:00",
+      "coverage_end": "2026-09-02T00:00:00+00:00",
+      "observed_at": "2026-09-01T08:00:01+00:00",
+      "provider_revision": "1788249600000",
+      "normalizer_semantic_version": "BINANCE_USDM_REFERENCE_NORMALIZER@2",
+      "provider_schema_semantic_version": "BINANCE_USDM_FAPI_REFERENCE@2026-09-01",
+      "published_at": "2026-09-01T08:00:01+00:00",
+      "source_raw_fingerprints": [
+        "d22cf01f6b215b1238b571837fd25331e8b6cdef931f3d83b15378f518e3048f",
+        "67973d5aac3d7925ccc2080a6fde9549b15acfe1dfb489cc9501baa7869d40c7"
+      ],
+      "content_fingerprint": "1ad48c71c751e3a8ca4be8bc26087362708dd33d4077392ba8f564180d702df8"
+    }
+  ]
+}

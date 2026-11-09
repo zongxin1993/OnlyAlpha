@@ -140,6 +140,40 @@ fn fixed_grid_ends_are_exact_and_budgeted() {
             .is_empty()
     );
 }
+
+#[test]
+fn historical_session_day_requires_its_exact_capability_and_adjustment_evidence() {
+    use onlyalpha_domain::market::OnlyBarSemantic;
+    let mut record = kind(A, 1).semantic().to_record();
+    record["formation"] = json!({"schema_version":1,"kind":"CALENDAR_PERIOD","unit":"DAY","count":1,"alignment":"SESSION_START"});
+    record["adjustment_policy"] = json!("FORWARD");
+    let target = OnlyBarSemantic::from_record(&record).unwrap();
+    let cap = |historical, calendar: &str| {
+        OnlyConstructionCapability::new(target.clone(), historical, false, calendar, None).unwrap()
+    };
+    let resolve = |caps: &[OnlyConstructionCapability]| {
+        OnlyConstructionResolutionPlan::resolve_historical_day(target.clone(), caps, context())
+    };
+    let plan = resolve(&[cap(true, "calendar")]).unwrap();
+    assert_eq!(
+        OnlyConstructionResolutionPlan::from_record(&plan.to_record()).unwrap(),
+        plan
+    );
+    assert!(plan.recipe().is_native());
+    assert!(resolve(&[cap(false, "calendar")]).is_err());
+    assert!(resolve(&[cap(true, "different")]).is_err());
+    assert!(resolve(&[cap(true, "calendar"), cap(true, "calendar")]).is_err());
+    assert!(
+        OnlyConstructionResolutionPlan::resolve(
+            target.clone(),
+            &[cap(true, "calendar")],
+            context(),
+            OnlyConstructionRequirement::PreferExactNative,
+        )
+        .is_err()
+    );
+    assert!(OnlyConstructionIdentity::new(plan, "v", None, None, None).is_err());
+}
 #[test]
 fn plan_reader_rejects_unnormalized_grid_even_with_valid_hash() {
     use sha2::{Digest, Sha256};

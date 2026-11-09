@@ -47,12 +47,15 @@ export interface MarketDataBarsQuery {
     readonly instrument_id: string;
     readonly anchor_kind: "LATEST_CLOSED" | "BEFORE_TIME";
     readonly before_ns?: string;
+    readonly revision_id?: string;
     readonly target_bar_count: number;
     readonly bar_semantic: MarketDataBarSemantic;
 }
 
 export interface MarketDataAcquisitionQuery {
     readonly instrument_id: string;
+    readonly original_request_id?: string;
+    readonly adjustment_anchor?: string;
     /** Exact server-planned canonical decimal nanoseconds. */
     readonly start_ns: string;
     readonly end_ns: string;
@@ -78,7 +81,8 @@ export interface MarketDataApiClient {
         reference: MarketDataSourceReference,
         query: string,
         signal?: AbortSignal,
-        instrumentIds?: readonly string[]
+        instrumentIds?: readonly string[],
+        sealedOnly?: boolean
     ): Promise<readonly MarketDataInstrument[]>;
     queryBars(
         reference: MarketDataSourceReference,
@@ -185,6 +189,7 @@ function barsParams(
     params.set("anchor_kind", query.anchor_kind);
     params.set("target_bar_count", String(query.target_bar_count));
     if (query.before_ns !== undefined) params.set("before_ns", query.before_ns);
+    if (query.revision_id !== undefined) params.set("revision_id", query.revision_id);
     params.set("bar_semantic", JSON.stringify(query.bar_semantic));
     return params;
 }
@@ -228,9 +233,11 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
         reference: MarketDataSourceReference,
         query: string,
         signal?: AbortSignal,
-        instrumentIds?: readonly string[]
+        instrumentIds?: readonly string[],
+        sealedOnly?: boolean
     ) {
         const params = referenceParams(reference);
+        if (sealedOnly) params.set("sealed_only", "true");
         params.set("query", query);
         for (const id of instrumentIds ?? []) params.append("instrument_ids", id);
         const value = await protectedRead(
@@ -316,6 +323,12 @@ export class FetchMarketDataApiClient implements MarketDataApiClient {
                     start_ns: query.start_ns,
                     end_ns: query.end_ns,
                     bar_semantic: query.bar_semantic,
+                    ...(query.original_request_id === undefined
+                        ? {}
+                        : { original_request_id: query.original_request_id }),
+                    ...(query.adjustment_anchor === undefined
+                        ? {}
+                        : { adjustment_anchor: query.adjustment_anchor }),
                     provenance: "REST_BACKFILL"
                 })
             }

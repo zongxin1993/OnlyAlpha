@@ -288,3 +288,44 @@ fn checkpoint5_weighted_limit_refuses_the_actual_candidate_before_mutation() {
     }
     panic!("the weighted limit never rejected the full original history");
 }
+
+#[test]
+fn perpetual_account_requires_explicit_checkpoint_five() {
+    let (mut config, _) = setup();
+    config["schema_version"] = json!(3);
+    config["account_type"] = json!("LINEAR_PERPETUAL");
+    assert!(Manager::new(config.clone()).is_err());
+    let selected = Manager::new_checkpoint5(config.clone()).unwrap();
+    let (bytes, fingerprint) = selected.checkpoint().unwrap();
+    assert_eq!(capture(&selected)["schema_version"], 5);
+    let mut restored = Manager::new_checkpoint5(config).unwrap();
+    restored.restore(&bytes, &fingerprint).unwrap();
+    assert_eq!(restored.state(), selected.state());
+}
+
+#[test]
+fn perpetual_account_rejects_unproved_raw_funding_cashflow() {
+    let (mut cfg, _) = setup();
+    cfg["schema_version"] = json!(3);
+    cfg["account_type"] = json!("LINEAR_PERPETUAL");
+    let mut owner = Manager::new_checkpoint5(cfg).unwrap();
+    let before = owner.checkpoint().unwrap();
+    let input = command(
+        1,
+        "ECONOMIC",
+        json!({"schema_version":1,"kind":"FUNDING","instrument":"BTCUSDT.BINANCE","cashflow":"claimed-flow","source_fact":"claimed-funding","amount":"91.00"}),
+    );
+    assert!(owner.apply(&input).is_err());
+    assert_eq!(owner.checkpoint().unwrap(), before);
+    let mut forged: Value = serde_json::from_slice(&before.0).unwrap();
+    forged["journal"].as_array_mut().unwrap().push(input);
+    let bytes = serde_json::to_vec(&forged).unwrap();
+    assert_eq!(
+        owner
+            .restore(&bytes, &onlyalpha_account::digest(&bytes))
+            .unwrap_err()
+            .0,
+        "ACCOUNT_FUNDING_PRODUCER_REQUIRED"
+    );
+    assert_eq!(owner.checkpoint().unwrap(), before);
+}

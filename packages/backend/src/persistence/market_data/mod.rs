@@ -4,15 +4,18 @@ mod catalog;
 mod coverage;
 mod model;
 mod physical;
+mod preparation;
+pub(crate) use preparation::day_data_version;
 mod recovery;
 pub use catalog::{AcquisitionAttempt, AcquisitionIntent, Catalog, ExecutionLease};
-pub use coverage::{WindowPlan, coverage, deduplicate_facts, plan_bar_window};
+pub use coverage::{WindowPlan, coverage, day_intervals, deduplicate_facts, plan_bar_window};
 pub(crate) use model::validate_retained_input;
 use model::*;
 pub use model::{
     CoverageStatus, Manifest, PhysicalProof, Scope, SealedInput, SealedRevision, Segment,
 };
 pub use physical::{ClickHouse, ClickHouseConfig, PhysicalState};
+pub(crate) use recovery::VerifiedHistoryInput;
 pub use recovery::{DrainBoundary, DrainOutcome, RevisionPublication, Storage, VerifiedRange};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

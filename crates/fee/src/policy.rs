@@ -379,6 +379,26 @@ impl Catalog {
         }
         Ok(b)
     }
+    /// 返回该订单绑定在交易日实际解析到的费表，用于构造正式 Domain 身份。
+    pub fn selected_schedules(&self, binding: &Binding, day: u64) -> Result<Vec<Value>, Error> {
+        self.resolved(binding, day)
+    }
+    /// GTC 在冻结 Catalog 中可能遇到的全部生效日。每段按原绑定的真实解析器证明覆盖。
+    pub fn effective_days(&self, binding: &Binding) -> Result<Vec<u64>, Error> {
+        let from = unsigned(&binding.value["day"])?;
+        let mut days = BTreeSet::from([from]);
+        for s in array(&self.value["schedules"])? {
+            for key in ["from", "to"] {
+                if let Some(day) = s[key].as_u64().filter(|d| *d > from) {
+                    days.insert(day);
+                }
+            }
+        }
+        for day in &days {
+            self.resolved(binding, *day)?;
+        }
+        Ok(days.into_iter().collect())
+    }
     fn resolved(&self, b: &Binding, day: u64) -> Result<Vec<Value>, Error> {
         let old = Self::new(b.value["catalog"].clone())?;
         for k in ["market_pack", "broker_contract"] {

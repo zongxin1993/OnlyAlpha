@@ -17,6 +17,7 @@ pub struct ReadyIntent {
     pub(crate) command: BrokerCommand,
     pub(crate) transaction: String,
     pub(crate) payload_hash: String,
+    admitted_at: Option<Value>,
 }
 impl ReadyIntent {
     pub fn new(
@@ -30,9 +31,19 @@ impl ReadyIntent {
             command,
             transaction,
             payload_hash,
+            admitted_at: None,
         })
     }
-    pub(crate) fn record(&self) -> Value {
+    /// 显式模拟来源使用 Runtime 原 Ready 准入时刻，未绑定的原格式不新增字段。
+    pub fn at_admission(mut self, at: &Value) -> Result<Self, Error> {
+        integer(at, false)?;
+        self.admitted_at = Some(at.clone());
+        Ok(self)
+    }
+    pub fn admitted_at(&self) -> Option<&Value> {
+        self.admitted_at.as_ref()
+    }
+    pub fn record(&self) -> Value {
         json!({"command":self.command.record(),"transaction":self.transaction,"payload_hash":self.payload_hash})
     }
     pub(crate) fn decode(v: &Value) -> Result<Self, Error> {
@@ -125,6 +136,11 @@ pub enum DispatchResult {
 /// External adapters must declare unsupported capabilities before dispatch. Once entered, errors
 /// are UNKNOWN; Received is only command receipt, never an Accepted/Cancelled trading fact.
 pub trait TradingPort {
+    /// 在原 DISPATCHED 持久化前检查实际场所是否能接纳此原命令；返回错误未产生派发。
+    fn check_dispatch(&self, _intent: &ReadyIntent) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn capabilities(&self) -> Capabilities;
     fn dispatch(&mut self, command: &BrokerCommand) -> Result<DispatchResult, Error>;
 }
@@ -218,6 +234,7 @@ pub struct Discovery {
     pub(crate) proof: String,
     pub(crate) as_of: u64,
     pub(crate) presence: Presence,
+    pub(crate) economic_through: Option<bigdecimal::num_bigint::BigInt>,
     pub(crate) view: Option<OrderView>,
     pub(crate) facts: Vec<Fact>,
 }
@@ -263,19 +280,48 @@ impl Discovery {
             command,
             proof,
             as_of,
+            economic_through: None,
             presence,
             view,
             facts,
         })
     }
-    pub(crate) fn record(&self) -> Value {
-        json!({"command":self.command.record(),"proof":self.proof,"as_of":self.as_of,"presence":match self.presence{Presence::Present=>"PRESENT",Presence::AbsentProven=>"ABSENT_PROVEN",Presence::Inconclusive=>"INCONCLUSIVE"},"view":self.view.as_ref().map(OrderView::record),"facts":self.facts.iter().map(Fact::record).collect::<Vec<_>>()})
+    /// 由实际场所查询声明此单经济时间前缀完整，普通 provider sequence 单独保留。
+    pub fn with_economic_through(
+        mut self,
+        at: impl Into<bigdecimal::num_bigint::BigInt>,
+    ) -> Result<Self, Error> {
+        let at: bigdecimal::num_bigint::BigInt = at.into();
+        if at.to_string().len() > 4096 {
+            return Err(err("BROKER_DISCOVERY_ECONOMIC_TIME"));
+        }
+        // 已观察较新的事实不妨碍较早的封闭前缀；两者不是同一个水位。
+        self.economic_through = Some(at);
+        Ok(self)
     }
-    pub(crate) fn decode(v: &Value) -> Result<Self, Error> {
-        row(
-            v,
-            &["command", "proof", "as_of", "presence", "view", "facts"],
-        )?;
+    /// 查询父行的数据。事实由原序保存在独立子行。
+    pub fn header(&self) -> Value {
+        let mut r = json!({"command":self.command.record(),"proof":self.proof,"as_of":self.as_of,"presence":match self.presence{Presence::Present=>"PRESENT",Presence::AbsentProven=>"ABSENT_PROVEN",Presence::Inconclusive=>"INCONCLUSIVE"},"view":self.view.as_ref().map(OrderView::record)});
+        if let Some(n) = &self.economic_through {
+            r["economic_through_ns"] = serde_json::from_str(&n.to_string()).expect("integer");
+        }
+        r
+    }
+    pub fn facts(&self) -> &[Fact] {
+        &self.facts
+    }
+    pub fn record(&self) -> Value {
+        let mut r = self.header();
+        r["facts"] = Value::Array(self.facts.iter().map(Fact::record).collect());
+        r
+    }
+    /// 被动协议数据。原来源查询由绑定宿主单独验证。
+    pub fn decode(v: &Value) -> Result<Self, Error> {
+        let mut keys = vec!["command", "proof", "as_of", "presence", "view", "facts"];
+        if v.get("economic_through_ns").is_some() {
+            keys.push("economic_through_ns");
+        }
+        row(v, &keys)?;
         let presence = match text(&v["presence"])? {
             "PRESENT" => Presence::Present,
             "ABSENT_PROVEN" => Presence::AbsentProven,
@@ -287,7 +333,7 @@ impl Discovery {
         } else {
             Some(OrderView::decode(&v["view"])?)
         };
-        Self::new(
+        let discovery = Self::new(
             BrokerCommand::decode(&v["command"])?,
             text(&v["proof"])?.into(),
             v["as_of"]
@@ -301,11 +347,18 @@ impl Discovery {
                 .iter()
                 .map(Fact::decode)
                 .collect::<Result<_, _>>()?,
-        )
+        )?;
+        if v.get("economic_through_ns").is_some() {
+            discovery.with_economic_through(integer(&v["economic_through_ns"], false)?)
+        } else {
+            Ok(discovery)
+        }
     }
 }
 /// Provider-owned discovery must prove absence, bind client identity across sessions, and return
-/// the complete missing fact set at its watermark. Inconclusive queries never prove absence.
+/// the complete missing observations at the provider query cut. Optional economic_through is a
+/// separate closed economic prefix and may precede already observed facts. Inconclusive queries
+/// never prove absence.
 pub trait DiscoveryPort {
     fn discover(&mut self, command: &BrokerCommand) -> Result<Discovery, Error>;
 }

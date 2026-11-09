@@ -31,7 +31,16 @@ impl Ledger {
             }
             line.market = (&line.allocation.quantity * &mark * &multiplier)
                 .with_scale_round(i64::from(precision), bigdecimal::RoundingMode::HalfEven);
-            line.unrealized = &line.market - &line.allocation.cost;
+            line.unrealized = if self.funding.is_some() {
+                (&line.allocation.quantity * &mark - &line.allocation.cost) * &multiplier
+            } else {
+                &line.market - &line.allocation.cost
+            };
+            if self.funding.is_some() {
+                line.market = line
+                    .unrealized
+                    .with_scale_round(i64::from(precision), bigdecimal::RoundingMode::HalfEven);
+            }
             line.mark = mark;
         }
         if seen.len() != self.lines.len() {

@@ -78,6 +78,13 @@ impl Scope {
     pub fn kind(&self) -> &str {
         self.record["data_kind"].as_str().expect("validated")
     }
+    pub fn is_session_day(&self) -> bool {
+        let formation = &self.record["bar_construction"]["plan"]["target_semantic"]["formation"];
+        formation["kind"] == "CALENDAR_PERIOD"
+            && formation["unit"] == "DAY"
+            && formation["count"] == 1
+            && formation["alignment"] == "SESSION_START"
+    }
     pub fn family_matches(&self, other: &Scope) -> bool {
         SCOPE
             .iter()

@@ -1,0 +1,44 @@
+{
+  "kind": "ACCOUNT",
+  "authority_fingerprint": "797a29f95c58fb3371c91fb39092f895dda118e4c94a673fc968a224b1486e3d",
+  "references": [
+    {
+      "instrument_id": "BTCUSDT-PERP.BINANCE",
+      "coverage_start": "2026-08-01T00:00:00+00:00",
+      "coverage_end": "2026-09-02T00:00:00+00:00",
+      "observed_at": "2026-09-01T08:00:01+00:00",
+      "provider_revision": "1788249600000",
+      "normalizer_semantic_version": "BINANCE_USDM_REFERENCE_NORMALIZER@2",
+      "provider_schema_semantic_version": "BINANCE_USDM_FAPI_REFERENCE@2026-09-01",
+      "effective_inputs": {
+        "position_mode": "NETTING",
+        "margin_mode": "CROSS",
+        "leverage": "10",
+        "source_fingerprint": "535a9aa6c03076841fa637b9367e62c136cc3fbd925cafb029e3f68b3ae1c3ab"
+      },
+      "margin_segments": [
+        {
+          "lower_bound": "0",
+          "upper_bound": "100000",
+          "initial_slope": "0.1",
+          "initial_intercept": "0",
+          "maintenance_slope": "0.004",
+          "maintenance_intercept": "0"
+        },
+        {
+          "lower_bound": "100000",
+          "upper_bound": "500000",
+          "initial_slope": "0.1",
+          "initial_intercept": "0",
+          "maintenance_slope": "0.005",
+          "maintenance_intercept": "-100"
+        }
+      ],
+      "source_raw_fingerprints": [
+        "b4347314b7c3821d0c60b553945eb7175a595df12a36c83844198c1ab70498da",
+        "84b51116fda8e861a13bd99ebd47bd87ddca419ef9b6ea53a8cc22692f65eb9a"
+      ],
+      "content_fingerprint": "0c5948318d1d1c81dddbd6dd550a391379b37ba47e06ba93facae4a2642592d4"
+    }
+  ]
+}

@@ -806,6 +806,56 @@ def test_ambiguous_submit_then_absent_restart_never_resends_delayed_original(
         delayed.close()
 
 
+def test_history_intent_admits_once_and_observes_original_pending_attempt(
+    market_probe: Path, database: ClickHouseObservations
+) -> None:
+    scope = {
+        "source_id": "tushare.daily.xshg",
+        "provider": "tushare",
+        "venue": "XSHG",
+        "market": "CN_EQUITY",
+        "environment": "CN",
+        "integration_id": str(uuid.uuid4()),
+        "integration_revision_fingerprint": "c" * 64,
+        "implementation_fingerprint": "a" * 64,
+        "artifact_fingerprint": "f" * 64,
+        "original_request_id": str(uuid.uuid4()),
+        "instrument_id": "600000.XSHG",
+        "start_ns": 1735862400000000000,
+        "end_ns": 1736208000000000000,
+        "adjustment_anchor": None,
+        "bar_semantic": {
+            "schema_version": 3,
+            "formation": {
+                "schema_version": 1,
+                "kind": "CALENDAR_PERIOD",
+                "unit": "DAY",
+                "count": 1,
+                "alignment": "SESSION_START",
+            },
+            "price_type": "LAST",
+            "adjustment_policy": "RAW",
+        },
+    }
+
+    def admit(request: dict) -> dict:
+        return probe(market_probe, database, "history-intent", requested_scope=request, binding="b" * 64)
+
+    original = admit(scope)
+    assert original["requested_scope"] == scope and original["identity_version"] == 3
+    acquisition = original["acquisition_id"]
+    assert probe(market_probe, database, "intent-load", id=scope["original_request_id"]) == original
+    next_scope = {**scope, "original_request_id": str(uuid.uuid4())}
+    assert admit(next_scope) == original
+    attempt = probe(market_probe, database, "lease-start", id=acquisition)
+    assert attempt["outcome"] is None
+    assert admit(next_scope) == original and admit(scope) == original
+    assert "error" in admit({**scope, "instrument_id": "600001.XSHG"})
+    assert "error" in probe(market_probe, database, "lease-start", id=acquisition)
+    assert probe(market_probe, database, "failure", id=acquisition, detail="controlled failure")["outcome"] == "FAILED"
+    assert admit(next_scope)["acquisition_id"] != acquisition
+
+
 def test_intent_preserves_admission_occurrences_and_reuses_complete_history_from_older_binding(
     market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
 ) -> None:

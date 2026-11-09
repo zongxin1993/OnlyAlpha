@@ -29,6 +29,7 @@ pub fn native_interval(minutes: u16) -> Result<(&'static str, i64)> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Configuration,
+    Unsupported,
     Request,
     Deadline,
     Status,
@@ -45,6 +46,7 @@ impl Error {
     pub fn code(self) -> &'static str {
         match self {
             Self::Configuration => "BINANCE_PLUGIN_CONFIG_INVALID",
+            Self::Unsupported => "BINANCE_PUBLIC_ENDPOINT_UNSUPPORTED",
             Self::Request => "BINANCE_PUBLIC_REQUEST_FAILED",
             Self::Deadline => "BINANCE_PUBLIC_REQUEST_DEADLINE_EXCEEDED",
             Self::Status => "BINANCE_HTTP_STATUS",
@@ -182,6 +184,7 @@ pub struct PublicRest {
     timeout: Duration,
     response_limit: usize,
     page_size: usize,
+    standard_spot: bool,
 }
 impl PublicRest {
     #[cfg(test)]
@@ -198,6 +201,7 @@ impl PublicRest {
         )
         .unwrap();
         client.base = Url::parse(base).unwrap();
+        client.standard_spot = true;
         client
     }
 
@@ -292,7 +296,26 @@ impl PublicRest {
             timeout,
             response_limit: limit.min(RESPONSE_BUDGET),
             page_size,
+            standard_spot: environment == "GLOBAL" && profile != "PUBLIC_MARKET_DATA",
         })
+    }
+    /// USD-M public transport shares the same bounded TLS/HTTP implementation.
+    pub(crate) fn usdm(input: &RawValue, work: usize, trust: &Trust) -> Result<Self> {
+        crate::usdm_authoring(work)
+            .and_then(|r| r.validate_public_configuration(input, work))
+            .map_err(|_| Error::Configuration)?;
+        let v: Value = serde_json::from_str(input.get()).map_err(|_| Error::Configuration)?;
+        let spot = serde_json::json!({"timeout_seconds":v.get("timeout_seconds").cloned().unwrap_or(serde_json::json!(10)),"max_response_bytes":v.get("max_response_bytes").cloned().unwrap_or(serde_json::json!(8388608))});
+        let raw = RawValue::from_string(spot.to_string()).map_err(|_| Error::Configuration)?;
+        let mut client = Self::from_configuration(&raw, work, trust)?;
+        client.base = Url::parse(
+            v["rest_base_url"]
+                .as_str()
+                .unwrap_or("https://fapi.binance.com"),
+        )
+        .map_err(|_| Error::Configuration)?;
+        client.source_id = "binance.usdm.market_data";
+        Ok(client)
     }
     pub fn source_id(&self) -> &str {
         self.source_id
@@ -310,7 +333,7 @@ impl PublicRest {
         self.get_observed(path, parameters, deadline, &mut |_, _| Ok(()))
             .await
     }
-    async fn get_observed<F>(
+    pub(crate) async fn get_observed<F>(
         &self,
         path: &str,
         parameters: &[(&str, String)],
@@ -411,6 +434,9 @@ impl PublicRest {
         // the next request. Malformed JSON remains an observed provider input.
         capture(&request, &bytes).map_err(|_| Error::Evidence)?;
         let value = decode_json(&bytes)?;
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline);
+        }
         Ok(PublicResponse {
             request,
             bytes,
@@ -430,6 +456,54 @@ impl PublicRest {
             .as_i64()
             .filter(|n| *n > 0)
             .ok_or(Error::Shape)
+    }
+    /// 使用相同的确切 symbols、截止时间与原文回调，读取完整 Spot 规则快照。
+    pub async fn reference_capture_observed<F>(
+        &self,
+        symbols: &[String],
+        captured_at: onlyalpha_domain::time::OnlyUtcDateTime,
+        deadline: Instant,
+        capture: &mut F,
+    ) -> Result<crate::reference_capture::ReferenceCapture>
+    where
+        F: FnMut(&RequestContext, &[u8]) -> Result<()>,
+    {
+        use crate::reference_capture::{ReferenceCapture, SPOT_ENDPOINTS, ascii_json};
+        let environment = if self.standard_spot {
+            "LIVE"
+        } else if self.source_id == "binance.spot.market_data.spot_testnet" {
+            "SPOT_TESTNET"
+        } else {
+            return Err(Error::Unsupported);
+        };
+        if symbols.is_empty() || symbols.iter().any(|s| !symbol(s)) {
+            return Err(Error::Range);
+        }
+        let mut selected: Vec<_> = symbols.iter().map(String::as_str).collect();
+        selected.sort_unstable();
+        selected.dedup();
+        let parameters = [(
+            "symbols",
+            ascii_json(&serde_json::json!(selected)).map_err(|_| Error::Range)?,
+        )];
+        let exchange = self
+            .get_observed(SPOT_ENDPOINTS[0], &parameters, deadline, capture)
+            .await?;
+        let rules = self
+            .get_observed(SPOT_ENDPOINTS[1], &parameters, deadline, capture)
+            .await?;
+        let result = ReferenceCapture::spot(
+            exchange.bytes(),
+            rules.bytes(),
+            captured_at,
+            environment,
+            &selected,
+        )
+        .map_err(|_| Error::Shape)?;
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline);
+        }
+        Ok(result)
     }
     pub async fn exchange_info(
         &self,
@@ -502,6 +576,189 @@ impl PublicRest {
             }
         }
         Ok(response)
+    }
+    /// Exact declared venue reference price, never `/avgPrice` substitution.
+    pub async fn reference_price_observed<F>(
+        &self,
+        symbol_id: &str,
+        deadline: Instant,
+        capture: &mut F,
+    ) -> Result<PublicResponse>
+    where
+        F: FnMut(&RequestContext, &[u8]) -> Result<()>,
+    {
+        if !self.standard_spot {
+            return Err(Error::Unsupported);
+        }
+        if !symbol(symbol_id) {
+            return Err(Error::Range);
+        }
+        let response = self
+            .get_observed(
+                "/api/v3/referencePrice",
+                &[("symbol", symbol_id.into())],
+                deadline,
+                capture,
+            )
+            .await?;
+        if response.value()["symbol"].as_str() != Some(symbol_id)
+            || response.value().get("referencePrice").is_none()
+            || response.value()["timestamp"].as_i64().is_none_or(|n| n < 0)
+        {
+            return Err(Error::Shape);
+        }
+        Ok(response)
+    }
+    /// Raw trade ID suffix recovery. Every ID must be contiguous including the
+    /// first one; missing IDs are an unproven gap, never an empty success.
+    pub async fn trade_suffix_observed<F>(
+        &self,
+        symbol_id: &str,
+        first: i64,
+        last: i64,
+        deadline: Instant,
+        capture: &mut F,
+    ) -> Result<Vec<PublicResponse>>
+    where
+        F: FnMut(&RequestContext, &[u8]) -> Result<()>,
+    {
+        if !self.standard_spot {
+            return Err(Error::Unsupported);
+        }
+        if !symbol(symbol_id) || first < 0 || last < first {
+            return Err(Error::Range);
+        }
+        let mut cursor = first;
+        let mut pages = Vec::new();
+        let mut total = 0usize;
+        while cursor <= last {
+            let limit = usize::try_from(last - cursor + 1)
+                .map_err(|_| Error::Range)?
+                .min(self.page_size);
+            let response = self
+                .get_observed(
+                    "/api/v3/historicalTrades",
+                    &[
+                        ("symbol", symbol_id.into()),
+                        ("fromId", cursor.to_string()),
+                        ("limit", limit.to_string()),
+                    ],
+                    deadline,
+                    capture,
+                )
+                .await?;
+            total = total
+                .checked_add(response.bytes().len())
+                .filter(|n| *n <= RESPONSE_BUDGET)
+                .ok_or(Error::TooLarge)?;
+            let rows = response
+                .value()
+                .as_array()
+                .filter(|r| !r.is_empty() && r.len() <= limit)
+                .ok_or(Error::Order)?;
+            for row in rows {
+                if row["id"].as_i64() != Some(cursor) {
+                    return Err(Error::Order);
+                }
+                cursor = cursor.checked_add(1).ok_or(Error::Range)?;
+            }
+            pages.push(response);
+        }
+        Ok(pages)
+    }
+    /// Time locator plus raw trade pages. Aggregate rows only locate raw IDs;
+    /// they are never returned as canonical trades. Returned short/empty pages
+    /// do not independently prove historical completeness.
+    pub async fn historical_trades_observed<F>(
+        &self,
+        symbol_id: &str,
+        start_ms: i64,
+        end_ms: i64,
+        deadline: Instant,
+        capture: &mut F,
+    ) -> Result<Vec<PublicResponse>>
+    where
+        F: FnMut(&RequestContext, &[u8]) -> Result<()>,
+    {
+        if !self.standard_spot {
+            return Err(Error::Unsupported);
+        }
+        if !symbol(symbol_id) || start_ms < 0 || start_ms >= end_ms {
+            return Err(Error::Range);
+        }
+        let locator = self
+            .get_observed(
+                "/api/v3/aggTrades",
+                &[
+                    ("symbol", symbol_id.into()),
+                    ("startTime", start_ms.to_string()),
+                    ("endTime", (end_ms - 1).to_string()),
+                    ("limit", "1".into()),
+                ],
+                deadline,
+                capture,
+            )
+            .await?;
+        let located = locator
+            .value()
+            .as_array()
+            .filter(|v| v.len() <= 1)
+            .ok_or(Error::Shape)?;
+        let Some(first) = located.first() else {
+            return Ok(Vec::new());
+        };
+        let mut cursor = first["f"]
+            .as_i64()
+            .filter(|n| *n >= 0)
+            .ok_or(Error::Shape)?;
+        let mut pages = Vec::new();
+        let mut total = locator.bytes().len();
+        let mut previous_time = None;
+        loop {
+            let response = self
+                .get_observed(
+                    "/api/v3/historicalTrades",
+                    &[
+                        ("symbol", symbol_id.into()),
+                        ("fromId", cursor.to_string()),
+                        ("limit", self.page_size.to_string()),
+                    ],
+                    deadline,
+                    capture,
+                )
+                .await?;
+            total = total
+                .checked_add(response.bytes().len())
+                .filter(|n| *n <= RESPONSE_BUDGET)
+                .ok_or(Error::TooLarge)?;
+            let rows = response
+                .value()
+                .as_array()
+                .filter(|r| r.len() <= self.page_size)
+                .ok_or(Error::Shape)?;
+            let mut crossed = false;
+            for row in rows {
+                if row["id"].as_i64() != Some(cursor) {
+                    return Err(Error::Order);
+                }
+                let time = row["time"]
+                    .as_i64()
+                    .filter(|n| *n >= 0)
+                    .ok_or(Error::Shape)?;
+                if previous_time.is_some_and(|p| time < p) {
+                    return Err(Error::Order);
+                }
+                previous_time = Some(time);
+                crossed |= time >= end_ms;
+                cursor = cursor.checked_add(1).ok_or(Error::Range)?;
+            }
+            let count = rows.len();
+            pages.push(response);
+            if crossed || count < self.page_size {
+                break;
+            }
+        }
+        Ok(pages)
     }
     /// One bounded volatile display page. This returns no durable acceptance.
     pub async fn temporary_klines(
@@ -631,6 +888,9 @@ impl PublicRest {
                 break;
             }
         }
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline);
+        }
         Ok(pages)
     }
 }
@@ -752,6 +1012,15 @@ mod tests {
         std::sync::mpsc::Receiver<String>,
         std::thread::JoinHandle<()>,
     ) {
+        fixture_bytes(replies.into_iter().map(String::into_bytes).collect())
+    }
+    fn fixture_bytes(
+        replies: Vec<Vec<u8>>,
+    ) -> (
+        PublicRest,
+        std::sync::mpsc::Receiver<String>,
+        std::thread::JoinHandle<()>,
+    ) {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -770,7 +1039,7 @@ mod tests {
                     request.push(byte[0]);
                 }
                 tx.send(String::from_utf8(request).unwrap()).unwrap();
-                stream.write_all(reply.as_bytes()).unwrap();
+                stream.write_all(&reply).unwrap();
             }
         });
         let mut client =
@@ -778,6 +1047,63 @@ mod tests {
                 .unwrap();
         client.base = reqwest::Url::parse(&base).unwrap();
         (client, rx, task)
+    }
+    #[test]
+    fn reference_capture_observed_records_both_exact_requests_and_respects_original_failure() {
+        runtime().block_on(async {
+            let exchange = serde_json::json!({"timezone":"UTC","serverTime":1,"exchangeFilters":[],"symbols":[{"symbol":"BTCUSDT","status":"TRADING","baseAsset":"BTC","quoteAsset":"USDT","orderTypes":["LIMIT"],"isSpotTradingAllowed":true,"permissionSets":[["SPOT"]],"defaultSelfTradePreventionMode":"NONE","allowedSelfTradePreventionModes":["NONE"],"filters":[{"filterType":"PRICE_FILTER","minPrice":"0.01","maxPrice":"1000000","tickSize":"0.01"},{"filterType":"LOT_SIZE","minQty":"1","maxQty":"10000","stepSize":"1"},{"filterType":"MIN_NOTIONAL","minNotional":"1","applyToMarket":true,"avgPriceMins":0}]}]}).to_string();
+            let rules=serde_json::json!({"symbolRules":[{"symbol":"BTCUSDT","rules":[{"ruleType":"PRICE_RANGE","bidLimitMultUp":"2","bidLimitMultDown":"0.5","askLimitMultUp":"2","askLimitMultDown":"0.5"}]}]}).to_string();
+            let at="2026-09-01T08:00:01Z".parse().unwrap();
+            let symbols=["BTCUSDT".to_owned()];
+            for testnet in [false,true] {
+                let (mut rest,requests,server)=fixture(vec![ok(&exchange),ok(&rules)]);
+                rest.standard_spot = !testnet;
+                if testnet {rest.source_id="binance.spot.market_data.spot_testnet";}
+                let mut saved=Vec::new();
+                let capture=rest.reference_capture_observed(&symbols,at,Instant::now()+Duration::from_secs(5),&mut |request,bytes|{
+                    assert_eq!(request.parameter("symbols"),Some(r#"["BTCUSDT"]"#));
+                    assert!(request.parameter("symbolStatus").is_none());
+                    saved.push((request.path().to_owned(),bytes.to_vec()));Ok(())
+                }).await.unwrap();
+                assert_eq!(capture.manifest()["provenance"]["environment"],if testnet {"SPOT_TESTNET"}else{"LIVE"});
+                assert_eq!(saved,vec![("/api/v3/exchangeInfo".to_owned(),exchange.as_bytes().to_vec()),("/api/v3/executionRules".to_owned(),rules.as_bytes().to_vec())]);
+                for route in ["/api/v3/exchangeInfo","/api/v3/executionRules"] {
+                    assert!(requests.recv().unwrap().starts_with(&format!("GET {route}?symbols=%5B%22BTCUSDT%22%5D HTTP/")));
+                }
+                server.join().unwrap();
+            }
+            // 原 json.dumps(separators=(",", ":")) 的独立 wire 样本：排序、去重、ASCII 转义。
+            let mut multi_exchange: Value = serde_json::from_str(&exchange).unwrap();
+            let mut second = multi_exchange["symbols"][0].clone();
+            second["symbol"] = serde_json::json!("币USDT");
+            multi_exchange["symbols"].as_array_mut().unwrap().push(second);
+            let mut multi_rules: Value = serde_json::from_str(&rules).unwrap();
+            let mut second = multi_rules["symbolRules"][0].clone();
+            second["symbol"] = serde_json::json!("币USDT");
+            multi_rules["symbolRules"].as_array_mut().unwrap().push(second);
+            let (mut rest, requests, server) = fixture(vec![ok(&multi_exchange.to_string()), ok(&multi_rules.to_string())]);
+            rest.standard_spot = true;
+            let input = ["币USDT".to_owned(), "BTCUSDT".to_owned(), "BTCUSDT".to_owned()];
+            let expected = r#"["BTCUSDT","\u5e01USDT"]"#;
+            let result = rest.reference_capture_observed(&input, at, Instant::now()+Duration::from_secs(5), &mut |ctx, _| {
+                assert_eq!(ctx.parameter("symbols"), Some(expected));
+                Ok(())
+            }).await.unwrap();
+            for (i, route) in ["/api/v3/exchangeInfo", "/api/v3/executionRules"].iter().enumerate() {
+                assert!(requests.recv().unwrap().starts_with(&format!("GET {route}?symbols=%5B%22BTCUSDT%22%2C%22%5Cu5e01USDT%22%5D HTTP/")));
+                assert_eq!(result.manifest()["evidence"][i]["request_parameters"][0][1], expected);
+            }
+            server.join().unwrap();
+            let (mut rest,rx,server)=fixture(vec![ok(&exchange)]);
+            rest.standard_spot=true;
+            assert_eq!(rest.reference_capture_observed(&symbols,at,Instant::now()+Duration::from_secs(5),&mut |_,_|Err(Error::Evidence)).await.unwrap_err(),Error::Evidence);
+            assert!(rx.recv().unwrap().contains("exchangeInfo"));server.join().unwrap();
+            assert_eq!(rest.reference_capture_observed(&symbols,at,Instant::now(),&mut |_,_|panic!()).await.unwrap_err(),Error::Deadline);
+            for configuration in [r#"{}"#,r#"{"environment":"US","endpoint_profile":"DEFAULT"}"#] {
+                let rest=test_configuration(RawValue::from_string(configuration.into()).unwrap().as_ref(),65536).unwrap();
+                assert_eq!(rest.reference_capture_observed(&symbols,at,Instant::now(),&mut |_,_|panic!()).await.unwrap_err(),Error::Unsupported);
+            }
+        });
     }
     #[test]
     fn unicode_spot_symbols_keep_the_exact_provider_identity() {
@@ -800,6 +1126,172 @@ mod tests {
             body.len(),
             body
         )
+    }
+    #[test]
+    fn compressed_http_response_observes_only_complete_bounded_decoded_bytes() {
+        use super::gzip_regressions::compressed;
+        use std::time::Duration;
+        let valid = b"[1,2]";
+        let members = [compressed(b"[1,"), compressed(b"2]")].concat();
+        let mut broken = [compressed(b"{}"), compressed(b" ")].concat();
+        let trailer = broken.len() - 8;
+        broken[trailer] ^= 1;
+        let mut truncated = members.clone();
+        truncated.pop();
+        let mut trailing = compressed(b"{}");
+        trailing.extend_from_slice(b"unexpected trailer");
+        let expanded = compressed(&[b' '; 2048]);
+        assert!(expanded.len() < 128);
+        let wire = compressed(b"{}");
+        assert!(wire.len() > 16);
+        let invalid = b"{invalid";
+        for (name, body, limit, chunked, observed, error) in [
+            ("members", members, 512, false, Some(valid.as_slice()), None),
+            (
+                "invalid json",
+                compressed(invalid),
+                512,
+                false,
+                Some(invalid.as_slice()),
+                Some(Error::Json),
+            ),
+            (
+                "expanded size",
+                expanded,
+                128,
+                false,
+                None,
+                Some(Error::TooLarge),
+            ),
+            (
+                "declared wire size",
+                wire.clone(),
+                16,
+                false,
+                None,
+                Some(Error::TooLarge),
+            ),
+            (
+                "streamed wire size",
+                wire,
+                16,
+                true,
+                None,
+                Some(Error::TooLarge),
+            ),
+            (
+                "corrupt second member",
+                broken,
+                512,
+                false,
+                None,
+                Some(Error::Encoding),
+            ),
+            (
+                "truncated member",
+                truncated,
+                512,
+                false,
+                None,
+                Some(Error::Encoding),
+            ),
+            (
+                "trailing garbage",
+                trailing,
+                512,
+                false,
+                None,
+                Some(Error::Encoding),
+            ),
+        ] {
+            let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Encoding: gzip\r\nConnection: close\r\n";
+            let mut reply;
+            if chunked {
+                reply = format!("{headers}Transfer-Encoding: chunked\r\n\r\n").into_bytes();
+                for part in body.chunks(8) {
+                    reply.extend_from_slice(format!("{:x}\r\n", part.len()).as_bytes());
+                    reply.extend_from_slice(part);
+                    reply.extend_from_slice(b"\r\n");
+                }
+                reply.extend_from_slice(b"0\r\n\r\n");
+            } else {
+                reply = format!("{headers}Content-Length: {}\r\n\r\n", body.len()).into_bytes();
+                reply.extend_from_slice(&body);
+            }
+            let (mut rest, requests, server) = fixture_bytes(vec![reply]);
+            rest.response_limit = limit;
+            let mut captures = vec![];
+            let result = runtime().block_on(rest.get_observed(
+                "/api/v3/time",
+                &[],
+                Instant::now() + Duration::from_secs(5),
+                &mut |context, bytes| {
+                    assert_eq!(context.path(), "/api/v3/time");
+                    captures.push(bytes.to_vec());
+                    Ok(())
+                },
+            ));
+            server.join().unwrap();
+            let request = requests.recv().unwrap().to_ascii_lowercase();
+            assert!(
+                request
+                    .lines()
+                    .any(|header| header == "accept-encoding: gzip"),
+                "{name}"
+            );
+            assert_eq!(
+                captures.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+                observed.into_iter().collect::<Vec<_>>(),
+                "{name}"
+            );
+            match error {
+                Some(expected) => assert_eq!(result.err(), Some(expected), "{name}"),
+                None => {
+                    let page = result.unwrap();
+                    assert_eq!(page.bytes(), valid);
+                    assert_eq!(page.value(), &serde_json::json!([1, 2]));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn observed_history_cannot_start_another_page_after_recorder_exhausts_deadline() {
+        history_with_expired_recording(120_000);
+    }
+    #[test]
+    fn observed_history_cannot_return_a_last_page_after_recorder_exhausts_deadline() {
+        history_with_expired_recording(60_000);
+    }
+    fn history_with_expired_recording(end_ms: i64) {
+        use std::{sync::mpsc, time::Duration};
+        let row = r#"[[0,"1","2","1","2","3",59999,"6",4,"0","0","0"]]"#;
+        let (mut rest, requests, server) = fixture(vec![ok(row)]);
+        rest.page_size = 1;
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let (_ack, acknowledgement) = mpsc::channel::<()>();
+        let mut captured = vec![];
+        let result = runtime().block_on(rest.historical_klines_observed(
+            "BTCUSDT",
+            0,
+            end_ms,
+            deadline,
+            &mut |_, bytes| {
+                captured.push(bytes.to_vec());
+                // 原始证据写入的确认在调用方预算内一直未到；保存完成才返回。
+                assert_eq!(
+                    acknowledgement
+                        .recv_timeout(deadline.saturating_duration_since(Instant::now())),
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                );
+                assert!(Instant::now() >= deadline);
+                Ok(())
+            },
+        ));
+        server.join().unwrap();
+        assert_eq!(requests.into_iter().count(), 1);
+        assert_eq!(captured, [row.as_bytes()]);
+        assert_eq!(result.err(), Some(Error::Deadline));
     }
     #[test]
     fn real_public_transport_downloads_exact_pages_and_keeps_raw_evidence() {
@@ -1199,7 +1691,7 @@ mod tests {
 mod gzip_regressions {
     use super::*;
     use std::io::Write;
-    fn compressed(data: &[u8]) -> Vec<u8> {
+    pub(super) fn compressed(data: &[u8]) -> Vec<u8> {
         let mut writer = flate2::write::GzEncoder::new(vec![], flate2::Compression::default());
         writer.write_all(data).unwrap();
         writer.finish().unwrap()

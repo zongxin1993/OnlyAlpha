@@ -7,7 +7,7 @@ impl Manager {
         let rid = id(&p["reservation"])?;
         let order = id(&p["order"])?;
         if !self.state.flags.is_empty()
-            || amount <= Decimal::zero()
+            || (self.config["account_type"] != "LINEAR_PERPETUAL" && amount.is_zero())
             || amount > self.state.withdrawable()
         {
             return Err(err("ACCOUNT_RESERVE_BLOCKED_OR_INSUFFICIENT"));
@@ -40,7 +40,9 @@ impl Manager {
             .reservations
             .get_mut(text(&p["reservation"])?)
             .ok_or_else(|| err("ACCOUNT_RESERVATION_UNKNOWN"))?;
-        if r.remaining == Decimal::zero() {
+        if r.terminal_outcome.is_some()
+            || (self.config["account_type"] != "LINEAR_PERPETUAL" && r.remaining.is_zero())
+        {
             return Err(err("ACCOUNT_RESERVATION_TERMINAL"));
         }
         match text(&p["stage"])? {
@@ -104,7 +106,7 @@ impl Manager {
             }
             _ => return Err(err("ACCOUNT_RELEASE_OUTCOME_INVALID")),
         }
-        if r.remaining == Decimal::zero() {
+        if r.remaining == Decimal::zero() && observed != "UNKNOWN" {
             r.terminal_outcome = Some(observed.into());
         }
         Ok(Status::Applied)
@@ -116,10 +118,16 @@ impl Manager {
             .reservations
             .get(id)
             .ok_or_else(|| err("ACCOUNT_BUY_REQUIRES_RESERVATION"))?;
-        if text(&p["order"])? != r.order || r.remaining == Decimal::zero() {
+        let perpetual = self.config["account_type"] == "LINEAR_PERPETUAL";
+        if text(&p["order"])? != r.order
+            || r.terminal_outcome.is_some()
+            || (!perpetual && r.remaining.is_zero())
+        {
             return Err(err("ACCOUNT_RESERVATION_SCOPE_OR_TERMINAL"));
         }
-        if debit > &r.remaining || (!boolean(&p["terminal_fill"])? && debit == &r.remaining) {
+        if !perpetual
+            && (debit > &r.remaining || (!boolean(&p["terminal_fill"])? && debit == &r.remaining))
+        {
             return Err(err("ACCOUNT_RESERVATION_INSUFFICIENT"));
         }
         let r = self
@@ -129,8 +137,9 @@ impl Manager {
             .expect("validated reservation");
         // An observed Fill proves submission even when the send callback has not arrived.
         r.sent = true;
-        r.remaining -= debit;
-        r.consumed += debit;
+        let covered = debit.min(&r.remaining).clone();
+        r.remaining -= &covered;
+        r.consumed += covered;
         if boolean(&p["terminal_fill"])? {
             r.released += &r.remaining;
             r.remaining = Decimal::zero();

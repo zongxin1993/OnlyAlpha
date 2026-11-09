@@ -8,10 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../../execution/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 // Explicit empty schema2 fixture: no fact is migrated or rewritten. These
 // original raw-codec adversarial vectors retain their original format.

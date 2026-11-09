@@ -1,9 +1,6 @@
 //! Actual projection/restore work and immutable canonical identity. No grants.
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../tests/support/mod.rs"]
-mod support;
 use crate::components::PROJECTION_RESTORES;
+use crate::support;
 use crate::{Components, Prepared, Record, coordinate, recover};
 use serde_json::{Value, json};
 use support::{Harness, MemoryStore, config, fill, open, stage, terminal};

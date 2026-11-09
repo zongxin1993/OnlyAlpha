@@ -1,6 +1,7 @@
 //! Transport-neutral chart Product owners. Provider protocol remains a Source;
 //! canonical history remains Storage. Host owns human mutation admission and send.
 mod acquisition;
+pub(crate) mod day;
 mod queries;
 mod recorder;
 mod runtime;
@@ -15,6 +16,7 @@ pub use queries::{
     Application, Authorized, AuthorizedBatch, BatchFence, InstrumentQuery, SendFence, WindowRequest,
 };
 use recorder::WalRecorder;
+pub(crate) use runtime::DeclaredSource;
 pub use runtime::{GenerationAdmission, Installed, Resolved, Resolver};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -34,6 +36,7 @@ pub enum Error {
     Busy,
     Backpressure,
     PreviewSuperseded,
+    HistoricalInputRejected,
     Source(SourceError),
     Store(market_data::Error),
 }
@@ -50,6 +53,7 @@ impl Error {
             Self::Busy => "MARKET_DATA_EXECUTION_ACTIVE",
             Self::Backpressure => "MARKET_DATA_STREAM_BACKPRESSURE",
             Self::PreviewSuperseded => "MARKET_DATA_PREVIEW_SUPERSEDED",
+            Self::HistoricalInputRejected => "MARKET_DATA_HISTORICAL_INPUT_REJECTED",
             Self::Source(e) => e.code(),
             Self::Store(e) => e.code(),
         }
@@ -90,7 +94,7 @@ fn canonical(v: &Value) -> Result<String> {
 fn fp(v: &Value) -> Result<String> {
     Ok(hash(canonical(v)?.as_bytes()))
 }
-fn ns(t: onlyalpha_domain::time::OnlyUtcDateTime) -> Result<i64> {
+pub(crate) fn ns(t: onlyalpha_domain::time::OnlyUtcDateTime) -> Result<i64> {
     onlyalpha_domain::time::OnlyTimestamp::from_datetime(t)
         .unix_nanos()
         .to_string()
@@ -103,7 +107,9 @@ fn time(ns: i64) -> Result<onlyalpha_domain::time::OnlyUtcDateTime> {
         .map_err(|_| Error::Invalid)
 }
 
-fn budget(end: std::time::Instant) -> Result<onlyalpha_integration_contract::source::Budget> {
+pub(crate) fn budget(
+    end: std::time::Instant,
+) -> Result<onlyalpha_integration_contract::source::Budget> {
     let ms = end
         .checked_duration_since(std::time::Instant::now())
         .ok_or(Error::Source(SourceError::Timeout))?
@@ -119,6 +125,7 @@ pub use probe::{CompletedProbe, ProbeAdmission, latest_probe, probe_attempts};
 
 mod history;
 pub use history::HistoryContext;
+pub(crate) use history::original_selection;
 
 mod temporary;
 

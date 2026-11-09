@@ -14,29 +14,34 @@ pub struct Manager {
         std::sync::OnceLock<std::sync::Arc<crate::recovery::CachedCheckpoint>>,
 }
 impl Manager {
-    pub fn new(mut config: Value) -> Result<Self, Error> {
+    pub fn new(config: Value) -> Result<Self, Error> {
+        Self::configured(config, 4)
+    }
+    fn configured(mut config: Value, checkpoint_version: u8) -> Result<Self, Error> {
+        if config["schema_version"] == 3 && checkpoint_version != 5 {
+            return Err(err("ACCOUNT_PERPETUAL_CHECKPOINT_FORMAT"));
+        }
+
         let p = validate_config(&config)?;
         let cash = nonnegative(&config["initial_cash"], p)?;
         config["initial_cash"] = json!(formatted(&cash, p));
+        let mut state = State::new(cash);
+        state.perpetual = config["account_type"] == "LINEAR_PERPETUAL";
         Ok(Self {
             config,
             precision: p,
-            state: State::new(cash),
-            checkpoint_version: 4,
+            state,
+            checkpoint_version,
             journal_bytes: 0,
             checkpoint_cache: std::sync::OnceLock::new(),
         })
     }
     /// Explicit bounded self-contained dictionary format. Existing `new` stays schema4.
     pub fn new_checkpoint5(config: Value) -> Result<Self, Error> {
-        let mut owner = Self::new(config)?;
-        owner.checkpoint_version = 5;
-        Ok(owner)
+        Self::configured(config, 5)
     }
     pub(crate) fn fresh(&self) -> Result<Self, Error> {
-        let mut owner = Self::new(self.config.clone())?;
-        owner.checkpoint_version = self.checkpoint_version;
-        Ok(owner)
+        Self::configured(self.config.clone(), self.checkpoint_version)
     }
     pub fn snapshot(&self) -> Value {
         let mut snapshot = self.state.snapshot(self.precision);
@@ -50,6 +55,26 @@ impl Manager {
             "account_type",
         ] {
             snapshot[field] = self.config[field].clone();
+        }
+        if self.state.perpetual {
+            let collateral = &self.state.cash + &self.state.market_value;
+            let maintenance = self.state.margin_total("maintenance");
+            snapshot["collateral"] = json!(formatted(&collateral, self.precision));
+            let current = !self.state.flags.contains("MAINTENANCE_UNAVAILABLE");
+            snapshot["maintenance_status"] = json!(if current { "CURRENT" } else { "UNAVAILABLE" });
+            snapshot["last_confirmed_maintenance"] = self.state.last_confirmed_maintenance.clone();
+            if !current {
+                snapshot["maintenance_required"] = Value::Null;
+            }
+            snapshot["maintenance_to_equity"] = if current && collateral > Decimal::zero() {
+                json!(
+                    (maintenance / collateral)
+                        .with_scale_round(8, bigdecimal::RoundingMode::HalfEven)
+                        .to_plain_string()
+                )
+            } else {
+                Value::Null
+            };
         }
         snapshot
     }
@@ -71,7 +96,80 @@ impl Manager {
     pub fn state(&self) -> Value {
         json!({"schema_version":1,"snapshot":self.snapshot(),"reservations":self.state.reservations.iter().map(|(k,r)|(k.clone(),r.record(self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"receivables":self.state.receivables.iter().map(|(k,v)|(k.clone(),formatted(v,self.precision))).collect::<std::collections::BTreeMap<_,_>>(),"margin":self.state.margin,"margin_owner":self.state.margin_owner,"position_trades":self.state.position_trades,"receipts":self.state.receipts,"semantic":self.state.semantic,"broker":self.state.broker,"broker_sequence":self.state.broker_sequence,"differences":self.state.differences})
     }
+    /// 仅由绑定的 Position 和冻结的来源原件推导资金费流水。
+    pub fn apply_funding(
+        &mut self,
+        input: &Value,
+        effect: &onlyalpha_position::FundingEffect,
+    ) -> Result<Outcome, Error> {
+        let flow = effect.record();
+        if input["op"] != "ECONOMIC"
+            || self.config["position_configuration"] != effect.position_configuration()
+            || self.config["account"] != flow["account"]
+            || !self.state.perpetual
+        {
+            return Err(err("ACCOUNT_FUNDING_PRODUCER_SCOPE"));
+        }
+        let mut command = input.clone();
+        command["payload"] = json!({"schema_version":1,"cashflow":flow["cashflow"],"source_fact":flow["source_fact"],"amount":flow["amount"],"funding_source":effect.reference(),"trade_lineage":effect.account_lineage()});
+        command["payload"]["kind"] = json!("FUNDING");
+        command["payload"]["instrument"] = flow["instrument"].clone();
+        // 已保留的同一原命令先走原幂等路径，不以未来成交改写旧 Funding。
+        if let Some(original) = self.state.journal.iter().find(|c| {
+            c["op"] == "ECONOMIC"
+                && c["payload"]["kind"] == "FUNDING"
+                && c["payload"]["cashflow"] == flow["cashflow"]
+        }) {
+            let mut retained = original.as_ref().clone();
+            retained["command_id"] = command["command_id"].clone();
+            if retained != command {
+                return Err(err("ACCOUNT_FUNDING_IDENTITY_CONFLICT"));
+            }
+            return self.apply_inner(&command);
+        }
+        if self.state.journal.iter().any(|c| {
+            c["op"] == "TRADE"
+                && c["payload"]["instrument"] == flow["instrument"]
+                && c["payload"]["trade"]
+                    .as_str()
+                    .is_none_or(|id| !self.state.position_trades.contains_key(id))
+        }) || effect.account_lineage()
+            != hash(&serde_json::to_value(&self.state.position_trades)?)
+        {
+            return Err(err("ACCOUNT_FUNDING_SOURCE_RELATION"));
+        }
+        self.apply_inner(&command)
+    }
+    /// 显式永续 TRADE 的原输入身份只由实际已应用的 Position 成交签发。
+    pub fn apply_position_trade(
+        &mut self,
+        input: &Value,
+        original: &onlyalpha_position::TradeEvidence,
+    ) -> Result<Outcome, Error> {
+        let evidence = original
+            .verify_projection(&self.config, input, false)
+            .map_err(|e| Error(e.0))?;
+        let mut command = input.clone();
+        if command["payload"]
+            .get("trade_evidence")
+            .is_some_and(|old| old != evidence)
+        {
+            return Err(err("ACCOUNT_TRADE_EVIDENCE_CONFLICT"));
+        }
+        command["payload"]["trade_evidence"] = json!(evidence);
+        self.apply_inner(&command)
+    }
     pub fn apply(&mut self, input: &Value) -> Result<Outcome, Error> {
+        if self.state.perpetual && input["op"] == "TRADE" {
+            return Err(err("ACCOUNT_TRADE_PRODUCER_REQUIRED"));
+        }
+        if self.state.perpetual
+            && input["op"] == "ECONOMIC"
+            && input["payload"]["kind"] == "FUNDING"
+        {
+            return Err(err("ACCOUNT_FUNDING_PRODUCER_REQUIRED"));
+        }
+
         if input["op"] == "VALUATION" {
             return Err(err("ACCOUNT_VALUATION_PRODUCER_REQUIRED"));
         }
@@ -140,6 +238,9 @@ impl Manager {
         fingerprint(&r["cause"])?;
         let t = time(&r["time"])?;
         let op = text(&r["op"])?;
+        if op == "TRADE" && self.state.perpetual != r["payload"].get("trade_evidence").is_some() {
+            return Err(err("ACCOUNT_TRADE_EVIDENCE_PROFILE"));
+        }
         let mut command = input.clone();
         command["payload"] = normalize_payload(op, &r["payload"], self.precision)?;
         let encoded = serde_json::to_vec(&command)?;
@@ -212,10 +313,31 @@ impl Manager {
         let status = if duplicate {
             Status::Duplicate
         } else {
+            if op == "MARGIN" && candidate.state.perpetual {
+                let cause = text(&command["cause"])?;
+                if candidate
+                    .state
+                    .maintenance_origin
+                    .as_ref()
+                    .is_none_or(|(old, _)| old != cause)
+                {
+                    candidate.state.maintenance_origin = Some((
+                        cause.into(),
+                        candidate.state.last_confirmed_maintenance.clone(),
+                    ));
+                }
+            }
             candidate.transition(op, p, &t)?
         };
         if op == "TRADE" && status == Status::Applied {
             candidate.state.position_trades.insert(id(&p["trade"])?,json!({"position_evidence":p["position_evidence"],"cause":command["cause"],"time":command["time"],"order":p["order"],"execution":p["execution"],"venue_trade":p["venue_trade"],"sequence":p["sequence"]}));
+            if let Some(original) = p.get("trade_evidence") {
+                candidate
+                    .state
+                    .position_trades
+                    .get_mut(text(&p["trade"])?)
+                    .expect("inserted trade")["trade_evidence"] = original.clone();
+            }
         }
         if status != Status::Duplicate {
             candidate.state.sequence += 1;
@@ -237,7 +359,18 @@ impl Manager {
             .and_then(|size| size.checked_add(usize::from(!candidate.state.journal.is_empty())))
             .ok_or_else(|| err("ACCOUNT_CHECKPOINT_BOUND"))?;
         candidate.state.journal.push(std::sync::Arc::new(command));
-        candidate.state.validate()?;
+        let perpetual = candidate.config["account_type"] == "LINEAR_PERPETUAL";
+        if perpetual {
+            if candidate.state.available() < Decimal::zero()
+                || &candidate.state.cash + &candidate.state.market_value
+                    < candidate.state.margin_total("maintenance")
+            {
+                candidate.state.flags.insert("INSUFFICIENT_MARGIN".into());
+            } else {
+                candidate.state.flags.remove("INSUFFICIENT_MARGIN");
+            }
+        }
+        candidate.state.validate(perpetual)?;
         if candidate.checkpoint_version == 5 {
             crate::recovery::check_expanded_size(
                 &candidate.config,
@@ -340,7 +473,11 @@ impl Manager {
                 {
                     return Err(err("ACCOUNT_VALUATION_BASIS"));
                 }
-                self.state.market_value = nonnegative(&result["market_value"], self.precision)?;
+                self.state.market_value = if self.config["account_type"] == "LINEAR_PERPETUAL" {
+                    money(&result["market_value"], self.precision)?
+                } else {
+                    nonnegative(&result["market_value"], self.precision)?
+                };
                 self.state.unrealized = analytical(&result["unrealized_pnl"])?;
                 self.state.valuation_version = v;
                 self.state.position_evidence = Some(text(&intent["position_evidence"])?.into());
@@ -367,12 +504,20 @@ impl Manager {
                 if realized != Decimal::zero() {
                     return Err(err("ACCOUNT_BUY_REALIZED_PNL"));
                 }
-                let debit = &notional + &fee;
-                self.consume(p, &(&notional + &charges))?;
+                let principal = if self.config["account_type"] == "LINEAR_PERPETUAL" {
+                    Decimal::zero()
+                } else {
+                    notional.clone()
+                };
+                let debit = &principal + &fee;
+                self.consume(p, &(&principal + &charges))?;
                 self.state.cash -= &debit;
                 -debit
             }
             "SELL" => {
+                if self.state.perpetual {
+                    return Err(err("ACCOUNT_PERPETUAL_OPEN_ONLY"));
+                }
                 if !p["reservation"].is_null() {
                     return Err(err("ACCOUNT_SELL_CASH_RESERVATION"));
                 }
@@ -399,6 +544,9 @@ impl Manager {
 
 impl Manager {
     fn margin_effect(&mut self, proof: &Value) -> Result<(), Error> {
+        if proof["config"].get("observation_capacity").is_some() != self.state.perpetual {
+            return Err(err("ACCOUNT_MARGIN_CONFIGURATION"));
+        }
         let mut owner = onlyalpha_margin::Manager::new(
             proof["config"].clone(),
             usize::try_from(uint(&proof["capacity"])?)
@@ -424,6 +572,37 @@ impl Manager {
         self.margin_projection(
             &json!({"before":result["projection_before"],"after":result["projection_after"]}),
         )?;
+        if self.state.perpetual {
+            if proof["command"]["action"] == "MARK_MAINTENANCE"
+                && self
+                    .state
+                    .margin
+                    .values()
+                    .all(|r| r.get("observation_gap").is_none())
+            {
+                self.state.flags.remove("MAINTENANCE_UNAVAILABLE");
+            }
+            if result["after"]["observation_gap"].is_object()
+                && self.state.flags.insert("MAINTENANCE_UNAVAILABLE".into())
+            {
+                // Earlier reservations in this same input may already have been repriced.
+                self.state.last_confirmed_maintenance = self
+                    .state
+                    .maintenance_origin
+                    .as_ref()
+                    .expect("validated Margin cause")
+                    .1
+                    .clone();
+            }
+            if !self.state.flags.contains("MAINTENANCE_UNAVAILABLE")
+                && matches!(
+                    proof["command"]["action"].as_str(),
+                    Some("OCCUPY" | "RELEASE_OCCUPIED" | "MARK_MAINTENANCE")
+                )
+            {
+                self.state.last_confirmed_maintenance = json!({"amount":formatted(&self.state.margin_total("maintenance"),self.precision),"time":proof["command"]["time"],"source_ref":proof["command"]["source_ref"]});
+            }
+        }
         self.state.margin_owner = owner.checkpoint();
         Ok(())
     }

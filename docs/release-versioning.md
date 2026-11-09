@@ -235,3 +235,12 @@ transitions, historical label/merge proof, immutable tag conflicts, partial retr
 artifact/source-composition and API-pair proofs remain phase 6; source tags alone never establish them. Run relevant local checks
 through the single dev environment and retain results. The [work program](repository-migration-work-program.md) supplies
 sequence, not a second gate authority.
+
+
+## 已退役市场插件
+
+Generic T0 Cash 的 Python 发行单元 `plugin-generic-t0-cash` 已停止参与当前 workspace、CI 与新发行。
+发行清单仅接受该单元的精确退役；其他单元的新增、删除或连带移除仍须独立批准。
+既有版本、标签、源码归档、wheel、manifest 和历史身份不因此改写或覆盖。
+历史发行元数据与源码应按原提交或原快照校验；当前源码清单不能替代历史基线。
+运行恢复继续读取原 Generation 绑定的确切工件，缺失或不匹配时拒绝恢复，不从当前源码重建退役插件。

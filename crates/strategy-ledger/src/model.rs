@@ -250,9 +250,11 @@ impl Line {
 }
 #[derive(Clone)]
 pub(crate) struct Ledger {
+    precision: u8,
     pub initial: D,
     pub cash: D,
     pub external: D,
+    pub funding: Option<D>,
     pub external_occurred: bool,
     pub day_flow_occurred: bool,
     pub realized: D,
@@ -275,6 +277,7 @@ pub(crate) struct Ledger {
 impl Ledger {
     pub fn new(initial: D, p: u8) -> Self {
         Self {
+            precision: p,
             cash: initial.clone(),
             high_water: initial.clone(),
             day_start: initial.clone(),
@@ -283,6 +286,7 @@ impl Ledger {
             ],
             initial,
             external: D::zero(),
+            funding: None,
             external_occurred: false,
             day_flow_occurred: false,
             realized: D::zero(),
@@ -307,7 +311,11 @@ impl Ledger {
             .sum()
     }
     pub fn available(&self) -> D {
-        &self.cash - self.reserved()
+        if self.funding.is_some() {
+            self.equity() - self.reserved()
+        } else {
+            &self.cash - self.reserved()
+        }
     }
     pub fn cost(&self) -> D {
         self.lines.values().map(|l| l.allocation.cost.clone()).sum()
@@ -325,10 +333,19 @@ impl Ledger {
         self.rounding_residual.clone()
     }
     pub fn pnl_equity(&self) -> D {
+        let unrealized = if self.funding.is_some() {
+            self.unrealized().with_scale_round(
+                i64::from(self.precision),
+                bigdecimal::RoundingMode::HalfEven,
+            )
+        } else {
+            self.unrealized()
+        };
         &self.initial
             + &self.external
+            + self.funding.clone().unwrap_or_default()
             + &self.realized
-            + self.unrealized()
+            + unrealized
             + self.rounding_adjustment()
             - &self.fees
     }
@@ -382,6 +399,13 @@ impl Ledger {
             .unwrap_or_else(D::zero)
     }
     pub fn refresh(&mut self) {
+        if self.funding.is_some() {
+            if self.available() < D::zero() {
+                self.flags.insert("INSUFFICIENT_MARGIN".into());
+            } else {
+                self.flags.remove("INSUFFICIENT_MARGIN");
+            }
+        }
         if self.equity() != self.pnl_equity() {
             self.flags.insert("EQUITY_VIEW_MISMATCH".into());
         } else {
@@ -397,7 +421,7 @@ impl Ledger {
         Ok(())
     }
     pub fn validate(&self) -> Result<(), Error> {
-        if self.cash < D::zero() || self.available() < D::zero() {
+        if self.funding.is_none() && (self.cash < D::zero() || self.available() < D::zero()) {
             return Err(err("LEDGER_CASH_CONSERVATION"));
         }
         for d in [
@@ -428,7 +452,11 @@ impl Ledger {
     }
     pub fn snapshot(&self, p: u8) -> Value {
         let daily = self.equity() - &self.day_start - (&self.external - &self.day_external);
-        json!({"status":self.status(),"lifecycle":self.lifecycle,"flags":self.flags,"initial_capital":formatted(&self.initial,p),"cash":formatted(&self.cash,p),"external_cash_flow":formatted(&self.external,p),"reserved":formatted(&self.reserved(),p),"available":formatted(&self.available(),p),"position_cost":analytical_record(&self.cost(),p),"market_value":formatted(&self.market(),p),"realized_pnl":analytical_record(&self.realized,p),"realized_rounding_adjustment":analytical_record(&self.rounding_adjustment(),p),"unrealized_pnl":analytical_record(&self.unrealized(),p),"fees":formatted(&self.fees,p),"equity":formatted(&self.equity(),p),"pnl_equity":formatted(&self.pnl_equity(),p),"net_pnl":formatted(&(&self.realized+self.unrealized()+self.rounding_adjustment()-&self.fees),p),"simple_return":if self.external_occurred{None}else{Self::ratio(self.equity()-&self.initial,&self.initial)},"high_water_mark":formatted(&self.high_water,p),"drawdown":formatted(&self.drawdown(),8),"maximum_drawdown":formatted(&self.max_drawdown,8),"day_start_equity":formatted(&self.day_start,p),"daily_pnl":formatted(&daily,p),"daily_return":if self.day_flow_occurred{None}else{Self::ratio(daily,&self.day_start)},"economic_version":self.economic_version,"valuation_version":self.valuation_version,"trade_sequence":self.trade_sequence})
+        let mut snapshot = json!({"status":self.status(),"lifecycle":self.lifecycle,"flags":self.flags,"initial_capital":formatted(&self.initial,p),"cash":formatted(&self.cash,p),"external_cash_flow":formatted(&self.external,p),"reserved":formatted(&self.reserved(),p),"available":formatted(&self.available(),p),"position_cost":analytical_record(&self.cost(),p),"market_value":formatted(&self.market(),p),"realized_pnl":analytical_record(&self.realized,p),"realized_rounding_adjustment":analytical_record(&self.rounding_adjustment(),p),"unrealized_pnl":analytical_record(&self.unrealized(),p),"fees":formatted(&self.fees,p),"equity":formatted(&self.equity(),p),"pnl_equity":formatted(&self.pnl_equity(),p),"net_pnl":formatted(&(self.pnl_equity()-&self.initial-&self.external),p),"simple_return":if self.external_occurred{None}else{Self::ratio(self.equity()-&self.initial,&self.initial)},"high_water_mark":formatted(&self.high_water,p),"drawdown":formatted(&self.drawdown(),8),"maximum_drawdown":formatted(&self.max_drawdown,8),"day_start_equity":formatted(&self.day_start,p),"daily_pnl":formatted(&daily,p),"daily_return":if self.day_flow_occurred{None}else{Self::ratio(daily,&self.day_start)},"economic_version":self.economic_version,"valuation_version":self.valuation_version,"trade_sequence":self.trade_sequence});
+        if let Some(funding) = &self.funding {
+            snapshot["funding"] = json!(formatted(funding, p));
+        }
+        snapshot
     }
     pub fn record(&self, p: u8) -> Value {
         json!({"snapshot":self.snapshot(p),"reservations":self.reservations.iter().map(|(k,v)|(k.clone(),v.record(p))).collect::<BTreeMap<_,_>>(),"lines":self.lines.iter().map(|(k,v)|(k.clone(),v.record(p))).collect::<BTreeMap<_,_>>(),"external_occurred":self.external_occurred,"day_flow_occurred":self.day_flow_occurred,"day_external":formatted(&self.day_external,p),"entries":self.entries,"fee_entries":self.fee_entries})
@@ -515,7 +543,18 @@ pub(crate) fn normalize(op: &str, v: &Value, p: u8) -> Result<Value, Error> {
         ),
         "STAGE" => (&["reservation", "stage"], &[], &["reservation"]),
         "RELEASE" => (&["reservation", "outcome"], &[], &["reservation"]),
-        "CASH_FLOW" => (
+        "FUNDING" if v.get("funding_source").is_some() => (
+            &[
+                "cashflow",
+                "source_fact",
+                "amount",
+                "funding_source",
+                "trade_lineage",
+            ],
+            &["amount"],
+            &["cashflow", "source_fact"],
+        ),
+        "CASH_FLOW" | "FUNDING" => (
             &["cashflow", "source_fact", "amount"],
             &["amount"],
             &["cashflow", "source_fact"],
@@ -581,7 +620,12 @@ pub(crate) fn normalize(op: &str, v: &Value, p: u8) -> Result<Value, Error> {
         ),
         _ => return Err(err("LEDGER_OP_UNSUPPORTED")),
     };
-    let mut r = row(v, fields)?.clone();
+    let mut fields = fields.to_vec();
+    if op == "TRADE" && v.get("trade_evidence").is_some() {
+        fingerprint(&v["trade_evidence"])?;
+        fields.push("trade_evidence");
+    }
+    let mut r = row(v, &fields)?.clone();
     for k in ids {
         id(&r[*k])?;
     }

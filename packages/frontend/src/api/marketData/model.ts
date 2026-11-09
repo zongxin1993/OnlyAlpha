@@ -62,7 +62,9 @@ export const formatBarSemantic = (spec: MarketDataBarSemantic): string =>
         ? spec.formation.window_minutes % 60 === 0
             ? `${String(spec.formation.window_minutes / 60)}H`
             : `${String(spec.formation.window_minutes)}m`
-        : spec.formation.kind;
+        : spec.formation.kind === "CALENDAR_PERIOD" && spec.formation.unit === "DAY"
+          ? `${String(spec.formation.count)}日`
+          : spec.formation.kind;
 export const fixedDurationMinutes = (semantic: MarketDataBarSemantic): number => {
     if (semantic.formation.kind !== "FIXED_DURATION")
         throw new Error("Market Data view requires a fixed-duration Bar semantic");
@@ -85,24 +87,31 @@ export const marketDataSourceSelectionSchema = z.strictObject({
     environment: z.string().min(1)
 });
 
-export const marketDataSourceSchema = z.strictObject({
-    is_current_revision: z.boolean(),
-    integration_id: z.string().min(1),
-    integration_revision_fingerprint: sha256,
-    display_name: z.string().min(1),
-    type_id: z.string().min(1),
-    source_id: z.string().min(1),
-    environment: z.string().min(1),
-    new_work_status: z.enum(["AVAILABLE", "UNAVAILABLE"]),
-    new_work_unavailable_code: z.string().nullable(),
-    history_read_policy: z.literal("EXACT_SEALED_PROOF"),
-    time_bar_capability: z.strictObject({
-        provider_base_semantic: marketDataBarSemanticSchema,
-        derived_algorithm: z.literal("TIME_BAR@1").nullable(),
-        minimum_window_minutes: z.number().int().positive(),
-        maximum_window_minutes: z.number().int().positive()
+export const marketDataSourceSchema = z
+    .strictObject({
+        is_current_revision: z.boolean(),
+        integration_id: z.string().min(1),
+        integration_revision_fingerprint: sha256,
+        display_name: z.string().min(1),
+        type_id: z.string().min(1),
+        source_id: z.string().min(1),
+        environment: z.string().min(1),
+        new_work_status: z.enum(["AVAILABLE", "UNAVAILABLE"]),
+        new_work_unavailable_code: z.string().nullable(),
+        history_read_policy: z.literal("EXACT_SEALED_PROOF"),
+        historical_day_semantic: marketDataBarSemanticSchema.optional(),
+        time_bar_capability: z
+            .strictObject({
+                provider_base_semantic: marketDataBarSemanticSchema,
+                derived_algorithm: z.literal("TIME_BAR@1").nullable(),
+                minimum_window_minutes: z.number().int().positive(),
+                maximum_window_minutes: z.number().int().positive()
+            })
+            .optional()
     })
-});
+    .refine(
+        (s) => (s.historical_day_semantic !== undefined) !== (s.time_bar_capability !== undefined)
+    );
 
 export const marketDataSourceListSchema = z.strictObject({
     schema_version: z.literal(1),
@@ -156,7 +165,8 @@ export const marketDataInstrumentListSchema = z.strictObject({
 export const marketDataAcquisitionSchema = z.strictObject({
     schema_version: z.literal(1),
     acquisition_id: z.string().min(1),
-    status: z.enum(["PENDING", "RUNNING", "COMPLETE", "FAILED"]),
+    original_request_id: z.uuid().optional(),
+    status: z.enum(["PENDING", "RUNNING", "COMPLETE", "FAILED", "UNKNOWN"]),
     source_id: z.string().min(1),
     integration_binding_fingerprint: sha256.nullable(),
     instrument_id: z.string().min(1),

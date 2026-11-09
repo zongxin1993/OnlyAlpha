@@ -1,8 +1,5 @@
 use super::*;
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../../execution/tests/support/mod.rs"]
-mod support;
+use crate::support;
 use std::{
     fs,
     path::PathBuf,
