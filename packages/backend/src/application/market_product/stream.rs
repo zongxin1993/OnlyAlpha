@@ -512,6 +512,12 @@ impl ProductStream {
         }
         Ok(authorized)
     }
+    /// Deliver the next pending event on the original stream. After a terminal
+    /// provider failure such as Backpressure, this yields the `STATE FAILED`
+    /// event, then the `ERROR` event carrying the terminal error code, then
+    /// `Ok(None)`; once the stream is closed it yields `Ok(None)` with no new
+    /// events. The terminal state is observable only here, never through the
+    /// `close` receipt.
     pub async fn next(&mut self) -> Result<Option<PendingStreamEvent>> {
         if self.pending.is_some() {
             return Err(Error::Busy);
@@ -576,6 +582,13 @@ impl ProductStream {
             tokio::select! {_ = self.session.withdrawn()=>return Err(Error::Forbidden),event=self.receiver.recv()=>{if let Some(event)=event{return self.issue(event,None)}},_=notified=>{}}
         }
     }
+    /// Close the original stream and return only the resource-cleanup and
+    /// worker-join receipt. A terminal provider failure (for example
+    /// Backpressure) stays retained on the original stream and is surfaced by
+    /// `next` as the `STATE FAILED`/`ERROR` events; it never turns a fully
+    /// successful cleanup into an error receipt. `Ok(())` therefore means both
+    /// upstream close and recorder finish succeeded and the worker joined; any
+    /// real cleanup or state failure still returns the corresponding `Err`.
     pub async fn close(&mut self) -> Result<()> {
         self.pending = None;
         self.state.cancel.store(true, Ordering::Release);
@@ -769,6 +782,7 @@ mod close_join_tests {
             Ok(()),
             Err(Error::Forbidden),
             Err(Error::Source(SourceError::Timeout)),
+            Err(Error::Backpressure),
         ] {
             for state_failure in [false, true] {
                 for close_failure in [

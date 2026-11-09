@@ -3092,10 +3092,22 @@ async fn reliable_stream_overflow(
     emit("stream", &error);
     assert_eq!(error["code"], "MARKET_DATA_STREAM_BACKPRESSURE");
     assert_eq!(retained.published_sealed().unwrap().len(), 257);
-    assert!(matches!(
-        overflow.close().await,
-        Err(onlyalpha_backend::application::market_product::Error::Backpressure)
-    ));
+    // 关闭回执约定：close() 只返回资源清理与 worker 等待结果；流终态错误独立保留在
+    // 原流上，已经由 FAILED 与 MARKET_DATA_STREAM_BACKPRESSURE 事件显式断言。清理全部
+    // 成功时回执必须是 Ok(())，真实清理失败仍返回 Err，见 market_product::stream 的
+    // close_worker 文档与清理矩阵。断言失败时输出实际 Result，不掩盖任何一侧的偏差。
+    let close_receipt = overflow.close().await;
+    assert!(
+        matches!(close_receipt, Ok(())),
+        "关闭回执必须是资源清理与等待结果 Ok(())，实际得到 {close_receipt:?}；终态错误应只经原流事件表达"
+    );
+    // 关闭后原流不得再产生任何事件：终态事件已投递完毕，next 直接以流结束收口。
+    match tokio::time::timeout(Duration::from_secs(5), overflow.next()).await {
+        Ok(Ok(None)) => {}
+        Ok(Ok(Some(_))) => panic!("关闭后原流不得再产生事件"),
+        Ok(Err(error)) => panic!("关闭后 next 应返回流结束 Ok(None)，实际 Err({error})"),
+        Err(_) => panic!("关闭后 next 未在 5 秒内返回流结束 Ok(None)"),
+    }
     drop(overflow);
     drop(retained);
     drop(Wal::new(&overflow_path, WORK).unwrap());
