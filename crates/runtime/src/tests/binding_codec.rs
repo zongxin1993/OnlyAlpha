@@ -3,15 +3,12 @@ use super::*;
 use crate::Runtime;
 #[cfg(target_os = "linux")]
 use crate::VerifiedReplaySnapshot;
+use crate::support;
 use std::{
     fs,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../../execution/tests/support/mod.rs"]
-mod support;
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Root(PathBuf);
 impl Root {

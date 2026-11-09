@@ -1218,6 +1218,14 @@ def validate_calculation_sources(root: Path) -> None:
 # also materialized in isolated builds and covered by source_inputs hashing.
 
 _INFRASTRUCTURE_RESOURCES = {
+    "crates/execution/src/lib.rs": {
+        "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "crates/runtime/src/lib.rs": {
+        "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
     "plugs/onlyalpha-data-source-binance/tests/usdm_assembled_runtime.rs": {
         "fixtures/usdm-exchange.json": "plugs/onlyalpha-data-source-binance/tests/fixtures/usdm-exchange.json",
         "fixtures/usdm-funding.json": "plugs/onlyalpha-data-source-binance/tests/fixtures/usdm-funding.json",
@@ -1270,10 +1278,6 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../../test-data/broker/domain-inputs.json": "test-data/broker/domain-inputs.json",
         "../../../test-data/domain/fact-records-v1.jsonl": "test-data/domain/fact-records-v1.jsonl",
     },
-    "crates/runtime/src/tests/dictionary_commit_tests.rs": {
-        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-    },
     "plugs/onlyalpha-market-cn-ashare/src/fees.rs": {
         "fee_sources.json": "plugs/onlyalpha-market-cn-ashare/src/fee_sources.json",
     },
@@ -1296,71 +1300,11 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../../../../database/clickhouse/migrations/0001_market_data_foundation.sql": "database/clickhouse/migrations/0001_market_data_foundation.sql",
         "../../../../../database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql": "database/clickhouse/migrations/0002_market_data_integration_runtime_provenance.sql",
     },
-    **{
-        "crates/execution/src/tests/reconciliation_data_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/components_cow_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/payload_codec_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/position_order_view_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/prefix_read_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/projection_digest_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/pure_transition_data_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/record_observation_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/typed_after_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/valuation_history_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-        },
-        "crates/execution/src/tests/valuation_ledger_view_tests.rs": {
-            "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-            "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-            "../../../../test-data/execution/linear-perpetual.json": "test-data/execution/linear-perpetual.json",
-        },
+    "crates/execution/src/tests/valuation_ledger_view_tests.rs": {
+        "../../../../test-data/execution/linear-perpetual.json": "test-data/execution/linear-perpetual.json",
     },
     "packages/backend/tests/transport/backtest_preparation_routes.rs": {
         "../../../frontend/src/features/backtest/fixtures/preparation-wire-v2.json": "packages/frontend/src/features/backtest/fixtures/preparation-wire-v2.json",
-    },
-    "crates/runtime/src/tests/checkpoint_work.rs": {
-        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-    },
-    "crates/runtime/src/tests/replay_codec_work.rs": {
-        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-    },
-    "crates/runtime/src/tests/binding_codec.rs": {
-        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
-    },
-    "crates/runtime/src/tests/replay_references.rs": {
-        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
-        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
     },
     "packages/backend/src/application/strategy_validation/tests.rs": {
         "../../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
@@ -1442,6 +1386,9 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "crates/runtime/tests/perpetual_economics.rs": {
         "support/perpetual_run.rs": "crates/runtime/tests/support/perpetual_run.rs",
     },
+    "crates/runtime/src/lib.rs": {
+        "../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
+    },
     "crates/runtime/src/tests/funding_commit.rs": {
         "../../tests/support/perpetual_run.rs": "crates/runtime/tests/support/perpetual_run.rs",
     },
@@ -1454,6 +1401,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "crates/execution/src/lib.rs": {
         "tests/projection_digest_tests.rs": "crates/execution/src/tests/projection_digest_tests.rs",
         "tests/valuation_ledger_view_tests.rs": "crates/execution/src/tests/valuation_ledger_view_tests.rs",
+        "../tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
     },
     "packages/backend/src/bootstrap/workstation_startup.rs": {
         "../../tests/transport/backtest_recovery_startup.rs": "packages/backend/tests/transport/backtest_recovery_startup.rs",
@@ -1461,47 +1409,9 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "packages/backend/tests/transport/backtest_preparation_window.rs": {
         "backtest_owner_scenarios.rs": "packages/backend/tests/transport/backtest_owner_scenarios.rs",
     },
-    "crates/runtime/src/tests/dictionary_commit_tests.rs": {
-        "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-    },
     "crates/operators/src/algebra.rs": {"tests/algebra_tests.rs": "crates/operators/src/tests/algebra_tests.rs"},
     "packages/backend/src/persistence/research_runtime.rs": {
         "research_runtime/metadata_read_tests.rs": "packages/backend/src/persistence/research_runtime/metadata_read_tests.rs",
-    },
-    **{
-        "crates/execution/src/tests/reconciliation_data_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/components_cow_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/payload_codec_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/position_order_view_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/prefix_read_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/projection_digest_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/pure_transition_data_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/record_observation_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/typed_after_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/valuation_history_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
-        "crates/execution/src/tests/valuation_ledger_view_tests.rs": {
-            "../../tests/support/mod.rs": "crates/execution/tests/support/mod.rs"
-        },
     },
     "crates/execution/src/components.rs": {
         "tests/components_cow_tests.rs": "crates/execution/src/tests/components_cow_tests.rs",
@@ -1534,14 +1444,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
         "tests/recovery_extension_tests.rs": "crates/strategy-ledger/src/tests/recovery_extension_tests.rs"
     },
     "crates/runtime/src/tests/checkpoint_work.rs": {
-        "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
         "prefix_work.rs": "crates/runtime/src/tests/prefix_work.rs",
-    },
-    "crates/runtime/src/tests/replay_codec_work.rs": {
-        "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
-    },
-    "crates/runtime/src/tests/replay_references.rs": {
-        "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
     },
     "crates/runtime/src/dictionary_codec.rs": {
         "tests/dictionary_codec_tests.rs": "crates/runtime/src/tests/dictionary_codec_tests.rs",
@@ -1602,9 +1505,6 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "crates/runtime/src/replay.rs": {
         "tests/replay_codec_work.rs": "crates/runtime/src/tests/replay_codec_work.rs",
         "tests/binding_codec.rs": "crates/runtime/src/tests/binding_codec.rs",
-    },
-    "crates/runtime/src/tests/binding_codec.rs": {
-        "../../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
     },
     "crates/runtime/src/store.rs": {
         "tests/funding_commit.rs": "crates/runtime/src/tests/funding_commit.rs",

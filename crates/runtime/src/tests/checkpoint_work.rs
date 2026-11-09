@@ -8,10 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../../execution/tests/support/mod.rs"]
-mod support;
+use crate::support;
 use support::{Harness, config, fill, input, open, stage, terminal};
 
 // Explicit empty schema2 fixture: no fact is migrated or rewritten. These
@@ -108,12 +105,11 @@ fn checkpoint_rows(root: &Root) -> Vec<(i64, String, String)> {
     let mut statement = db
         .prepare("SELECT sequence,payload,digest FROM checkpoints ORDER BY sequence")
         .unwrap();
-    let rows = statement
+    statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .unwrap()
         .collect::<rusqlite::Result<_>>()
-        .unwrap();
-    rows
+        .unwrap()
 }
 fn transcript(inputs: &[Value]) -> Value {
     json!({"schema_version":1,"configuration":hash(&config()),"kernel_artifact":"b".repeat(64),"input_pin":"c".repeat(64),

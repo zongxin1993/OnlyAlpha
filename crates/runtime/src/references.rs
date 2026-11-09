@@ -22,10 +22,10 @@ fn sql<T>(value: rusqlite::Result<T>) -> Result<T, Error> {
 fn sha(v: &Value) -> String {
     #[cfg(test)]
     REFERENCE_INPUT_HASHES.with(|watch| {
-        if let Some((input, count)) = watch.borrow_mut().as_mut() {
-            if input == v {
-                *count += 1;
-            }
+        if let Some((input, count)) = watch.borrow_mut().as_mut()
+            && input == v
+        {
+            *count += 1;
         }
     });
     digest(v.to_string().as_bytes())

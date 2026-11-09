@@ -1,10 +1,7 @@
 //! Rebuildable immutable transition data never replaces source or planner proof.
 use super::*;
+use crate::support;
 use crate::{Components, Record, Store, coordinate, recover};
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../tests/support/mod.rs"]
-mod support;
 use support::{Harness, MemoryStore, config, fill, open, stage, terminal};
 #[test]
 fn only_a_complete_transition_from_its_full_before_data_populates_the_shared_slot() {

@@ -41,10 +41,10 @@ pub(crate) fn hash(v: &Value) -> String {
     let canonical = v.to_string();
     #[cfg(test)]
     HASHED_CANONICAL_WATCH.with(|watch| {
-        if let Some((expected, count)) = watch.borrow_mut().as_mut() {
-            if expected.as_str() == canonical.as_str() {
-                *count += 1;
-            }
+        if let Some((expected, count)) = watch.borrow_mut().as_mut()
+            && expected.as_str() == canonical.as_str()
+        {
+            *count += 1;
         }
     });
     digest(canonical.as_bytes())

@@ -2,10 +2,7 @@
 use super::*;
 use crate::{Prepared, coordinate, recover};
 
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../tests/support/mod.rs"]
-mod support;
+use crate::support;
 use support::{Harness, config, fill, open, stage};
 
 fn shared_owners(left: &Components, right: &Components) -> [bool; 6] {
@@ -43,11 +40,10 @@ fn forks_share_immutable_owners_and_each_install_mutates_only_its_branch() {
     coordinate(&mut donor.store, &mut donor.components, &prepared).unwrap();
     let donor_images = original_images(&donor.components);
 
-    for selected in 0..6 {
+    for (selected, donor) in donor_images.iter().enumerate() {
         let mut fork = source.clone_data();
         assert_eq!(shared_owners(&source, &fork), [true; 6]);
-        fork.install_payload(selected, &donor_images[selected])
-            .unwrap();
+        fork.install_payload(selected, donor).unwrap();
         for (index, shared) in shared_owners(&source, &fork).into_iter().enumerate() {
             assert_eq!(
                 shared,

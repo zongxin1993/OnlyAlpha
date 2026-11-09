@@ -1,11 +1,8 @@
 //! Exact pure calculation reuse; every owning source observation stays fresh.
 use super::*;
+use crate::support;
 use crate::{CommitIntent, Prepared, coordinate};
 use std::cell::RefCell;
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../tests/support/mod.rs"]
-mod support;
 use support::{Harness, config, fill, open, stage, terminal};
 
 struct Observed {

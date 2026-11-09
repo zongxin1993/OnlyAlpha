@@ -138,6 +138,11 @@ mod tests {
         let raw = encode(&value, json!({"kind":"TEST"})).unwrap();
         let original: Value = serde_json::from_str(&raw).unwrap();
         let frame = inspect(&raw, &digest(raw.as_bytes())).unwrap();
+        assert_eq!(
+            frame.summary,
+            json!({"kind":"TEST"}),
+            "帧信封必须原样承载写入时的摘要"
+        );
         assert_eq!(decode(&frame).unwrap(), value);
         for fault in [
             "truncated",

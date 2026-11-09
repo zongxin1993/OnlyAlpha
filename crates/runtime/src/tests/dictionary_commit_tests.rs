@@ -1,10 +1,7 @@
 //! Same-call canonical data reuse, never a Source, Record or Ready grant.
 use super::*;
+use crate::support;
 use onlyalpha_execution::coordinate;
-const FIXTURE: &str = include_str!("../../../../test-data/execution/domain-inputs.json");
-const SETTLEMENT_FIXTURE: &str = include_str!("../../../../test-data/settlement/common-v1.json");
-#[path = "../../../execution/tests/support/mod.rs"]
-mod support;
 
 fn plans() -> (Prepared, Prepared) {
     let mut history = support::Harness::new(support::config()).unwrap();
