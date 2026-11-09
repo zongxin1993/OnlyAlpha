@@ -7,7 +7,6 @@ requires-python = ">=3.12.0, <3.13.0"
 dependencies = [
     "onlyalpha-gateway-protocol==0.11.1",
     "cryptography>=50,<51",
-    "filelock==4.2.1",
     "pyarrow>=21.0.0",
     "psycopg[binary]>=3.2,<4",
     "pyyaml>=6.0.2",
@@ -67,12 +66,6 @@ dev = [
 
 [tool.uv.workspace]
 members = [
-    "plugs/onlyalpha-broker-virtual",
-    "plugs/onlyalpha-market-cn-ashare",
-    "plugs/onlyalpha-market-crypto",
-    "plugs/onlyalpha-data-source-tushare",
-    "plugs/onlyalpha-data-source-binance",
-    "plugs/onlyalpha-broker-binance",
     "packages/backend/python/gateway_protocol",
     "packages/backend/python/algorithms",
 ]
@@ -128,20 +121,11 @@ onlyalpha-test-plugin = { path = "test-data/external_plugins/onlyalpha_test_plug
 onlyalpha-test-factor-provider = { path = "test-data/runtime_factor_provider", editable = true }
 onlyalpha-gateway-protocol = { workspace = true }
 onlyalpha-backend-algorithms = { workspace = true }
-onlyalpha-market-crypto = { workspace = true }
-onlyalpha-data-source-binance = { workspace = true }
-onlyalpha-broker-binance = { workspace = true }
 
 [tool.pytest.ini_options]
 consider_namespace_packages = true
 testpaths = [
     "scripts/tests",
-    "plugs/onlyalpha-broker-virtual/tests",
-    "plugs/onlyalpha-market-cn-ashare/tests",
-    "plugs/onlyalpha-market-crypto/tests",
-    "plugs/onlyalpha-data-source-binance/tests",
-    "plugs/onlyalpha-broker-binance/tests",
-    "plugs/onlyalpha-data-source-tushare/tests",
     "packages/backend/python/algorithms/tests",
     "packages/backend/tests/transport",
     "packages/backend/python/gateway_protocol/tests",

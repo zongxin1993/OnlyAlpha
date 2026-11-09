@@ -570,7 +570,7 @@ def test_default_web_wrapper_partitions_all_specs_and_preserves_real_restart_and
 
     result, calls = _capture_web_wrapper(tmp_path)
     assert result.returncode == 0, result.stderr
-    assert len(calls) == 5
+    assert len(calls) == 6
     batches = [_native_web_arguments(call) for call in calls]
     specs = [[argument for argument in batch if argument.endswith(".spec.ts")] for batch in batches]
     ordinary = {
@@ -593,6 +593,7 @@ def test_default_web_wrapper_partitions_all_specs_and_preserves_real_restart_and
     assert specs[1:] == [
         ["e2e/private-factor-authoring.spec.ts"],
         ["e2e/chart-native-sma.spec.ts"],
+        ["e2e/tushare-daily.spec.ts"],
         ["e2e/backtest.spec.ts"],
         ["e2e/backtest.spec.ts"],
     ]
@@ -600,7 +601,7 @@ def test_default_web_wrapper_partitions_all_specs_and_preserves_real_restart_and
         path.relative_to(test_suite.ROOT / "packages/frontend").as_posix()
         for path in (test_suite.ROOT / "packages/frontend/e2e").rglob("*.spec.ts")
     }
-    assert len(discovered) == 17
+    assert len(discovered) == 18
     assert set().union(*map(set, specs)) == discovered
     assert not ordinary & set().union(*map(set, specs[1:]))
     assert batches[0] == sorted(ordinary)
@@ -610,6 +611,13 @@ def test_default_web_wrapper_partitions_all_specs_and_preserves_real_restart_and
         "--retained-market-input",
         "--chart-sma-market-input",
         "e2e/chart-native-sma.spec.ts",
+    ]
+    assert batches[3] == [
+        "--controlled-source-https",
+        "--retained-market-input",
+        "--tushare-daily-market-input",
+        "--restart-check",
+        "e2e/tushare-daily.spec.ts",
     ]
     titles = re.findall(r'test\("([^"]+)"', (test_suite.ROOT / "packages/frontend/e2e/backtest.spec.ts").read_text())
     functional_titles = [
@@ -631,7 +639,7 @@ def test_default_web_wrapper_partitions_all_specs_and_preserves_real_restart_and
         ),
         (performance_title + "$", [performance_title]),
     ]
-    for batch, (pattern, selected) in zip(batches[3:], selections, strict=True):
+    for batch, (pattern, selected) in zip(batches[4:], selections, strict=True):
         assert batch == [
             "--controlled-source-https",
             "--retained-market-input",
@@ -648,7 +656,7 @@ def test_default_web_wrapper_partitions_all_specs_and_preserves_real_restart_and
         assert controlled_https_command(["python", "-m", "scripts.native_web_e2e", *batch]) is controlled
 
 
-@pytest.mark.parametrize("fail_at", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("fail_at", [1, 2, 3, 4, 5, 6])
 def test_web_wrapper_stops_on_each_failed_batch_including_mandatory_performance(tmp_path, fail_at):
     result, calls = _capture_web_wrapper(tmp_path, fail_at=fail_at)
     assert result.returncode == 19
@@ -704,8 +712,8 @@ def test_functional_web_wrapper_runs_the_complete_functional_plan_without_perfor
     default, full = _capture_web_wrapper(tmp_path / "default")
     functional, selected = _capture_web_wrapper(tmp_path / "functional", ["--functional-only"])
     assert default.returncode == functional.returncode == 0
-    assert len(full) == 5 and len(selected) == 4
-    assert selected == full[:4]
+    assert len(full) == 6 and len(selected) == 5
+    assert selected == full[:5]
     assert _native_web_arguments(selected[-1])[-1] == (
         "normal backtest functional (correctness reopens the same run|"
         "cancellation reopens the same cancelled run|"
@@ -717,7 +725,7 @@ def test_functional_web_wrapper_runs_the_complete_functional_plan_without_perfor
     )
 
 
-@pytest.mark.parametrize("fail_at", [1, 2, 3, 4])
+@pytest.mark.parametrize("fail_at", [1, 2, 3, 4, 5])
 def test_functional_web_wrapper_stops_at_each_failed_functional_batch(tmp_path, fail_at):
     result, calls = _capture_web_wrapper(tmp_path, ["--functional-only"], fail_at=fail_at)
     assert result.returncode == 19

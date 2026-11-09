@@ -1,1 +1,0 @@
-"""Crypto market product rules."""

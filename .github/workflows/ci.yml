@@ -52,12 +52,7 @@ jobs:
           uv run python - <<'PY'
           from importlib.metadata import version
 
-          expected = {
-              "onlyalpha",
-              "onlyalpha-broker-virtual",
-              "onlyalpha-market-cn-ashare",
-              "onlyalpha-data-source-tushare",
-          }
+          expected = {"onlyalpha"}
 
           failures: list[str] = []
 
@@ -135,114 +130,29 @@ jobs:
           and not requires_tushare"
 
   # ---------------------------------------------------------------------------
-  # Tushare 是跨平台 DataSource 插件，三个平台都必须验证离线能力。
-  # 真实 Token 和网络测试不进入普通 PR 门禁。
+  # 插件已由 Rust 实现；发行前逐包执行格式、严格 Clippy 和功能测试门禁。
   # ---------------------------------------------------------------------------
-  virtual-broker:
-    name: Virtual Broker Plugin / ${{ matrix.os }}
-    needs: [metadata]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Synchronize workspace
-        run: uv sync --frozen --all-packages --all-groups
-      - name: Ruff lint Virtual Broker
-        run: uv run ruff check plugs/onlyalpha-broker-virtual
-      - name: Ruff format Virtual Broker
-        run: uv run ruff format --check plugs/onlyalpha-broker-virtual
-      - name: Mypy Virtual Broker
-        run: uv run mypy --config-file plugs/onlyalpha-broker-virtual/pyproject.toml plugs/onlyalpha-broker-virtual/src/onlyalpha_plugin_broker_virtual
-      - name: Test Virtual Broker
-        run: uv run pytest plugs/onlyalpha-broker-virtual/tests -q
-
-  tushare:
-    name: Tushare / ${{ matrix.os }}
+  rust-plugins:
+    name: Rust plugin fmt, Clippy and tests
     needs:
-      - metadata
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
-
+    - metadata
+    runs-on: ubuntu-24.04-arm
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Synchronize workspace
-        run: uv sync --frozen --all-packages --all-groups
-
-      - name: Ruff lint Tushare
-        run: >-
-          uv run ruff check
-          plugs/onlyalpha-data-source-tushare/src
-          plugs/onlyalpha-data-source-tushare/tests
-
-      - name: Ruff format Tushare
-        run: >-
-          uv run ruff format --check
-          plugs/onlyalpha-data-source-tushare/src
-          plugs/onlyalpha-data-source-tushare/tests
-
-      - name: Mypy Tushare
-        run: >-
-          uv run mypy
-          plugs/onlyalpha-data-source-tushare/src/onlyalpha_plugin_tushare
-
-      - name: Run offline Tushare tests
-        run: >-
-          uv run pytest
-          plugs/onlyalpha-data-source-tushare/tests
-          -q
-          -m "not external
-          and not requires_network
-          and not requires_tushare"
-
-  cn-ashare-market-product:
-    name: CN A-share Market Product
-    needs: [metadata]
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run ruff check plugs/onlyalpha-market-cn-ashare
-      - run: uv run ruff format --check plugs/onlyalpha-market-cn-ashare
-      - run: uv run mypy --config-file plugs/onlyalpha-market-cn-ashare/pyproject.toml plugs/onlyalpha-market-cn-ashare/src/onlyalpha_plugin_cn_ashare
-      - run: uv run pytest plugs/onlyalpha-market-cn-ashare/tests -q
-
-  # ---------------------------------------------------------------------------
-  # 产品级纵切面。
-  #
-  # 这里重复运行 integration/scenario 类测试是有意的：
-  # Core job 负责完整测试；本 Job 提供稳定、独立的产品链门禁。
-  # ---------------------------------------------------------------------------
+    - uses: actions/checkout@v6
+      name: Checkout repository
+    - run: python scripts/dev_verification.py prepare
+      name: Prepare the fixed verification environment
+    - run: python scripts/dev_verification.py run -- cargo fmt -p onlyalpha-broker-binance -p onlyalpha-broker-virtual
+        -p onlyalpha-data-source-binance -p onlyalpha-data-source-tushare -p onlyalpha-market-cn-ashare -p onlyalpha-market-crypto
+        -- --check
+      name: Check Rust plugin formatting
+    - run: python scripts/dev_verification.py run -- cargo clippy --locked -p onlyalpha-broker-binance -p onlyalpha-broker-virtual
+        -p onlyalpha-data-source-binance -p onlyalpha-data-source-tushare -p onlyalpha-market-cn-ashare -p onlyalpha-market-crypto
+        --all-targets -- -D warnings
+      name: Lint Rust plugins with strict Clippy
+    - run: python scripts/dev_verification.py run -- cargo test --locked -p onlyalpha-broker-binance -p onlyalpha-broker-virtual
+        -p onlyalpha-data-source-binance -p onlyalpha-data-source-tushare -p onlyalpha-market-cn-ashare -p onlyalpha-market-crypto
+      name: Test Rust plugins
   product-gates:
     name: Product scenarios and integration
     needs:
@@ -316,7 +226,7 @@ jobs:
   # Python reference-package installation in the jobs above is test tooling.
   build-smoke:
     name: Native runtime distribution smoke
-    needs: [metadata, core, virtual-broker, tushare, product-gates]
+    needs: [metadata, core, product-gates, rust-plugins]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -364,10 +274,9 @@ jobs:
     needs:
       - metadata
       - core
-      - virtual-broker
-      - tushare
       - product-gates
       - build-smoke
+      - rust-plugins
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -377,8 +286,7 @@ jobs:
         run: |
           test "${{ needs.metadata.result }}" = "success"
           test "${{ needs.core.result }}" = "success"
-          test "${{ needs.virtual-broker.result }}" = "success"
-          test "${{ needs.tushare.result }}" = "success"
+          test "${{ needs.rust-plugins.result }}" = "success"
           test "${{ needs.product-gates.result }}" = "success"
           test "${{ needs.build-smoke.result }}" = "success"
 
