@@ -1,6 +1,7 @@
 import "./toolbars.css";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { NAV_GROUPS } from "../nav";
 import { ContextBar } from "./ContextBar";
 import { getRailSnapshot, setRail, subscribeRail } from "./rail";
@@ -56,6 +57,17 @@ export function WorkstationShell() {
                 跳到工作区
             </a>
             <SideRail />
+            <button
+                type="button"
+                className="menu-toggle shell-menu-toggle"
+                aria-label="开启导航"
+                aria-expanded={railOpen}
+                onClick={() => {
+                    setRail(!railOpen);
+                }}
+            >
+                <WorkspaceIcon name="menu" />
+            </button>
             <div
                 id="rail-mask"
                 className="rail-mask"

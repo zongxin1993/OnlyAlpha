@@ -159,6 +159,26 @@
     color: var(--muted);
 }
 
+.shell-menu-toggle {
+    position: fixed;
+    top: 9px;
+    left: 10px;
+    margin-left: 0;
+    z-index: 40;
+}
+
+.context-bar,
+.view-head {
+    padding-left: 52px;
+}
+
+@media (width > 900px) {
+    .context-bar,
+    .view-head {
+        padding-left: 1rem;
+    }
+}
+
 .menu-toggle {
     display: none;
     margin-left: auto;

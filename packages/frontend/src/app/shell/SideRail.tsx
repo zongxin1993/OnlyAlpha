@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { useSettings } from "../../features/settings/SettingsProvider";
 import { NAV_GROUPS } from "../nav";
+import { setRail } from "./rail";
 import { getThemeSnapshot, subscribeTheme, toggleTheme } from "../theme/theme";
 import "./sideRail.css";
 
@@ -18,7 +19,7 @@ export function SideRail() {
                 <span className="brand-mark">OA</span>
                 <span className="rail-brand-name">OnlyAlpha</span>
             </NavLink>
-            <nav className="side-rail-nav product-rail" aria-label="产品导航">
+            <nav className="side-rail-nav" aria-label="产品导航">
                 {NAV_GROUPS.map((group) => (
                     <div className="rail-group" key={group.group}>
                         <p className="rail-group-label">{group.group}</p>
@@ -27,6 +28,9 @@ export function SideRail() {
                                 key={item.to}
                                 to={item.to}
                                 end={item.to === "/"}
+                                onClick={() => {
+                                    setRail(false);
+                                }}
                                 className={({ isActive }) =>
                                     `rail-item${isActive ? " active" : ""}`
                                 }

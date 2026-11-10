@@ -146,3 +146,11 @@ it("设置入口唯一且带图标", () => {
     expect(settings.closest(".workspace-settings-anchor")).not.toBeNull();
     expect(screen.getAllByRole("button", { name: "全局设置" })).toHaveLength(1);
 });
+
+it("壳在无 PageHeader 的画面也提供开启导航入口", async () => {
+    renderShell("/strategies");
+    const toggle = screen.getByRole("button", { name: "开启导航" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.setup().click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+});

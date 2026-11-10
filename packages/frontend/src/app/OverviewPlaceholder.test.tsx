@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { OverviewPlaceholder } from "./OverviewPlaceholder";
 
@@ -27,11 +26,4 @@ it("总览占位不发明数据组件", () => {
     expect(screen.getByRole("link", { name: "前往工作台" })).toHaveAttribute("href", "/");
 });
 
-it("页内标题条提供窄屏导航开关并同步 aria-expanded", async () => {
-    renderPlaceholder();
-    const user = userEvent.setup();
-    const button = screen.getByRole("button", { name: "开启导航" });
-    expect(button).toHaveAttribute("aria-expanded", "false");
-    await user.click(button);
-    expect(button).toHaveAttribute("aria-expanded", "true");
-});
+/* 开启导航入口归壳（WorkstationShell），由 shell 测试覆盖。 */
