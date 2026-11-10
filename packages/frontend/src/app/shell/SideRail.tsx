@@ -3,18 +3,19 @@ import { NavLink, useLocation } from "react-router-dom";
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { useSettings } from "../../features/settings/SettingsProvider";
 import { NAV_GROUPS } from "../nav";
-import { setRail } from "./rail";
+import { getRailSnapshot, setRail, subscribeRail } from "./rail";
 import { getThemeSnapshot, subscribeTheme, toggleTheme } from "../theme/theme";
 import "./sideRail.css";
 
 /** 左侧栏：品牌、分组导航（图标+中文并排，任何宽度不隐藏文字）、主题/密度/设置。 */
 export function SideRail() {
     const { openSettings } = useSettings();
+    const railOpen = useSyncExternalStore(subscribeRail, getRailSnapshot);
     const location = useLocation();
     const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot);
     const [quiet, setQuiet] = useState(false);
     return (
-        <aside className="side-rail" aria-label="主导航">
+        <aside className={`side-rail${railOpen ? " is-open" : ""}`} aria-label="主导航">
             <NavLink to="/" className="rail-brand" aria-label="OnlyAlpha 工作台" end>
                 <span className="brand-mark">OA</span>
                 <span className="rail-brand-name">OnlyAlpha</span>

@@ -243,7 +243,7 @@
         box-shadow: 0 0 24px rgb(0 0 0 / 35%);
     }
 
-    body.rail-open .side-rail {
+    .app-shell > .side-rail.is-open {
         transform: translateX(0);
         visibility: visible;
         transition:
