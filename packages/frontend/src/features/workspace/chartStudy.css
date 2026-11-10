@@ -154,3 +154,53 @@
     cursor: pointer;
     color: var(--muted);
 }
+
+/* P1 图下"指标 / 因子"卡（卡片模式由 ChartStudies 渲染并经 portal 落入宿主）。 */
+.workspace-under-chart {
+    grid-area: under;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.6rem;
+    padding: 0.45rem 0.75rem 0;
+    align-content: start;
+}
+
+.chart-studies--card {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    min-width: 0;
+}
+
+.chart-studies__card-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.chart-studies__card-head h2 {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text);
+}
+
+.chart-studies__card-head button {
+    margin-left: auto;
+    height: 26px;
+    font-size: 12px;
+}
+
+.chart-studies--card .chart-studies__empty {
+    margin: 0;
+    padding: 0.5rem 0.6rem 0.65rem;
+}
+
+.chart-studies--card .chart-studies__list {
+    border-bottom: 0;
+}

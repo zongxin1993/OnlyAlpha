@@ -55,6 +55,7 @@ export function WorkspacePage() {
     const [managementHost, setManagementHost] = useState<HTMLDivElement | null>(null);
     const [studyStatusHost, setStudyStatusHost] = useState<HTMLDivElement | null>(null);
     const [pickerHost, setPickerHost] = useState<HTMLDivElement | null>(null);
+    const [studiesCardHost, setStudiesCardHost] = useState<HTMLDivElement | null>(null);
     const [activeTool, setActiveTool] = useState<string>("pointer");
     const [bottomTab, setBottomTab] = useState<"runs" | "results">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(true);
@@ -489,6 +490,7 @@ export function WorkspacePage() {
                 )}
                 <ChartStudies
                     toolbarTarget={pickerHost}
+                    studiesCardTarget={studiesCardHost}
                     context={studyContext}
                     restoration={studyRestoration}
                     {...(credentials.capture().bearer === null && !credentials.localSession
@@ -641,6 +643,9 @@ export function WorkspacePage() {
                         );
                     }}
                 </ChartStudies>
+                <div className="workspace-under-chart">
+                    <div ref={setStudiesCardHost} />
+                </div>
             </section>
             <section className="bottom-panel" aria-label="研究面板">
                 <header className="bottom-panel__header">

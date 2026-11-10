@@ -48,14 +48,20 @@ const label = (entry: PickerEntry) =>
         ? entry.presentation.display_name
         : (reference(entry).type_id.split(".").at(-1)?.toUpperCase() ?? reference(entry).type_id);
 
+export interface CalculationPickerControl {
+    open(category: "INDICATOR" | "FACTOR", source: HTMLElement): void;
+}
+
 /** Catalog navigation only. No Study, numeric execution or market-data side effects. */
 export function CalculationPicker({
     draft,
     onDraftChange,
-    credentials
+    credentials,
+    openControlRef
 }: {
     readonly draft: ChartCalculationDraft | null;
     readonly credentials?: LocalReadCredentials;
+    readonly openControlRef?: { current: CalculationPickerControl | null };
     readonly onDraftChange: (
         draft: ChartCalculationDraft | null,
         trigger: HTMLElement | null
@@ -104,6 +110,19 @@ export function CalculationPicker({
                 });
         }
     }, [onDraftChange, credentials]);
+    useEffect(() => {
+        if (openControlRef === undefined) return;
+        openControlRef.current = {
+            open: (nextCategory, source) => {
+                trigger.current = source;
+                setCategory(nextCategory);
+                if (nextCategory !== "FACTOR" || credentials === undefined) void refresh();
+            }
+        };
+        return () => {
+            openControlRef.current = null;
+        };
+    }, [openControlRef, refresh, credentials]);
 
     useEffect(
         () => () => {

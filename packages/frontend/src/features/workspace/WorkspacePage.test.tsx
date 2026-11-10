@@ -19,6 +19,23 @@ vi.mock("../../charts/lightweight/PriceChart", () => ({
 }));
 
 beforeEach(() => {
+    // jsdom 未实现原生 dialog 模态方法；目录 dialog 按打开态语义补齐。
+    Object.defineProperties(HTMLDialogElement.prototype, {
+        showModal: {
+            configurable: true,
+            writable: true,
+            value: function showModal(this: HTMLDialogElement) {
+                this.setAttribute("open", "");
+            }
+        },
+        close: {
+            configurable: true,
+            writable: true,
+            value: function close(this: HTMLDialogElement) {
+                this.removeAttribute("open");
+            }
+        }
+    });
     vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
     vi.stubGlobal(
         "fetch",
@@ -233,6 +250,15 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
     });
     expect(trigger).toHaveFocus();
     container.remove();
+});
+
+it("图下出现指标因子卡：已挂列表、目录入口与诚实空态", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    const studiesCard = screen.getByRole("region", { name: "指标 / 因子" });
+    expect(within(studiesCard).getByText("还没有挂指标或因子，从目录添加。")).toBeInTheDocument();
+    await user.click(within(studiesCard).getByRole("button", { name: "目录" }));
+    expect(await screen.findByRole("dialog", { name: "指标 / 因子目录" })).toBeInTheDocument();
 });
 
 it("自选竖列常开，托盘面板开关已撤除", () => {

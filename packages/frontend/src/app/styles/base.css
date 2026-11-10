@@ -218,8 +218,11 @@ label {
     --bottom-height: 14rem;
     display: grid;
     grid-template-columns: var(--rail-width) var(--watch-width) minmax(0, 1fr) var(--rail-width);
-    grid-template-rows: minmax(0, 1fr) var(--bottom-height);
-    grid-template-areas: "rail watch chart tray" "rail watch bottom tray";
+    grid-template-rows: minmax(0, 1fr) auto var(--bottom-height);
+    grid-template-areas:
+        "rail watch chart tray"
+        "rail watch under tray"
+        "rail watch bottom tray";
     height: calc(100vh - 2.5rem - 1.75rem);
     background: var(--surface);
 }
