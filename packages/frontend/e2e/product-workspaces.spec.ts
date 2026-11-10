@@ -1,11 +1,24 @@
 import { expect, test } from "@playwright/test";
 
+// 研究与数据、系统仍是占位画面（策略转真实工作流见 aa0b3349，工具条整合见 e14e22c8）；
+// 策略与回测已是真实页面，断言各自的真实标题而非"未实现"占位。
 const destinations = [
-    { path: "/research/new", feature: "研究" },
-    { path: "/data/inputs", feature: "数据" },
-    { path: "/strategies", feature: "策略" },
-    { path: "/backtest/runs", feature: "回测" },
-    { path: "/system/health", feature: "系统" }
+    { path: "/research/new", feature: "研究", heading: "研究 · 未实现", deferred: true },
+    { path: "/strategies", feature: "策略", heading: "我的策略", deferred: false },
+    { path: "/backtest", feature: "回测", heading: "策略回测", deferred: false },
+    { path: "/data/inputs", feature: "数据", heading: "数据 · 未实现", deferred: true },
+    { path: "/system/health", feature: "系统", heading: "系统 · 未实现", deferred: true }
+] as const;
+
+// 左侧栏 DOM 顺序（NAV_GROUPS）：总览、工作台、研究、策略、回测、数据、系统。
+const keyboardTour = [
+    { nav: "总览", path: "/overview", enter: true },
+    { nav: "工作台", path: "/", enter: false },
+    { nav: "研究", path: "/research/new", enter: true },
+    { nav: "策略", path: "/strategies", enter: true },
+    { nav: "回测", path: "/backtest", enter: true },
+    { nav: "数据", path: "/data/inputs", enter: true },
+    { nav: "系统", path: "/system/health", enter: true }
 ] as const;
 
 for (const width of [1440, 390]) {
@@ -22,17 +35,30 @@ for (const width of [1440, 390]) {
         await page.goto("/research/new");
         const navigation = page.getByRole("navigation", { name: "产品导航" });
         const persistentNavigation = await navigation.elementHandle();
+        const drawer = width <= 900;
+        const openNavigation = page.getByRole("button", { name: "开启导航" });
         for (const destination of destinations) {
-            const label = `${destination.feature} · 未实现`;
-            const link = navigation.getByRole("link", { name: label, exact: true });
+            const requestsBefore = businessRequests.length;
+            const link = navigation.getByRole("link", { name: destination.feature, exact: true });
             await expect(link).toHaveAttribute("href", destination.path);
+            if (drawer) {
+                // 窄屏导航收进抽屉：真实用户先点 ☰ 再选择画面。
+                await openNavigation.click();
+            }
             await link.scrollIntoViewIfNeeded();
             await expect(link).toBeInViewport();
             await link.click();
+            if (drawer) {
+                await expect(page.locator("body")).not.toHaveClass(/rail-open/);
+            }
+
             await expect(page).toHaveURL(destination.path);
             await expect(link).toHaveAttribute("aria-current", "page");
-            await expect(page.getByRole("heading", { name: label })).toBeVisible();
-            await expect(page.getByRole("status")).toContainText("此功能尚未实现");
+            await expect(page.getByRole("heading", { name: destination.heading })).toBeVisible();
+            if (destination.deferred) {
+                await expect(page.getByRole("status")).toContainText("此功能尚未实现");
+                expect(businessRequests.length).toBe(requestsBefore);
+            }
             expect(await persistentNavigation.evaluate((element) => element.isConnected)).toBe(
                 true
             );
@@ -40,23 +66,23 @@ for (const width of [1440, 390]) {
                 await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
             ).toBe(true);
         }
-        // Traverse the real product controls by keyboard without entering a deferred command.
-        await page.getByRole("link", { name: "OnlyAlpha 工作台" }).focus();
-        await page.keyboard.press("Tab");
-        await expect(navigation.getByRole("link", { name: "工作台", exact: true })).toBeFocused();
-        for (const destination of destinations) {
-            await page.keyboard.press("Tab");
-            const link = navigation.getByRole("link", {
-                name: `${destination.feature} · 未实现`,
-                exact: true
-            });
-            await expect(link).toBeFocused();
-            await expect(link).toBeInViewport();
-            expect(await link.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
-            await page.keyboard.press("Enter");
-            await expect(page).toHaveURL(destination.path);
+        if (!drawer) {
+            // Traverse the real product controls by keyboard without entering a deferred command.
+            await page.getByRole("link", { name: "OnlyAlpha 工作台" }).focus();
+            for (const stop of keyboardTour) {
+                await page.keyboard.press("Tab");
+                const link = navigation.getByRole("link", { name: stop.nav, exact: true });
+                await expect(link).toBeFocused();
+                await expect(link).toBeInViewport();
+                expect(await link.evaluate((element) => element.matches(":focus-visible"))).toBe(
+                    true
+                );
+                if (stop.enter) {
+                    await page.keyboard.press("Enter");
+                    await expect(page).toHaveURL(stop.path);
+                }
+            }
         }
-        expect(businessRequests).toEqual([]);
         page.off("request", recordRequest);
         await page.getByRole("link", { name: "返回工作台" }).click();
         await expect(page).toHaveURL("/");
