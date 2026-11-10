@@ -213,7 +213,6 @@ label {
 }
 .chart-workspace {
     --rail-width: 1.9rem;
-    --panel-width: 20rem;
     --watch-width: 210px;
     --bottom-height: 14rem;
     display: grid;
@@ -225,18 +224,6 @@ label {
         "rail watch bottom tray";
     height: calc(100vh - 2.5rem - 1.75rem);
     background: var(--surface);
-}
-.workspace-tray {
-    grid-area: tray;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.15rem;
-    min-width: 0;
-    overflow: hidden;
-    border-left: 1px solid var(--line);
-    background: var(--surface-2);
-    padding: 0.3rem 0;
 }
 .chart-region__controls {
     position: relative;
@@ -503,7 +490,7 @@ label {
     background: var(--surface);
     overflow-wrap: anywhere;
 }
-.context-panel .value,
+.watch-column__inspector .value,
 .chart-region__status {
     overflow-wrap: anywhere;
 }
@@ -521,15 +508,6 @@ label {
 .chart-region__canvas {
     position: absolute;
     inset: 0;
-}
-.context-panel {
-    grid-area: panel;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    border-left: 1px solid var(--line);
-    background: var(--surface);
 }
 .panel-tabs {
     display: flex;
@@ -1195,10 +1173,6 @@ th {
     }
 }
 @media (max-width: 700px) {
-    .context-panel {
-        width: 100%;
-        max-width: 100%;
-    }
     .studio-page {
         padding: 1rem;
     }
@@ -1667,56 +1641,41 @@ th {
 }
 
 /* Chart-centric workspace shell: narrow-desktop behaviour and browser surfaces. */
-.panel-toggle {
-    display: none;
-}
-.context-panel__close {
-    margin-left: auto;
-    margin-right: 0.4rem;
-    align-self: center;
-}
 ::selection {
     background: var(--accent-soft);
 }
 * {
     scrollbar-color: var(--line) transparent;
 }
-@media (max-width: 1279px) {
+@media (max-width: 880px) {
+    /* 冻结稿契约：≤880 工作台单列，顺序 图表 → 指标行 → 研究面板 → 自选。 */
     .chart-workspace {
         grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
-        grid-template-areas: "rail chart tray" "rail bottom tray";
+        grid-template-rows: minmax(0, 1fr) auto auto auto;
+        grid-template-areas:
+            "rail chart tray"
+            "rail under tray"
+            "rail bottom tray"
+            "rail watch tray";
     }
-    .context-panel {
-        position: fixed;
-        top: 2.5rem;
-        right: 0;
-        bottom: 1.75rem;
-        width: 20rem;
-        max-width: 90vw;
-        transform: translateX(100%);
-        visibility: hidden;
-        transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-        z-index: 30;
+    .chart-workspace[data-external-rail="true"] {
+        grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
+        grid-template-rows: minmax(0, 1fr) auto auto auto;
+        grid-template-areas:
+            "rail chart chart"
+            "rail under under"
+            "rail bottom bottom"
+            "rail watch watch";
     }
-    .chart-workspace[data-panel-open="true"] .context-panel {
-        transform: none;
-        visibility: visible;
+    .workspace-watch-column {
+        border-right: 0;
+        border-top: 1px solid var(--line);
     }
-    .panel-toggle {
-        display: grid;
-        place-items: center;
-        width: 1.7rem;
-        height: 1.7rem;
-        padding: 0;
-        border: 1px solid var(--line);
-        border-radius: 4px;
-        background: var(--surface);
-        color: var(--muted);
+    .workspace-watch-column .watchlists__rows {
+        max-height: 18rem;
     }
-}
-@media (prefers-reduced-motion: reduce) {
-    .context-panel {
-        transition: none;
+    .workspace-under-chart {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 @media (max-width: 900px) {
@@ -1883,11 +1842,12 @@ th {
     --rail-width: var(--workspace-edge-width, 3.125rem);
 }
 .chart-workspace[data-external-rail="true"] {
-    grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--panel-width);
-    grid-template-areas: "rail chart panel" "rail bottom bottom";
-}
-.workspace-panel-host .workspace-tray {
-    border: 0;
+    grid-template-columns: var(--rail-width) var(--watch-width) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto var(--bottom-height);
+    grid-template-areas:
+        "rail watch chart"
+        "rail watch under"
+        "rail watch bottom";
 }
 .workspace-management-host {
     min-width: 0;
@@ -2068,12 +2028,6 @@ th {
 .chart-region__header[hidden] {
     display: none;
 }
-@media (max-width: 1279px) {
-    .chart-workspace[data-external-rail="true"] {
-        grid-template-columns: var(--rail-width) minmax(0, 1fr);
-        grid-template-areas: "rail chart" "rail bottom";
-    }
-}
 @media (max-width: 800px) {
     #workspace-toolbar-host {
         flex: 1;
@@ -2087,17 +2041,6 @@ th {
         top: 100%;
         left: var(--workspace-edge-width);
         background: var(--surface);
-    }
-}
-@media (max-width: 1279px) {
-    .chart-workspace {
-        position: relative;
-    }
-    .chart-workspace[data-external-rail="true"] .context-panel {
-        position: absolute;
-        top: 0;
-        right: 0;
-        bottom: 0;
     }
 }
 

@@ -5,8 +5,7 @@
     align-items: stretch;
     background: var(--surface);
 }
-.workstation-shell .product-rail,
-.workstation-shell .workspace-tray {
+.workstation-shell .product-rail {
     gap: 4px;
     padding: 8px 0;
 }
