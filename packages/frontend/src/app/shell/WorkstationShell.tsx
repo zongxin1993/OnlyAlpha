@@ -1,5 +1,5 @@
 import "./toolbars.css";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { NAV_GROUPS } from "../nav";
@@ -27,6 +27,7 @@ export function WorkstationShell() {
     const [railHost, setRailHost] = useState<HTMLDivElement | null>(null);
     const location = useLocation();
     const railOpen = useSyncExternalStore(subscribeRail, getRailSnapshot);
+    const openSource = useRef<HTMLElement | null>(null);
     const isContextBar = matchNavItem(location.pathname)?.ctxbar === true;
     useEffect(() => {
         document.body.classList.toggle("no-ctx", !isContextBar);
@@ -42,7 +43,8 @@ export function WorkstationShell() {
             return;
         }
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Escape") {
+            // Esc 只交给最上层：antd 抽屉/弹窗打开时不抢关闭导航。
+            if (event.key === "Escape" && document.querySelector(".ant-drawer-open") === null) {
                 setRail(false);
             }
         };
@@ -50,6 +52,16 @@ export function WorkstationShell() {
         return () => {
             window.removeEventListener("keydown", onKeyDown);
         };
+    }, [railOpen]);
+    useEffect(() => {
+        if (railOpen) {
+            openSource.current =
+                document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            document.querySelector<HTMLElement>(".side-rail a, .side-rail button")?.focus();
+        } else {
+            openSource.current?.focus();
+            openSource.current = null;
+        }
     }, [railOpen]);
     return (
         <div className="workstation-shell app-shell">

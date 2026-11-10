@@ -35,6 +35,7 @@ function renderShell(entry = "/") {
 }
 
 beforeEach(() => {
+    document.body.classList.remove("rail-open", "no-ctx");
     localStorage.clear();
     document.documentElement.removeAttribute("data-theme");
     document.body.classList.remove("quiet");
@@ -153,4 +154,17 @@ it("壳在无 PageHeader 的画面也提供开启导航入口", async () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     await userEvent.setup().click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+});
+
+it("开抽屉焦点移入侧栏，Esc 关闭后焦点回到开启导航钮", async () => {
+    renderShell("/");
+    const user = userEvent.setup();
+    const toggle = screen.getByRole("button", { name: "开启导航" });
+    toggle.focus();
+    await user.click(toggle);
+    const inRail = document.querySelector<HTMLElement>(".side-rail a, .side-rail button");
+    if (!inRail) throw new Error("rail focusable missing");
+    expect(inRail).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(toggle).toHaveFocus();
 });

@@ -13,7 +13,9 @@ for (const width of [1381, 390]) {
             .locator(".workspace-topbar")
             .getByRole("toolbar", { name: "图表工作条" });
         await expect(toolbar).toBeVisible();
-        await expect(page.getByRole("link", { name: "OnlyAlpha 工作台" })).toContainText("OA");
+        if (width > 900) {
+            await expect(page.getByRole("link", { name: "OnlyAlpha 工作台" })).toContainText("OA");
+        }
         // e14e22c8 起保存/载入合并进"工作区"下拉、图表设置移入全局设置抽屉；工作条固定六个控件。
         const controls = toolbar.locator("button:visible, select:visible, summary:visible");
         await expect(controls).toHaveCount(6);
@@ -34,8 +36,10 @@ for (const width of [1381, 390]) {
         await expect(page.getByText("Control + Presentation", { exact: true })).toHaveCount(0);
         await expect(page.getByText("临时行情 · 仅内存", { exact: true })).toHaveCount(0);
         await expect(page.locator(".data-source-entry")).toHaveCount(0);
-        const navigation = page.locator(".side-rail").getByRole("navigation", { name: "产品导航" });
-        await expect(navigation.getByRole("link")).toHaveCount(7);
+        // 关闭态抽屉对辅助技术不可见：窄屏按 DOM 计数，打开态角色可达性由 shell-nav 覆盖。
+        const navigation = page.locator('.side-rail nav[aria-label="产品导航"]');
+        await expect(navigation).toBeAttached();
+        await expect(navigation.locator("a")).toHaveCount(7);
         await expect(page.locator(".workspace-save-state")).toHaveCount(0);
         // 时区控件与纵轴同列对齐（水平契约；垂直由控件高度自适应）。
         await expect
@@ -80,9 +84,10 @@ for (const width of [1381, 390]) {
         await page.keyboard.press("Escape");
         await expect(settings).toHaveCount(0);
         if (drawer) {
-            // 关闭设置后导航抽屉仍在，收起后才可操作工作条。
-            await page.keyboard.press("Escape");
+            // 点"全局设置"已同时收起导航抽屉（窄屏避免双层叠加）。
             await expect(page.locator("body")).not.toHaveClass(/rail-open/);
+        } else {
+            await expect(page.getByRole("button", { name: "全局设置" })).toBeFocused();
         }
         // 载入工作区走"工作区"下拉。
         await toolbar.getByRole("button", { name: "工作区", exact: true }).click();
@@ -91,6 +96,7 @@ for (const width of [1381, 390]) {
         await expect(loadDialog).toBeVisible();
         await page.keyboard.press("Escape");
         await expect(loadDialog).toHaveCount(0);
+        await expect(toolbar.getByRole("button", { name: "工作区", exact: true })).toBeFocused();
         for (const name of ["搜索商品", "指标", "因子"]) {
             await toolbar.getByRole("button", { name, exact: true }).click();
             await expect(

@@ -247,3 +247,6 @@ prompt/
 
 # Rust build output; Cargo.lock is a committed build input.
 /target/
+
+# SDD 执行期 scratch（进度台账等非验收产物）
+.superpowers/

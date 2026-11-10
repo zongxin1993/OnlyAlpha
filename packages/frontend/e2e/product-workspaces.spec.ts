@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type ElementHandle } from "@playwright/test";
 
 // 研究与数据、系统仍是占位画面（策略转真实工作流见 aa0b3349，工具条整合见 e14e22c8）；
 // 策略与回测已是真实页面，断言各自的真实标题而非"未实现"占位。
@@ -34,34 +34,41 @@ for (const width of [1440, 390]) {
         page.on("request", recordRequest);
         await page.goto("/research/new");
         const navigation = page.getByRole("navigation", { name: "产品导航" });
-        const persistentNavigation = await navigation.elementHandle();
         const drawer = width <= 900;
         const openNavigation = page.getByRole("button", { name: "开启导航" });
+        // 关闭态抽屉对辅助技术不可见：角色查询只在打开态进行，身份句柄在打开时捕获。
+        const persistentNavigation: ElementHandle<HTMLElement | SVGElement> | null = drawer
+            ? null
+            : await navigation.elementHandle();
+        if (!drawer && !persistentNavigation) throw new Error("desktop handle required");
+        let drawerNavigation: ElementHandle<HTMLElement | SVGElement> | null = null;
         for (const destination of destinations) {
             const requestsBefore = businessRequests.length;
-            const link = navigation.getByRole("link", { name: destination.feature, exact: true });
-            await expect(link).toHaveAttribute("href", destination.path);
             if (drawer) {
                 // 窄屏导航收进抽屉：真实用户先点 ☰ 再选择画面。
                 await openNavigation.click();
+                drawerNavigation ??= await navigation.elementHandle();
             }
+            const link = navigation.getByRole("link", { name: destination.feature, exact: true });
+            await expect(link).toHaveAttribute("href", destination.path);
             await link.scrollIntoViewIfNeeded();
             await expect(link).toBeInViewport();
             await link.click();
             if (drawer) {
                 await expect(page.locator("body")).not.toHaveClass(/rail-open/);
             }
-
             await expect(page).toHaveURL(destination.path);
-            await expect(link).toHaveAttribute("aria-current", "page");
+            await expect(
+                page.locator(`.side-rail nav a[href="${destination.path}"]`)
+            ).toHaveAttribute("aria-current", "page");
             await expect(page.getByRole("heading", { name: destination.heading })).toBeVisible();
             if (destination.deferred) {
                 await expect(page.getByRole("status")).toContainText("此功能尚未实现");
                 expect(businessRequests.length).toBe(requestsBefore);
             }
-            expect(await persistentNavigation.evaluate((element) => element.isConnected)).toBe(
-                true
-            );
+            const held = drawer ? drawerNavigation : persistentNavigation;
+            if (!held) throw new Error("navigation handle missing");
+            expect(await held.evaluate((element) => element.isConnected)).toBe(true);
             expect(
                 await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
             ).toBe(true);
@@ -84,9 +91,24 @@ for (const width of [1440, 390]) {
             }
         }
         page.off("request", recordRequest);
+        if (drawer) {
+            // 390：抽屉打开后经键盘逐项可达（关闭态 visibility:hidden 不再吞焦点）。
+            const openNavigation = page.getByRole("button", { name: "开启导航" });
+            for (const stop of keyboardTour) {
+                if (!stop.enter) continue;
+                await openNavigation.focus();
+                await page.keyboard.press("Enter");
+                const link = navigation.getByRole("link", { name: stop.nav, exact: true });
+                await link.focus();
+                await page.keyboard.press("Enter");
+                await expect(page).toHaveURL(stop.path);
+            }
+        }
         await page.getByRole("link", { name: "返回工作台" }).click();
         await expect(page).toHaveURL("/");
         await expect(page.getByRole("region", { name: "主图" })).toBeVisible();
-        await persistentNavigation.dispose();
+        const heldHandle = drawer ? drawerNavigation : persistentNavigation;
+        if (!heldHandle) throw new Error("navigation handle missing");
+        await heldHandle.dispose();
     });
 }

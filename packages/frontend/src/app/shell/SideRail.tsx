@@ -72,6 +72,7 @@ export function SideRail() {
                         className="rail-button"
                         aria-label="全局设置"
                         onClick={() => {
+                            setRail(false);
                             openSettings(location.pathname === "/" ? "chart" : "sources");
                         }}
                     >
