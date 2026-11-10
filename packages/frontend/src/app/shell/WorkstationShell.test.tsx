@@ -114,6 +114,31 @@ it("不夸大未实现画面的能力", () => {
     expect(screen.queryByText("Control + Presentation")).not.toBeInTheDocument();
 });
 
+it("工作台路由渲染上下文条与工具条挂载点", () => {
+    renderShell("/");
+    const host = document.getElementById("workspace-toolbar-host");
+    expect(host).not.toBeNull();
+    expect(host?.closest(".context-bar")).not.toBeNull();
+    expect(document.querySelector(".view-head")).toBeNull();
+    expect(document.body.classList.contains("no-ctx")).toBe(false);
+});
+
+it("非工作台路由不渲染上下文条并标记 no-ctx", () => {
+    renderShell("/strategies");
+    expect(document.getElementById("workspace-toolbar-host")).toBeNull();
+    expect(document.body.classList.contains("no-ctx")).toBe(true);
+});
+
+it("footer 快捷导航只含既有画面链接与产品文案", () => {
+    renderShell("/");
+    const footer = screen.getByRole("contentinfo");
+    for (const label of ["总览", "工作台", "数据", "系统"]) {
+        expect(within(footer).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    expect(within(footer).getByText("OnlyAlpha · 个人量化工作台")).toBeInTheDocument();
+    expect(within(footer).queryByText(/版本|健康|延迟/)).not.toBeInTheDocument();
+});
+
 it("设置入口唯一且带图标", () => {
     renderShell();
     const settings = screen.getByRole("button", { name: "全局设置" });

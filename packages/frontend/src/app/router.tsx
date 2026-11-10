@@ -1,5 +1,6 @@
 import { createBrowserRouter, type RouteObject } from "react-router-dom";
 import { DeferredFeaturePage } from "./DeferredFeaturePage";
+import { OverviewPlaceholder } from "./OverviewPlaceholder";
 import { WorkstationShell } from "./shell/WorkstationShell";
 import { StrategyWorkflow } from "../features/strategies/StrategyWorkflow";
 import { BacktestPage } from "../features/backtest/BacktestPage";
@@ -10,6 +11,7 @@ export const workstationRoutes: RouteObject[] = [
         element: <WorkstationShell />,
         children: [
             { path: "/", element: <WorkspacePage /> },
+            { path: "/overview", element: <OverviewPlaceholder /> },
             { path: "/research/*", element: <DeferredFeaturePage feature="研究" /> },
             { path: "/data/*", element: <DeferredFeaturePage feature="数据" /> },
             { path: "/strategies/*", element: <StrategyWorkflow /> },
