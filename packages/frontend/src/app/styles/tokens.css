@@ -18,6 +18,9 @@
     --success-line: #9dc4ab;
     --up: #c8332a;
     --down: #2f7d47;
+    --faint: #667080;
+    --ink-up: #b3231f;
+    --ink-down: #0f7a48;
     --stale: #7a5c12;
     --line: #e2e2dd;
     --line-soft: #eceae4;
@@ -31,4 +34,33 @@
         BlinkMacSystemFont,
         "Segoe UI",
         sans-serif;
+}
+
+/* 暗色为默认主题（docs/webui/design-brief-2026-11-10.md Token 表） */
+[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #111418;
+    --surface: #171b21;
+    --surface-2: #1d222a;
+    --surface-3: #232935;
+    --text: #e8ebef;
+    --muted: #9da6b2;
+    --faint: #8b95a2;
+    --accent: #6f9eff;
+    --accent-solid: #6f9eff;
+    --accent-soft: #1b2740;
+    --accent-line: #35507e;
+    --danger: #f0565d;
+    --danger-line: #6b2a2f;
+    --warning: #d9b64a;
+    --warning-line: #6b5a26;
+    --success: #4cc48d;
+    --success-line: #2c5c46;
+    --up: #f0565d;
+    --down: #4cc48d;
+    --ink-up: #ff9297;
+    --ink-down: #6fd3a5;
+    --stale: #d9b64a;
+    --line: #242a33;
+    --line-soft: #1e242c;
 }
