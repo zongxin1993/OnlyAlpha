@@ -56,28 +56,6 @@ export function WorkspacePage() {
     const [studyStatusHost, setStudyStatusHost] = useState<HTMLDivElement | null>(null);
     const [pickerHost, setPickerHost] = useState<HTMLDivElement | null>(null);
     const [activeTool, setActiveTool] = useState<string>("pointer");
-    const [panelTab, setPanelTab] = useState<"watchlist" | "inspector">("watchlist");
-    const [panelOpen, setPanelOpen] = useState(() =>
-        typeof window.matchMedia === "function"
-            ? window.matchMedia("(min-width: 1280px)").matches
-            : true
-    );
-    useEffect(() => {
-        if (typeof window.matchMedia !== "function") return;
-        const layout = window.matchMedia("(min-width: 1280px)");
-        const onLayoutChange = (event: MediaQueryListEvent) => {
-            setPanelOpen(event.matches);
-        };
-        if (typeof layout.addEventListener === "function") {
-            layout.addEventListener("change", onLayoutChange);
-        }
-        return () => {
-            if (typeof layout.removeEventListener === "function") {
-                layout.removeEventListener("change", onLayoutChange);
-            }
-        };
-    }, []);
-    const panelToggle = useRef<HTMLButtonElement>(null);
     const [bottomTab, setBottomTab] = useState<"runs" | "results">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(true);
     const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
@@ -256,42 +234,6 @@ export function WorkspacePage() {
                         ])
               ];
 
-    const tray = (
-        <div
-            className="workspace-tray"
-            role="toolbar"
-            aria-label="工作区面板"
-            aria-orientation="vertical"
-        >
-            <button
-                type="button"
-                className="rail-button"
-                aria-pressed={panelTab === "watchlist"}
-                aria-label="自选"
-                ref={panelToggle}
-                title="自选"
-                onClick={() => {
-                    setPanelTab("watchlist");
-                    setPanelOpen(true);
-                }}
-            >
-                <WorkspaceIcon name="watchlist" />
-            </button>
-            <button
-                type="button"
-                className="rail-button"
-                aria-pressed={panelTab === "inspector"}
-                aria-label="检查器"
-                title="检查器"
-                onClick={() => {
-                    setPanelTab("inspector");
-                    setPanelOpen(true);
-                }}
-            >
-                <WorkspaceIcon name="data" />
-            </button>
-        </div>
-    );
     const chartSettings = (
         <div className="workspace-settings__menu">
             <p className="workspace-settings__heading">图表设置</p>
@@ -467,7 +409,6 @@ export function WorkspacePage() {
             aria-label="图表工作区"
             data-external-rail={railHost !== null}
             data-tools-collapsed="true"
-            data-panel-open={panelOpen}
             data-bottom-collapsed={bottomCollapsed}
         >
             <div
@@ -501,6 +442,34 @@ export function WorkspacePage() {
                     {chartSettings}
                 </details>
             )}
+            <aside className="workspace-watch-column" aria-label="自选">
+                <WatchlistPanel
+                    controller={watchlists}
+                    market={market}
+                    sources={marketData.selectableSources}
+                    enabled={true}
+                    onSelect={marketData.selectWatchlistInstrument}
+                    onSearch={openSearch}
+                />
+                <details className="watch-column__inspector" aria-label="行情检查器">
+                    <summary>行情检查器</summary>
+                    {inspector.length === 0 ? (
+                        <p className="panel-note">尚未选择行情上下文</p>
+                    ) : (
+                        <table className="data-table">
+                            <caption className="visually-hidden">行情检查器明细</caption>
+                            <tbody>
+                                {inspector.map((row) => (
+                                    <tr key={row.label}>
+                                        <th scope="row">{row.label}</th>
+                                        <td className="value">{row.value}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </details>
+            </aside>
             <section className="chart-region" aria-label="主图">
                 {toolbarHost === null ? toolbar : createPortal(toolbar, toolbarHost)}
                 <header className="chart-region__header" hidden={credentials.localSession}>
@@ -673,68 +642,6 @@ export function WorkspacePage() {
                     }}
                 </ChartStudies>
             </section>
-            <aside className="context-panel" aria-label="上下文面板">
-                <div className="panel-tabs" role="group" aria-label="上下文面板视图">
-                    <button
-                        type="button"
-                        className="panel-tab"
-                        aria-pressed={panelTab === "watchlist"}
-                        onClick={() => {
-                            setPanelTab("watchlist");
-                        }}
-                    >
-                        自选
-                    </button>
-                    <button
-                        type="button"
-                        className="panel-tab"
-                        aria-pressed={panelTab === "inspector"}
-                        onClick={() => {
-                            setPanelTab("inspector");
-                        }}
-                    >
-                        检查器
-                    </button>
-                    <button
-                        type="button"
-                        className="panel-toggle context-panel__close"
-                        aria-label="收起上下文面板"
-                        onClick={() => {
-                            setPanelOpen(false);
-                            panelToggle.current?.focus();
-                        }}
-                    >
-                        <WorkspaceIcon name="menu" />
-                    </button>
-                </div>
-                <div className="panel-scroll">
-                    {panelTab === "watchlist" ? (
-                        <WatchlistPanel
-                            controller={watchlists}
-                            market={market}
-                            sources={marketData.selectableSources}
-                            enabled={panelOpen}
-                            onSelect={marketData.selectWatchlistInstrument}
-                            onSearch={openSearch}
-                        />
-                    ) : inspector.length === 0 ? (
-                        <p className="panel-note">尚未选择行情上下文</p>
-                    ) : (
-                        <table className="data-table">
-                            <caption className="visually-hidden">行情检查器</caption>
-                            <tbody>
-                                {inspector.map((row) => (
-                                    <tr key={row.label}>
-                                        <th scope="row">{row.label}</th>
-                                        <td className="value">{row.value}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
-            </aside>
-            {railHost === null ? tray : createPortal(tray, railHost)}
             <section className="bottom-panel" aria-label="研究面板">
                 <header className="bottom-panel__header">
                     <div className="panel-tabs" role="group" aria-label="下方面板视图">

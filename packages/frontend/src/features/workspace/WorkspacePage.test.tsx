@@ -1,5 +1,5 @@
 import { requiredValue } from "../../test/requiredValue";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationApiClient } from "../../api/integrations/client";
 import { AppProviders } from "../../app/providers";
@@ -57,7 +57,7 @@ function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     );
 }
 
-it("lays the primary workspace out as rail, chart, context panel and bottom panel", async () => {
+it("lays the primary workspace out as rail, watch column, chart and bottom panel", async () => {
     const { container } = renderWorkspace();
     await waitFor(() => {
         expect(screen.getByTestId("market-data-status")).toHaveTextContent(
@@ -66,7 +66,7 @@ it("lays the primary workspace out as rail, chart, context panel and bottom pane
     });
     expect(screen.getByRole("toolbar", { name: "图表工具" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "主图" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "上下文面板" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "自选" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "展开下方面板" })).toHaveAttribute(
         "aria-expanded",
         "false"
@@ -126,10 +126,12 @@ it("orders the live chart controls beside the brand icon in the top workspace ba
 it("exposes honest unconnected watchlist, inspector, runs, results and backtest views", async () => {
     const user = userEvent.setup();
     renderWorkspace();
-    const contextPanel = screen.getByRole("complementary", { name: "上下文面板" });
-    expect(within(contextPanel).getByRole("region", { name: "自选行情" })).toBeInTheDocument();
-    await user.click(within(contextPanel).getByRole("button", { name: "检查器" }));
-    expect(within(contextPanel).getByText("尚未选择行情上下文")).toBeInTheDocument();
+    const watchColumn = screen.getByRole("complementary", { name: "自选" });
+    expect(within(watchColumn).getByRole("region", { name: "自选行情" })).toBeInTheDocument();
+    const inspectorCard = within(watchColumn).getByRole("group", { name: "行情检查器" });
+    expect(inspectorCard).not.toHaveAttribute("open");
+    await user.click(within(inspectorCard).getByText("行情检查器"));
+    expect(within(inspectorCard).getByText("尚未选择行情上下文")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "展开下方面板" }));
     const bottomPanel = screen.getByRole("region", { name: "研究面板" });
     await user.click(within(bottomPanel).getByRole("button", { name: "研究结果" }));
@@ -233,68 +235,15 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
     container.remove();
 });
 
-it("starts the narrow workspace unobstructed and restores focus after closing its panel", async () => {
+it("自选竖列常开，托盘面板开关已撤除", () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
     try {
-        const user = userEvent.setup();
-        const { container } = renderWorkspace();
-        const workspace = container.querySelector(".chart-workspace");
-        const toggle = within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole(
-            "button",
-            { name: "自选" }
-        );
-        expect(workspace).toHaveAttribute("data-panel-open", "false");
-        expect(toggle).toHaveAttribute("aria-pressed", "true");
-        expect(screen.getByRole("button", { name: "因子" })).toBeEnabled();
-        await user.click(toggle);
-        expect(workspace).toHaveAttribute("data-panel-open", "true");
-        await user.click(
-            within(screen.getByRole("complementary", { name: "上下文面板" })).getByRole("button", {
-                name: "收起上下文面板"
-            })
-        );
-        expect(workspace).toHaveAttribute("data-panel-open", "false");
-        expect(toggle).toHaveFocus();
+        renderWorkspace();
+        const watchColumn = screen.getByRole("complementary", { name: "自选" });
+        expect(within(watchColumn).getByRole("region", { name: "自选行情" })).toBeInTheDocument();
+        expect(screen.queryByRole("toolbar", { name: "工作区面板" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "收起上下文面板" })).not.toBeInTheDocument();
         expect(screen.getByTestId("price-chart")).toBeInTheDocument();
-    } finally {
-        vi.unstubAllGlobals();
-    }
-});
-
-it("keeps the context panel open on a wide workstation", () => {
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
-    try {
-        const { container } = renderWorkspace();
-        expect(container.querySelector(".chart-workspace")).toHaveAttribute(
-            "data-panel-open",
-            "true"
-        );
-    } finally {
-        vi.unstubAllGlobals();
-    }
-});
-
-it("keeps panel visibility and quote admission aligned when the workstation layout changes", () => {
-    const layout = new EventTarget();
-    Object.assign(layout, { matches: false });
-    const remove = vi.spyOn(layout, "removeEventListener");
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(layout));
-    try {
-        const { container, unmount } = renderWorkspace();
-        const workspace = container.querySelector(".chart-workspace");
-        const chart = screen.getByTestId("price-chart");
-        expect(workspace).toHaveAttribute("data-panel-open", "false");
-        act(() => {
-            layout.dispatchEvent(Object.assign(new Event("change"), { matches: true }));
-        });
-        expect(workspace).toHaveAttribute("data-panel-open", "true");
-        act(() => {
-            layout.dispatchEvent(Object.assign(new Event("change"), { matches: false }));
-        });
-        expect(workspace).toHaveAttribute("data-panel-open", "false");
-        expect(screen.getByTestId("price-chart")).toBe(chart);
-        unmount();
-        expect(remove).toHaveBeenCalledWith("change", expect.any(Function));
     } finally {
         vi.unstubAllGlobals();
     }

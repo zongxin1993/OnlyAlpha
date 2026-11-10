@@ -1052,11 +1052,9 @@ it.each(["timeframe", "instrument"] as const)(
         });
         const user = userEvent.setup();
         await user.click(
-            within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole("button", {
-                name: "检查器"
-            })
+            within(screen.getByRole("group", { name: "行情检查器" })).getByText("行情检查器")
         );
-        const inspector = within(screen.getByRole("complementary", { name: "上下文面板" }));
+        const inspector = within(screen.getByRole("group", { name: "行情检查器" }));
         expect(inspector.getByText("COMPLETE")).toBeInTheDocument();
         expect(inspector.getByText(TEMPORARY_VECTOR_FINGERPRINT)).toBeInTheDocument();
         if (variant === "timeframe")
@@ -1737,11 +1735,9 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
     expect(screen.getByTestId("market-data-status")).toHaveTextContent("● 连接中");
     await user.click(
-        within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole("button", {
-            name: "检查器"
-        })
+        within(screen.getByRole("group", { name: "行情检查器" })).getByText("行情检查器")
     );
-    const inspector = within(screen.getByRole("complementary", { name: "上下文面板" }));
+    const inspector = within(screen.getByRole("group", { name: "行情检查器" }));
     expect(inspector.getByText("test.market_data.live")).toBeVisible();
     expect(inspector.getByText(TEMPORARY_VECTOR_FINGERPRINT)).toBeVisible();
     expect(screen.getByTestId("market-data-status")).toHaveAttribute(
