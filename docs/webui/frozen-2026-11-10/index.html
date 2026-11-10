@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnlyAlpha 工作台 · 布局方向稿</title>
+<style>
+/* ============ 主题变量 ============ */
+:root[data-theme="dark"]{
+  --bg:#0e1013; --surface:#15181d; --surface2:#1a1e24; --line:#262c34; --line-soft:#1f242b;
+  --text:#e6e9ee; --muted:#9da6b2; --faint:#8b95a2;
+  --accent:#6f9eff; --accent-ink:#0b1220; --accent-soft:rgba(111,158,255,.16);
+  --up:#f0565d; --down:#4cc48d; --warn:#e2ad4d; --ink-up:#ff9297; --ink-down:#6fd3a5;
+  --ring:rgba(79,140,255,.55);
+  --shadow-1:0 1px 2px rgba(0,0,0,.45);
+  --shadow-2:0 6px 24px -8px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --bg:#f6f7f9; --surface:#ffffff; --surface2:#f0f2f5; --line:#dfe3e8; --line-soft:#e9edf1;
+  --text:#1c2024; --muted:#566069; --faint:#667080;
+  --accent:#2f6fed; --accent-ink:#ffffff; --accent-soft:rgba(47,111,237,.10);
+  --up:#d3312f; --down:#178a55; --warn:#a8720f; --ink-up:#b3231f; --ink-down:#0f7a48;
+  --ring:rgba(47,111,237,.5);
+  --shadow-1:0 1px 2px rgba(16,24,40,.08);
+  --shadow-2:0 10px 28px -12px rgba(16,24,40,.22);
+}
+*{box-sizing:border-box;margin:0}
+:root{--rail-w:200px}
+html,body{height:100%}
+body{
+  font:14px/1.55 -apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;
+  background:var(--bg); color:var(--text);
+  display:grid; grid-template-columns:auto 1fr; overflow:hidden;
+}
+::selection{background:var(--accent-soft); color:var(--text)}
+:focus-visible{outline:2px solid var(--ring); outline-offset:2px; border-radius:6px}
+*{scrollbar-width:thin; scrollbar-color:var(--line) transparent}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px;border:3px solid var(--bg)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:var(--accent);text-decoration:none;text-underline-offset:3px}
+.num{font-variant-numeric:tabular-nums;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.up{color:var(--up)} .down{color:var(--down)} .warn{color:var(--warn)} .muted{color:var(--muted)} .faint{color:var(--faint)}
+svg.ic{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* ============ 左侧工具栏 ============ */
+#rail{
+  width:var(--rail-w,200px);display:flex;flex-direction:column;background:var(--surface);
+  border-right:1px solid var(--line);transition:width .22s cubic-bezier(.16,.8,.3,1);overflow:hidden;z-index:5;
+}
+body.rail-quiet #rail{width:60px}
+.rail-head{display:flex;align-items:center;gap:10px;height:56px;padding:0 12px 0 18px;flex:none}
+.mark{width:24px;height:24px;flex:none;color:var(--accent)}
+.wordmark{font-weight:650;letter-spacing:.01em;white-space:nowrap}
+#rail .wordmark{white-space:nowrap}
+nav{padding:6px 8px;display:flex;flex-direction:column;gap:2px;flex:1}
+.nav-group{margin:14px 12px 4px;font-size:11px;color:var(--faint);letter-spacing:.06em}
+.nav-item{
+  display:flex;align-items:center;gap:12px;height:38px;padding:0 12px;border-radius:10px;
+  color:var(--muted);width:100%;text-align:left;position:relative;white-space:nowrap;
+}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item[aria-current="page"]{background:var(--accent-soft);color:var(--text);font-weight:600}
+.nav-item[aria-current="page"]::before{content:"";position:absolute;left:-8px;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--accent)}
+.rail-foot{border-top:1px solid var(--line-soft);padding:8px;display:flex;flex-direction:column;gap:2px}
+.rail-foot .nav-item{height:34px}
+.pill-demo{margin:0 12px 10px;padding:3px 9px;border:1px dashed var(--line);border-radius:999px;font-size:11px;color:var(--faint);white-space:nowrap}
+body.rail-quiet .hide-q{display:none}
+body.rail-quiet .nav-item{justify-content:center;padding:0}
+
+/* ============ 右侧 ============ */
+#stage{display:flex;flex-direction:column;min-width:0;height:100vh}
+.ctxbar{
+  min-height:56px;flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:10px 12px;padding:10px 20px;
+  border-bottom:1px solid var(--line);background:var(--surface);
+}
+.ctxbar h1{font-size:16px;font-weight:650;letter-spacing:.01em}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border:1px solid var(--line);
+  border-radius:9px;background:var(--surface2);color:var(--muted);font-size:13px;white-space:nowrap;
+}
+.chip b{color:var(--text);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--warn);flex:none}
+.dot.ok{background:var(--down)}
+.spacer{flex:1}
+.btn{
+  display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 13px;border-radius:9px;
+  border:1px solid var(--line);background:var(--surface2);color:var(--text);font-weight:550;box-shadow:var(--shadow-1);
+}
+.btn:hover{border-color:var(--faint)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.icon{width:32px;height:32px;padding:0;justify-content:center;flex:none}
+.btn.icon.xs{width:26px;height:26px}
+.js-menu-btn{display:none}
+#mask{display:none}
+.view-head{display:none;align-items:center;gap:10px;margin:2px 0 10px}
+.view-head h1{font-size:18px;font-weight:650;letter-spacing:.01em}
+.view-head small{color:var(--faint);font-size:12.5px}
+body.no-ctx .ctxbar{display:none}
+body.no-ctx .view-head{display:flex}
+main{flex:1;overflow:auto;padding:22px 24px 34px}
+.view{display:none;animation:enter .32s cubic-bezier(.16,.8,.3,1)}
+.view.on{display:block}
+@keyframes enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.cols{display:grid;gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-1)}
+.card .hd{display:flex;align-items:center;gap:10px;padding:14px 16px 10px}
+.card .hd h2{font-size:15px;font-weight:650}
+.card .hd .spacer{flex:1}
+.card .bd{padding:4px 16px 16px}
+h3.sec{font-size:12px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin:2px 0 10px}
+
+/* 表格 */
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;color:var(--faint);font-weight:550;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:11px 10px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tr.row:hover{background:var(--surface2)}
+tr.row.sel{background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.badge{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:7px;font-size:12px;font-weight:600}
+.b-ok{background:color-mix(in srgb,var(--down) 16%,transparent);color:var(--ink-down)}
+.b-run{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.b-fail{background:color-mix(in srgb,var(--up) 14%,transparent);color:var(--ink-up)}
+.b-idle{background:var(--surface2);color:var(--muted);border:1px solid var(--line)}
+
+/* 工具条（图表） */
+.tools{display:flex;gap:2px;padding:4px;background:var(--surface2);border-radius:10px;border:1px solid var(--line)}
+.tools button{width:30px;height:28px;border-radius:7px;color:var(--muted);display:grid;place-items:center}
+.tools button:hover{background:var(--surface);color:var(--text)}
+.tools button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:var(--shadow-1)}
+
+/* 图表 */
+.chart-wrap{position:relative}
+.axis{font-size:11px;fill:var(--faint)}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--muted);padding:10px 16px 0}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+/* 自选列表：左侧名称可截断，右侧价格永不被挤 */
+.watch li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line-soft)}
+.watch li:last-child{border-bottom:0}
+.watch .sym{font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.watch small{display:block;color:var(--faint);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.watch .px{text-align:right;flex:none}
+
+/* 因子面板 */
+.calc li{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line-soft);color:var(--muted)}
+.calc li:last-child{border-bottom:0}
+.calc .on-ct{margin-left:auto;font-size:12px;color:var(--faint)}
+.calc .vis{width:16px;height:16px;border-radius:5px;border:1px solid var(--line);display:grid;place-items:center}
+
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:13px}
+.kv dt{color:var(--faint)}
+.kv dd .num{margin-right:8px}
+
+/* 空状态 */
+.empty{display:grid;place-items:center;text-align:center;padding:70px 20px;color:var(--muted)}
+.empty .g{width:56px;height:56px;color:var(--faint);margin:0 auto 16px;stroke-width:1.2}
+.empty h2{font-size:16px;color:var(--text);font-weight:650;margin-bottom:6px}
+.empty p{max-width:46ch;margin:0 auto 18px}
+
+.switch{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:2px}
+.switch button{height:26px;padding:0 10px;border-radius:7px;font-size:12px;color:var(--muted)}
+.switch button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:var(--shadow-1)}
+.seg{display:inline-flex;gap:2px;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:2px}
+.seg button{height:26px;padding:0 12px;border-radius:7px;font-size:12px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:var(--shadow-1)}
+
+/* 详情页 */
+.detail{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+.timeline{list-style:none;margin-top:4px}
+.timeline li{position:relative;padding:0 0 18px 22px}
+.timeline li::before{content:"";position:absolute;left:4px;top:6px;width:9px;height:9px;border-radius:50%;background:var(--surface);border:2px solid var(--faint)}
+.timeline li.done::before{border-color:var(--down);background:var(--down)}
+.timeline li.cur::before{border-color:var(--accent);background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.timeline li::after{content:"";position:absolute;left:8px;top:20px;bottom:0;width:1px;background:var(--line)}
+.timeline li:last-child::after{display:none}
+.timeline b{display:block;font-size:13px}
+.timeline small{color:var(--faint)}
+footer.status{flex:none;height:30px;display:flex;align-items:center;gap:18px;padding:0 20px;border-top:1px solid var(--line);background:var(--surface);font-size:12px;color:var(--faint)}
+/* ============ 批注模式（方向稿专用工具，非产品功能） ============ */
+#oa-annot-btn{position:fixed;right:18px;bottom:44px;z-index:120;height:34px;padding:0 14px;border-radius:999px;
+  border:1px solid var(--line);background:var(--surface);color:var(--muted);box-shadow:var(--shadow-2);font-weight:600}
+#oa-annot-btn.on{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+body.oa-on{cursor:crosshair}
+#oa-hl{position:fixed;z-index:111;border:2px solid var(--accent);border-radius:6px;pointer-events:none;display:none;background:var(--accent-soft)}
+#oa-hl.picked{border-color:var(--warn);background:transparent}
+.oa-mark{position:fixed;z-index:112;width:20px;height:20px;border-radius:50%;background:var(--warn);color:#15181d;
+  font-size:12px;font-weight:700;display:grid;place-items:center;transform:translate(8px,-50%);cursor:pointer;box-shadow:var(--shadow-2)}
+.oa-mark:hover{outline:2px solid var(--warn);outline-offset:2px}
+#oa-note{position:fixed;right:18px;bottom:88px;z-index:121;width:300px;background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;box-shadow:var(--shadow-2);padding:14px;display:none}
+#oa-note.on{display:block}
+#oa-note textarea{width:100%;height:64px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--line);
+  border-radius:9px;padding:8px 10px;font:inherit}
+#oa-note .tgt{font-size:12px;color:var(--muted);margin:0 0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#oa-note .row{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
+#oa-list{position:fixed;left:18px;bottom:44px;z-index:120;width:320px;max-height:46vh;overflow:auto;background:var(--surface);
+  border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-2);padding:12px;display:none}
+#oa-list.on{display:block}
+#oa-list h3{font-size:13px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+#oa-list li{font-size:12.5px;color:var(--muted);margin:0 0 10px;list-style:none;padding:8px 10px;background:var(--bg);border-radius:9px;border:1px solid var(--line-soft)}
+#oa-list li b{color:var(--text)}
+#oa-list .no{color:var(--warn);font-weight:700;margin-right:6px}
+#oa-list .del{float:right;color:var(--faint);padding:0 4px}
+#oa-list .del:hover{color:var(--up)}
+#oa-list .row{display:flex;justify-content:flex-end;margin-top:4px}
+
+/* 总览页 */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);padding:14px 4px}
+.kpis>div{display:grid;gap:2px;padding:4px 20px}
+.kpis>div+div{border-left:1px solid var(--line-soft)}
+.kpis .k{font-size:12.5px;color:var(--muted)}
+.kpis .v{font-size:22px;font-weight:650;letter-spacing:-.01em}
+.kpis small{font-size:12px}
+.posbar{display:flex;height:10px;border-radius:6px;background:var(--surface2);overflow:hidden;margin-top:6px}
+.posbar i{display:block;height:100%}
+.posbar i+i{border-left:2px solid var(--surface)}
+.mkts{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+/* 市场概况条 */
+.tape{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1px;background:var(--line-soft);border-radius:0 0 13px 13px;overflow:hidden;margin:4px -1px -1px}
+.tape .cell{background:var(--surface);padding:12px 16px 10px;display:grid;gap:3px}
+.tape .cell:hover{background:var(--surface2)}
+.tape .m{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+.tape .m b{color:var(--text);font-weight:600}
+.tape .st{margin-left:auto;font-size:11px;display:inline-flex;align-items:center;gap:5px;color:var(--faint);white-space:nowrap}
+.tape .px{font-size:16.5px;font-weight:650}
+.tape .ch{font-size:12.5px}
+.tape .ch i{font-style:normal;font-weight:650;margin-left:6px}
+.tape svg{margin-top:4px;display:block;width:100%;height:26px}
+.tape .live{width:6px;height:6px;border-radius:50%;background:var(--down);animation:blink 2.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+.mkt-add{border:1.5px dashed var(--line);border-radius:14px;color:var(--muted);min-height:150px;
+  display:grid;place-content:center;gap:6px;justify-items:center;font-size:14px;background:transparent}
+.mkt-add:hover{border-color:var(--accent);color:var(--text);background:var(--accent-soft)}
+.legend i{width:9px!important;height:9px!important;border-radius:3px;margin-right:5px;display:inline-block;vertical-align:-1px}
+
+/* 表格容器：窄屏表格内部滚动而不是挤压页面 */
+.tw{overflow-x:auto}
+.tw table{min-width:560px}
+
+/* ============ 响应式 ============ */
+/* 工作台：二分（左自选通高 · 右侧图表+其下指标/因子），窄屏转单列 */
+.wb{grid-template-columns:210px minmax(0,1fr);grid-template-areas:"a b" "a c"}
+.wb .wb-a{grid-area:a;display:flex;flex-direction:column}
+.wb .wb-b{grid-area:b}
+.wb .wb-c{grid-area:c;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card.grow{flex:1;display:flex;flex-direction:column;min-height:0}
+.card.grow .watch{flex:1;overflow-y:auto}
+
+@media (max-width:1100px){
+  .detail{grid-template-columns:1fr}
+}
+@media (max-width:900px){
+  /* 侧栏变为覆盖抽屉，hamburger 唤出 */
+  body{grid-template-columns:1fr}
+  #rail{display:flex;position:fixed;left:0;top:0;bottom:0;width:240px;transform:translateX(-100%);transition:transform .22s cubic-bezier(.16,.8,.3,1);box-shadow:var(--shadow-2);z-index:20}
+  #mask{display:block}
+  body.rail-open #rail{transform:none}
+  #mask{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15;opacity:0;pointer-events:none;transition:opacity .2s}
+  body.rail-open #mask{opacity:1;pointer-events:auto}
+  .js-menu-btn{display:inline-flex}
+  body.rail-quiet #rail{width:240px}
+}
+@media (min-width:901px){ #mask{display:none} }
+@media (max-width:880px){
+  /* 全部单列：图表最优先 */
+  .wb{grid-template-columns:1fr;grid-template-areas:"b" "c" "a"}
+  .wb .wb-c{grid-template-columns:1fr 1fr}
+  main{padding:16px 14px 28px}
+}
+@media (max-width:640px){
+  .wb .wb-c{grid-template-columns:1fr}
+}
+@media (max-width:768px){
+  .kpis{grid-template-columns:1fr 1fr}
+  .kpis>div:nth-child(3){border-left:0}
+  .kpis>div:nth-child(n+3){border-top:1px solid var(--line-soft)}
+}
+@media (max-width:640px){
+  .kpis{grid-template-columns:1fr}
+  .kpis>div+div{border-left:0;border-top:1px solid var(--line-soft)}
+  .ctxbar{height:auto;min-height:56px;flex-wrap:wrap;padding:10px 14px;row-gap:8px}
+  .legend{flex-wrap:wrap;gap:8px 14px}
+  footer.status{gap:10px;padding:0 14px;overflow:hidden;white-space:nowrap}
+  .card .hd{flex-wrap:wrap}
+}
+</style>
+</head>
+<body class="no-ctx">
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <g id="i-mark"><path d="M4 20 L10 4 L14 15 L17 9 L20 20 Z" stroke-width="1.8"/></g>
+    <g id="i-chart"><path d="M4 19V5M4 19h16"/><rect x="7.5" y="9" width="3.4" height="7" rx="1"/><rect x="13.5" y="6" width="3.4" height="10" rx="1"/></g>
+    <g id="i-research"><circle cx="11" cy="11" r="6.2"/><path d="M20 20l-4.4-4.4M8.5 11l2 2 3.5-4"/></g>
+    <g id="i-strategy"><rect x="4" y="4" width="6.4" height="6.4" rx="1.6"/><rect x="13.6" y="13.6" width="6.4" height="6.4" rx="1.6"/><path d="M10.4 7.2h4.6a2.4 2.4 0 0 1 2.4 2.4v4.6M13.6 16.8H9a2.4 2.4 0 0 1-2.4-2.4v-4"/></g>
+    <g id="i-backtest"><path d="M4 19V11M9.3 19V6M14.7 19v-5M20 19V9"/></g>
+    <g id="i-data"><ellipse cx="12" cy="6.6" rx="7.5" ry="3.1"/><path d="M4.5 6.6v10.8c0 1.7 3.4 3.1 7.5 3.1s7.5-1.4 7.5-3.1V6.6M4.5 12c0 1.7 3.4 3.1 7.5 3.1s7.5-1.4 7.5-3.1"/></g>
+    <g id="i-system"><path d="M5 7h14M5 12h14M5 17h14"/><circle cx="9.5" cy="7" r="1.9" fill="var(--surface)"/><circle cx="14.5" cy="12" r="1.9" fill="var(--surface)"/><circle cx="7.5" cy="17" r="1.9" fill="var(--surface)"/></g>
+    <g id="i-sun"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></g>
+    <g id="i-moon"><path d="M20 13.2A8.2 8.2 0 1 1 10.8 4 6.6 6.6 0 0 0 20 13.2Z"/></g>
+    <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
+    <g id="i-search"><circle cx="11" cy="11" r="6.4"/><path d="M20 20l-4.5-4.5"/></g>
+    <g id="i-draw-pointer"><path d="M6 4l12 8-5.2 1.2L10 19z"/></g>
+    <g id="i-draw-line"><path d="M5 19L19 5M5 19h.01M19 5h.01"/></g>
+    <g id="i-draw-hline"><path d="M4 12h16M9 8v8" transform="rotate(0)"/></g>
+    <g id="i-draw-range"><path d="M5 8h14M5 16h14M9 8v8"/></g>
+    <g id="i-draw-measure"><path d="M4 16L16 4l4 4L8 20zM8.5 11.5l1.8 1.8M11.5 8.5l1.8 1.8"/></g>
+    <g id="i-folder"><path d="M4 19V6a1.6 1.6 0 0 1 1.6-1.6H10l2 2.4h6.4A1.6 1.6 0 0 1 20 8.4V19z"/></g>
+    <g id="i-play"><circle cx="12" cy="12" r="8"/><path d="M10.2 9.2l4.6 2.8-4.6 2.8z"/></g>
+    <g id="i-hamb"><path d="M4 7h16M4 12h16M4 17h16"/></g>
+    <g id="i-overview"><rect x="4" y="4" width="7" height="9" rx="1.5"/><rect x="13" y="4" width="7" height="5" rx="1.5"/><rect x="13" y="11" width="7" height="9" rx="1.5"/><rect x="4" y="15" width="7" height="5" rx="1.5"/></g>
+  </defs>
+</svg>
+
+<aside id="rail">
+  <div class="rail-head">
+    <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-mark"/></svg>
+    <span class="wordmark">OnlyAlpha</span>
+  </div>
+  <nav aria-label="工具导航">
+    <div class="nav-group hide-q">投研</div>
+    <button class="nav-item" data-v="overview" aria-current="page"><svg class="ic"><use href="#i-overview"/></svg><span class="hide-q">总览</span></button>
+    <button class="nav-item" data-v="workbench"><svg class="ic"><use href="#i-chart"/></svg><span class="hide-q">工作台</span></button>
+    <button class="nav-item" data-v="research"><svg class="ic"><use href="#i-research"/></svg><span class="hide-q">研究</span></button>
+    <button class="nav-item" data-v="strategies"><svg class="ic"><use href="#i-strategy"/></svg><span class="hide-q">策略</span></button>
+    <button class="nav-item" data-v="backtest"><svg class="ic"><use href="#i-backtest"/></svg><span class="hide-q">回测</span></button>
+    <div class="nav-group hide-q">基础设施</div>
+    <button class="nav-item" data-v="data"><svg class="ic"><use href="#i-data"/></svg><span class="hide-q">数据</span></button>
+    <button class="nav-item" data-v="system"><svg class="ic"><use href="#i-system"/></svg><span class="hide-q">系统</span></button>
+  </nav>
+  <div class="rail-foot">
+    <button class="nav-item" id="theme-btn"><svg class="ic"><use href="#i-sun" id="theme-glyph"/></svg><span class="hide-q">切换浅色</span></button>
+    <button class="nav-item" id="quiet-btn"><svg class="ic" style="transform:scaleX(-1)"><use href="#i-strategy"/></svg><span class="hide-q">收起导航</span></button>
+  </div>
+  <div class="pill-demo hide-q">静态方向稿 · 演示数据</div>
+</aside>
+<div id="mask"></div>
+
+<div id="stage">
+  <header class="ctxbar">
+    <button class="btn icon js-menu-btn" aria-label="打开导航"><svg class="ic" style="width:17px;height:17px"><use href="#i-hamb"/></svg></button>
+    <h1 id="ctx-title">工作台</h1>
+    <span class="chip"><span class="dot ok"></span>行情已加载 · <b>恢复中</b></span>
+    <span class="chip" id="chip-symbol" hidden>BTCUSDT</span>
+    <span class="seg" id="ctx-range" style="height:30px" role="group" aria-label="时间范围" hidden>
+      <button aria-pressed="false">1d</button><button aria-pressed="false">7d</button><button aria-pressed="true">30d</button><button aria-pressed="false">全部</button>
+    </span>
+    <span class="spacer"></span>
+    <button class="btn icon" aria-label="搜索"><svg class="ic" style="width:16px;height:16px"><use href="#i-search"/></svg></button>
+    <button class="btn primary"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg>新建研究</button>
+  </header>
+
+  <main>
+    <!-- ============ 总览 ============ -->
+    <section class="view on" id="v-overview" aria-label="总览">
+      <div class="view-head"><button class="btn icon js-menu-btn" aria-label="打开导航"><svg class="ic" style="width:17px;height:17px"><use href="#i-hamb"/></svg></button><h1>总览</h1><small>组合健康度与市场实时状态</small></div>
+      <div style="display:grid;gap:16px">
+        <div class="card">
+          <div class="kpis">
+            <div><span class="k">总资产（人民币计价）</span><b class="num v">¥1,286,400</b><small class="faint">≈ 9.42 BTC 等值 · 演示数据</small></div>
+            <div><span class="k">当日盈亏</span><b class="num v up">+¥8,342</b><small class="num up">+0.65%</small></div>
+            <div><span class="k">30 日盈亏</span><b class="num v up">+5.2%</b><small class="faint">净值 1.052 · 回撤 −2.1%</small></div>
+            <div><span class="k">持仓敞口</span><b class="num v">38.2%</b><small class="faint">SIM 2 个策略 · LIVE 未启用</small></div>
+          </div>
+        </div>
+
+        <div class="cols" style="grid-template-columns:minmax(0,1fr) 320px">
+          <div class="card">
+            <div class="hd"><h2>账户净值</h2><span class="spacer"></span>
+              <span class="seg" role="group" aria-label="净值区间"><button aria-pressed="false">30d</button><button aria-pressed="true">90d</button><button aria-pressed="false">全部</button></span>
+            </div>
+            <div class="legend"><span><i style="background:var(--up)"></i>组合净值（含 SIM 未实现盈亏）</span><span class="faint">演示数据 · 非真实收益</span></div>
+            <div style="padding:6px 12px 14px">
+              <svg id="equity" viewBox="0 0 860 210" width="100%" role="img" aria-label="账户净值曲线（演示数据）"></svg>
+            </div>
+          </div>
+          <div class="card">
+            <div class="hd"><h2>风险敞口</h2></div>
+            <div class="bd" style="display:grid;gap:14px">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13px"><span>总持仓</span><b class="num">38.2%</b></div>
+                <div class="posbar"><i style="width:26%;background:var(--up)"></i><i style="width:12.2%;background:var(--accent)"></i></div>
+                <div class="faint" style="font-size:12px;display:flex;gap:14px;margin-top:6px">
+                  <span><i style="background:var(--up)"></i>加密 26.0%</span><span><i style="background:var(--accent)"></i>A股 12.2%</span><span>现金 61.8%</span>
+                </div>
+              </div>
+              <dl class="kv">
+                <dt>在管资产</dt><dd><span class="num">SIM ¥486,000</span><span class="faint">LIVE ¥0</span></dd>
+                <dt>今日委托</dt><dd><span class="num">41 笔</span><span class="faint">全部 SIM</span></dd>
+                <dt>LIVE 授权</dt><dd class="faint">未启用 · 需你本人操作</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="hd"><h2>市场概况</h2><span class="spacer"></span><span class="faint" style="font-size:12px">开闭市按交易所时段实时计算 · 行情为演示数据 · 北京时间</span></div>
+          <div class="tape" id="tape"></div>
+        </div>
+
+        <div class="mkts">
+          <div class="card mkt">
+            <div class="hd"><h2>加密现货</h2><span class="spacer"></span><span class="badge b-ok">已接入</span></div>
+            <div class="bd"><dl class="kv">
+              <dt>资产</dt><dd><span class="num">¥834,200</span></dd>
+              <dt>当日盈亏</dt><dd><span class="num up">+1.14%</span></dd>
+              <dt>持仓</dt><dd><span class="num">26.0%</span><span class="faint">BTC · ETH</span></dd>
+              <dt>策略</dt><dd class="faint">1 个 SIM 在跑</dd>
+            </dl></div>
+          </div>
+          <div class="card mkt">
+            <div class="hd"><h2>A股日线</h2><span class="spacer"></span><span class="badge b-run">待授权</span></div>
+            <div class="bd"><dl class="kv">
+              <dt>数据源</dt><dd>Tushare · <span class="warn">令牌未配置</span></dd>
+              <dt>资产</dt><dd><span class="num">¥452,200</span></dd>
+              <dt>当日盈亏</dt><dd><span class="num down">−0.28%</span></dd>
+              <dt>策略</dt><dd class="faint">meanrev-ashare 等待日线</dd>
+            </dl></div>
+          </div>
+          <button class="mkt-add"><svg class="ic" style="width:18px;height:18px"><use href="#i-plus"/></svg>接入市场<br><small class="faint">期货 · 港股通 · 更多券商</small></button>
+        </div>
+
+        <div class="cols" style="grid-template-columns:minmax(0,1fr) 380px">
+          <div class="card">
+            <div class="hd"><h2>在跑策略</h2><span class="spacer"></span><span class="faint" style="font-size:12px">LIVE 未启用</span></div>
+            <div class="tw"><table>
+              <thead><tr><th>策略</th><th>阶段</th><th>版本</th><th>当日盈亏</th><th>累计盈亏</th><th>状态</th><th>今日成交</th></tr></thead>
+              <tbody>
+                <tr class="row" tabindex="0"><td><b>均值回归 · A股日线</b></td><td><span class="badge b-run">SIM</span></td><td class="num">v9</td><td class="num up">+0.83%</td><td class="num up">+4.1%</td><td><span class="dot ok"></span> 运行中</td><td class="num">18</td></tr>
+                <tr class="row" tabindex="0"><td><b>成交额脉冲 · 加密现货</b></td><td><span class="badge b-run">SIM</span></td><td class="num">v2</td><td class="num down">−0.12%</td><td class="num up">+0.9%</td><td><span class="dot ok"></span> 运行中</td><td class="num">23</td></tr>
+                <tr class="row" tabindex="0"><td><b>隔夜跳空衰减</b></td><td><span class="badge b-idle">回测</span></td><td class="num">v1</td><td class="faint">—</td><td class="faint">—</td><td><span class="dot"></span> 未部署</td><td class="faint">—</td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div class="card">
+            <div class="hd"><h2>最近事件</h2></div>
+            <ul class="timeline" style="padding-top:2px">
+              <li class="done"><b>09:41 · meanrev v9 成交 3 笔（SIM）</b><small>合计 −12,410 元买入</small></li>
+              <li class="cur"><b>昨日 22:15 · Tushare 日线待授权</b><small>配置令牌后自动续传</small></li>
+              <li class="done"><b>昨日 08:12 · 成交额 z-score v7 验证通过</b><small class="num">证据 ×6</small></li>
+              <li class="done"><b>11-08 · meanrev 晋级 SIM</b><small class="num">冻结输入 11-06</small></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 工作台 ============ -->
+    <section class="view" id="v-workbench" aria-label="工作台">
+      <div class="cols wb">
+        <div class="wb-a">
+          <div class="card grow">
+            <div class="hd"><h2>自选</h2><span class="spacer"></span><button class="btn icon xs" aria-label="添加自选"><svg class="ic" style="width:14px;height:14px"><use href="#i-plus"/></svg></button></div>
+            <ul class="watch" style="list-style:none">
+              <li><span class="sym">BTCUSDT<small>现货 · Binance</small></span><span class="px"><b class="num">68,412.50</b><br><small class="num up">+2.31%</small></span></li>
+              <li><span class="sym">ETHUSDT<small>现货 · Binance</small></span><span class="px"><b class="num">3,281.04</b><br><small class="num down">−0.87%</small></span></li>
+              <li><span class="sym">600519.SH<small>A股 · Tushare</small></span><span class="px"><b class="num">1,472.00</b><br><small class="num up">+0.42%</small></span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card wb-b">
+          <div class="hd">
+            <div class="tools" role="toolbar" aria-label="绘图工具">
+              <button aria-pressed="true" aria-label="指针"><svg class="ic" style="width:16px;height:16px"><use href="#i-draw-pointer"/></svg></button>
+              <button aria-pressed="false" aria-label="线段"><svg class="ic" style="width:16px;height:16px"><use href="#i-draw-line"/></svg></button>
+              <button aria-pressed="false" aria-label="水平线"><svg class="ic" style="width:16px;height:16px"><use href="#i-draw-hline"/></svg></button>
+              <button aria-pressed="false" aria-label="区间"><svg class="ic" style="width:16px;height:16px"><use href="#i-draw-range"/></svg></button>
+              <button aria-pressed="false" aria-label="测量"><svg class="ic" style="width:16px;height:16px"><use href="#i-draw-measure"/></svg></button>
+            </div>
+            <span class="spacer"></span>
+            <span class="chip" style="height:26px;font-size:12px">研究快照 · SMA(20) 对照 <span class="faint">已封板</span></span>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--up)"></i>涨日 <b class="num">68,412.50</b></span>
+            <span><i style="background:var(--down)"></i>SMA20 <b class="num">66,904.22</b></span>
+            <span class="faint">UTC+8 · 30d · 1d 粒度</span>
+          </div>
+          <div class="chart-wrap" style="padding:8px 12px 14px">
+            <svg viewBox="0 0 860 330" width="100%" role="img" aria-label="BTCUSDT 30 日 K 线与成交量（演示数据）">
+              <g class="axis">
+                <text x="8" y="60">72k</text><text x="8" y="140">68k</text><text x="8" y="220">64k</text>
+                <text x="8" y="315">量</text>
+                <line x1="42" y1="56" x2="850" y2="56" stroke="var(--line-soft)"/>
+                <line x1="42" y1="136" x2="850" y2="136" stroke="var(--line-soft)"/>
+                <line x1="42" y1="216" x2="850" y2="216" stroke="var(--line-soft)"/>
+              </g>
+              <g id="candles"></g>
+              <polyline id="sma" fill="none" stroke="var(--accent)" stroke-width="1.6" opacity=".9"/>
+              <g id="vol"></g>
+              <g class="axis"><text x="42" y="328">10-11</text><text x="240" y="328">10-18</text><text x="450" y="328">10-25</text><text x="660" y="328">11-01</text><text x="810" y="328">11-08</text></g>
+            </svg>
+          </div>
+        </div>
+
+        <div class="wb-c" style="display:flex;flex-direction:column;gap:16px">
+          <div class="card">
+            <div class="hd"><h2>指标 / 因子</h2><span class="spacer"></span><button class="btn" style="height:26px;font-size:12px">目录</button></div>
+            <ul class="calc" style="list-style:none">
+              <li><span class="vis" style="background:var(--up);border-color:transparent"></span>SMA(20)<span class="on-ct">图中</span></li>
+              <li><span class="vis" style="background:var(--warn);border-color:transparent"></span>RSI(14)<span class="on-ct">图中</span></li>
+              <li><span class="vis"></span>动量偏移 · 私有因子<span class="on-ct">未上屏</span></li>
+              <li><span class="vis"></span>成交额 z-score<span class="on-ct">未上屏</span></li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="hd"><h2>工作区</h2><span class="spacer"></span><button class="btn" style="height:26px;font-size:12px">保存副本</button></div>
+            <div class="bd" style="font-size:13px;color:var(--muted)">默认工作区 · BTCUSDT + ETHUSDT<br><span class="faint">布局与绘图随工作区持久化</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 研究 ============ -->
+    <section class="view" id="v-research" aria-label="研究">
+      <div class="view-head"><button class="btn icon js-menu-btn" aria-label="打开导航"><svg class="ic" style="width:17px;height:17px"><use href="#i-hamb"/></svg></button><h1>研究</h1><small>私有因子与假设检验</small></div>
+      <div class="detail">
+        <div class="card">
+          <div class="hd"><h2>私有因子</h2><span class="spacer"></span>
+            <span class="switch" role="group"><button aria-pressed="true">全部</button><button aria-pressed="false">已冻结版本</button></span>
+            <button class="btn primary" style="height:28px;font-size:13px">导入因子</button>
+          </div>
+          <div class="tw"><table>
+            <thead><tr><th>名称</th><th>实现版本</th><th>最近验证</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr class="row sel" tabindex="0"><td><b>动量偏移</b><br><small class="faint">momentum-skew · v3</small></td><td class="num">rust · 0.11.1</td><td class="num">11-07 22:41</td><td><span class="badge b-ok">已验证</span></td></tr>
+              <tr class="row" tabindex="0"><td><b>成交额 z-score</b><br><small class="faint">volume-z · v7</small></td><td class="num">rust · 0.11.1</td><td class="num">11-09 08:12</td><td><span class="badge b-run">验证中</span></td></tr>
+              <tr class="row" tabindex="0"><td><b>隔夜跳空衰减</b><br><small class="faint">gap-decay · v1</small></td><td class="num">rust · 0.11.1</td><td class="num">11-05 19:03</td><td><span class="badge b-fail">缺输入证据</span></td></tr>
+            </tbody>
+          </table></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div class="card">
+            <div class="hd"><h2>动量偏移 · v3</h2><span class="spacer"></span><span class="badge b-ok">已验证</span></div>
+            <div class="bd">
+              <dl class="kv">
+                <dt>标的</dt><dd>BTCUSDT · 近 90d</dd>
+                <dt>参数</dt><dd><span class="num">window=20, halflife=5</span></dd>
+                <dt>IC 均值</dt><dd><span class="num up">0.031</span><span class="faint num">t=2.4</span></dd>
+                <dt>输入指纹</dt><dd><a href="#" onclick="return false">2026-11-07 冻结输入 ↗</a></dd>
+              </dl>
+            </div>
+          </div>
+          <div class="card">
+            <div class="hd"><h2>运行记录</h2></div>
+            <ul class="timeline">
+              <li class="done"><b>v3 · 确定性重放通过</b><small class="num">11-07 · 816s · 证据 ×12</small></li>
+              <li class="cur"><b>v3 · 参数扫描 #41</b><small class="num">进行中 · 12/48 组合</small></li>
+              <li><b>v2 · 已归档</b><small class="num">10-29</small></li>
+            </ul>
+          </div>
+          <div class="card"><div class="bd" style="padding-top:14px"><button class="btn" style="width:100%;justify-content:center">在图表中对照</button></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 策略 ============ -->
+    <section class="view" id="v-strategies" aria-label="策略">
+      <div class="view-head"><button class="btn icon js-menu-btn" aria-label="打开导航"><svg class="ic" style="width:17px;height:17px"><use href="#i-hamb"/></svg></button><h1>策略</h1><small>草稿、冻结版本与晋级</small></div>
+      <div class="detail">
+        <div class="card">
+          <div class="hd"><h2>我的策略</h2><span class="spacer"></span>
+            <button class="btn" id="empty-demo" style="height:28px;font-size:12px">预览空状态</button>
+            <button class="btn primary" style="height:28px;font-size:13px">新建策略</button>
+          </div>
+          <div class="tw" id="strat-tw"><table id="strat-table">
+            <thead><tr><th>策略</th><th>草稿修订</th><th>冻结版本</th><th>晋级状态</th></tr></thead>
+            <tbody>
+              <tr class="row sel" tabindex="0"><td><b>均值回归 · A股日线</b><br><small class="faint">meanrev-ashare</small></td><td>R<span class="num">14</span> · 编辑中</td><td class="num">v9（封板）</td><td><span class="badge b-ok">SIM 运行中</span></td></tr>
+              <tr class="row" tabindex="0"><td><b>动量突破 · 加密现货</b><br><small class="faint">momentum-x</small></td><td>R<span class="num">3</span></td><td class="faint">—</td><td><span class="badge b-idle">仅回测</span></td></tr>
+            </tbody>
+          </table></div>
+          <div id="strat-empty" class="empty" hidden>
+            <div>
+              <svg class="g ic" viewBox="0 0 24 24"><use href="#i-strategy"/></svg>
+              <h2>还没有策略</h2>
+              <p>从已验证的因子出发：先在研究里确认因子证据，再创建策略草稿。策略只提交买卖意图，风控与执行由系统负责。</p>
+              <button class="btn primary">新建策略</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="hd"><h2>均值回归 · 版本与晋级</h2></div>
+          <div class="bd">
+            <ul class="timeline">
+              <li class="done"><b>v9 冻结 · 哈希封板</b><small class="num">11-06 · 绑定因子动量偏移 v3</small></li>
+              <li class="done"><b>回测通过 · 证据封板</b><small class="num">11-06 · 净值为正 62% · 最大回撤 −11.3%</small></li>
+              <li class="done"><b>SIM 晋级</b><small class="num">11-08 起持续运行</small></li>
+              <li class="cur"><b>LIVE 授权</b><small>需要你本人操作，系统不会代办</small></li>
+            </ul>
+            <button class="btn" style="width:100%;justify-content:center">查看回测证据</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 回测 ============ -->
+    <section class="view" id="v-backtest" aria-label="回测">
+      <div class="view-head"><button class="btn icon js-menu-btn" aria-label="打开导航"><svg class="ic" style="width:17px;height:17px"><use href="#i-hamb"/></svg></button><h1>回测</h1><small>运行任务与证据</small></div>
+      <div class="detail">
+        <div class="card">
+          <div class="hd"><h2>回测任务</h2><span class="spacer"></span>
+            <span class="seg" role="group"><button aria-pressed="true">全部</button><button aria-pressed="false">运行中</button><button aria-pressed="false">失败</button></span>
+            <button class="btn primary" style="height:28px;font-size:13px"><svg class="ic" style="width:14px;height:14px"><use href="#i-play"/></svg>运行回测</button>
+          </div>
+          <div class="tw"><table>
+            <thead><tr><th>运行</th><th>策略版本</th><th>区间</th><th>状态</th><th>结果</th></tr></thead>
+            <tbody>
+              <tr class="row sel" tabindex="0"><td class="num">run-2417</td><td>meanrev v9</td><td class="num">2025-01 → 2026-10</td><td><span class="badge b-ok">完成</span></td><td class="num">净值 <b class="up">1.62</b> · 回撤 <span class="down">−11.3%</span></td></tr>
+              <tr class="row" tabindex="0"><td class="num">run-2416</td><td>momentum-x v1</td><td class="num">2025-06 → 2026-10</td><td><span class="badge b-run">运行中 · 64%</span></td><td class="faint">—</td></tr>
+              <tr class="row" tabindex="0"><td class="num">run-2415</td><td>meanrev v8</td><td class="num">2025-01 → 2026-09</td><td><span class="badge b-fail">取消</span></td><td class="faint">部分结果 · 证据保留可查</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div class="card">
+            <div class="hd"><h2>run-2417 · 证据包</h2><span class="spacer"></span><span class="badge b-ok">输入封板</span></div>
+            <div class="bd">
+              <dl class="kv">
+                <dt>输入指纹</dt><dd><a href="#" onclick="return false">行情封板 2026-11-06 ↗</a></dd>
+                <dt>成交假设</dt><dd>双边费率 0.1% · 滑点 5bp</dd>
+                <dt>产物</dt><dd>净值曲线 · 归因 · 成交明细 ×3 件</dd>
+                <dt>重放</dt><dd>确定性重放 <b class="up">通过</b>（同指纹同结果）</dd>
+              </dl>
+            </div>
+          </div>
+          <div class="card">
+            <div class="hd"><h2>净值曲线</h2></div>
+            <div class="bd">
+              <svg viewBox="0 0 300 92" width="100%" role="img" aria-label="净值曲线（演示数据）">
+                <polyline fill="none" stroke="var(--up)" stroke-width="2" points="0,86 22,84 46,80 70,82 96,72 122,66 148,70 174,56 200,48 226,52 252,36 278,28 300,16"/>
+                <polyline fill="none" stroke="var(--faint)" stroke-width="1" stroke-dasharray="3 3" points="0,86 300,86"/>
+              </svg>
+              <p class="faint" style="font-size:12px;margin-top:6px">基准虚线 = 1.00 · 演示数据，非真实回测结果</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 数据 / 系统（合并示意） ============ -->
+    <section class="view" id="v-data" aria-label="数据">
+      <div class="view-head"><button class="btn icon js-menu-btn" aria-label="打开导航"><svg class="ic" style="width:17px;height:17px"><use href="#i-hamb"/></svg></button><h1>数据</h1><small>数据源接入与授权</small></div>
+      <div class="card"><div class="hd"><h2>数据源</h2></div>
+        <div class="tw"><table><thead><tr><th>来源</th><th>类型</th><th>状态</th><th></th></tr></thead><tbody>
+          <tr class="row"><td><b>Binance</b></td><td>行情 · 实时/历史</td><td><span class="badge b-ok">已连接</span></td><td><button class="btn" style="height:26px;font-size:12px">管理</button></td></tr>
+          <tr class="row"><td><b>Tushare</b></td><td>行情 · A股日线</td><td><span class="badge b-run">待授权</span></td><td><button class="btn primary" style="height:26px;font-size:12px">配置令牌</button></td></tr>
+        </tbody></table></div>
+      </div>
+    </section>
+
+    <section class="view" id="v-system" aria-label="系统">
+      <div class="view-head"><button class="btn icon js-menu-btn" aria-label="打开导航"><svg class="ic" style="width:17px;height:17px"><use href="#i-hamb"/></svg></button><h1>系统</h1><small>运行时状态</small></div>
+      <div class="card"><div class="hd"><h2>系统</h2></div>
+        <div class="bd"><dl class="kv" style="max-width:520px">
+          <dt>后端</dt><dd class="num">onlyalpha-backend 0.11.1 · 迁移 0076</dd>
+          <dt>会话</dt><dd>本地只读会话（浏览器即本机授权）</dd>
+          <dt>主题</dt><dd>暗色默认 · 右上角可切换</dd>
+        </dl></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="status">
+    <span>OnlyAlpha 0.11.1</span><span>方向稿 · 非生产界面</span>
+    <span class="spacer"></span><span class="num">UTC+8 09:58</span>
+  </footer>
+</div>
+
+<!-- 批注模式：方向稿反馈工具（非产品功能） -->
+<button id="oa-annot-btn" data-oa-annot>批注</button>
+<div id="oa-hl" data-oa-annot></div>
+<div id="oa-note" data-oa-annot>
+  <p class="tgt" id="oa-tgt"></p>
+  <textarea id="oa-text" placeholder="这条要改什么？例：太挤 / 换到左边 / 字号偏小"></textarea>
+  <div class="row"><button class="btn" id="oa-cancel">取消</button><button class="btn primary" id="oa-save">保存批注</button></div>
+</div>
+<div id="oa-list" data-oa-annot>
+  <h3><span>批注 <span id="oa-count"></span></span><span class="spacer"></span>
+    <button class="btn" id="oa-copy" style="height:26px;font-size:12px">复制全部</button></h3>
+  <ul id="oa-items"></ul>
+  <div class="row"><button class="btn" id="oa-clear" style="height:26px;font-size:12px">清空</button></div>
+</div>
+
+<script>
+// 导航切换
+const views={overview:"总览",workbench:"工作台",research:"研究",strategies:"策略",backtest:"回测",data:"数据",system:"系统"};
+document.querySelectorAll(".nav-item[data-v]").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll(".nav-item[data-v]").forEach(x=>x.removeAttribute("aria-current"));
+  b.setAttribute("aria-current","page");
+  document.querySelectorAll(".view").forEach(v=>v.classList.remove("on"));
+  document.getElementById("v-"+b.dataset.v).classList.add("on");
+  document.getElementById("ctx-title").textContent=views[b.dataset.v];
+  // 上下文条按画面配置：总览/数据/系统为状态页，整条不显示，标题在页内
+  const v=b.dataset.v,noCtx=v!=="workbench"; // 顶部工作条只属于工作台
+  document.body.classList.toggle("no-ctx",noCtx);
+  const wb=v==="workbench";
+  document.getElementById("chip-symbol").hidden=!wb;
+  document.getElementById("ctx-range").hidden=!wb;
+  document.body.classList.remove("rail-open"); // 窄屏抽屉选完即关
+}));
+// 窄屏导航抽屉
+const mask=document.getElementById("mask");
+document.querySelectorAll(".js-menu-btn").forEach(b=>b.addEventListener("click",()=>document.body.classList.add("rail-open")));
+mask.addEventListener("click",()=>document.body.classList.remove("rail-open"));
+addEventListener("keydown",e=>{if(e.key==="Escape")document.body.classList.remove("rail-open")});
+// 主题
+const root=document.documentElement,tb=document.getElementById("theme-btn");
+const saved=localStorage.getItem("oa-theme"); if(saved)root.dataset.theme=saved;
+function syncTheme(){const d=root.dataset.theme==="dark";tb.querySelector("use").setAttribute("href",d?"#i-sun":"#i-moon");tb.querySelector("span").textContent=d?"切换浅色":"切换暗色";}
+syncTheme();
+tb.addEventListener("click",()=>{root.dataset.theme=root.dataset.theme==="dark"?"light":"dark";localStorage.setItem("oa-theme",root.dataset.theme);syncTheme();});
+// 收起导航
+document.getElementById("quiet-btn").addEventListener("click",()=>document.body.classList.toggle("rail-quiet"));
+// 工具条
+document.querySelectorAll(".tools button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll(".tools button").forEach(x=>x.setAttribute("aria-pressed","false"));b.setAttribute("aria-pressed","true");}));
+// 分段控件
+document.querySelectorAll(".seg button,.switch button").forEach(b=>b.addEventListener("click",()=>{
+  b.parentElement.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false"));b.setAttribute("aria-pressed","true");}));
+// 策略空状态预览
+const ed=document.getElementById("empty-demo");
+if(ed)ed.addEventListener("click",()=>{const e=document.getElementById("strat-empty"),t=document.getElementById("strat-tw");
+  e.hidden=!e.hidden;t.style.display=e.hidden?"":"none";ed.textContent=e.hidden?"预览空状态":"返回示例数据";});
+// ===== 批注模式（方向稿反馈工具，非产品功能） =====
+(()=>{
+const btn=document.getElementById("oa-annot-btn"),hl=document.getElementById("oa-hl"),
+note=document.getElementById("oa-note"),tgt=document.getElementById("oa-tgt"),txt=document.getElementById("oa-text"),
+list=document.getElementById("oa-list"),items=document.getElementById("oa-items"),count=document.getElementById("oa-count");
+let notes=[];try{notes=JSON.parse(localStorage.getItem("oa-notes")||"[]")}catch(e){}
+let picked=null;
+const selOf=el=>{
+  if(el.id)return "#"+el.id;
+  const p=el.parentElement;if(!p)return el.tagName.toLowerCase();
+  const sibs=[...p.children].filter(c=>c.tagName===el.tagName);
+  const i=sibs.indexOf(el)+1;
+  const tag=el.tagName.toLowerCase()+(el.className&&typeof el.className==="string"&&el.classList.length?"."+[...el.classList][0]:"");
+  return (p.id?"#"+p.id:p.tagName.toLowerCase())+" > "+tag+(i>1?`:nth-of-type(${i})`:"");
+};
+const desc=el=>{const t=(el.innerText||"").trim().slice(0,24).replace(/\s+/g," ");return selOf(el)+(t?` “${t}”`:"")};
+const view=()=>{const v=document.querySelector(".view.on");return v?v.id.replace("v-",""):"?"};
+const oaOn=()=>document.body.classList.contains("oa-on");
+const hit=e=>{const el=document.elementFromPoint(e.clientX,e.clientY);return el&&!el.closest("[data-oa-annot]")?el:null};
+const place=el=>{const r=el.getBoundingClientRect();hl.style.cssText=`display:block;top:${r.top-2}px;left:${r.left-2}px;width:${r.width+4}px;height:${r.height+4}px`};
+const closeNote=()=>{note.classList.remove("on");hl.classList.remove("picked");picked=null};
+window.addEventListener("keydown",e=>{if(e.key==="Escape")closeNote()});
+btn.addEventListener("click",()=>{const on=document.body.classList.toggle("oa-on");btn.classList.toggle("on",on);list.classList.toggle("on",on);btn.textContent=on?"退出批注":"批注";render()});
+document.addEventListener("mousemove",e=>{if(!oaOn())return;const el=hit(e);if(!el){hl.style.display="none";return}place(el)},true);
+document.addEventListener("click",e=>{if(!oaOn())return;const el=hit(e);if(!el)return;
+  e.preventDefault();e.stopPropagation();picked=el;place(el);hl.classList.add("picked");tgt.textContent=desc(el);note.classList.add("on");txt.value="";txt.focus()},true);
+document.getElementById("oa-cancel").addEventListener("click",closeNote);
+document.getElementById("oa-save").addEventListener("click",()=>{const v=txt.value.trim();if(!v||!picked)return;
+  notes.push({s:selOf(picked),w:desc(picked),n:v,v:view(),t:document.documentElement.dataset.theme,vw:innerWidth});
+  persist();closeNote();render()});
+document.getElementById("oa-clear").addEventListener("click",()=>{notes=[];persist();render()});
+document.getElementById("oa-copy").addEventListener("click",async ev=>{
+  const b=ev.currentTarget;const t=exportText();
+  if(!notes.length){b.textContent="还没有批注";setTimeout(()=>b.textContent="复制全部",1500);return}
+  const done=ok=>{b.textContent=ok?"已复制 ✓":"下方手动复制";setTimeout(()=>b.textContent="复制全部",1800)};
+  showFallback(t);                                   // 先在页面展示，保证永远有退路
+  const hide=()=>{const f=document.getElementById("oa-fb");if(f)f.style.display="none"};
+  const clip=(navigator.clipboard&&navigator.clipboard.writeText)
+    ? Promise.race([navigator.clipboard.writeText(t),new Promise((_,r)=>setTimeout(()=>r("timeout"),700))])
+    : Promise.reject("no clipboard");
+  try{await clip;hide();done(true);return}catch(e){}
+  const ta=document.getElementById("oa-fallback");   // execCommand 静默选中复制
+  let ok=false;try{ta.focus();ta.select();ok=document.execCommand("copy")}catch(e){}
+  if(ok)hide();done(ok)
+});
+let fbOn=false;
+function showFallback(t){
+  let fb=document.getElementById("oa-fb");
+  if(!fb){fb=document.createElement("div");fb.id="oa-fb";fb.setAttribute("data-oa-annot","");
+    fb.style.cssText="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:130;width:min(560px,90vw);background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-2);padding:16px;display:none";
+    fb.innerHTML='<p style="font-size:13px;font-weight:600;margin-bottom:10px">批注文本（全选已就绪，Cmd/Ctrl+C 复制后粘贴给助手）</p><textarea id="oa-fallback" style="width:100%;height:34vh;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:10px;font:12.5px/1.6 ui-monospace,Menlo,monospace;white-space:pre"></textarea><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn" id="oa-fb-close">关闭</button></div>';
+    document.body.appendChild(fb);
+    fb.querySelector("#oa-fb-close").addEventListener("click",()=>{fb.style.display="none"})}
+  const ta=fb.querySelector("textarea");ta.value=t;fb.style.display="block";fbOn=true;
+  try{ta.focus();ta.select()}catch(e){}
+}
+const exportText=()=>notes.map((x,i)=>`${i+1}. [${x.v} · ${x.t==="dark"?"暗":"浅"} · ${x.vw}px] ${x.w}\n   → ${x.n}`).join("\n");
+window.__oaExport=exportText;
+function persist(){localStorage.setItem("oa-notes",JSON.stringify(notes))}
+function render(){
+  document.querySelectorAll(".oa-mark").forEach(m=>m.remove());
+  items.innerHTML="";count.textContent=notes.length?`(${notes.length})`:"";
+  if(!document.body.classList.contains("oa-on"))return;
+  notes.forEach((x,i)=>{
+    const li=document.createElement("li");
+    li.innerHTML=`<span class="no">#${i+1}</span><button class="del" title="删除">×</button><b>${x.n.replace(/</g,"&lt;")}</b><br>${x.w.replace(/</g,"&lt;")} <span style="opacity:.6">[${x.v}]</span>`;
+    li.querySelector(".del").addEventListener("click",()=>{notes.splice(i,1);persist();render()});
+    items.appendChild(li);
+    let el=null;try{el=document.querySelector(x.s)}catch(e){}
+    if(!el){li.style.opacity=.45;return}
+    const r=el.getBoundingClientRect(),m=document.createElement("div");
+    m.className="oa-mark";m.textContent=i+1;m.title=x.n;
+    m.style.top=(r.top-2)+"px";m.style.left=(r.right+4)+"px";
+    m.addEventListener("click",()=>{if(confirm(`删除批注 #${i+1}？\n${x.n}`)){notes.splice(i,1);persist();render()}});
+    document.body.appendChild(m);
+  });
+}
+document.querySelectorAll(".nav-item[data-v]").forEach(b=>b.addEventListener("click",()=>setTimeout(render,350)));
+addEventListener("resize",()=>{if(document.body.classList.contains("oa-on"))render()});
+})();
+
+// 市场概况条：开闭市按交易所常规时段实时计算（简化近似，正式版按交易所日历）。行情数值为演示数据。
+(()=>{
+const MK=[
+ {n:"中国 A 股",i:"上证指数",px:"3,892.42",c:.42,s:[[570,690],[780,900]],l:[[690,780]],o:"09:30"},
+ {n:"港股",i:"恒生指数",px:"19,782.31",c:.87,s:[[570,720],[780,960]],l:[[720,780]],o:"09:30"},
+ {n:"日本",i:"日经 225",px:"39,124.6",c:-.31,s:[[480,630],[690,870]],l:[[630,690]],o:"08:00"},
+ {n:"美股",i:"标普 500",px:"5,912.04",c:-.18,s:[[1350,1440],[0,300]],l:[],o:"22:30"},
+ {n:"欧洲",i:"德国 DAX",px:"19,286.5",c:.22,s:[[960,1440],[0,30]],l:[],o:"16:00"},
+ {n:"加密",i:"BTC / USDT",px:"68,412",c:2.31,s:null,l:[],o:"24h"},
+];
+const st=m=>{
+  const d=new Date(),bj=(d.getUTCHours()*60+d.getUTCMinutes()+480+1440)%1440,wk=d.getUTCDay()===0||d.getUTCDay()===6;
+  if(!m.s)return{t:"24/7 连续",live:true};
+  if(wk)return{t:"休市 · 周末"};
+  const inR=r=>r.some(([a,b])=>bj>=a&&bj<b);
+  if(inR(m.s))return{t:"交易中",live:true};
+  if(inR(m.l))return{t:"午间休市"};
+  return{t:`未开盘 · ${m.o} 开盘`};
+};
+const spark=(seed,up)=>{let s=seed;const r=()=>(s=(s*9301+49297)%233280)/233280;
+  let v=0;const p=[];for(let i=0;i<36;i++){v+=(r()-.5)*2+(up>0?.11:-.11);p.push(v)}
+  const mn=Math.min(...p),mx=Math.max(...p);
+  return p.map((x,i)=>`${(i/35*100).toFixed(1)},${(24-(mx===mn?12:(x-mn)/(mx-mn)*22)).toFixed(1)}`).join(" ")};
+const draw=()=>{const el=document.getElementById("tape");if(!el)return;
+  el.innerHTML=MK.map((m,k)=>{const s=st(m),up=m.c>=0,cl=up?"up":"down";
+    return `<div class="cell"><div class="m"><b>${m.n}</b>${m.i}<span class="st">${s.live?'<span class="live"></span>':''}${s.t}</span></div>
+    <div class="px num">${m.px} <span class="ch ${cl}" style="font-size:13px;font-weight:600">${up?"+":"−"}${Math.abs(m.c).toFixed(2)}%</span></div>
+    <svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"><polyline points="${spark(k*977+13,m.c)}" fill="none" stroke="var(--${up?'up':'down'})" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg></div>`}).join("")};
+draw();setInterval(draw,60000);
+})();
+
+// 总览净值曲线（确定性演示数据）
+(()=>{const g=document.getElementById("equity");if(!g)return;
+let s=7;const rnd=()=>(s=(s*9301+49297)%233280)/233280;
+const N=90,vals=[];let v=1;
+for(let i=0;i<N;i++){v*=1+(rnd()-0.47)*0.011;vals.push(v)}
+const min=Math.min(...vals,1),max=Math.max(...vals,1);
+const X=i=>40+i*(810/(N-1)),Y=x=>190-((x-min)/(max-min))*158;
+const pts=vals.map((x,i)=>`${X(i).toFixed(1)},${Y(x).toFixed(1)}`).join(" ");
+g.innerHTML=`<line x1="40" y1="${Y(1)}" x2="850" y2="${Y(1)}" stroke="var(--faint)" stroke-dasharray="3 3"/>
+<text class="axis" x="6" y="${Y(1)+4}">1.00</text><text class="axis" x="6" y="${Y(max)+8}">${max.toFixed(2)}</text>
+<polygon points="40,195 ${pts} 850,195" fill="var(--up)" opacity=".07"/>
+<polyline points="${pts}" fill="none" stroke="var(--up)" stroke-width="2"/>
+<text class="axis" x="40" y="207">08-12</text><text class="axis" x="430" y="207">09-26</text><text class="axis" x="800" y="207">11-10</text>`;
+})();
+
+// 确定性伪随机 K 线（演示数据）
+let s=42;const rnd=()=>(s=(s*9301+49297)%233280)/233280;
+const g=document.getElementById("candles"),vg=document.getElementById("vol"),smaPts=[];
+let px=65000;const closes=[];
+for(let i=0;i<30;i++){
+  const o=px,c=px+(rnd()-0.46)*2600,h=Math.max(o,c)+rnd()*900,l=Math.min(o,c)-rnd()*900;px=c;closes.push((o+c)/2);
+  const x=52+i*26.4,up=c>=o,col=up?"var(--up)":"var(--down)";
+  const y=v=>220-(v-62000)/12000*170;
+  g.insertAdjacentHTML("beforeend",
+   `<line x1="${x}" y1="${y(h)}" x2="${x}" y2="${y(l)}" stroke="${col}" stroke-width="1.2"/>`+
+   `<rect x="${x-5.5}" y="${Math.min(y(o),y(c))}" width="11" height="${Math.max(2,Math.abs(y(o)-y(c)))}" rx="1.5" fill="${up?'none':col}" stroke="${col}" stroke-width="1.4"/>`);
+  vg.insertAdjacentHTML("beforeend",`<rect x="${x-5.5}" y="${292-rnd()*26}" width="11" height="${rnd()*26}" rx="1.5" fill="${col}" opacity=".45"/>`);
+}
+for(let i=0;i<closes.length;i++){const w=closes.slice(Math.max(0,i-4),i+1);const m=w.reduce((a,b)=>a+b)/w.length;const x=52+i*26.4,y=220-(m-62000)/12000*170;smaPts.push(`${x},${y.toFixed(1)}`);}
+document.getElementById("sma").setAttribute("points",smaPts.join(" "));
+</script>
+</body>
+</html>
