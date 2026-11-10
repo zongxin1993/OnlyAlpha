@@ -1,0 +1,132 @@
+/* 壳布局与左侧栏（冻结稿 docs/webui/design-brief-2026-11-10.md）。
+   选择器以 .workstation-shell.app-shell 提级，确保覆盖 base.css 的旧壳布局。 */
+.workstation-shell.app-shell {
+    grid-template-columns: 200px minmax(0, 1fr) auto;
+    grid-template-areas:
+        "rail topbar aside"
+        "rail main aside"
+        "rail footer footer";
+}
+
+.app-shell > .side-rail {
+    grid-area: rail;
+}
+
+.app-shell > .workspace-topbar {
+    grid-area: topbar;
+}
+
+.app-shell > .workstation-workspace {
+    grid-area: main;
+}
+
+.app-shell > .global-workspace-rail {
+    grid-column: auto;
+    grid-row: auto;
+    grid-area: aside;
+}
+
+.app-shell > .status-surface {
+    grid-area: footer;
+}
+
+.side-rail {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.rail-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 0.85rem;
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.rail-brand-name {
+    font-weight: 650;
+    letter-spacing: 0.01em;
+}
+
+.side-rail-nav {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.5rem 0.5rem 0.75rem;
+    border-bottom: 0;
+}
+
+.rail-group + .rail-group {
+    margin-top: 0.65rem;
+}
+
+.rail-group-label {
+    margin: 0.35rem 0.45rem 0.25rem;
+    font-size: 11px;
+    color: var(--faint);
+    letter-spacing: 0.04em;
+}
+
+.rail-item {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.4rem 0.55rem;
+    border-radius: 6px;
+    color: var(--muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+}
+
+.rail-item:hover {
+    color: var(--text);
+    background: var(--surface-2);
+}
+
+.rail-item.active {
+    color: var(--text);
+    background: var(--accent-soft);
+    border-left-color: var(--accent);
+    font-weight: 600;
+}
+
+.rail-item svg {
+    flex: none;
+}
+
+.rail-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem 0.6rem;
+    border-top: 1px solid var(--line-soft);
+}
+
+.rail-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.rail-button:hover {
+    color: var(--text);
+    background: var(--surface-2);
+}
+
+.workspace-settings-anchor {
+    margin-left: auto;
+}

@@ -1,7 +1,9 @@
+import type { WorkspaceIconName } from "../shared/components/WorkspaceIcon";
+
 export interface NavItem {
     readonly to: string;
     readonly label: string;
-    readonly icon: string;
+    readonly icon: WorkspaceIconName;
     /** 顶部工作条只属于工作台；其余画面使用页内标题（docs/webui/design-brief-2026-11-10.md）。 */
     readonly ctxbar: boolean;
 }
