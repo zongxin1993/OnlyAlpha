@@ -27,11 +27,11 @@ it("总览占位不发明数据组件", () => {
     expect(screen.getByRole("link", { name: "前往工作台" })).toHaveAttribute("href", "/");
 });
 
-it("窄屏导航钮切换 body.rail-open", async () => {
+it("页内标题条提供窄屏导航开关并同步 aria-expanded", async () => {
     renderPlaceholder();
-    document.body.classList.remove("rail-open");
     const user = userEvent.setup();
     const button = screen.getByRole("button", { name: "开启导航" });
+    expect(button).toHaveAttribute("aria-expanded", "false");
     await user.click(button);
-    expect(document.body.classList.contains("rail-open")).toBe(true);
+    expect(button).toHaveAttribute("aria-expanded", "true");
 });

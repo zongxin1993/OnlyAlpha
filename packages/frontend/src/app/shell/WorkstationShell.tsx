@@ -1,8 +1,9 @@
 import "./toolbars.css";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { NAV_GROUPS } from "../nav";
 import { ContextBar } from "./ContextBar";
+import { getRailSnapshot, setRail, subscribeRail } from "./rail";
 import { SideRail } from "./SideRail";
 
 export interface WorkspaceShellSlots {
@@ -24,16 +25,45 @@ export function WorkstationShell() {
     const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
     const [railHost, setRailHost] = useState<HTMLDivElement | null>(null);
     const location = useLocation();
+    const railOpen = useSyncExternalStore(subscribeRail, getRailSnapshot);
     const isContextBar = matchNavItem(location.pathname)?.ctxbar === true;
     useEffect(() => {
         document.body.classList.toggle("no-ctx", !isContextBar);
     }, [isContextBar]);
+    useEffect(() => {
+        document.body.classList.toggle("rail-open", railOpen);
+    }, [railOpen]);
+    useEffect(() => {
+        setRail(false);
+    }, [location.pathname]);
+    useEffect(() => {
+        if (!railOpen) {
+            return;
+        }
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                setRail(false);
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => {
+            window.removeEventListener("keydown", onKeyDown);
+        };
+    }, [railOpen]);
     return (
         <div className="workstation-shell app-shell">
             <a className="skip-link" href="#workspace-content">
                 跳到工作区
             </a>
             <SideRail />
+            <div
+                id="rail-mask"
+                className="rail-mask"
+                aria-hidden="true"
+                onClick={() => {
+                    setRail(false);
+                }}
+            />
             {isContextBar ? <ContextBar hostRef={setToolbarHost} /> : null}
             <div className="workstation-workspace" id="workspace-content" tabIndex={-1}>
                 <Outlet context={{ toolbarHost, railHost } satisfies WorkspaceShellSlots} />
