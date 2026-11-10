@@ -13,6 +13,7 @@ import type {
     UTCTimestamp
 } from "lightweight-charts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { subscribeTheme } from "../../app/theme/theme";
 import {
     studyDescriptor,
     studySeriesColor,
@@ -340,6 +341,45 @@ export function PriceChart({
             chart.remove();
         };
     }, []);
+
+    // 主题切换时同步重取图表配色（token 是唯一取色来源，见设计简报）
+    useEffect(
+        () =>
+            subscribeTheme(() => {
+                const chart = chartRef.current;
+                const element = container.current;
+                if (chart === null || element === null) {
+                    return;
+                }
+                const tokens = getComputedStyle(element);
+                const token = (name: string, fallback: string) =>
+                    tokens.getPropertyValue(name).trim() || fallback;
+                chart.applyOptions({
+                    layout: {
+                        background: { type: ColorType.Solid, color: token("--surface", "#ffffff") },
+                        textColor: token("--muted", "#5f6874")
+                    },
+                    grid: {
+                        vertLines: { color: token("--line-soft", "#eceae4") },
+                        horzLines: { color: token("--line-soft", "#eceae4") }
+                    },
+                    rightPriceScale: { borderColor: token("--line", "#e2e2dd") },
+                    timeScale: { borderColor: token("--line", "#e2e2dd") }
+                });
+                const up = token("--up", "#c8332a");
+                const down = token("--down", "#2f7d47");
+                volumeColors.current = { up, down };
+                priceSeries.current?.applyOptions({
+                    upColor: up,
+                    downColor: down,
+                    borderUpColor: up,
+                    borderDownColor: down,
+                    wickUpColor: up,
+                    wickDownColor: down
+                });
+            }),
+        []
+    );
 
     useEffect(() => {
         const formatter = chartTimeFormatters(display.zone);

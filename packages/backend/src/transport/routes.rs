@@ -251,6 +251,7 @@ pub fn navigation(method: &Method, path: &str) -> bool {
     matches!(*method, Method::GET | Method::HEAD)
         && [
             "/",
+            "/overview",
             "/research",
             "/research/new",
             "/research/analysis",
@@ -1717,6 +1718,10 @@ mod backtest_preparation_contract;
 #[cfg(test)]
 #[path = "../../tests/transport/backtest_product.rs"]
 mod backtest_product_contract;
+
+#[cfg(test)]
+#[path = "../../tests/transport/web_navigation.rs"]
+mod web_navigation_contract;
 
 #[utoipa::path(post,path="/api/v2/backtest/preparations",tag="backtest-preparation",security(("LocalDeveloperCookie"=[])),params(("Idempotency-Key"=String,Header)),request_body=crate::application::backtest_preparation::BacktestPrepareInput,responses((status=200,body=crate::transport::research_wire::BacktestPrepareReply),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=500,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
 async fn backtest_preparation_create(

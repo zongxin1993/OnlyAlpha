@@ -109,7 +109,9 @@ it("orders the live chart controls beside the brand icon in the top workspace ba
     );
     const toolbar = await screen.findByRole("toolbar", { name: "图表工作条" });
     expect(toolbar.closest(".workspace-topbar")).not.toBeNull();
-    expect(screen.getByRole("link", { name: "OnlyAlpha 工作台" })).toHaveTextContent(/^OA$/);
+    const brand = screen.getByRole("link", { name: "OnlyAlpha 工作台" });
+    expect(brand).toHaveTextContent("OA");
+    expect(brand.closest(".side-rail")).not.toBeNull();
     expect(within(toolbar).getByRole("button", { name: "图表类型" })).toBeInTheDocument();
     expect(within(toolbar).getByRole("button", { name: /工作区/ })).toBeInTheDocument();
     expect(within(toolbar).queryByRole("button", { name: "设置" })).not.toBeInTheDocument();

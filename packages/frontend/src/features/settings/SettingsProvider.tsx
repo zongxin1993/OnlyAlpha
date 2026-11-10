@@ -1,5 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+    createContext,
+    useContext,
+    useRef,
+    useSyncExternalStore,
+    useState,
+    type ReactNode
+} from "react";
+import { getThemeSnapshot, subscribeTheme } from "../../app/theme/theme";
 import { ConfigProvider, Drawer, Tabs, theme } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { DataSourceManager } from "../data/sources/DataSourceManager";
@@ -18,6 +26,11 @@ function changed() {
     window.dispatchEvent(new Event(settingsChangedEvent));
 }
 export function SettingsProvider({ children }: { readonly children: ReactNode }) {
+    const uiTheme = useSyncExternalStore(subscribeTheme, getThemeSnapshot);
+    const antdAlgorithm = uiTheme === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm;
+    const antdColorBgBase = uiTheme === "dark" ? "#14161a" : "#f8f8f5";
+    const antdColorTextBase = uiTheme === "dark" ? "#e8eaf0" : "#20242b";
+    const trigger = useRef<HTMLElement | null>(null);
     const [section, setSection] = useState<Section>("sources");
     const [open, setOpen] = useState(false);
     const [chartSettingsHost, setChartSettingsHost] = useState<HTMLDivElement | null>(null);
@@ -26,11 +39,11 @@ export function SettingsProvider({ children }: { readonly children: ReactNode })
         <ConfigProvider
             locale={zhCN}
             theme={{
-                algorithm: theme.defaultAlgorithm,
+                algorithm: antdAlgorithm,
                 token: {
                     colorPrimary: "#1f5f8b",
-                    colorBgBase: "#f8f8f5",
-                    colorTextBase: "#20242b",
+                    colorBgBase: antdColorBgBase,
+                    colorTextBase: antdColorTextBase,
                     borderRadius: 6,
                     fontFamily: "inherit"
                 }
@@ -41,6 +54,10 @@ export function SettingsProvider({ children }: { readonly children: ReactNode })
                     chartSettingsHost,
                     setChartAvailable,
                     openSettings: (next) => {
+                        trigger.current =
+                            document.activeElement instanceof HTMLElement
+                                ? document.activeElement
+                                : null;
                         setSection(next);
                         setOpen(true);
                     }
@@ -56,6 +73,12 @@ export function SettingsProvider({ children }: { readonly children: ReactNode })
                     onClose={() => {
                         setOpen(false);
                         changed();
+                    }}
+                    afterOpenChange={(visible) => {
+                        if (!visible) {
+                            trigger.current?.focus();
+                            trigger.current = null;
+                        }
                     }}
                     closable={{ "aria-label": "关闭设置" }}
                 >

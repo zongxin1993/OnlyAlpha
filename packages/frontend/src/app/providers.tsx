@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ConfigProvider, theme as antdTheme } from "antd";
 import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 import { LocalReadCredentials } from "../api/marketData/localReadCredentials";
 import { FetchIntegrationApiClient, type IntegrationApiClient } from "../api/integrations/client";
 import { FetchMarketDataApiClient, type MarketDataApiClient } from "../api/marketData/client";
+import { getThemeSnapshot, subscribeTheme } from "./theme/theme";
 
 const IntegrationApiContext = createContext<IntegrationApiClient | null>(null);
 const MarketDataApiContext = createContext<MarketDataApiClient | null>(null);
@@ -45,14 +47,21 @@ export function AppProviders({
     const [marketDataApiClient] = useState<MarketDataApiClient>(
         () => marketDataClient ?? new FetchMarketDataApiClient(credentials)
     );
+    const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot);
     return (
-        <IntegrationApiContext value={integrationApiClient}>
-            <MarketDataApiContext value={marketDataApiClient}>
-                <LocalReadCredentialsContext value={credentials}>
-                    <SessionQueries key={authGeneration}>{children}</SessionQueries>
-                </LocalReadCredentialsContext>
-            </MarketDataApiContext>
-        </IntegrationApiContext>
+        <ConfigProvider
+            theme={{
+                algorithm: theme === "dark" ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm
+            }}
+        >
+            <IntegrationApiContext value={integrationApiClient}>
+                <MarketDataApiContext value={marketDataApiClient}>
+                    <LocalReadCredentialsContext value={credentials}>
+                        <SessionQueries key={authGeneration}>{children}</SessionQueries>
+                    </LocalReadCredentialsContext>
+                </MarketDataApiContext>
+            </IntegrationApiContext>
+        </ConfigProvider>
     );
 }
 
