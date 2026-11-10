@@ -261,6 +261,17 @@ it("图下出现指标因子卡：已挂列表、目录入口与诚实空态", a
     expect(await screen.findByRole("dialog", { name: "指标 / 因子目录" })).toBeInTheDocument();
 });
 
+it("图下工作区卡：诚实空态与保存副本入口接既有保存流程", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    const card = screen.getByRole("region", { name: "工作区" });
+    expect(
+        within(card).getByText("还没有保存的工作区，“保存副本”可保存当前布局与绘图。")
+    ).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "保存副本" }));
+    expect(await screen.findByRole("dialog", { name: "保存工作区" })).toBeInTheDocument();
+});
+
 it("自选竖列常开，托盘面板开关已撤除", () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
     try {

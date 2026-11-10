@@ -6,18 +6,24 @@ import type { WorkspaceConfiguration } from "../../api/workspace/client";
 import type { useDefaultWorkspace } from "./useDefaultWorkspace";
 import { keepDialogFocus } from "./dialogFocus";
 
+export interface WorkspaceLibraryControl {
+    open(mode: "save" | "load", source: HTMLButtonElement): void;
+}
+
 export function WorkspaceLibraryControls({
     workspace,
     configuration,
     ready,
     dirty,
-    notice
+    notice,
+    openControlRef
 }: {
     readonly workspace: ReturnType<typeof useDefaultWorkspace>;
     readonly configuration: WorkspaceConfiguration | null;
     readonly ready: boolean;
     readonly dirty: boolean;
     readonly notice: string | null;
+    readonly openControlRef?: { current: WorkspaceLibraryControl | null };
 }) {
     const [mode, setMode] = useState<"save" | "load" | null>(null);
     const [name, setName] = useState("");
@@ -34,13 +40,25 @@ export function WorkspaceLibraryControls({
             trigger?.focus();
         };
     }, [mode]);
-    const open = (next: "save" | "load") => {
+    const open = (next: "save" | "load", source: HTMLButtonElement | null = null) => {
+        if (source !== null) returnFocus.current = source;
         setName(workspace.activeWorkspace?.name ?? "我的工作区");
         setTarget(null);
         setError(null);
         setMode(next);
         if (next === "load") void workspace.reload(undefined, false);
     };
+    useEffect(() => {
+        if (openControlRef === undefined) return;
+        openControlRef.current = {
+            open: (next, source) => {
+                open(next, source);
+            }
+        };
+        return () => {
+            openControlRef.current = null;
+        };
+    });
     const save = async (overwriteId: string | null) => {
         if (
             configuration !== null &&

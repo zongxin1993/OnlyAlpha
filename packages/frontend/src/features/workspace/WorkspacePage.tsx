@@ -3,7 +3,7 @@ import { settingsChangedEvent, useSettings } from "../settings/SettingsProvider"
 import { Link, useOutletContext } from "react-router-dom";
 import { createPortal } from "react-dom";
 import type { WorkspaceShellSlots } from "../../app/shell/WorkstationShell";
-import { WorkspaceLibraryControls } from "./WorkspaceLibraryControls";
+import { WorkspaceLibraryControls, type WorkspaceLibraryControl } from "./WorkspaceLibraryControls";
 import { useDefaultWorkspace } from "./useDefaultWorkspace";
 import type { WorkspaceConfiguration } from "../../api/workspace/client";
 import { sameChartBinding } from "../../api/chartStudies/client";
@@ -56,6 +56,7 @@ export function WorkspacePage() {
     const [studyStatusHost, setStudyStatusHost] = useState<HTMLDivElement | null>(null);
     const [pickerHost, setPickerHost] = useState<HTMLDivElement | null>(null);
     const [studiesCardHost, setStudiesCardHost] = useState<HTMLDivElement | null>(null);
+    const libraryControlRef = useRef<WorkspaceLibraryControl | null>(null);
     const [activeTool, setActiveTool] = useState<string>("pointer");
     const [bottomTab, setBottomTab] = useState<"runs" | "results">("runs");
     const [bottomCollapsed, setBottomCollapsed] = useState(true);
@@ -537,6 +538,7 @@ export function WorkspacePage() {
                                                 ? "1 日封存历史无法保存为工作区，可用原采集编号恢复。"
                                                 : restoreNotice
                                         }
+                                        openControlRef={libraryControlRef}
                                     />
                                 ) : (
                                     createPortal(
@@ -550,6 +552,7 @@ export function WorkspacePage() {
                                                     ? "1 日封存历史无法保存为工作区，可用原采集编号恢复。"
                                                     : restoreNotice
                                             }
+                                            openControlRef={libraryControlRef}
                                         />,
                                         managementHost
                                     )
@@ -645,6 +648,24 @@ export function WorkspacePage() {
                 </ChartStudies>
                 <div className="workspace-under-chart">
                     <div ref={setStudiesCardHost} />
+                    <section className="workspace-summary-card" aria-label="工作区">
+                        <header>
+                            <h2>工作区</h2>
+                            <button
+                                type="button"
+                                onClick={(event) => {
+                                    libraryControlRef.current?.open("save", event.currentTarget);
+                                }}
+                            >
+                                保存副本
+                            </button>
+                        </header>
+                        <p>
+                            {workspace.activeWorkspace?.name ??
+                                "还没有保存的工作区，“保存副本”可保存当前布局与绘图。"}
+                        </p>
+                        <p className="faint">布局与绘图随工作区持久化</p>
+                    </section>
                 </div>
             </section>
             <section className="bottom-panel" aria-label="研究面板">
