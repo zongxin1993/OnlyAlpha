@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { WorkstationShell } from "./WorkstationShell";
+import { setRail } from "./rail";
 
 const destinations = [
     { path: "/overview", nav: "总览", label: "总览 · 未实现" },
@@ -36,6 +37,7 @@ function renderShell(entry = "/") {
 
 beforeEach(() => {
     document.body.classList.remove("rail-open", "no-ctx");
+    setRail(false); // rail store 是模块单例：逐用例复位，避免开抽屉的用例串染。
     localStorage.clear();
     document.documentElement.removeAttribute("data-theme");
     document.body.classList.remove("quiet");

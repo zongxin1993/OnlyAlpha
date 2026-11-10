@@ -28,6 +28,7 @@ export function WorkstationShell() {
     const location = useLocation();
     const railOpen = useSyncExternalStore(subscribeRail, getRailSnapshot);
     const openSource = useRef<HTMLElement | null>(null);
+    const openPath = useRef<string | null>(null);
     const isContextBar = matchNavItem(location.pathname)?.ctxbar === true;
     useEffect(() => {
         document.body.classList.toggle("no-ctx", !isContextBar);
@@ -36,8 +37,17 @@ export function WorkstationShell() {
         document.body.classList.toggle("rail-open", railOpen);
     }, [railOpen]);
     useEffect(() => {
-        setRail(false);
-    }, [location.pathname]);
+        if (!railOpen) {
+            openPath.current = null;
+            return;
+        }
+        // 只收起"开栏期间发生的导航"：上一次导航迟到的 transition 完成不得关掉随后新开的抽屉。
+        if (openPath.current === null) {
+            openPath.current = location.pathname;
+        } else if (openPath.current !== location.pathname) {
+            setRail(false);
+        }
+    }, [railOpen, location.pathname]);
     useEffect(() => {
         if (!railOpen) {
             return;

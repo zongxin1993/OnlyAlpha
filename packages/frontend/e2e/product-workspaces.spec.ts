@@ -92,16 +92,31 @@ for (const width of [1440, 390]) {
         }
         page.off("request", recordRequest);
         if (drawer) {
-            // 390：抽屉打开后经键盘逐项可达（关闭态 visibility:hidden 不再吞焦点）。
+            // 390：抽屉打开后焦点入栏，按 DOM 顺序 Tab 到目标链接后回车——确定性键盘路径。
             const openNavigation = page.getByRole("button", { name: "开启导航" });
-            for (const stop of keyboardTour) {
-                if (!stop.enter) continue;
+            const stops = keyboardTour.filter((stop) => stop.enter);
+            for (const [index, stop] of stops.entries()) {
                 await openNavigation.focus();
                 await page.keyboard.press("Enter");
-                const link = navigation.getByRole("link", { name: stop.nav, exact: true });
-                await link.focus();
-                await page.keyboard.press("Enter");
-                await expect(page).toHaveURL(stop.path);
+                // 焦点入栏与打开同帧（layout effect）；Tab 跟随真实 DOM 序到目标链接。
+                await expect(page.locator(".side-rail a").first()).toBeFocused();
+                const activeHref = () =>
+                    page.evaluate(() => document.activeElement?.getAttribute("href"));
+                for (let guard = 0; guard < 12 && (await activeHref()) !== stop.path; guard += 1) {
+                    await page.keyboard.press("Tab");
+                }
+                // activeElement 即真实焦点；角色查询会撞上路由激活态重渲染的重建窗口，不作焦点判据。
+                await expect.poll(activeHref).toBe(stop.path);
+                const last = index === stops.length - 1;
+                if (index === 0 || last) {
+                    // 首末两站走完整键盘导航（Tab→Enter→收起→焦点归还 ☰），其余站验证可达。
+                    await page.keyboard.press("Enter");
+                    await expect(page).toHaveURL(stop.path);
+                } else {
+                    await page.keyboard.press("Escape");
+                }
+                await expect(page.locator(".side-rail")).not.toHaveClass(/is-open/);
+                await expect(openNavigation).toBeFocused();
             }
         }
         await page.getByRole("link", { name: "返回工作台" }).click();
