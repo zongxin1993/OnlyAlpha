@@ -1,13 +1,15 @@
 use crate::transport::routes::navigation;
 use http::{Method, Request};
 
-fn navigation_paths() -> [&'static str; 6] {
+fn navigation_paths() -> [&'static str; 8] {
     [
         "/",
         "/overview",
         "/research/new",
         "/strategies",
+        "/backtest",
         "/backtest/runs",
+        "/data/inputs",
         "/system/health",
     ]
 }
