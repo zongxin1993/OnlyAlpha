@@ -2,7 +2,14 @@ use crate::transport::routes::navigation;
 use http::{Method, Request};
 
 fn navigation_paths() -> [&'static str; 6] {
-    ["/", "/overview", "/research/new", "/strategies", "/backtest/runs", "/system/health"]
+    [
+        "/",
+        "/overview",
+        "/research/new",
+        "/strategies",
+        "/backtest/runs",
+        "/system/health",
+    ]
 }
 
 #[test]
@@ -13,7 +20,10 @@ fn human_navigation_serves_every_registered_screen_page() {
             .uri(path)
             .body(())
             .expect("request builds");
-        assert!(navigation(request.method(), path), "{path} must be a navigation page");
+        assert!(
+            navigation(request.method(), path),
+            "{path} must be a navigation page"
+        );
     }
 }
 
@@ -25,7 +35,10 @@ fn human_navigation_rejects_unregistered_and_non_get_paths() {
             .uri(path)
             .body(())
             .expect("request builds");
-        assert!(!navigation(request.method(), path), "{path} is not a navigation page");
+        assert!(
+            !navigation(request.method(), path),
+            "{path} is not a navigation page"
+        );
     }
     let request = Request::builder()
         .method(Method::POST)

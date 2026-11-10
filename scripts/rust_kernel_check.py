@@ -1485,6 +1485,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
         "../../tests/transport/backtest_preparation_routes.rs": "packages/backend/tests/transport/backtest_preparation_routes.rs",
         "../../tests/transport/backtest_product.rs": "packages/backend/tests/transport/backtest_product.rs",
         "../../tests/transport/qualification_product.rs": "packages/backend/tests/transport/qualification_product.rs",
+        "../../tests/transport/web_navigation.rs": "packages/backend/tests/transport/web_navigation.rs",
     },
     "packages/backend/src/transport/host_backtest.rs": {
         "../../tests/transport/backtest_worker_observation.rs": "packages/backend/tests/transport/backtest_worker_observation.rs",
