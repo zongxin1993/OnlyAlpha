@@ -37,6 +37,14 @@ describe("主题基础（暗色默认双主题）", () => {
         expect(getStoredTheme()).toBe("light");
     });
 
+    it("模块加载即以已存储主题为准（刷新后切换起点是用户所选）", async () => {
+        localStorage.setItem("oa-theme", "light");
+        vi.resetModules();
+        const fresh = await import("./theme");
+        expect(fresh.getThemeSnapshot()).toBe("light");
+        expect(fresh.toggleTheme()).toBe("dark");
+    });
+
     it("损坏的存储值回落到暗色", () => {
         localStorage.setItem("oa-theme", "neon");
         expect(getStoredTheme()).toBe("dark");

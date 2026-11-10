@@ -2,7 +2,6 @@ export type Theme = "dark" | "light";
 
 const STORAGE_KEY = "oa-theme";
 const listeners = new Set<() => void>();
-let current: Theme = "dark";
 
 function readStored(): Theme {
     try {
@@ -12,6 +11,13 @@ function readStored(): Theme {
         return "dark";
     }
 }
+
+function readStoredTheme(): Theme {
+    return readStored();
+}
+
+// 模块加载时与已存储主题对齐：刷新后 toggle 的起点必须是用户所选，而非默认暗色。
+let current: Theme = readStoredTheme();
 
 export function getStoredTheme(): Theme {
     return readStored();
