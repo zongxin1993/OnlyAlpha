@@ -9,7 +9,8 @@ import {
     integrationClient,
     operationalStatus
 } from "../../test/integrationClient";
-import { marketDataClient } from "../../test/marketDataClient";
+import { marketDataClient, marketDataSource } from "../../test/marketDataClient";
+import { marketDataBarSemantic } from "../../api/marketData/model";
 import { MemoryRouter, createMemoryRouter, RouterProvider } from "react-router-dom";
 import { WorkstationShell } from "../../app/shell/WorkstationShell";
 import { WorkspacePage } from "./WorkspacePage";
@@ -252,6 +253,48 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
     container.remove();
 });
 
+it("工作区卡显示当前工作区名称（命名分支）", async () => {
+    vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string) =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify(
+                        url === "/api/v2/workspace"
+                            ? {
+                                  schema_version: 3,
+                                  version: 1,
+                                  active_workspace_id: "00000000-0000-4000-8000-000000000002",
+                                  workspaces: [
+                                      {
+                                          workspace_id: "00000000-0000-4000-8000-000000000002",
+                                          name: "主趋势布局",
+                                          configuration: {
+                                              source: {
+                                                  integration_id: marketDataSource().integration_id,
+                                                  integration_revision_fingerprint:
+                                                      marketDataSource()
+                                                          .integration_revision_fingerprint,
+                                                  expected_type_id: marketDataSource().type_id
+                                              },
+                                              instrument_id: "BTCUSDT.TEST",
+                                              bar_semantic: marketDataBarSemantic(7),
+                                              studies: []
+                                          }
+                                      }
+                                  ]
+                              }
+                            : { schema_version: 2, version: 0, lists: [] }
+                    )
+                )
+            )
+        )
+    );
+    renderWorkspace();
+    const card = screen.getByRole("region", { name: "工作区" });
+    expect(await within(card).findByText("主趋势布局")).toBeInTheDocument();
+});
+
 it("图下双卡宿主是工作区 grid 的直接子级（不陷在主图区内）", () => {
     const { container } = renderWorkspace();
     const under = container.querySelector(".workspace-under-chart");
@@ -270,15 +313,14 @@ it("图下出现指标因子卡：已挂列表、目录入口与诚实空态", a
     expect(await screen.findByRole("dialog", { name: "指标 / 因子目录" })).toBeInTheDocument();
 });
 
-it("图下工作区卡：诚实空态与保存副本入口接既有保存流程", async () => {
-    const user = userEvent.setup();
+it("图下工作区卡：诚实空态；无行情上下文时保存闸门关闭", () => {
     renderWorkspace();
     const card = screen.getByRole("region", { name: "工作区" });
     expect(
         within(card).getByText("还没有保存的工作区，“保存副本”可保存当前布局与绘图。")
     ).toBeInTheDocument();
-    await user.click(within(card).getByRole("button", { name: "保存副本" }));
-    expect(await screen.findByRole("dialog", { name: "保存工作区" })).toBeInTheDocument();
+    // 无行情上下文时保存闸门关闭（与既有"保存工作区"入口同条件）；可保存路径见 WorkspacePageSave。
+    expect(within(card).getByRole("button", { name: "保存副本" })).toBeDisabled();
 });
 
 it("自选竖列常开，托盘面板开关已撤除", () => {

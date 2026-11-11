@@ -32,10 +32,12 @@ export function ChartStudies({
     credentials,
     restoration,
     toolbarTarget,
-    studiesCardTarget
+    studiesCardTarget,
+    onRestoringChange
 }: {
     readonly toolbarTarget?: HTMLElement | null;
     readonly studiesCardTarget?: HTMLElement | null;
+    readonly onRestoringChange?: (restoring: boolean) => void;
     readonly restoration?: {
         readonly key: string;
         readonly contextKey: string;
@@ -64,6 +66,9 @@ export function ChartStudies({
     const [returnFocus, setReturnFocus] = useState<HTMLElement | null>(null);
     const [initializedRestore, setInitializedRestore] = useState<string | null>(null);
     const [pendingRestore, setPendingRestore] = useState<readonly WorkspaceStudy[] | null>(null);
+    useEffect(() => {
+        onRestoringChange?.(pendingRestore !== null);
+    }, [pendingRestore, onRestoringChange]);
     const [restoreError, setRestoreError] = useState<string | null>(null);
     const [restoreRetry, setRestoreRetry] = useState(0);
     if (restoration != null && restoration.key !== initializedRestore) {
@@ -233,6 +238,9 @@ export function ChartStudies({
                             >
                                 {studyDisplayLabel(instance)}
                             </button>
+                            <span className="chart-studies__state">
+                                {instance.presentation.visible ? "图中" : "未上屏"}
+                            </span>
                             <button
                                 type="button"
                                 aria-pressed={instance.presentation.visible}

@@ -56,6 +56,7 @@ export function WorkspacePage() {
     const [studyStatusHost, setStudyStatusHost] = useState<HTMLDivElement | null>(null);
     const [pickerHost, setPickerHost] = useState<HTMLDivElement | null>(null);
     const [studiesCardHost, setStudiesCardHost] = useState<HTMLDivElement | null>(null);
+    const [studyRestoring, setStudyRestoring] = useState(false);
     const libraryControlRef = useRef<WorkspaceLibraryControl | null>(null);
     const [activeTool, setActiveTool] = useState<string>("pointer");
     const [bottomTab, setBottomTab] = useState<"runs" | "results">("runs");
@@ -490,6 +491,7 @@ export function WorkspacePage() {
                     />
                 )}
                 <ChartStudies
+                    onRestoringChange={setStudyRestoring}
                     toolbarTarget={pickerHost}
                     studiesCardTarget={studiesCardHost}
                     context={studyContext}
@@ -654,6 +656,13 @@ export function WorkspacePage() {
                         <h2>工作区</h2>
                         <button
                             type="button"
+                            disabled={
+                                workspace.busy ||
+                                workspace.pending !== null ||
+                                workspace.book === null ||
+                                studyContext === null ||
+                                studyRestoring
+                            }
                             onClick={(event) => {
                                 libraryControlRef.current?.open("save", event.currentTarget);
                             }}

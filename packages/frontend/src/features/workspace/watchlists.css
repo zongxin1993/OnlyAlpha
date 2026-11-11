@@ -89,6 +89,23 @@
     border-bottom: 1px solid var(--line);
     font-size: 13px;
 }
+/* 左列行契约（冻结稿）：纵向 9px、横向 16px 落在行两侧，分隔线更柔。 */
+.workspace-watch-column .watchlists__rows th,
+.workspace-watch-column .watchlists__rows td {
+    padding-top: 9px;
+    padding-bottom: 9px;
+}
+.workspace-watch-column .watchlists__rows th:first-child,
+.workspace-watch-column .watchlists__rows td:first-child {
+    padding-left: 16px;
+}
+.workspace-watch-column .watchlists__rows th:last-child,
+.workspace-watch-column .watchlists__rows td:last-child {
+    padding-right: 16px;
+}
+.workspace-watch-column .watchlists__rows td {
+    border-bottom-color: var(--line-soft);
+}
 .watchlists__rows small {
     display: block;
     color: var(--muted);

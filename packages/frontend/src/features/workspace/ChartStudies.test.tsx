@@ -113,6 +113,25 @@ async function select(user: ReturnType<typeof userEvent.setup>) {
     await user.click(await within(picker).findByRole("button", { name: /选择 SMA/ }));
     return screen.findByRole("dialog", { name: "指标 / 因子参数配置" });
 }
+it("图下卡把已挂实例渲染进宿主并以图中/未上屏状态字随显隐切换", async () => {
+    transport();
+    const user = userEvent.setup();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { container } = render(<ChartStudies context={context} studiesCardTarget={host} />);
+    expect(container.querySelector(".chart-studies--card")).toBeNull();
+    await select(user);
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    const card = await within(host).findByRole("region", { name: "指标 / 因子" });
+    const row = await within(card).findByTestId("chart-study-instance");
+    expect(within(row).getByText("图中")).toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "隐藏 SMA" }));
+    expect(within(row).getByText("未上屏")).toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "显示 SMA" }));
+    expect(within(row).getByText("图中")).toBeInTheDocument();
+    host.remove();
+});
+
 it("confirms independent instances; cancel/edit has a single state source and style does not modify configuration", async () => {
     const traffic = transport();
     const user = userEvent.setup();

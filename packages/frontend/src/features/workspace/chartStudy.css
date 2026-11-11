@@ -165,6 +165,15 @@
     align-content: start;
 }
 
+/* 上屏状态字只在图下卡呈现（冻结稿 .on-ct）；工具条路径空间紧凑不显示。 */
+.chart-studies__state {
+    display: none;
+}
+.chart-studies--card .chart-studies__state {
+    display: inline;
+    color: var(--muted);
+    font-size: 0.72rem;
+}
 .chart-studies--card {
     display: flex;
     flex-direction: column;
