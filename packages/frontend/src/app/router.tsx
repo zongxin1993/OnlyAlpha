@@ -8,6 +8,7 @@ import { WorkspacePage } from "../features/workspace/WorkspacePage";
 import { DataSourceDetailPage } from "../features/data/sources/DataSourceDetailPage";
 import { DataSourcesPage } from "../features/data/sources/DataSourcesPage";
 import { NewDataSourcePage } from "../features/data/sources/NewDataSourcePage";
+import { SystemHealthPage } from "../features/system/SystemHealthPage";
 
 export const workstationRoutes: RouteObject[] = [
     {
@@ -23,7 +24,8 @@ export const workstationRoutes: RouteObject[] = [
             { path: "/data/sources/:integrationId", element: <DataSourceDetailPage /> },
             { path: "/strategies/*", element: <StrategyWorkflow /> },
             { path: "/backtest/*", element: <BacktestPage /> },
-            { path: "/system/*", element: <DeferredFeaturePage feature="系统" /> },
+            { path: "/system", element: <Navigate to="/system/health" replace /> },
+            { path: "/system/health", element: <SystemHealthPage /> },
             { path: "*", element: <DeferredFeaturePage /> }
         ]
     }

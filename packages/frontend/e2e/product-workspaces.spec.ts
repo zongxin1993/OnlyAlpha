@@ -1,7 +1,7 @@
 import { expect, test, type ElementHandle } from "@playwright/test";
 
-// 研究仍是占位画面、系统将在 P2 后续任务接回（策略转真实工作流见 aa0b3349，工具条整合见 e14e22c8）；
-// 数据已是真实画面（P2 Task 12），断言其页内标题而非"未实现"占位。
+// 研究仍是占位画面（策略转真实工作流见 aa0b3349，工具条整合见 e14e22c8）；
+// 数据（P2 Task 12）与系统（P2 Task 15）已是真实画面，断言其页内标题而非"未实现"占位。
 const destinations = [
     {
         path: "/research/new",
@@ -34,9 +34,9 @@ const destinations = [
     {
         path: "/system/health",
         feature: "系统",
-        heading: "系统 · 未实现",
-        exactHeading: false,
-        deferred: true
+        heading: "系统",
+        exactHeading: true,
+        deferred: false
     }
 ] as const;
 
@@ -152,7 +152,12 @@ for (const width of [1440, 390]) {
                 await expect(openNavigation).toBeFocused();
             }
         }
-        await page.getByRole("link", { name: "返回工作台" }).click();
+        // 最后一站系统已是真实画面（Deferred 占位的「返回工作台」链接不再存在）：
+        // 真实用户的返回路径是左侧栏的工作台入口，窄屏先开抽屉。
+        if (drawer) {
+            await openNavigation.click();
+        }
+        await navigation.getByRole("link", { name: "工作台", exact: true }).click();
         await expect(page).toHaveURL("/");
         await expect(page.getByRole("region", { name: "主图" })).toBeVisible();
         const heldHandle = drawer ? drawerNavigation : persistentNavigation;

@@ -22,6 +22,9 @@ vi.mock("../features/data/sources/NewDataSourcePage", () => ({
 vi.mock("../features/data/sources/DataSourceDetailPage", () => ({
     DataSourceDetailPage: () => <h1>数据画面</h1>
 }));
+vi.mock("../features/system/SystemHealthPage", () => ({
+    SystemHealthPage: () => <h1>系统画面</h1>
+}));
 
 it.each([
     ["/strategies/private.strategy.btc_momentum", "策略验证"],
@@ -42,8 +45,10 @@ it.each([
     ["/data/inputs", "数据画面"],
     ["/data/sources", "数据画面"],
     ["/data/sources/new", "数据画面"],
-    ["/data/sources/existing-source", "数据画面"]
-])("%s 打开数据画面而非 Deferred 占位", (path, label) => {
+    ["/data/sources/existing-source", "数据画面"],
+    ["/system", "系统画面"], // 裸 /system 重定向到导航锚 /system/health。
+    ["/system/health", "系统画面"]
+])("%s 打开真实画面而非 Deferred 占位", (path, label) => {
     const router = createMemoryRouter(shippingRouter.routes, { initialEntries: [path] });
     render(
         <AppProviders>
@@ -60,8 +65,7 @@ afterEach(() => {
 
 const deferredDestinations = [
     ["/research/new", "研究"],
-    ["/research/results/exact-result/statistics/exact-statistics", "研究"],
-    ["/system/health", "系统"]
+    ["/research/results/exact-result/statistics/exact-statistics", "研究"]
 ] as const;
 
 it.each(deferredDestinations)(
