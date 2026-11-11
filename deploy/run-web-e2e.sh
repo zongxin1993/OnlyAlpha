@@ -54,6 +54,7 @@ run_journey \
     e2e/product-package-migration.spec.ts \
     e2e/product-workspaces.spec.ts \
     e2e/research.spec.ts \
+    e2e/screen-shells.spec.ts \
     e2e/shell-nav.spec.ts \
     e2e/source-command-errors.spec.ts \
     e2e/study-renderer.spec.ts \
