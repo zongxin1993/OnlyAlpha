@@ -92,6 +92,15 @@ function page() {
         </MemoryRouter>
     );
 }
+it("研究式策略验证视图带冻结稿页头（h1 策略，视图名降为二级标题）", async () => {
+    vi.mocked(api.loadCreationContext).mockResolvedValue(context);
+    vi.mocked(api.loadPreparation).mockResolvedValue(ready);
+    vi.mocked(manualApi.loadFactors).mockResolvedValue([]);
+    page();
+    expect(await screen.findByRole("heading", { level: 1, name: "策略" })).toBeInTheDocument();
+    expect(screen.getByText("草稿、冻结版本与晋级")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "策略验证" })).toBeInTheDocument();
+});
 it("routes a fresh Study-only selection to normal manual strategy authoring without creating or starting research", async () => {
     vi.mocked(api.loadCreationContext).mockResolvedValue(context);
     vi.mocked(manualApi.loadFactors).mockResolvedValue([]);

@@ -102,6 +102,17 @@ it("StrictMode reads inventory without creating a strategy, invoking a model or 
         screen.queryByText(/Fingerprint|Reducer|DTO|Lease|Revision Hash/)
     ).not.toBeInTheDocument();
 });
+it("策略画面各视图带冻结稿页头（h1 策略 + 副标题）", async () => {
+    vi.mocked(api.loadWorkflows).mockResolvedValue({ schema_version: 1, items: [] });
+    page("/strategies");
+    expect(await screen.findByRole("heading", { level: 1, name: "策略" })).toBeInTheDocument();
+    expect(screen.getByText("草稿、冻结版本与晋级")).toBeInTheDocument();
+    cleanup();
+    vi.mocked(api.loadWorkflows).mockResolvedValue({ schema_version: 1, items: [] });
+    page("/strategies/new");
+    expect(await screen.findByRole("heading", { level: 1, name: "策略" })).toBeInTheDocument();
+    expect(screen.getByText("草稿、冻结版本与晋级")).toBeInTheDocument();
+});
 it("selects a published factor and saves the definition only on an explicit Human action", async () => {
     vi.mocked(api.saveManualDefinition).mockResolvedValue(authoring);
     page();

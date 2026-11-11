@@ -13,8 +13,8 @@ const destinations = [
     {
         path: "/strategies",
         feature: "策略",
-        heading: "我的策略",
-        exactHeading: false,
+        heading: "策略",
+        exactHeading: true,
         deferred: false
     },
     {

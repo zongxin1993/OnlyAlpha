@@ -16,6 +16,7 @@ import {
 } from "antd";
 import * as api from "./api";
 import { ManualStrategyWorkflow } from "./ManualStrategyWorkflow";
+import { PageHeader } from "../../app/shell/PageHeader";
 import "./strategyWorkflow.css";
 
 type Context = Awaited<ReturnType<typeof api.loadCreationContext>>;
@@ -430,15 +431,121 @@ function ResearchStrategyWorkflow() {
         frozen !== null ? 3 : research !== null || preparation?.run_id != null ? 2 : saved ? 1 : 0;
     if (inventory)
         return (
-            <main className="strategy-workflow" aria-label="策略记录">
+            <div className="page-with-head">
+                <PageHeader title="策略" subtitle="草稿、冻结版本与晋级" />
+                <main className="strategy-workflow" aria-label="策略记录">
+                    <header className="strategy-workflow-header">
+                        <Typography.Title level={2}>我的策略</Typography.Title>
+                    </header>
+                    {problem && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            title={problem}
+                            action={
+                                <Button
+                                    onClick={() => {
+                                        setRevision((value) => value + 1);
+                                    }}
+                                >
+                                    重新查看
+                                </Button>
+                            }
+                        />
+                    )}
+                    <Table<Workflow>
+                        loading={loading}
+                        rowKey="strategy_id"
+                        pagination={false}
+                        dataSource={workflows}
+                        locale={{ emptyText: <Empty description="还没有保存的策略" /> }}
+                        columns={[
+                            {
+                                title: "策略",
+                                key: "name",
+                                render: (_: unknown, item: Workflow) =>
+                                    (item.authoring.draft?.description ?? "") || "已保存策略"
+                            },
+                            {
+                                title: "研究进度",
+                                key: "progress",
+                                render: (_: unknown, item: Workflow) =>
+                                    item.preparations[0]
+                                        ? preparationLabel(item.preparations[0])
+                                        : "尚未准备研究"
+                            },
+                            {
+                                title: "操作",
+                                key: "open",
+                                render: (_: unknown, item: Workflow) => (
+                                    <Link to={workflowLink(item.strategy_id, item.preparations[0])}>
+                                        查看策略
+                                    </Link>
+                                )
+                            }
+                        ]}
+                    />
+                </main>
+            </div>
+        );
+    if (
+        !available &&
+        strategyId === undefined &&
+        originalPreparation === null &&
+        originalRun === null
+    )
+        return (
+            <div className="page-with-head">
+                <PageHeader title="策略" subtitle="草稿、冻结版本与晋级" />
+                <section className="strategy-workflow">
+                    <Empty description="新的策略研究暂未开放，已有记录仍可查看。" />
+                    <Link to="/strategies">查看全部策略</Link>
+                </section>
+            </div>
+        );
+    return (
+        <div className="page-with-head">
+            <PageHeader title="策略" subtitle="草稿、冻结版本与晋级" />
+            <main className="strategy-workflow" aria-label="策略创建与验证">
                 <header className="strategy-workflow-header">
-                    <Typography.Title level={2}>我的策略</Typography.Title>
+                    <div>
+                        <Typography.Title level={2}>策略验证</Typography.Title>
+                        <Typography.Paragraph type="secondary">
+                            查看已有研究进度、报告和冻结记录，或继续普通回测。
+                        </Typography.Paragraph>
+                    </div>
                 </header>
-                {problem && (
+                <Link to="/strategies">查看全部策略</Link>
+                <Alert
+                    type="info"
+                    showIcon
+                    title="新的策略研究暂未开放，已有记录仍可查看。"
+                    action={<Link to={manualBacktest}>配置普通回测</Link>}
+                />
+                <Steps
+                    current={current}
+                    status={frozen === null ? "process" : "finish"}
+                    items={[
+                        { title: "策略定义" },
+                        { title: "研究准备" },
+                        { title: "策略研究" },
+                        { title: "冻结版本" }
+                    ]}
+                />
+                {mismatched && (
                     <Alert
                         type="warning"
                         showIcon
-                        title={problem}
+                        title="所选研究与当前策略不一致，请从研究记录重新选择。"
+                    />
+                )}
+                {!mismatched && !selectedPreparationRead && (
+                    <Alert
+                        type="info"
+                        showIcon
+                        title={
+                            loading ? "正在核对原研究准备" : "原研究准备暂时无法核验，请重新查看。"
+                        }
                         action={
                             <Button
                                 onClick={() => {
@@ -450,461 +557,386 @@ function ResearchStrategyWorkflow() {
                         }
                     />
                 )}
-                <Table<Workflow>
-                    loading={loading}
-                    rowKey="strategy_id"
-                    pagination={false}
-                    dataSource={workflows}
-                    locale={{ emptyText: <Empty description="还没有保存的策略" /> }}
-                    columns={[
-                        {
-                            title: "策略",
-                            key: "name",
-                            render: (_: unknown, item: Workflow) =>
-                                (item.authoring.draft?.description ?? "") || "已保存策略"
-                        },
-                        {
-                            title: "研究进度",
-                            key: "progress",
-                            render: (_: unknown, item: Workflow) =>
-                                item.preparations[0]
-                                    ? preparationLabel(item.preparations[0])
-                                    : "尚未准备研究"
-                        },
-                        {
-                            title: "操作",
-                            key: "open",
-                            render: (_: unknown, item: Workflow) => (
-                                <Link to={workflowLink(item.strategy_id, item.preparations[0])}>
-                                    查看策略
-                                </Link>
-                            )
-                        }
-                    ]}
-                />
-            </main>
-        );
-    if (
-        !available &&
-        strategyId === undefined &&
-        originalPreparation === null &&
-        originalRun === null
-    )
-        return (
-            <section className="strategy-workflow">
-                <Empty description="新的策略研究暂未开放，已有记录仍可查看。" />
-                <Link to="/strategies">查看全部策略</Link>
-            </section>
-        );
-    return (
-        <main className="strategy-workflow" aria-label="策略创建与验证">
-            <header className="strategy-workflow-header">
-                <div>
-                    <Typography.Title level={2}>策略验证</Typography.Title>
-                    <Typography.Paragraph type="secondary">
-                        查看已有研究进度、报告和冻结记录，或继续普通回测。
-                    </Typography.Paragraph>
-                </div>
-            </header>
-            <Link to="/strategies">查看全部策略</Link>
-            <Alert
-                type="info"
-                showIcon
-                title="新的策略研究暂未开放，已有记录仍可查看。"
-                action={<Link to={manualBacktest}>配置普通回测</Link>}
-            />
-            <Steps
-                current={current}
-                status={frozen === null ? "process" : "finish"}
-                items={[
-                    { title: "策略定义" },
-                    { title: "研究准备" },
-                    { title: "策略研究" },
-                    { title: "冻结版本" }
-                ]}
-            />
-            {mismatched && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    title="所选研究与当前策略不一致，请从研究记录重新选择。"
-                />
-            )}
-            {!mismatched && !selectedPreparationRead && (
-                <Alert
-                    type="info"
-                    showIcon
-                    title={loading ? "正在核对原研究准备" : "原研究准备暂时无法核验，请重新查看。"}
-                    action={
-                        <Button
-                            onClick={() => {
-                                setRevision((value) => value + 1);
-                            }}
-                        >
-                            重新查看
-                        </Button>
-                    }
-                />
-            )}
-            {contextProblem && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    title={contextProblem}
-                    action={
-                        busy === null ? (
-                            <Button
-                                onClick={() => {
-                                    setRevision((value) => value + 1);
-                                }}
-                            >
-                                重新查看
-                            </Button>
-                        ) : undefined
-                    }
-                />
-            )}
-            {problem && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    title={problem}
-                    action={
-                        busy === null ? (
-                            <Button
-                                onClick={() => {
-                                    setRevision((value) => value + 1);
-                                }}
-                            >
-                                重新查看
-                            </Button>
-                        ) : undefined
-                    }
-                />
-            )}
-            {loading && (
-                <Spin description="正在载入策略资料">
-                    <div className="strategy-workflow-loading" />
-                </Spin>
-            )}
-            {strategyId !== undefined && history.length > 0 && (
-                <Card title="研究记录" size="small">
-                    <Table<Preparation>
-                        rowKey="command_id"
-                        pagination={false}
-                        size="small"
-                        dataSource={history}
-                        columns={[
-                            {
-                                title: "准备时间（UTC）",
-                                key: "time",
-                                render: (_: unknown, item: Preparation) =>
-                                    typeof item.accepted_at === "string" &&
-                                    Number.isFinite(Date.parse(item.accepted_at))
-                                        ? new Date(item.accepted_at).toLocaleString("zh-CN", {
-                                              timeZone: "UTC",
-                                              hour12: false
-                                          })
-                                        : "时间暂不可用"
-                            },
-                            {
-                                title: "准备与研究状态",
-                                key: "state",
-                                render: (_: unknown, item: Preparation) => preparationLabel(item)
-                            },
-                            {
-                                title: "操作",
-                                key: "open",
-                                render: (_: unknown, item: Preparation) => (
-                                    <Link to={workflowLink(strategyId, item)}>查看研究</Link>
-                                )
-                            }
-                        ]}
-                    />
-                </Card>
-            )}
-            {context && (
-                <>
-                    <Card title="确认策略规则" size="small">
-                        <Typography.Title level={4}>{context.factor_name}</Typography.Title>
-                        <Typography.Paragraph>{context.formula}</Typography.Paragraph>
-                        <Descriptions
-                            size="small"
-                            column={{ xs: 1, sm: 2 }}
-                            items={[
-                                {
-                                    key: "instrument",
-                                    label: "交易标的",
-                                    children: "Binance 现货 BTCUSDT"
-                                },
-                                {
-                                    key: "bar",
-                                    label: "信号频率",
-                                    children: "1 分钟，仅使用已收盘行情"
-                                },
-                                {
-                                    key: "entry",
-                                    label: "入场条件",
-                                    children: "空仓且因子值 ≥ 0.001 时入场"
-                                },
-                                {
-                                    key: "exit",
-                                    label: "离场条件",
-                                    children: "持仓且因子值 ≤ 0 时离场，中间区间保持"
-                                }
-                            ]}
-                        />
-                        <Typography.Paragraph type="secondary">
-                            只持有一笔多头，不加仓、不做空；预热不足、缺值和除零时不产生新入场信号。资金、费用及成交设置在后续回测中单独确认。
-                        </Typography.Paragraph>
-                        <Form layout="vertical">
-                            <Form.Item label="策略名称">
-                                <Input
-                                    value={name}
-                                    disabled={saved || busy !== null}
-                                    maxLength={120}
-                                    onChange={(event) => {
-                                        setName(event.target.value);
-                                    }}
-                                />
-                            </Form.Item>
-                        </Form>
-                        <Space wrap>
-                            <Button
-                                type="primary"
-                                disabled={
-                                    mismatched || saved || name.trim() === "" || busy !== null
-                                }
-                                loading={busy === "save"}
-                                onClick={() => {
-                                    const id = context.draft.strategy_id;
-                                    if (strategyId !== id) {
-                                        remember(
-                                            null,
-                                            null,
-                                            `/strategies/${encodeURIComponent(id)}`
-                                        );
-                                    }
-                                    void act("save", () =>
-                                        api.saveDefinition({
-                                            ...context,
-                                            draft: { ...context.draft, description: name.trim() }
-                                        })
-                                    );
-                                }}
-                            >
-                                保存策略定义
-                            </Button>
-                            {saved && (
-                                <Typography.Text type="success">策略定义已保存</Typography.Text>
-                            )}
-                        </Space>
-                    </Card>
-                </>
-            )}
-            {(context !== null || preparation !== null) && (
-                <>
-                    <Card title="独立样本验证" size="small">
-                        <Descriptions
-                            size="small"
-                            column={1}
-                            items={[
-                                {
-                                    key: "sample",
-                                    label: "研究样本（UTC）",
-                                    children: "2025-01-02 12:00 至 2025-01-03 00:00"
-                                },
-                                {
-                                    key: "holdout",
-                                    label: "保留样本",
-                                    children: "2025-01-05 至 06 不读取"
-                                },
-                                {
-                                    key: "warmup",
-                                    label: "预热",
-                                    children: "由完整计算图确定，单独保留，不计作观测收益"
-                                }
-                            ]}
-                        />
-                        <Typography.Paragraph type="secondary">
-                            这里保留原研究的样本和准备状态。已有任务可继续准备或取消，不会启动新的策略研究。
-                        </Typography.Paragraph>
-                        <Space wrap>
-                            {canResume && (
-                                <Button
-                                    disabled={mismatched || busy !== null}
-                                    loading={busy === "resume"}
-                                    onClick={() => {
-                                        if (!mismatched)
-                                            void act("resume", () =>
-                                                api.resumePreparation(preparation)
-                                            );
-                                    }}
-                                >
-                                    继续准备
-                                </Button>
-                            )}
-                            {canCancelPreparation && (
-                                <Button
-                                    danger
-                                    disabled={mismatched || busy !== null}
-                                    loading={busy === "cancel-preparation"}
-                                    onClick={() => {
-                                        if (!mismatched)
-                                            void act("cancel-preparation", () =>
-                                                api.cancelPreparation(preparation)
-                                            );
-                                    }}
-                                >
-                                    取消准备
-                                </Button>
-                            )}
-                        </Space>
-                        {preparation !== null && runId === null && (
-                            <Alert
-                                type={ready ? "success" : "info"}
-                                showIcon
-                                title={ready ? "原研究准备已完成" : preparationLabel(preparation)}
-                            />
-                        )}
-                    </Card>
-                </>
-            )}
-            <Card title="研究报告与冻结" size="small">
-                {mismatched ? (
-                    <Typography.Paragraph>
-                        未展示其他策略的研究报告，请重新选择本策略的记录。
-                    </Typography.Paragraph>
-                ) : !selectedPreparationRead ? (
-                    <Typography.Paragraph>
-                        核验原研究准备与本次报告的关系后，将显示验证结果。
-                    </Typography.Paragraph>
-                ) : research === null ? (
-                    <Typography.Paragraph>
-                        暂无这项研究的报告，可查看已有记录或配置普通回测。
-                    </Typography.Paragraph>
-                ) : !terminalResearch.has(research.state) ? (
-                    <Alert
-                        type="info"
-                        showIcon
-                        title={
-                            research.state === "CANCEL_REQUESTED"
-                                ? "正在取消策略研究"
-                                : "正在验证策略"
-                        }
-                        description="系统会保留进度。刷新后仍会读取同一次研究。"
-                    />
-                ) : research.state === "COMPLETED" && !verified ? (
+                {contextProblem && (
                     <Alert
                         type="warning"
                         showIcon
-                        title="研究结果暂时无法核验"
-                        description="完整策略证据恢复并通过核验后，才能冻结此策略。已有因子统计报告不能代替本次验证。"
+                        title={contextProblem}
+                        action={
+                            busy === null ? (
+                                <Button
+                                    onClick={() => {
+                                        setRevision((value) => value + 1);
+                                    }}
+                                >
+                                    重新查看
+                                </Button>
+                            ) : undefined
+                        }
                     />
-                ) : research.state !== "COMPLETED" ? (
+                )}
+                {problem && (
                     <Alert
                         type="warning"
-                        title={
-                            research.state === "CANCELLED" ? "策略研究已取消" : "策略研究尚未完成"
+                        showIcon
+                        title={problem}
+                        action={
+                            busy === null ? (
+                                <Button
+                                    onClick={() => {
+                                        setRevision((value) => value + 1);
+                                    }}
+                                >
+                                    重新查看
+                                </Button>
+                            ) : undefined
                         }
-                        description="已保留原研究记录，当前不能冻结。"
                     />
-                ) : (
+                )}
+                {loading && (
+                    <Spin description="正在载入策略资料">
+                        <div className="strategy-workflow-loading" />
+                    </Spin>
+                )}
+                {strategyId !== undefined && history.length > 0 && (
+                    <Card title="研究记录" size="small">
+                        <Table<Preparation>
+                            rowKey="command_id"
+                            pagination={false}
+                            size="small"
+                            dataSource={history}
+                            columns={[
+                                {
+                                    title: "准备时间（UTC）",
+                                    key: "time",
+                                    render: (_: unknown, item: Preparation) =>
+                                        typeof item.accepted_at === "string" &&
+                                        Number.isFinite(Date.parse(item.accepted_at))
+                                            ? new Date(item.accepted_at).toLocaleString("zh-CN", {
+                                                  timeZone: "UTC",
+                                                  hour12: false
+                                              })
+                                            : "时间暂不可用"
+                                },
+                                {
+                                    title: "准备与研究状态",
+                                    key: "state",
+                                    render: (_: unknown, item: Preparation) =>
+                                        preparationLabel(item)
+                                },
+                                {
+                                    title: "操作",
+                                    key: "open",
+                                    render: (_: unknown, item: Preparation) => (
+                                        <Link to={workflowLink(strategyId, item)}>查看研究</Link>
+                                    )
+                                }
+                            ]}
+                        />
+                    </Card>
+                )}
+                {context && (
                     <>
-                        <Alert type="success" showIcon title="完整策略规则验证通过" />
-                        <Descriptions
-                            size="small"
-                            column={{ xs: 1, sm: 2 }}
-                            items={[
-                                {
-                                    key: "observations",
-                                    label: "有效观测",
-                                    children: research.report?.observation_count
-                                },
-                                {
-                                    key: "warmup",
-                                    label: "预热K线",
-                                    children: research.report?.warmup_bars
-                                },
-                                {
-                                    key: "nodes",
-                                    label: "已验证计算环节",
-                                    children: research.report?.node_count
-                                },
-                                { key: "consistent", label: "逐条计算一致性", children: "已通过" }
-                            ]}
-                        />
-                        {research.report?.limitations.map((limit, index) => (
-                            <Typography.Paragraph
-                                type="secondary"
-                                key={`${String(index)}-${limit}`}
-                            >
-                                {limit}
+                        <Card title="确认策略规则" size="small">
+                            <Typography.Title level={4}>{context.factor_name}</Typography.Title>
+                            <Typography.Paragraph>{context.formula}</Typography.Paragraph>
+                            <Descriptions
+                                size="small"
+                                column={{ xs: 1, sm: 2 }}
+                                items={[
+                                    {
+                                        key: "instrument",
+                                        label: "交易标的",
+                                        children: "Binance 现货 BTCUSDT"
+                                    },
+                                    {
+                                        key: "bar",
+                                        label: "信号频率",
+                                        children: "1 分钟，仅使用已收盘行情"
+                                    },
+                                    {
+                                        key: "entry",
+                                        label: "入场条件",
+                                        children: "空仓且因子值 ≥ 0.001 时入场"
+                                    },
+                                    {
+                                        key: "exit",
+                                        label: "离场条件",
+                                        children: "持仓且因子值 ≤ 0 时离场，中间区间保持"
+                                    }
+                                ]}
+                            />
+                            <Typography.Paragraph type="secondary">
+                                只持有一笔多头，不加仓、不做空；预热不足、缺值和除零时不产生新入场信号。资金、费用及成交设置在后续回测中单独确认。
                             </Typography.Paragraph>
-                        ))}
+                            <Form layout="vertical">
+                                <Form.Item label="策略名称">
+                                    <Input
+                                        value={name}
+                                        disabled={saved || busy !== null}
+                                        maxLength={120}
+                                        onChange={(event) => {
+                                            setName(event.target.value);
+                                        }}
+                                    />
+                                </Form.Item>
+                            </Form>
+                            <Space wrap>
+                                <Button
+                                    type="primary"
+                                    disabled={
+                                        mismatched || saved || name.trim() === "" || busy !== null
+                                    }
+                                    loading={busy === "save"}
+                                    onClick={() => {
+                                        const id = context.draft.strategy_id;
+                                        if (strategyId !== id) {
+                                            remember(
+                                                null,
+                                                null,
+                                                `/strategies/${encodeURIComponent(id)}`
+                                            );
+                                        }
+                                        void act("save", () =>
+                                            api.saveDefinition({
+                                                ...context,
+                                                draft: {
+                                                    ...context.draft,
+                                                    description: name.trim()
+                                                }
+                                            })
+                                        );
+                                    }}
+                                >
+                                    保存策略定义
+                                </Button>
+                                {saved && (
+                                    <Typography.Text type="success">策略定义已保存</Typography.Text>
+                                )}
+                            </Space>
+                        </Card>
                     </>
                 )}
-                {research !== null &&
-                    !terminalResearch.has(research.state) &&
-                    research.state !== "CANCEL_REQUESTED" && (
+                {(context !== null || preparation !== null) && (
+                    <>
+                        <Card title="独立样本验证" size="small">
+                            <Descriptions
+                                size="small"
+                                column={1}
+                                items={[
+                                    {
+                                        key: "sample",
+                                        label: "研究样本（UTC）",
+                                        children: "2025-01-02 12:00 至 2025-01-03 00:00"
+                                    },
+                                    {
+                                        key: "holdout",
+                                        label: "保留样本",
+                                        children: "2025-01-05 至 06 不读取"
+                                    },
+                                    {
+                                        key: "warmup",
+                                        label: "预热",
+                                        children: "由完整计算图确定，单独保留，不计作观测收益"
+                                    }
+                                ]}
+                            />
+                            <Typography.Paragraph type="secondary">
+                                这里保留原研究的样本和准备状态。已有任务可继续准备或取消，不会启动新的策略研究。
+                            </Typography.Paragraph>
+                            <Space wrap>
+                                {canResume && (
+                                    <Button
+                                        disabled={mismatched || busy !== null}
+                                        loading={busy === "resume"}
+                                        onClick={() => {
+                                            if (!mismatched)
+                                                void act("resume", () =>
+                                                    api.resumePreparation(preparation)
+                                                );
+                                        }}
+                                    >
+                                        继续准备
+                                    </Button>
+                                )}
+                                {canCancelPreparation && (
+                                    <Button
+                                        danger
+                                        disabled={mismatched || busy !== null}
+                                        loading={busy === "cancel-preparation"}
+                                        onClick={() => {
+                                            if (!mismatched)
+                                                void act("cancel-preparation", () =>
+                                                    api.cancelPreparation(preparation)
+                                                );
+                                        }}
+                                    >
+                                        取消准备
+                                    </Button>
+                                )}
+                            </Space>
+                            {preparation !== null && runId === null && (
+                                <Alert
+                                    type={ready ? "success" : "info"}
+                                    showIcon
+                                    title={
+                                        ready ? "原研究准备已完成" : preparationLabel(preparation)
+                                    }
+                                />
+                            )}
+                        </Card>
+                    </>
+                )}
+                <Card title="研究报告与冻结" size="small">
+                    {mismatched ? (
+                        <Typography.Paragraph>
+                            未展示其他策略的研究报告，请重新选择本策略的记录。
+                        </Typography.Paragraph>
+                    ) : !selectedPreparationRead ? (
+                        <Typography.Paragraph>
+                            核验原研究准备与本次报告的关系后，将显示验证结果。
+                        </Typography.Paragraph>
+                    ) : research === null ? (
+                        <Typography.Paragraph>
+                            暂无这项研究的报告，可查看已有记录或配置普通回测。
+                        </Typography.Paragraph>
+                    ) : !terminalResearch.has(research.state) ? (
+                        <Alert
+                            type="info"
+                            showIcon
+                            title={
+                                research.state === "CANCEL_REQUESTED"
+                                    ? "正在取消策略研究"
+                                    : "正在验证策略"
+                            }
+                            description="系统会保留进度。刷新后仍会读取同一次研究。"
+                        />
+                    ) : research.state === "COMPLETED" && !verified ? (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            title="研究结果暂时无法核验"
+                            description="完整策略证据恢复并通过核验后，才能冻结此策略。已有因子统计报告不能代替本次验证。"
+                        />
+                    ) : research.state !== "COMPLETED" ? (
+                        <Alert
+                            type="warning"
+                            title={
+                                research.state === "CANCELLED"
+                                    ? "策略研究已取消"
+                                    : "策略研究尚未完成"
+                            }
+                            description="已保留原研究记录，当前不能冻结。"
+                        />
+                    ) : (
+                        <>
+                            <Alert type="success" showIcon title="完整策略规则验证通过" />
+                            <Descriptions
+                                size="small"
+                                column={{ xs: 1, sm: 2 }}
+                                items={[
+                                    {
+                                        key: "observations",
+                                        label: "有效观测",
+                                        children: research.report?.observation_count
+                                    },
+                                    {
+                                        key: "warmup",
+                                        label: "预热K线",
+                                        children: research.report?.warmup_bars
+                                    },
+                                    {
+                                        key: "nodes",
+                                        label: "已验证计算环节",
+                                        children: research.report?.node_count
+                                    },
+                                    {
+                                        key: "consistent",
+                                        label: "逐条计算一致性",
+                                        children: "已通过"
+                                    }
+                                ]}
+                            />
+                            {research.report?.limitations.map((limit, index) => (
+                                <Typography.Paragraph
+                                    type="secondary"
+                                    key={`${String(index)}-${limit}`}
+                                >
+                                    {limit}
+                                </Typography.Paragraph>
+                            ))}
+                        </>
+                    )}
+                    {research !== null &&
+                        !terminalResearch.has(research.state) &&
+                        research.state !== "CANCEL_REQUESTED" && (
+                            <Button
+                                danger
+                                disabled={mismatched || busy !== null}
+                                loading={busy === "cancel-research"}
+                                onClick={() => {
+                                    if (!mismatched)
+                                        void act("cancel-research", () =>
+                                            api.cancelResearch(research)
+                                        );
+                                }}
+                            >
+                                取消研究
+                            </Button>
+                        )}
+                    <Space wrap>
                         <Button
-                            danger
-                            disabled={mismatched || busy !== null}
-                            loading={busy === "cancel-research"}
+                            type="primary"
+                            disabled={
+                                mismatched ||
+                                !selectedPreparationRead ||
+                                !historyKnown ||
+                                !verified ||
+                                frozen !== null ||
+                                busy !== null
+                            }
+                            loading={busy === "freeze"}
                             onClick={() => {
-                                if (!mismatched)
-                                    void act("cancel-research", () => api.cancelResearch(research));
+                                if (
+                                    !mismatched &&
+                                    selectedPreparationRead &&
+                                    historyKnown &&
+                                    research
+                                )
+                                    void act("freeze", () => api.freezeStrategy(research));
                             }}
                         >
-                            取消研究
+                            冻结策略
                         </Button>
+                        {frozen !== null && (
+                            <Typography.Text type="success">
+                                策略已冻结，可继续配置实验性回测
+                            </Typography.Text>
+                        )}
+                    </Space>
+                    {frozen !== null && research !== null && (
+                        <p>
+                            <Link
+                                to={
+                                    strategyId !== undefined &&
+                                    typeof preparation?.strategy_revision_fingerprint ===
+                                        "string" &&
+                                    /^[0-9a-f]{64}$/.test(preparation.strategy_revision_fingerprint)
+                                        ? `/backtest/new?${new URLSearchParams({ strategy_id: strategyId, strategy_revision_fingerprint: preparation.strategy_revision_fingerprint }).toString()}`
+                                        : strategyId === undefined
+                                          ? "/strategies"
+                                          : `/strategies/${encodeURIComponent(strategyId)}`
+                                }
+                            >
+                                配置回测
+                            </Link>
+                        </p>
                     )}
-                <Space wrap>
-                    <Button
-                        type="primary"
-                        disabled={
-                            mismatched ||
-                            !selectedPreparationRead ||
-                            !historyKnown ||
-                            !verified ||
-                            frozen !== null ||
-                            busy !== null
-                        }
-                        loading={busy === "freeze"}
-                        onClick={() => {
-                            if (!mismatched && selectedPreparationRead && historyKnown && research)
-                                void act("freeze", () => api.freezeStrategy(research));
-                        }}
-                    >
-                        冻结策略
-                    </Button>
-                    {frozen !== null && (
-                        <Typography.Text type="success">
-                            策略已冻结，可继续配置实验性回测
-                        </Typography.Text>
-                    )}
-                </Space>
-                {frozen !== null && research !== null && (
-                    <p>
-                        <Link
-                            to={
-                                strategyId !== undefined &&
-                                typeof preparation?.strategy_revision_fingerprint === "string" &&
-                                /^[0-9a-f]{64}$/.test(preparation.strategy_revision_fingerprint)
-                                    ? `/backtest/new?${new URLSearchParams({ strategy_id: strategyId, strategy_revision_fingerprint: preparation.strategy_revision_fingerprint }).toString()}`
-                                    : strategyId === undefined
-                                      ? "/strategies"
-                                      : `/strategies/${encodeURIComponent(strategyId)}`
-                            }
-                        >
-                            配置回测
-                        </Link>
-                    </p>
-                )}
-                <Typography.Paragraph type="secondary">
-                    计算和规则一致性通过不代表盈利。冻结会保留本次验证对应的固定策略版本，后续修改需创建新版本；本步骤不授权模拟盘或实盘交易。
-                </Typography.Paragraph>
-            </Card>
-        </main>
+                    <Typography.Paragraph type="secondary">
+                        计算和规则一致性通过不代表盈利。冻结会保留本次验证对应的固定策略版本，后续修改需创建新版本；本步骤不授权模拟盘或实盘交易。
+                    </Typography.Paragraph>
+                </Card>
+            </main>
+        </div>
     );
 }

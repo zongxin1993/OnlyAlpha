@@ -16,6 +16,7 @@ import {
 } from "antd";
 import * as api from "./manualApi";
 import type { Authoring } from "./api";
+import { PageHeader } from "../../app/shell/PageHeader";
 import "./strategyWorkflow.css";
 type Factor = Awaited<ReturnType<typeof api.loadFactors>>[number];
 type Workflow = Awaited<ReturnType<typeof api.loadWorkflow>>;
@@ -227,261 +228,269 @@ export function ManualStrategyWorkflow() {
     };
     const revision = authoring?.current_revision_fingerprint ?? null;
     return (
-        <main className="strategy-workflow" aria-label={inventory ? "策略记录" : "策略定义"}>
-            <header className="strategy-workflow-header">
-                <div>
-                    <Typography.Title level={2}>
-                        {inventory
-                            ? "我的策略"
-                            : creating
-                              ? "新建回测策略"
-                              : (authoring?.draft?.description ?? "") || "策略定义"}
-                    </Typography.Title>
-                    <Typography.Paragraph type="secondary">
-                        选择已保存因子，确认交易规则，再准备回测。无需先创建研究报告。
-                    </Typography.Paragraph>
-                </div>
-                <Space wrap>
-                    {!inventory && <Link to="/strategies">我的策略</Link>}
-                    <Link to="/backtest">回测记录</Link>
-                    {inventory && <Link to="/strategies/new">新建策略</Link>}
-                    <Button
-                        disabled={saving || recovery !== null}
-                        onClick={() => {
-                            setRefresh((value) => value + 1);
-                        }}
-                    >
-                        重新查看
-                    </Button>
-                </Space>
-            </header>
-            {problem && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    title={problem}
-                    action={
-                        recovery !== null ? (
-                            <Button
-                                disabled={saving}
-                                onClick={() => {
-                                    void save(recovery);
-                                }}
-                            >
-                                查看保存进度
-                            </Button>
-                        ) : undefined
-                    }
-                />
-            )}
-            {loading && (
-                <Spin description="正在读取策略资料">
-                    <div className="strategy-workflow-loading" />
-                </Spin>
-            )}
-            {inventory && (
-                <Table
-                    loading={loading}
-                    rowKey="strategy_id"
-                    scroll={{ x: 600 }}
-                    dataSource={workflows}
-                    pagination={{ pageSize: 12 }}
-                    locale={{
-                        emptyText: (
-                            <Empty description="还没有保存的策略">
-                                <Link to="/strategies/new">选择因子创建策略</Link>
-                            </Empty>
-                        )
-                    }}
-                    columns={[
-                        {
-                            title: "策略",
-                            render: (_: unknown, item: WorkflowItem) =>
-                                (item.authoring.draft?.description ?? "") || "已保存策略"
-                        },
-                        {
-                            title: "回测进度",
-                            render: (_: unknown, item: WorkflowItem) =>
-                                item.backtest_preparations[0]
-                                    ? item.backtest_preparations[0].run_id === null
-                                        ? preparationLabel(item.backtest_preparations[0].state)
-                                        : "已创建回测"
-                                    : "尚未准备回测"
-                        },
-                        {
-                            title: "操作",
-                            render: (_: unknown, item: WorkflowItem) => {
-                                const legacy = researchLink(item);
-                                return (
-                                    <Space wrap>
-                                        <Link
-                                            to={`/strategies/${encodeURIComponent(item.strategy_id)}`}
-                                        >
-                                            查看策略
-                                        </Link>
-                                        {item.authoring.current_revision_fingerprint !== null && (
-                                            <Link
-                                                to={backtestLink(
-                                                    item.strategy_id,
-                                                    item.authoring.current_revision_fingerprint
-                                                )}
-                                            >
-                                                配置回测
-                                            </Link>
-                                        )}
-                                        {legacy && <Link to={legacy}>查看研究</Link>}
-                                    </Space>
-                                );
-                            }
-                        }
-                    ]}
-                />
-            )}
-            {creating && context === null && recovery !== null && (
-                <Card title="正在保存的策略" size="small">
-                    <Typography.Text>{name}</Typography.Text>
-                </Card>
-            )}
-            {creating && (context !== null || recovery === null) && (
-                <Card title="选择因子" size="small">
-                    <Form layout="vertical">
-                        <Form.Item label="已保存因子">
-                            <Select
-                                aria-label="已保存因子"
-                                placeholder="请选择已保存的因子"
-                                value={factor === null ? undefined : JSON.stringify(factor.locator)}
-                                disabled={saving || recovery !== null}
-                                options={factors.map((value) => ({
-                                    value: JSON.stringify(value.locator),
-                                    label: value.name
-                                }))}
-                                onChange={(value) => {
-                                    choose(
-                                        factors.find(
-                                            (item) => JSON.stringify(item.locator) === value
-                                        )
-                                    );
-                                }}
-                            />
-                        </Form.Item>
-                    </Form>
-                    {!loading && factors.length === 0 && (
-                        <Empty description="尚无可用的已保存因子" />
-                    )}
-                    {factor && (
+        <div className="page-with-head">
+            <PageHeader title="策略" subtitle="草稿、冻结版本与晋级" />
+            <main className="strategy-workflow" aria-label={inventory ? "策略记录" : "策略定义"}>
+                <header className="strategy-workflow-header">
+                    <div>
+                        <Typography.Title level={2}>
+                            {inventory
+                                ? "我的策略"
+                                : creating
+                                  ? "新建回测策略"
+                                  : (authoring?.draft?.description ?? "") || "策略定义"}
+                        </Typography.Title>
                         <Typography.Paragraph type="secondary">
-                            {factor.summary}
+                            选择已保存因子，确认交易规则，再准备回测。无需先创建研究报告。
                         </Typography.Paragraph>
-                    )}
-                </Card>
-            )}
-            {creating && context !== null && (
-                <Card title="确认策略规则" size="small">
-                    <Typography.Title level={4}>{context.factor_name}</Typography.Title>
-                    {context.formula !== null && (
-                        <Typography.Paragraph>{context.formula}</Typography.Paragraph>
-                    )}
-                    <Rules />
-                    <Form layout="vertical">
-                        <Form.Item label="策略名称">
-                            <Input
-                                aria-label="策略名称"
-                                value={name}
-                                disabled={saving || recovery !== null}
-                                maxLength={120}
-                                onChange={(event) => {
-                                    setName(event.target.value);
-                                }}
-                            />
-                        </Form.Item>
-                    </Form>
-                    <Button
-                        type="primary"
-                        disabled={loading || saving || name.trim() === "" || recovery !== null}
-                        loading={saving}
-                        onClick={() => void save()}
-                    >
-                        保存策略定义
-                    </Button>
-                </Card>
-            )}
-            {!inventory && !creating && authoring !== null && (
-                <Card title="已保存策略" size="small">
-                    <Rules />
-                    {revision !== null ? (
-                        <>
-                            <Typography.Paragraph type="success">
-                                策略定义已保存。准备回测时会验证计算并保留固定策略版本，尚未开始回测。
-                            </Typography.Paragraph>
-                            <Link to={backtestLink(authoring.strategy_id, revision)}>配置回测</Link>
-                        </>
-                    ) : (
-                        <>
-                            <Typography.Paragraph>
-                                策略还没有保存为可用版本，请选择原因子继续保存。
-                            </Typography.Paragraph>
-                            <Link
-                                to={`/strategies/new?${new URLSearchParams({ strategy_id: authoring.strategy_id }).toString()}`}
-                            >
-                                选择因子继续保存
-                            </Link>
-                        </>
-                    )}
-                </Card>
-            )}
-            {!creating && workflow !== null && workflow.backtest_preparations.length > 0 && (
-                <Card title="回测准备记录" size="small">
+                    </div>
+                    <Space wrap>
+                        {!inventory && <Link to="/strategies">我的策略</Link>}
+                        <Link to="/backtest">回测记录</Link>
+                        {inventory && <Link to="/strategies/new">新建策略</Link>}
+                        <Button
+                            disabled={saving || recovery !== null}
+                            onClick={() => {
+                                setRefresh((value) => value + 1);
+                            }}
+                        >
+                            重新查看
+                        </Button>
+                    </Space>
+                </header>
+                {problem && (
+                    <Alert
+                        type="warning"
+                        showIcon
+                        title={problem}
+                        action={
+                            recovery !== null ? (
+                                <Button
+                                    disabled={saving}
+                                    onClick={() => {
+                                        void save(recovery);
+                                    }}
+                                >
+                                    查看保存进度
+                                </Button>
+                            ) : undefined
+                        }
+                    />
+                )}
+                {loading && (
+                    <Spin description="正在读取策略资料">
+                        <div className="strategy-workflow-loading" />
+                    </Spin>
+                )}
+                {inventory && (
                     <Table
-                        rowKey="command_id"
-                        scroll={{ x: 520 }}
-                        pagination={false}
-                        dataSource={workflow.backtest_preparations}
+                        loading={loading}
+                        rowKey="strategy_id"
+                        scroll={{ x: 600 }}
+                        dataSource={workflows}
+                        pagination={{ pageSize: 12 }}
+                        locale={{
+                            emptyText: (
+                                <Empty description="还没有保存的策略">
+                                    <Link to="/strategies/new">选择因子创建策略</Link>
+                                </Empty>
+                            )
+                        }}
                         columns={[
                             {
-                                title: "准备时间（UTC）",
-                                render: (
-                                    _: unknown,
-                                    value: Workflow["backtest_preparations"][number]
-                                ) =>
-                                    new Date(value.accepted_at).toLocaleString("zh-CN", {
-                                        timeZone: "UTC",
-                                        hour12: false
-                                    })
+                                title: "策略",
+                                render: (_: unknown, item: WorkflowItem) =>
+                                    (item.authoring.draft?.description ?? "") || "已保存策略"
                             },
                             {
-                                title: "进度",
-                                render: (
-                                    _: unknown,
-                                    value: Workflow["backtest_preparations"][number]
-                                ) =>
-                                    value.run_id === null
-                                        ? preparationLabel(value.state)
-                                        : "已创建回测"
+                                title: "回测进度",
+                                render: (_: unknown, item: WorkflowItem) =>
+                                    item.backtest_preparations[0]
+                                        ? item.backtest_preparations[0].run_id === null
+                                            ? preparationLabel(item.backtest_preparations[0].state)
+                                            : "已创建回测"
+                                        : "尚未准备回测"
                             },
                             {
                                 title: "操作",
-                                render: (
-                                    _: unknown,
-                                    value: Workflow["backtest_preparations"][number]
-                                ) => (
-                                    <Link
-                                        to={
-                                            value.run_id === null
-                                                ? `/backtest/preparations/${value.command_id}`
-                                                : `/backtest/runs/${value.run_id}`
-                                        }
-                                    >
-                                        {value.run_id === null ? "查看准备" : "查看回测"}
-                                    </Link>
-                                )
+                                render: (_: unknown, item: WorkflowItem) => {
+                                    const legacy = researchLink(item);
+                                    return (
+                                        <Space wrap>
+                                            <Link
+                                                to={`/strategies/${encodeURIComponent(item.strategy_id)}`}
+                                            >
+                                                查看策略
+                                            </Link>
+                                            {item.authoring.current_revision_fingerprint !==
+                                                null && (
+                                                <Link
+                                                    to={backtestLink(
+                                                        item.strategy_id,
+                                                        item.authoring.current_revision_fingerprint
+                                                    )}
+                                                >
+                                                    配置回测
+                                                </Link>
+                                            )}
+                                            {legacy && <Link to={legacy}>查看研究</Link>}
+                                        </Space>
+                                    );
+                                }
                             }
                         ]}
                     />
-                </Card>
-            )}
-            {!creating && workflow !== null && researchLink(workflow) !== null && (
-                <Link to={researchLink(workflow) ?? "/strategies"}>查看已有研究记录</Link>
-            )}
-        </main>
+                )}
+                {creating && context === null && recovery !== null && (
+                    <Card title="正在保存的策略" size="small">
+                        <Typography.Text>{name}</Typography.Text>
+                    </Card>
+                )}
+                {creating && (context !== null || recovery === null) && (
+                    <Card title="选择因子" size="small">
+                        <Form layout="vertical">
+                            <Form.Item label="已保存因子">
+                                <Select
+                                    aria-label="已保存因子"
+                                    placeholder="请选择已保存的因子"
+                                    value={
+                                        factor === null ? undefined : JSON.stringify(factor.locator)
+                                    }
+                                    disabled={saving || recovery !== null}
+                                    options={factors.map((value) => ({
+                                        value: JSON.stringify(value.locator),
+                                        label: value.name
+                                    }))}
+                                    onChange={(value) => {
+                                        choose(
+                                            factors.find(
+                                                (item) => JSON.stringify(item.locator) === value
+                                            )
+                                        );
+                                    }}
+                                />
+                            </Form.Item>
+                        </Form>
+                        {!loading && factors.length === 0 && (
+                            <Empty description="尚无可用的已保存因子" />
+                        )}
+                        {factor && (
+                            <Typography.Paragraph type="secondary">
+                                {factor.summary}
+                            </Typography.Paragraph>
+                        )}
+                    </Card>
+                )}
+                {creating && context !== null && (
+                    <Card title="确认策略规则" size="small">
+                        <Typography.Title level={4}>{context.factor_name}</Typography.Title>
+                        {context.formula !== null && (
+                            <Typography.Paragraph>{context.formula}</Typography.Paragraph>
+                        )}
+                        <Rules />
+                        <Form layout="vertical">
+                            <Form.Item label="策略名称">
+                                <Input
+                                    aria-label="策略名称"
+                                    value={name}
+                                    disabled={saving || recovery !== null}
+                                    maxLength={120}
+                                    onChange={(event) => {
+                                        setName(event.target.value);
+                                    }}
+                                />
+                            </Form.Item>
+                        </Form>
+                        <Button
+                            type="primary"
+                            disabled={loading || saving || name.trim() === "" || recovery !== null}
+                            loading={saving}
+                            onClick={() => void save()}
+                        >
+                            保存策略定义
+                        </Button>
+                    </Card>
+                )}
+                {!inventory && !creating && authoring !== null && (
+                    <Card title="已保存策略" size="small">
+                        <Rules />
+                        {revision !== null ? (
+                            <>
+                                <Typography.Paragraph type="success">
+                                    策略定义已保存。准备回测时会验证计算并保留固定策略版本，尚未开始回测。
+                                </Typography.Paragraph>
+                                <Link to={backtestLink(authoring.strategy_id, revision)}>
+                                    配置回测
+                                </Link>
+                            </>
+                        ) : (
+                            <>
+                                <Typography.Paragraph>
+                                    策略还没有保存为可用版本，请选择原因子继续保存。
+                                </Typography.Paragraph>
+                                <Link
+                                    to={`/strategies/new?${new URLSearchParams({ strategy_id: authoring.strategy_id }).toString()}`}
+                                >
+                                    选择因子继续保存
+                                </Link>
+                            </>
+                        )}
+                    </Card>
+                )}
+                {!creating && workflow !== null && workflow.backtest_preparations.length > 0 && (
+                    <Card title="回测准备记录" size="small">
+                        <Table
+                            rowKey="command_id"
+                            scroll={{ x: 520 }}
+                            pagination={false}
+                            dataSource={workflow.backtest_preparations}
+                            columns={[
+                                {
+                                    title: "准备时间（UTC）",
+                                    render: (
+                                        _: unknown,
+                                        value: Workflow["backtest_preparations"][number]
+                                    ) =>
+                                        new Date(value.accepted_at).toLocaleString("zh-CN", {
+                                            timeZone: "UTC",
+                                            hour12: false
+                                        })
+                                },
+                                {
+                                    title: "进度",
+                                    render: (
+                                        _: unknown,
+                                        value: Workflow["backtest_preparations"][number]
+                                    ) =>
+                                        value.run_id === null
+                                            ? preparationLabel(value.state)
+                                            : "已创建回测"
+                                },
+                                {
+                                    title: "操作",
+                                    render: (
+                                        _: unknown,
+                                        value: Workflow["backtest_preparations"][number]
+                                    ) => (
+                                        <Link
+                                            to={
+                                                value.run_id === null
+                                                    ? `/backtest/preparations/${value.command_id}`
+                                                    : `/backtest/runs/${value.run_id}`
+                                            }
+                                        >
+                                            {value.run_id === null ? "查看准备" : "查看回测"}
+                                        </Link>
+                                    )
+                                }
+                            ]}
+                        />
+                    </Card>
+                )}
+                {!creating && workflow !== null && researchLink(workflow) !== null && (
+                    <Link to={researchLink(workflow) ?? "/strategies"}>查看已有研究记录</Link>
+                )}
+            </main>
+        </div>
     );
 }
