@@ -252,6 +252,15 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
     container.remove();
 });
 
+it("图下双卡宿主是工作区 grid 的直接子级（不陷在主图区内）", () => {
+    const { container } = renderWorkspace();
+    const under = container.querySelector(".workspace-under-chart");
+    expect(under).not.toBeNull();
+    expect(under?.parentElement?.classList.contains("chart-workspace")).toBe(true);
+    const chart = container.querySelector(".chart-region");
+    expect(chart?.contains(under)).toBe(false);
+});
+
 it("图下出现指标因子卡：已挂列表、目录入口与诚实空态", async () => {
     const user = userEvent.setup();
     renderWorkspace();

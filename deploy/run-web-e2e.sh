@@ -57,7 +57,8 @@ run_journey \
     e2e/shell-nav.spec.ts \
     e2e/source-command-errors.spec.ts \
     e2e/study-renderer.spec.ts \
-    e2e/workspace-toolbar.spec.ts
+    e2e/workspace-toolbar.spec.ts \
+    e2e/workspace-layout.spec.ts
 
 # B: every private-Factor case owns explicit restored-phase evidence.
 run_journey --restart-check e2e/private-factor-authoring.spec.ts

@@ -646,28 +646,28 @@ export function WorkspacePage() {
                         );
                     }}
                 </ChartStudies>
-                <div className="workspace-under-chart">
-                    <div ref={setStudiesCardHost} />
-                    <section className="workspace-summary-card" aria-label="工作区">
-                        <header>
-                            <h2>工作区</h2>
-                            <button
-                                type="button"
-                                onClick={(event) => {
-                                    libraryControlRef.current?.open("save", event.currentTarget);
-                                }}
-                            >
-                                保存副本
-                            </button>
-                        </header>
-                        <p>
-                            {workspace.activeWorkspace?.name ??
-                                "还没有保存的工作区，“保存副本”可保存当前布局与绘图。"}
-                        </p>
-                        <p className="faint">布局与绘图随工作区持久化</p>
-                    </section>
-                </div>
             </section>
+            <div className="workspace-under-chart">
+                <div ref={setStudiesCardHost} />
+                <section className="workspace-summary-card" aria-label="工作区">
+                    <header>
+                        <h2>工作区</h2>
+                        <button
+                            type="button"
+                            onClick={(event) => {
+                                libraryControlRef.current?.open("save", event.currentTarget);
+                            }}
+                        >
+                            保存副本
+                        </button>
+                    </header>
+                    <p>
+                        {workspace.activeWorkspace?.name ??
+                            "还没有保存的工作区，“保存副本”可保存当前布局与绘图。"}
+                    </p>
+                    <p className="faint">布局与绘图随工作区持久化</p>
+                </section>
+            </div>
             <section className="bottom-panel" aria-label="研究面板">
                 <header className="bottom-panel__header">
                     <div className="panel-tabs" role="group" aria-label="下方面板视图">

@@ -1649,24 +1649,6 @@ th {
 }
 @media (max-width: 880px) {
     /* 冻结稿契约：≤880 工作台单列，顺序 图表 → 指标行 → 研究面板 → 自选。 */
-    .chart-workspace {
-        grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
-        grid-template-rows: minmax(0, 1fr) auto auto auto;
-        grid-template-areas:
-            "rail chart tray"
-            "rail under tray"
-            "rail bottom tray"
-            "rail watch tray";
-    }
-    .chart-workspace[data-external-rail="true"] {
-        grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
-        grid-template-rows: minmax(0, 1fr) auto auto auto;
-        grid-template-areas:
-            "rail chart chart"
-            "rail under under"
-            "rail bottom bottom"
-            "rail watch watch";
-    }
     .workspace-watch-column {
         border-right: 0;
         border-top: 1px solid var(--line);
@@ -1676,6 +1658,16 @@ th {
     }
     .workspace-under-chart {
         grid-template-columns: minmax(0, 1fr);
+    }
+    /* 单列改内容高、页面滚动；图表给视口下限，行不再压叠。 */
+    .chart-workspace,
+    .chart-workspace[data-external-rail="true"] {
+        height: auto;
+        min-height: calc(100vh - 2.5rem - 1.75rem);
+        grid-template-rows: auto auto auto auto;
+    }
+    .chart-workspace .chart-region {
+        min-height: 55vh;
     }
 }
 @media (max-width: 900px) {
@@ -1848,6 +1840,28 @@ th {
         "rail watch chart"
         "rail watch under"
         "rail watch bottom";
+}
+
+/* 级联修正位：≤880 单列模板须位于两套桌面模板之后。 */
+@media (max-width: 880px) {
+    .chart-workspace {
+        grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
+        grid-template-rows: auto auto auto auto;
+        grid-template-areas:
+            "rail chart tray"
+            "rail under tray"
+            "rail bottom tray"
+            "rail watch tray";
+    }
+    .chart-workspace[data-external-rail="true"] {
+        grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
+        grid-template-rows: auto auto auto auto;
+        grid-template-areas:
+            "rail chart chart"
+            "rail under under"
+            "rail bottom bottom"
+            "rail watch watch";
+    }
 }
 .workspace-management-host {
     min-width: 0;
