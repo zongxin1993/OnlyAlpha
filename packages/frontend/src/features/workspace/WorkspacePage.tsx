@@ -1,6 +1,6 @@
 import { Button, Tooltip, Dropdown } from "antd";
 import { settingsChangedEvent, useSettings } from "../settings/SettingsProvider";
-import { Link, useOutletContext } from "react-router-dom";
+import { useOutletContext } from "react-router-dom";
 import { createPortal } from "react-dom";
 import type { WorkspaceShellSlots } from "../../app/shell/WorkstationShell";
 import { WorkspaceLibraryControls, type WorkspaceLibraryControl } from "./WorkspaceLibraryControls";
@@ -54,13 +54,10 @@ export function WorkspacePage() {
     const railHost = slots?.railHost ?? null;
     const [managementHost, setManagementHost] = useState<HTMLDivElement | null>(null);
     const [studyStatusHost, setStudyStatusHost] = useState<HTMLDivElement | null>(null);
-    const [pickerHost, setPickerHost] = useState<HTMLDivElement | null>(null);
     const [studiesCardHost, setStudiesCardHost] = useState<HTMLDivElement | null>(null);
     const [studyRestoring, setStudyRestoring] = useState(false);
     const libraryControlRef = useRef<WorkspaceLibraryControl | null>(null);
     const [activeTool, setActiveTool] = useState<string>("pointer");
-    const [bottomTab, setBottomTab] = useState<"runs" | "results">("runs");
-    const [bottomCollapsed, setBottomCollapsed] = useState(true);
     const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
     const [customBarDuration, setCustomBarDuration] = useState("7");
     const [customBarOpen, setCustomBarOpen] = useState(false);
@@ -195,23 +192,46 @@ export function WorkspacePage() {
         marketData.reference === null
             ? []
             : [
-                  { label: "标的", value: realInstrument?.instrument_id ?? "未选择" },
-                  { label: "Integration", value: marketData.reference.integration_id },
+                  {
+                      label: "标的",
+                      value: realInstrument?.instrument_id ?? "未选择"
+                  },
+                  {
+                      label: "Integration",
+                      value: marketData.reference.integration_id
+                  },
                   {
                       label: "Integration Revision",
                       value: marketData.reference.integration_revision_fingerprint
                   },
-                  { label: "Source", value: marketData.resolvedSourceId ?? "尚未读取行情" },
-                  { label: "Bar semantic", value: formatBarSemantic(marketData.barSemantic) },
+                  {
+                      label: "Source",
+                      value: marketData.resolvedSourceId ?? "尚未读取行情"
+                  },
+                  {
+                      label: "Bar semantic",
+                      value: formatBarSemantic(marketData.barSemantic)
+                  },
                   ...(dayMode
-                      ? [{ label: "封存修订", value: marketData.sealedRevisionId ?? "尚未读取" }]
+                      ? [
+                            {
+                                label: "封存修订",
+                                value: marketData.sealedRevisionId ?? "尚未读取"
+                            }
+                        ]
                       : [
-                            { label: "Coverage", value: marketData.coverage?.status ?? "尚未查询" },
+                            {
+                                label: "Coverage",
+                                value: marketData.coverage?.status ?? "尚未查询"
+                            },
                             {
                                 label: "Temporary window",
                                 value: marketData.windowFingerprint ?? "尚未验证"
                             },
-                            { label: "Realtime", value: marketData.realtimeStatus },
+                            {
+                                label: "Realtime",
+                                value: marketData.realtimeStatus
+                            },
                             {
                                 label: "延迟样本",
                                 value:
@@ -389,7 +409,11 @@ export function WorkspacePage() {
                             label: "蜡烛图",
                             icon: <WorkspaceIcon name="candles" />
                         },
-                        { key: "LINE", label: "收盘线", icon: <WorkspaceIcon name="line" /> }
+                        {
+                            key: "LINE",
+                            label: "收盘线",
+                            icon: <WorkspaceIcon name="line" />
+                        }
                     ],
                     onClick: ({ key }) => {
                         if (key === "CANDLESTICK" || key === "LINE") setChartType(key);
@@ -401,7 +425,6 @@ export function WorkspacePage() {
                     <WorkspaceIcon name="down" />
                 </Button>
             </Dropdown>
-            <div className="workspace-study-picker" ref={setPickerHost} />
             <div className="workspace-management-host" ref={setManagementHost} />
         </div>
     );
@@ -412,7 +435,6 @@ export function WorkspacePage() {
             aria-label="图表工作区"
             data-external-rail={railHost !== null}
             data-tools-collapsed="true"
-            data-bottom-collapsed={bottomCollapsed}
         >
             <div
                 className="workspace-rail"
@@ -492,7 +514,6 @@ export function WorkspacePage() {
                 )}
                 <ChartStudies
                     onRestoringChange={setStudyRestoring}
-                    toolbarTarget={pickerHost}
                     studiesCardTarget={studiesCardHost}
                     context={studyContext}
                     restoration={studyRestoration}
@@ -677,53 +698,6 @@ export function WorkspacePage() {
                     <p className="faint">布局与绘图随工作区持久化</p>
                 </section>
             </div>
-            <section className="bottom-panel" aria-label="研究面板">
-                <header className="bottom-panel__header">
-                    <div className="panel-tabs" role="group" aria-label="下方面板视图">
-                        <button
-                            type="button"
-                            className="panel-tab"
-                            aria-pressed={bottomTab === "runs"}
-                            onClick={() => {
-                                setBottomTab("runs");
-                            }}
-                        >
-                            研究运行
-                        </button>
-                        <button
-                            type="button"
-                            className="panel-tab"
-                            aria-pressed={bottomTab === "results"}
-                            onClick={() => {
-                                setBottomTab("results");
-                            }}
-                        >
-                            研究结果
-                        </button>
-                        <Link className="panel-tab" to="/backtest">
-                            回测
-                        </Link>
-                    </div>
-                    <div className="bottom-panel__meta">
-                        <button
-                            type="button"
-                            className="rail-button"
-                            aria-expanded={!bottomCollapsed}
-                            aria-label={bottomCollapsed ? "展开下方面板" : "收起下方面板"}
-                            onClick={() => {
-                                setBottomCollapsed(!bottomCollapsed);
-                            }}
-                        >
-                            <WorkspaceIcon name={bottomCollapsed ? "up" : "down"} />
-                        </button>
-                    </div>
-                </header>
-                <div className="panel-scroll" hidden={bottomCollapsed}>
-                    <p className="panel-note">
-                        {bottomTab === "runs" ? "研究运行尚未实现" : "研究结果尚未实现"}
-                    </p>
-                </div>
-            </section>
             {searchOpen ? (
                 <SymbolSearch
                     market={market}

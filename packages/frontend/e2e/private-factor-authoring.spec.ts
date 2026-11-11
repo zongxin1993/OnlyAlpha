@@ -15,7 +15,8 @@ test("native private Factor authoring preserves content identity through display
             forbidden.push(request.url());
     });
     async function editor() {
-        await page.getByRole("button", { name: "因子", exact: true }).click();
+        await page.getByRole("button", { name: "目录", exact: true }).click();
+        await page.getByRole("tab", { name: "因子库", exact: true }).click();
         await page.getByRole("button", { name: "创建 / 编辑私有因子" }).click();
         return page.getByRole("dialog", { name: "私有 Factor 草稿与历史" });
     }
@@ -118,7 +119,8 @@ test("native private Factor contract forms preserve raw contracts and independen
         if (request.method() !== "GET") writes.push(request.url());
     });
     async function openEditor() {
-        await page.getByRole("button", { name: "因子", exact: true }).click();
+        await page.getByRole("button", { name: "目录", exact: true }).click();
+        await page.getByRole("tab", { name: "因子库", exact: true }).click();
         await page.getByRole("button", { name: "创建 / 编辑私有因子" }).click();
         return page.getByRole("dialog", { name: "私有 Factor 草稿与历史" });
     }
@@ -300,7 +302,8 @@ test("native private Factor directory keeps selected exact version through renam
             forbidden.push(request.url());
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "因子", exact: true }).click();
+    await page.getByRole("button", { name: "目录", exact: true }).click();
+    await page.getByRole("tab", { name: "因子库", exact: true }).click();
     const detail = page.getByRole("article", { name: "Exact Factor metadata" });
     const search = page.getByRole("searchbox");
     const openEditor = async () => {

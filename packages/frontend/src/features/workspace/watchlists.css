@@ -4,12 +4,15 @@
     min-width: 0;
 }
 .watchlists__header {
+    padding: 6px 8px;
     display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
 }
 .watchlists__header > select {
+    height: 32px;
+    padding: 0 4px;
     min-width: 0;
     width: 0;
     flex: 1;
@@ -19,11 +22,14 @@
 .watchlists__header > strong {
     flex: 1;
 }
-.watchlists__icon {
+.watchlists .watchlists__icon {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
     background: transparent;
     color: var(--text);
     border: 0;
-    padding: 6px 8px;
+    padding: 0;
     font-size: 20px;
 }
 .watchlists__manage {
@@ -32,7 +38,11 @@
 .watchlists__manage > summary {
     cursor: pointer;
     list-style: none;
-    padding: 6px 10px;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
     font-size: 20px;
 }
 .watchlists__menu {
@@ -40,7 +50,7 @@
     right: 0;
     top: 100%;
     z-index: 10;
-    width: 240px;
+    width: min(240px, calc(100vw - 32px));
     padding: 12px;
     display: grid;
     gap: 10px;
@@ -75,7 +85,7 @@
 }
 .watchlists__rows th:first-child,
 .watchlists__rows td:first-child {
-    width: 44%;
+    width: 40%;
     text-align: left;
     position: relative;
     padding-right: 16px;
@@ -113,7 +123,13 @@
     line-height: 1.4;
     overflow-wrap: anywhere;
 }
-.watchlists__symbol {
+.watchlists .watchlists__symbol {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     background: transparent;
     border: 0;
     padding: 0;
@@ -236,4 +252,20 @@
 .watch-column__inspector .data-table,
 .watch-column__inspector .panel-note {
     margin: 0 16px 12px;
+}
+
+.watchlists__rows th:nth-child(2) {
+    width: 36%;
+}
+.watchlists__rows .value {
+    display: block;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+.watchlists__rows td:last-child {
+    font-size: 12px;
+}
+.watchlists .watchlists__symbol:hover,
+.watchlists .watchlists__icon:hover {
+    background: var(--surface-2);
 }

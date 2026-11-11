@@ -435,17 +435,6 @@ export function ChartStudyEditor({
                                         value={style.color}
                                         onChange={setColor}
                                     />
-                                    <label>
-                                        {series.label}颜色
-                                        <input
-                                            type="color"
-                                            aria-label={`${series.label}颜色`}
-                                            value={style.color}
-                                            onChange={(event) => {
-                                                setColor(event.target.value);
-                                            }}
-                                        />
-                                    </label>
                                 </div>
                             );
                         })}

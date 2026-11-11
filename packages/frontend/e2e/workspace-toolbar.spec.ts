@@ -18,12 +18,12 @@ for (const width of [1381, 390]) {
         }
         // e14e22c8 起保存/载入合并进"工作区"下拉、图表设置移入全局设置抽屉；工作条固定六个控件。
         const controls = toolbar.locator("button:visible, select:visible, summary:visible");
-        await expect(controls).toHaveCount(6);
+        await expect(controls).toHaveCount(4);
         expect(
             await controls.evaluateAll((nodes) =>
                 nodes.map((node) => node.getAttribute("aria-label") ?? node.textContent)
             )
-        ).toEqual(["搜索商品", "时间周期", "图表类型", "指标", "因子", "工作区"]);
+        ).toEqual(["搜索商品", "时间周期", "图表类型", "工作区"]);
         await expect(toolbar.getByRole("option", { name: "1 分钟", exact: true })).toHaveAttribute(
             "value",
             "1"
@@ -97,11 +97,11 @@ for (const width of [1381, 390]) {
         await page.keyboard.press("Escape");
         await expect(loadDialog).toHaveCount(0);
         await expect(toolbar.getByRole("button", { name: "工作区", exact: true })).toBeFocused();
-        for (const name of ["搜索商品", "指标", "因子"]) {
+        for (const name of ["搜索商品"]) {
             await toolbar.getByRole("button", { name, exact: true }).click();
             await expect(
                 page.getByRole("dialog", {
-                    name: name === "搜索商品" ? "商品搜索" : "指标 / 因子目录"
+                    name: "商品搜索"
                 })
             ).toBeVisible();
             await page.keyboard.press("Escape");
@@ -109,7 +109,22 @@ for (const width of [1381, 390]) {
         }
         const rail = await page.getByRole("toolbar", { name: "图表工具" }).boundingBox();
         if (!rail) throw new Error("Expected visible chart tool rail");
-        expect(rail.width).toBe(50);
+        if (width <= 880) {
+            const chart = await page.getByRole("region", { name: "主图" }).boundingBox();
+            if (!chart) throw new Error("Expected visible chart region");
+            expect(rail.width).toBeCloseTo(chart.width, 0);
+            expect(rail.height).toBeLessThanOrEqual(50);
+            expect(rail.y + rail.height).toBeLessThanOrEqual(chart.y);
+        } else {
+            expect(rail.width).toBe(50);
+        }
+        for (const name of ["指针", "线段", "水平线", "区间", "测量"]) {
+            await expect(
+                page
+                    .getByRole("toolbar", { name: "图表工具" })
+                    .getByRole("button", { name, exact: true })
+            ).toBeVisible();
+        }
         // 新壳右侧栏是工作区面板宿主：收纳图表工具托盘后为固定细栏，不侵占工作区。
         const right = await page.locator(".global-workspace-rail").boundingBox();
         if (!right) throw new Error("Expected workspace rail host");

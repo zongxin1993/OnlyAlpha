@@ -66,7 +66,9 @@ function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     return render(
         <AppProviders
             integrationClient={client}
-            marketDataClient={marketDataClient({ listSources: () => Promise.resolve([]) })}
+            marketDataClient={marketDataClient({
+                listSources: () => Promise.resolve([])
+            })}
         >
             <MemoryRouter>
                 <WorkspacePage />
@@ -75,52 +77,31 @@ function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     );
 }
 
-it("lays the primary workspace out as rail, watch column, chart and bottom panel", async () => {
-    const { container } = renderWorkspace();
-    await waitFor(() => {
-        expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-            "尚未配置可用的行情来源"
-        );
-    });
+it("keeps chart tools and watchlists without the retired bottom panel", async () => {
+    renderWorkspace();
+    await screen.findByTestId("market-data-status");
     expect(screen.getByRole("toolbar", { name: "图表工具" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "主图" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "自选" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "展开下方面板" })).toHaveAttribute(
-        "aria-expanded",
-        "false"
-    );
-    expect(screen.getByTestId("price-chart")).toBeInTheDocument();
-    expect(container.querySelector(".chart-workspace")).toHaveAttribute(
-        "data-tools-collapsed",
-        "true"
-    );
-    expect(container.querySelector(".chart-workspace")).toHaveAttribute(
-        "data-bottom-collapsed",
-        "true"
-    );
-});
-
-it("keeps both rails compact without an expansion control and retains the bottom panel", async () => {
-    const user = userEvent.setup();
-    const { container } = renderWorkspace();
-    const workspace = container.querySelector(".chart-workspace");
-    expect(workspace).toHaveAttribute("data-tools-collapsed", "true");
-    expect(screen.queryByRole("button", { name: /展开工具条|收起工具条/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "展开下方面板" }));
-    expect(workspace).toHaveAttribute("data-bottom-collapsed", "false");
-    await user.click(screen.getByRole("button", { name: "收起下方面板" }));
-    expect(workspace).toHaveAttribute("data-bottom-collapsed", "true");
+    expect(screen.queryByRole("region", { name: "研究面板" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "研究运行" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "研究结果" })).not.toBeInTheDocument();
     expect(screen.getByTestId("price-chart")).toBeInTheDocument();
 });
 
 it("orders the live chart controls beside the brand icon in the top workspace bar", async () => {
     const router = createMemoryRouter([
-        { element: <WorkstationShell />, children: [{ path: "/", element: <WorkspacePage /> }] }
+        {
+            element: <WorkstationShell />,
+            children: [{ path: "/", element: <WorkspacePage /> }]
+        }
     ]);
     render(
         <AppProviders
             integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({ listSources: () => Promise.resolve([]) })}
+            marketDataClient={marketDataClient({
+                listSources: () => Promise.resolve([])
+            })}
         >
             <RouterProvider router={router} />
         </AppProviders>
@@ -141,24 +122,17 @@ it("orders the live chart controls beside the brand icon in the top workspace ba
     expect(within(toolbar).getByRole("button", { name: "图表类型" })).toBeInTheDocument();
 });
 
-it("exposes honest unconnected watchlist, inspector, runs, results and backtest views", async () => {
+it("exposes honest watchlist and collapsible inspector states", async () => {
     const user = userEvent.setup();
     renderWorkspace();
     const watchColumn = screen.getByRole("complementary", { name: "自选" });
     expect(within(watchColumn).getByRole("region", { name: "自选行情" })).toBeInTheDocument();
-    const inspectorCard = within(watchColumn).getByRole("group", { name: "行情检查器" });
+    const inspectorCard = within(watchColumn).getByRole("group", {
+        name: "行情检查器"
+    });
     expect(inspectorCard).not.toHaveAttribute("open");
     await user.click(within(inspectorCard).getByText("行情检查器"));
     expect(within(inspectorCard).getByText("尚未选择行情上下文")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "展开下方面板" }));
-    const bottomPanel = screen.getByRole("region", { name: "研究面板" });
-    await user.click(within(bottomPanel).getByRole("button", { name: "研究结果" }));
-    expect(within(bottomPanel).getByText("研究结果尚未实现")).toBeInTheDocument();
-    expect(within(bottomPanel).getByRole("link", { name: "回测" })).toHaveAttribute(
-        "href",
-        "/backtest"
-    );
-    expect(within(bottomPanel).queryByText("回测尚未实现")).not.toBeInTheDocument();
     expect(
         screen.queryByText(/600519|rev-2c7d18|snap-1f0a|res-4d81|bt-2f5e18|fill-88c1/)
     ).not.toBeInTheDocument();
@@ -175,8 +149,8 @@ it("never presents absent API proof as synthetic business facts or success", asy
     expect(
         screen.queryByText(/synthetic|1486\.20|run-0f3a91|MA 20|20 日动量/)
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "指标" })).toHaveAttribute("aria-haspopup", "dialog");
-    expect(screen.getByRole("button", { name: "因子" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByRole("button", { name: "指标" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "因子" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
 });
@@ -185,7 +159,9 @@ const configuredClient = () =>
     integrationClient({
         listTypes: () =>
             Promise.resolve([
-                dataSourceType({ capabilities: ["HISTORICAL_BARS", "LIVE_TICKS", "INSTRUMENTS"] })
+                dataSourceType({
+                    capabilities: ["HISTORICAL_BARS", "LIVE_TICKS", "INSTRUMENTS"]
+                })
             ]),
         listDataSources: () => Promise.resolve([dataSourceSummary()]),
         getOperationalStatus: () => Promise.resolve(operationalStatus({ status: "UNKNOWN" }))
@@ -307,8 +283,8 @@ it("图下双卡宿主是工作区 grid 的直接子级（不陷在主图区内�
 it("图下出现指标因子卡：已挂列表、目录入口与诚实空态", async () => {
     const user = userEvent.setup();
     renderWorkspace();
-    const studiesCard = screen.getByRole("region", { name: "指标 / 因子" });
-    expect(within(studiesCard).getByText("还没有挂指标或因子，从目录添加。")).toBeInTheDocument();
+    const studiesCard = screen.getByRole("region", { name: "指标" });
+    expect(within(studiesCard).getByText("还没有添加指标，从目录添加。")).toBeInTheDocument();
     await user.click(within(studiesCard).getByRole("button", { name: "目录" }));
     expect(await screen.findByRole("dialog", { name: "指标 / 因子目录" })).toBeInTheDocument();
 });

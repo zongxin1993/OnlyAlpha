@@ -213,15 +213,15 @@ label {
 }
 .chart-workspace {
     --rail-width: 1.9rem;
-    --watch-width: 210px;
-    --bottom-height: 14rem;
+    --watch-width: 280px;
     display: grid;
-    grid-template-columns: var(--rail-width) var(--watch-width) minmax(0, 1fr) var(--rail-width);
-    grid-template-rows: minmax(0, 1fr) auto var(--bottom-height);
+    grid-template-columns:
+        var(--watch-width) var(--rail-width) minmax(0, 1fr)
+        var(--rail-width);
+    grid-template-rows: minmax(0, 1fr) auto;
     grid-template-areas:
-        "rail watch chart tray"
-        "rail watch under tray"
-        "rail watch bottom tray";
+        "watch rail chart tray"
+        "watch rail under tray";
     height: calc(100vh - 2.5rem - 1.75rem);
     background: var(--surface);
 }
@@ -340,9 +340,6 @@ label {
     color: var(--muted);
     font-size: 0.75rem;
     padding: 0.3rem 0.4rem;
-}
-.chart-workspace[data-bottom-collapsed="true"] {
-    --bottom-height: 2.1rem;
 }
 .workspace-rail {
     grid-area: rail;
@@ -1648,7 +1645,7 @@ th {
     scrollbar-color: var(--line) transparent;
 }
 @media (max-width: 880px) {
-    /* 冻结稿契约：≤880 工作台单列，顺序 图表 → 指标行 → 研究面板 → 自选。 */
+    /* ≤880 工作台单列，顺序 图表 → 指标行 → 自选。 */
     .workspace-watch-column {
         border-right: 0;
         border-top: 1px solid var(--line);
@@ -1671,9 +1668,6 @@ th {
     }
 }
 @media (max-width: 900px) {
-    .chart-workspace:not([data-bottom-collapsed="true"]) {
-        --bottom-height: 5rem;
-    }
     .topbar-mode {
         display: none;
     }
@@ -1834,33 +1828,28 @@ th {
     --rail-width: var(--workspace-edge-width, 3.125rem);
 }
 .chart-workspace[data-external-rail="true"] {
-    grid-template-columns: var(--rail-width) var(--watch-width) minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto var(--bottom-height);
+    grid-template-columns: var(--watch-width) var(--rail-width) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     grid-template-areas:
-        "rail watch chart"
-        "rail watch under"
-        "rail watch bottom";
+        "watch rail chart"
+        "watch rail under";
 }
 
-/* 级联修正位：≤880 单列模板须位于两套桌面模板之后。 */
+/* 窄屏把绘图工具放在图表上方；自选与图下内容按顺序堆叠。 */
 @media (max-width: 880px) {
-    .chart-workspace {
-        grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
-        grid-template-rows: auto auto auto auto;
-        grid-template-areas:
-            "rail chart tray"
-            "rail under tray"
-            "rail bottom tray"
-            "rail watch tray";
-    }
+    .chart-workspace,
     .chart-workspace[data-external-rail="true"] {
-        grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
+        grid-template-columns: minmax(0, 1fr);
         grid-template-rows: auto auto auto auto;
-        grid-template-areas:
-            "rail chart chart"
-            "rail under under"
-            "rail bottom bottom"
-            "rail watch watch";
+        grid-template-areas: "rail" "chart" "under" "watch";
+        align-content: start;
+    }
+    .workstation-shell .workspace-rail,
+    .workspace-rail {
+        flex-direction: row;
+        padding: 4px 8px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
     }
 }
 .workspace-management-host {

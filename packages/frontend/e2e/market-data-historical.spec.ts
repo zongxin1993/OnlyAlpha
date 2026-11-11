@@ -308,11 +308,7 @@ test("default BTCUSDT workspace bootstraps only server identities and first 15m 
     expect(fixture.queriedSteps).toEqual([15]);
     await expect(page.getByRole("tooltip", { name: "K 线信息" })).toHaveCount(0);
     await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "指标", exact: true })).toHaveAttribute(
-        "aria-haspopup",
-        "dialog"
-    );
-    await expect(page.getByRole("button", { name: "因子", exact: true })).toHaveAttribute(
+    await expect(page.getByRole("button", { name: "目录", exact: true })).toHaveAttribute(
         "aria-haspopup",
         "dialog"
     );

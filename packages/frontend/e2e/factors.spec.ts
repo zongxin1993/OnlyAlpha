@@ -17,8 +17,9 @@ test("workstation discovers installed calculations and reads exact private Facto
             commands.push(request.url());
     });
     await page.goto("/");
-    const trigger = page.getByRole("button", { name: "因子", exact: true });
+    const trigger = page.getByRole("button", { name: "目录", exact: true });
     await trigger.click();
+    await page.getByRole("tab", { name: "因子库", exact: true }).click();
     const board = page.getByRole("dialog", { name: "指标 / 因子目录" });
     await expect(board.getByRole("heading", { name: "Factor / Indicator Library" })).toBeVisible();
     await expect(board.getByRole("heading", { name: "Registered calculations" })).toBeVisible();
@@ -49,8 +50,9 @@ test("Factor board preserves normal keyboard focus and fits the narrow workstati
 }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
-    const trigger = page.getByRole("button", { name: "因子", exact: true });
+    const trigger = page.getByRole("button", { name: "目录", exact: true });
     await trigger.click();
+    await page.getByRole("tab", { name: "因子库", exact: true }).click();
     const board = page.getByRole("dialog", { name: "指标 / 因子目录" });
     await expect(
         board.getByRole("searchbox", { name: "Search calculations and private Factors" })

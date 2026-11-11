@@ -108,7 +108,10 @@ function transport(exact = false) {
     return state;
 }
 async function select(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(screen.getByRole("button", { name: "指标" }));
+    await user.click(
+        screen.queryByRole("button", { name: "指标" }) ??
+            screen.getByRole("button", { name: "目录" })
+    );
     const picker = await screen.findByRole("dialog", { name: "指标 / 因子目录" });
     await user.click(await within(picker).findByRole("button", { name: /选择 SMA/ }));
     return screen.findByRole("dialog", { name: "指标 / 因子参数配置" });
@@ -122,7 +125,7 @@ it("图下卡把已挂实例渲染进宿主并以图中/未上屏状态字随显
     expect(container.querySelector(".chart-studies--card")).toBeNull();
     await select(user);
     await user.click(screen.getByRole("button", { name: "添加" }));
-    const card = await within(host).findByRole("region", { name: "指标 / 因子" });
+    const card = await within(host).findByRole("region", { name: "指标" });
     const row = await within(card).findByTestId("chart-study-instance");
     expect(within(row).getByText("图中")).toBeInTheDocument();
     await user.click(within(row).getByRole("button", { name: "隐藏 SMA" }));
@@ -254,7 +257,10 @@ it("supports descriptor-driven decimal precision, required boolean and multiple 
     traffic.registration.outputs.push({ ...output, name: "other" });
     const user = userEvent.setup();
     render(<ChartStudies context={context} />);
-    await user.click(screen.getByRole("button", { name: "指标" }));
+    await user.click(
+        screen.queryByRole("button", { name: "指标" }) ??
+            screen.getByRole("button", { name: "目录" })
+    );
     await user.click(await screen.findByRole("button", { name: /选择 PRECISE/ }));
     expect(screen.getByRole("button", { name: "添加" })).toBeDisabled();
     const value = "9007199254740993.123456789012345678902";
@@ -730,7 +736,11 @@ it("does not offer a descriptor numeric output excluded by the transient capabil
     if (!series) throw new Error("Missing series");
     expect(screen.getByRole("button", { name: `${series.label} 红色` })).toBeVisible();
     await user.click(screen.getByRole("button", { name: `${series.label} 红色` }));
-    expect(screen.getByLabelText(`${series.label}颜色`)).toHaveValue("#c8332a");
+    expect(screen.queryByLabelText(`${series.label}颜色`)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `${series.label} 红色` })).toHaveAttribute(
+        "aria-pressed",
+        "true"
+    );
     await user.click(screen.getByText("高级选项", { exact: true }));
     expect(screen.getByRole("checkbox", { name: "输出 value" })).toBeChecked();
     expect(screen.queryByRole("checkbox", { name: "输出 normalized_atr" })).not.toBeInTheDocument();
@@ -780,7 +790,10 @@ it("keeps the registered MACD warmup default advanced and preserves its edited t
     ];
     const user = userEvent.setup();
     render(<ChartStudies context={context} />);
-    await user.click(screen.getByRole("button", { name: "指标" }));
+    await user.click(
+        screen.queryByRole("button", { name: "指标" }) ??
+            screen.getByRole("button", { name: "目录" })
+    );
     await user.click(await screen.findByRole("button", { name: "选择 MACD · 配置草稿" }));
     for (const name of ["fast_period", "slow_period", "signal_period"])
         expect(screen.getByLabelText(name)).toBeVisible();

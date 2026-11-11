@@ -52,3 +52,130 @@
     font-size: 0.75rem;
     overflow-wrap: anywhere;
 }
+
+/* 目录以分页控制长度，选择操作始终与名称同排。配置表单沿用自己的布局。 */
+.calculation-picker--catalog {
+    width: min(42rem, calc(100vw - 2rem));
+}
+.calculation-picker--catalog h2 {
+    margin: 0;
+    font-size: 18px;
+}
+.calculation-picker--catalog > p {
+    margin: 8px 0;
+    font-size: 12px;
+    color: var(--muted);
+}
+.calculation-picker--catalog button:not([class*="ant-"]) {
+    min-height: 32px;
+    padding: 4px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+    background: var(--surface-2);
+    color: var(--text);
+    border-color: var(--line);
+}
+.calculation-picker__tabs {
+    display: flex;
+    gap: 6px;
+    margin: 12px 0;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 8px;
+}
+.calculation-picker__tabs button[aria-selected="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent-line);
+}
+.calculation-picker--catalog .calculation-picker__search {
+    gap: 8px;
+}
+.calculation-picker--catalog .calculation-picker__search input {
+    min-height: 32px;
+    padding: 6px 8px;
+    font-size: 13px;
+}
+.calculation-picker--catalog .calculation-picker__entries {
+    max-height: min(28rem, 48dvh);
+    overflow-y: auto;
+    margin: 8px 0;
+    scrollbar-gutter: stable;
+}
+.calculation-picker--catalog .calculation-picker__entries li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 2px 12px;
+    padding: 8px 2px;
+}
+.calculation-picker--catalog .calculation-picker__entries li > :not(button) {
+    grid-column: 1;
+    min-width: 0;
+}
+.calculation-picker--catalog .calculation-picker__entries li > button {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: center;
+}
+.calculation-picker--catalog .calculation-picker__entries h3 {
+    font-size: 13px;
+    line-height: 1.5;
+}
+.calculation-picker--catalog .calculation-picker__entries p {
+    font-size: 12px;
+    margin: 0;
+    color: var(--muted);
+}
+.calculation-picker__entry-details {
+    font-size: 11px;
+    color: var(--muted);
+}
+.calculation-picker--catalog .calculation-picker__entries li > .calculation-picker__entry-details {
+    grid-column: 2;
+    grid-row: 2;
+    margin: 0;
+    justify-self: end;
+}
+.calculation-picker--catalog
+    .calculation-picker__entries
+    li:has(> .calculation-picker__entry-details)
+    > button {
+    grid-row: 1;
+}
+.calculation-picker--catalog
+    .calculation-picker__entries
+    li
+    > .calculation-picker__entry-details[open] {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: stretch;
+}
+.calculation-picker__entry-details summary {
+    cursor: pointer;
+    padding: 2px 0;
+}
+.calculation-picker__pagination {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+}
+.calculation-picker__pagination > span {
+    margin-right: auto;
+}
+@media (max-width: 480px) {
+    .calculation-picker--catalog {
+        padding: 12px;
+    }
+    .calculation-picker--catalog .calculation-picker__entries li {
+        gap: 4px 8px;
+    }
+    .calculation-picker--catalog .calculation-picker__entries li > button {
+        max-width: 116px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+}

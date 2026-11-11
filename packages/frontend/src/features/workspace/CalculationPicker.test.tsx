@@ -396,3 +396,32 @@ it("focus refresh supersedes an in-flight discovery selection", async () => {
     expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 });
+
+it("paginates discovered entries and resets the page when searching", async () => {
+    const fixture = chartCatalogFixture();
+    const original = fixture.discovery.calculations[0];
+    if (!original) throw new Error("Missing discovery entry");
+    fixture.discovery.calculations = Array.from({ length: 14 }, (_, index) => ({
+        ...structuredClone(original),
+        type_reference: {
+            ...original.type_reference,
+            type_id: `onlyalpha.indicator.sample${String(index)}`
+        }
+    }));
+    const traffic = transport(fixture);
+    traffic.active = null;
+    const user = userEvent.setup();
+    render(<CalculationPicker />);
+    await user.click(screen.getByRole("button", { name: "指标" }));
+    const list = await screen.findByRole("list");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(6);
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    expect(within(list).getByRole("heading", { name: "SAMPLE6" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+    await user.type(screen.getByRole("searchbox"), "sample0");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).getByRole("heading", { name: "SAMPLE0" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
+});

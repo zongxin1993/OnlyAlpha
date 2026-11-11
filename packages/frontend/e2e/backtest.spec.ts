@@ -309,7 +309,8 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
         expect(agentWrites).toEqual([]);
         return;
     }
-    await page.getByRole("button", { name: "因子", exact: true }).click();
+    await page.getByRole("button", { name: "目录", exact: true }).click();
+    await page.getByRole("tab", { name: "因子库", exact: true }).click();
     await page.getByRole("button", { name: "创建 / 编辑私有因子" }).click();
     const editor = page.getByRole("dialog", { name: "私有 Factor 草稿与历史" });
     await editor.getByRole("button", { name: "新建因子", exact: true }).click();

@@ -57,9 +57,11 @@ export function CalculationPicker({
     draft,
     onDraftChange,
     credentials,
-    openControlRef
+    openControlRef,
+    showTriggers = true
 }: {
     readonly draft: ChartCalculationDraft | null;
+    readonly showTriggers?: boolean;
     readonly credentials?: LocalReadCredentials;
     readonly openControlRef?: { current: CalculationPickerControl | null };
     readonly onDraftChange: (
@@ -205,22 +207,36 @@ export function CalculationPicker({
 
     return (
         <>
-            {(["INDICATOR", "FACTOR"] as const).map((value) => (
-                <button
-                    key={value}
-                    type="button"
-                    className="picker__trigger"
-                    aria-haspopup="dialog"
-                    onClick={(event) => {
-                        trigger.current = event.currentTarget;
-                        setCategory(value);
-                        if (value !== "FACTOR" || credentials === undefined) void refresh();
-                    }}
-                >
-                    <WorkspaceIcon name="results" />
-                    <span>{value === "INDICATOR" ? "指标" : "因子"}</span>
-                </button>
-            ))}
+            {showTriggers ? (
+                <>
+                    <button
+                        type="button"
+                        className="picker__trigger"
+                        aria-haspopup="dialog"
+                        onClick={(event) => {
+                            trigger.current = event.currentTarget;
+                            setCategory("INDICATOR");
+                            void refresh();
+                        }}
+                    >
+                        <WorkspaceIcon name="results" />
+                        <span>指标</span>
+                    </button>
+                    <button
+                        type="button"
+                        className="picker__trigger"
+                        aria-haspopup="dialog"
+                        onClick={(event) => {
+                            trigger.current = event.currentTarget;
+                            setCategory("FACTOR");
+                            if (credentials === undefined) void refresh();
+                        }}
+                    >
+                        <WorkspaceIcon name="results" />
+                        <span>因子</span>
+                    </button>
+                </>
+            ) : null}
             {category === null ? null : (
                 <CatalogDialog
                     category={category}
@@ -228,6 +244,10 @@ export function CalculationPicker({
                     selecting={selecting}
                     metadataBoard={category === "FACTOR" && credentials !== undefined}
                     onClose={close}
+                    onCategoryChange={(nextCategory) => {
+                        setCategory(nextCategory);
+                        if (nextCategory !== "FACTOR" || credentials === undefined) void refresh();
+                    }}
                     onRefresh={() => {
                         void refresh();
                     }}
@@ -277,6 +297,7 @@ function CatalogDialog({
     state,
     selecting,
     onClose,
+    onCategoryChange,
     onRefresh,
     onSelect
 }: {
@@ -285,12 +306,15 @@ function CatalogDialog({
     readonly state: CatalogState;
     readonly selecting: boolean;
     readonly onClose: () => void;
+    readonly onCategoryChange: (category: Category) => void;
     readonly onRefresh: () => void;
     readonly onSelect: (entry: PickerEntry) => void;
 }) {
     const dialog = useRef<HTMLDialogElement>(null);
     const search = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState("");
+    const [page, setPage] = useState(0);
+    const pageSize = 6;
     useEffect(() => {
         const node = dialog.current;
         const trigger =
@@ -322,10 +346,27 @@ function CatalogDialog({
                           .includes(query.trim().toLowerCase())
               )
             : [];
+    const capabilities =
+        state.status === "transient"
+            ? state.capabilities.filter((entry) =>
+                  `${label(entry)} ${entry.type_id} ${entry.presentation.category}`
+                      .toLowerCase()
+                      .includes(query.trim().toLowerCase())
+              )
+            : [];
+    const count =
+        state.status === "transient"
+            ? capabilities.length
+            : state.status === "registered"
+              ? registrations.length
+              : entries.length;
+    const pageCount = Math.max(1, Math.ceil(count / pageSize));
+    const currentPage = Math.min(page, pageCount - 1);
+    const offset = currentPage * pageSize;
     return createPortal(
         <dialog
             ref={dialog}
-            className="calculation-picker"
+            className="calculation-picker calculation-picker--catalog"
             aria-label="指标 / 因子目录"
             onKeyDown={keepDialogFocus}
             onCancel={(event) => {
@@ -339,6 +380,24 @@ function CatalogDialog({
                     关闭
                 </button>
             </header>
+            <div className="calculation-picker__tabs" role="tablist" aria-label="目录类型">
+                {(["INDICATOR", "FACTOR"] as const).map((value) => (
+                    <button
+                        key={value}
+                        type="button"
+                        role="tab"
+                        disabled={selecting}
+                        aria-selected={category === value}
+                        onClick={() => {
+                            setQuery("");
+                            setPage(0);
+                            onCategoryChange(value);
+                        }}
+                    >
+                        {value === "INDICATOR" ? "指标" : "因子库"}
+                    </button>
+                ))}
+            </div>
             {metadataBoard ? (
                 <FactorExplorerPage />
             ) : (
@@ -353,11 +412,15 @@ function CatalogDialog({
                             value={query}
                             onChange={(event) => {
                                 setQuery(event.target.value);
+                                setPage(0);
                             }}
                         />
                         <button
                             type="button"
-                            onClick={onRefresh}
+                            onClick={() => {
+                                setPage(0);
+                                onRefresh();
+                            }}
                             disabled={state.status === "loading" || selecting}
                         >
                             刷新目录
@@ -382,13 +445,12 @@ function CatalogDialog({
                                         }{" "}
                                         类指标
                                     </p>
+                                    {capabilities.length === 0 ? (
+                                        <p role="status">没有匹配的指标。</p>
+                                    ) : null}
                                     <ul className="calculation-picker__entries">
-                                        {state.capabilities
-                                            .filter((entry) =>
-                                                `${label(entry)} ${entry.type_id} ${entry.presentation.category}`
-                                                    .toLowerCase()
-                                                    .includes(query.trim().toLowerCase())
-                                            )
+                                        {capabilities
+                                            .slice(offset, offset + pageSize)
                                             .map((entry) => (
                                                 <li
                                                     key={`${entry.type_id}@${entry.semantic_version}`}
@@ -406,21 +468,21 @@ function CatalogDialog({
                                                             ? "主图"
                                                             : "独立窗格"}
                                                     </p>
-                                                    <p>
-                                                        {entry.type_id}@{entry.semantic_version}
-                                                    </p>
+                                                    <details className="calculation-picker__entry-details">
+                                                        <summary>技术信息</summary>
+                                                        <p>
+                                                            {entry.type_id}@{entry.semantic_version}
+                                                        </p>
+                                                    </details>
                                                     <button
                                                         type="button"
+                                                        aria-label={`选择 ${label(entry)}${entry.presentation.default_variant ? "" : ` · 语义版本 ${entry.semantic_version}`} · 配置草稿`}
                                                         disabled={selecting}
                                                         onClick={() => {
                                                             onSelect(entry);
                                                         }}
                                                     >
-                                                        选择 {label(entry)}
-                                                        {entry.presentation.default_variant
-                                                            ? ""
-                                                            : ` · 语义版本 ${entry.semantic_version}`}{" "}
-                                                        · 配置草稿
+                                                        选择
                                                     </button>
                                                 </li>
                                             ))}
@@ -447,7 +509,7 @@ function CatalogDialog({
                                 </p>
                             ) : (
                                 <ul className="calculation-picker__entries">
-                                    {registrations.map((entry) => (
+                                    {registrations.slice(offset, offset + pageSize).map((entry) => (
                                         <li
                                             key={JSON.stringify([
                                                 entry.kind,
@@ -518,7 +580,7 @@ function CatalogDialog({
                                 </p>
                             ) : (
                                 <ul className="calculation-picker__entries">
-                                    {entries.map((entry) => (
+                                    {entries.slice(offset, offset + pageSize).map((entry) => (
                                         <li
                                             key={JSON.stringify([
                                                 entry.capability.kind,
@@ -602,6 +664,34 @@ function CatalogDialog({
                             )}
                         </>
                     )}
+                    {count > 0 &&
+                    state.status !== "error" &&
+                    state.status !== "loading" &&
+                    state.status !== "idle" ? (
+                        <nav className="calculation-picker__pagination" aria-label="目录分页">
+                            <span aria-live="polite">
+                                共 {count} 项 · 第 {currentPage + 1} / {pageCount} 页
+                            </span>
+                            <button
+                                type="button"
+                                disabled={currentPage === 0 || selecting}
+                                onClick={() => {
+                                    setPage(currentPage - 1);
+                                }}
+                            >
+                                上一页
+                            </button>
+                            <button
+                                type="button"
+                                disabled={currentPage + 1 >= pageCount || selecting}
+                                onClick={() => {
+                                    setPage(currentPage + 1);
+                                }}
+                            >
+                                下一页
+                            </button>
+                        </nav>
+                    ) : null}
                 </>
             )}
         </dialog>,
