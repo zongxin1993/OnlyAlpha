@@ -205,6 +205,7 @@
 - 策略/回测：页头换 `PageHeader`（h1=画面名，副标题取冻结稿「草稿、冻结版本与晋级」「运行任务与证据」）；替换各自 `strategy-workflow-header` / `backtest-page-header` 顶栏中的 `Typography.Title` 职责，头部操作钮（刷新、返回链接等）保留为页头行右侧或次级行；`main` 的 `aria-label`（"策略记录"「策略回测」等）**不动**，是既有 E2E 锚。回测结果视图 h1 用「回测结果」。
 - 系统画面内容（自上而下）：PageHeader「系统 / 运行时状态」→ 运行时健康卡（liveness/readiness 实测，成功显示 LIVE/READY 徽章，失败/503 按简报纪律说明「发生了什么、本次查看未生效、可重试」）→ 偏好说明卡（主题/密度当前值与切换指引，来自本地真实状态）→ 诚实缺省卡：「后端版本与迁移号暂无正式查询端点（QUERY_GAP），此处宁缺毋假」。不做任何演示数据。
 - 共享样式：新增 `.view-detail`（冻结稿 `.detail`：`grid-template-columns: 1fr 340px; gap:16px; align-items:start`，`@media (max-width:1239px)` 转单列）与 `.tw`（`overflow-x:auto` 表格横滚容器）进 `src/app/styles/base.css` 共享层；策略/回测正文按语义套 `page-with-head`。
+  - **P2 执行注记（Task 17，负责人裁决「外壳对齐」覆盖）**：`.tw` 的表格横滚语义由 antd `Table scroll={{x}}` 既有实现等价覆盖，不新增容器类；`.view-detail` 在现有真实页面无双栏并排需求，未引入，≤1239 单列由 `screen-shells.spec.ts` 的 1024 主区近全宽 + 390 零溢出用例把守。两个类名当前**均不存在**于 `base.css`，后续阶段勿按本行原文假定其存在。
 
 **Deferred 契约同步（改锚不改意图）**：
 - `product-workspaces.spec.ts`：`/data/inputs` heading 锚 `数据 · 未实现` → `数据`（exact，level 1）`deferred:true→false`；`/system/health` → `系统`，`deferred:false`；`/strategies` 锚 `我的策略` → `策略`（level 1）；`/backtest` 锚 `策略回测` → `回测`（level 1，`main aria-label="策略回测"` 仍在但不再作 heading 锚）；研究行不动；文件头注释同步。Deferred 目的地「零业务请求」判定仅对研究保留。
