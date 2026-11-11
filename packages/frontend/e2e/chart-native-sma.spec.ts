@@ -59,7 +59,7 @@ test("Chart renders all fourteen Rust indicator families", async ({ page }) => {
         let count = 0;
         for (const [type, version, label, seriesCount] of group) {
             const id = `onlyalpha.indicator.${type}`;
-            await page.getByRole("button", { name: "指标", exact: true }).click();
+            await page.getByRole("button", { name: "目录", exact: true }).click();
             const catalog = page.getByRole("dialog", { name: "指标 / 因子目录" });
             await catalog.getByRole("searchbox", { name: "搜索指标或因子" }).fill(id);
             await catalog

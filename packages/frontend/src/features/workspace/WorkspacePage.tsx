@@ -1,9 +1,9 @@
 import { Button, Tooltip, Dropdown } from "antd";
 import { settingsChangedEvent, useSettings } from "../settings/SettingsProvider";
-import { Link, useOutletContext } from "react-router-dom";
+import { useOutletContext } from "react-router-dom";
 import { createPortal } from "react-dom";
 import type { WorkspaceShellSlots } from "../../app/shell/WorkstationShell";
-import { WorkspaceLibraryControls } from "./WorkspaceLibraryControls";
+import { WorkspaceLibraryControls, type WorkspaceLibraryControl } from "./WorkspaceLibraryControls";
 import { useDefaultWorkspace } from "./useDefaultWorkspace";
 import type { WorkspaceConfiguration } from "../../api/workspace/client";
 import { sameChartBinding } from "../../api/chartStudies/client";
@@ -54,32 +54,10 @@ export function WorkspacePage() {
     const railHost = slots?.railHost ?? null;
     const [managementHost, setManagementHost] = useState<HTMLDivElement | null>(null);
     const [studyStatusHost, setStudyStatusHost] = useState<HTMLDivElement | null>(null);
-    const [pickerHost, setPickerHost] = useState<HTMLDivElement | null>(null);
+    const [studiesCardHost, setStudiesCardHost] = useState<HTMLDivElement | null>(null);
+    const [studyRestoring, setStudyRestoring] = useState(false);
+    const libraryControlRef = useRef<WorkspaceLibraryControl | null>(null);
     const [activeTool, setActiveTool] = useState<string>("pointer");
-    const [panelTab, setPanelTab] = useState<"watchlist" | "inspector">("watchlist");
-    const [panelOpen, setPanelOpen] = useState(() =>
-        typeof window.matchMedia === "function"
-            ? window.matchMedia("(min-width: 1280px)").matches
-            : true
-    );
-    useEffect(() => {
-        if (typeof window.matchMedia !== "function") return;
-        const layout = window.matchMedia("(min-width: 1280px)");
-        const onLayoutChange = (event: MediaQueryListEvent) => {
-            setPanelOpen(event.matches);
-        };
-        if (typeof layout.addEventListener === "function") {
-            layout.addEventListener("change", onLayoutChange);
-        }
-        return () => {
-            if (typeof layout.removeEventListener === "function") {
-                layout.removeEventListener("change", onLayoutChange);
-            }
-        };
-    }, []);
-    const panelToggle = useRef<HTMLButtonElement>(null);
-    const [bottomTab, setBottomTab] = useState<"runs" | "results">("runs");
-    const [bottomCollapsed, setBottomCollapsed] = useState(true);
     const [chartType, setChartType] = useState<FinancialChartType>("CANDLESTICK");
     const [customBarDuration, setCustomBarDuration] = useState("7");
     const [customBarOpen, setCustomBarOpen] = useState(false);
@@ -214,23 +192,46 @@ export function WorkspacePage() {
         marketData.reference === null
             ? []
             : [
-                  { label: "标的", value: realInstrument?.instrument_id ?? "未选择" },
-                  { label: "Integration", value: marketData.reference.integration_id },
+                  {
+                      label: "标的",
+                      value: realInstrument?.instrument_id ?? "未选择"
+                  },
+                  {
+                      label: "Integration",
+                      value: marketData.reference.integration_id
+                  },
                   {
                       label: "Integration Revision",
                       value: marketData.reference.integration_revision_fingerprint
                   },
-                  { label: "Source", value: marketData.resolvedSourceId ?? "尚未读取行情" },
-                  { label: "Bar semantic", value: formatBarSemantic(marketData.barSemantic) },
+                  {
+                      label: "Source",
+                      value: marketData.resolvedSourceId ?? "尚未读取行情"
+                  },
+                  {
+                      label: "Bar semantic",
+                      value: formatBarSemantic(marketData.barSemantic)
+                  },
                   ...(dayMode
-                      ? [{ label: "封存修订", value: marketData.sealedRevisionId ?? "尚未读取" }]
+                      ? [
+                            {
+                                label: "封存修订",
+                                value: marketData.sealedRevisionId ?? "尚未读取"
+                            }
+                        ]
                       : [
-                            { label: "Coverage", value: marketData.coverage?.status ?? "尚未查询" },
+                            {
+                                label: "Coverage",
+                                value: marketData.coverage?.status ?? "尚未查询"
+                            },
                             {
                                 label: "Temporary window",
                                 value: marketData.windowFingerprint ?? "尚未验证"
                             },
-                            { label: "Realtime", value: marketData.realtimeStatus },
+                            {
+                                label: "Realtime",
+                                value: marketData.realtimeStatus
+                            },
                             {
                                 label: "延迟样本",
                                 value:
@@ -256,42 +257,6 @@ export function WorkspacePage() {
                         ])
               ];
 
-    const tray = (
-        <div
-            className="workspace-tray"
-            role="toolbar"
-            aria-label="工作区面板"
-            aria-orientation="vertical"
-        >
-            <button
-                type="button"
-                className="rail-button"
-                aria-pressed={panelTab === "watchlist"}
-                aria-label="自选"
-                ref={panelToggle}
-                title="自选"
-                onClick={() => {
-                    setPanelTab("watchlist");
-                    setPanelOpen(true);
-                }}
-            >
-                <WorkspaceIcon name="watchlist" />
-            </button>
-            <button
-                type="button"
-                className="rail-button"
-                aria-pressed={panelTab === "inspector"}
-                aria-label="检查器"
-                title="检查器"
-                onClick={() => {
-                    setPanelTab("inspector");
-                    setPanelOpen(true);
-                }}
-            >
-                <WorkspaceIcon name="data" />
-            </button>
-        </div>
-    );
     const chartSettings = (
         <div className="workspace-settings__menu">
             <p className="workspace-settings__heading">图表设置</p>
@@ -444,7 +409,11 @@ export function WorkspacePage() {
                             label: "蜡烛图",
                             icon: <WorkspaceIcon name="candles" />
                         },
-                        { key: "LINE", label: "收盘线", icon: <WorkspaceIcon name="line" /> }
+                        {
+                            key: "LINE",
+                            label: "收盘线",
+                            icon: <WorkspaceIcon name="line" />
+                        }
                     ],
                     onClick: ({ key }) => {
                         if (key === "CANDLESTICK" || key === "LINE") setChartType(key);
@@ -456,7 +425,6 @@ export function WorkspacePage() {
                     <WorkspaceIcon name="down" />
                 </Button>
             </Dropdown>
-            <div className="workspace-study-picker" ref={setPickerHost} />
             <div className="workspace-management-host" ref={setManagementHost} />
         </div>
     );
@@ -467,8 +435,6 @@ export function WorkspacePage() {
             aria-label="图表工作区"
             data-external-rail={railHost !== null}
             data-tools-collapsed="true"
-            data-panel-open={panelOpen}
-            data-bottom-collapsed={bottomCollapsed}
         >
             <div
                 className="workspace-rail"
@@ -501,6 +467,34 @@ export function WorkspacePage() {
                     {chartSettings}
                 </details>
             )}
+            <aside className="workspace-watch-column" aria-label="自选">
+                <WatchlistPanel
+                    controller={watchlists}
+                    market={market}
+                    sources={marketData.selectableSources}
+                    enabled={true}
+                    onSelect={marketData.selectWatchlistInstrument}
+                    onSearch={openSearch}
+                />
+                <details className="watch-column__inspector" aria-label="行情检查器">
+                    <summary>行情检查器</summary>
+                    {inspector.length === 0 ? (
+                        <p className="panel-note">尚未选择行情上下文</p>
+                    ) : (
+                        <table className="data-table">
+                            <caption className="visually-hidden">行情检查器明细</caption>
+                            <tbody>
+                                {inspector.map((row) => (
+                                    <tr key={row.label}>
+                                        <th scope="row">{row.label}</th>
+                                        <td className="value">{row.value}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </details>
+            </aside>
             <section className="chart-region" aria-label="主图">
                 {toolbarHost === null ? toolbar : createPortal(toolbar, toolbarHost)}
                 <header className="chart-region__header" hidden={credentials.localSession}>
@@ -519,7 +513,8 @@ export function WorkspacePage() {
                     />
                 )}
                 <ChartStudies
-                    toolbarTarget={pickerHost}
+                    onRestoringChange={setStudyRestoring}
+                    studiesCardTarget={studiesCardHost}
                     context={studyContext}
                     restoration={studyRestoration}
                     {...(credentials.capture().bearer === null && !credentials.localSession
@@ -566,6 +561,7 @@ export function WorkspacePage() {
                                                 ? "1 日封存历史无法保存为工作区，可用原采集编号恢复。"
                                                 : restoreNotice
                                         }
+                                        openControlRef={libraryControlRef}
                                     />
                                 ) : (
                                     createPortal(
@@ -579,6 +575,7 @@ export function WorkspacePage() {
                                                     ? "1 日封存历史无法保存为工作区，可用原采集编号恢复。"
                                                     : restoreNotice
                                             }
+                                            openControlRef={libraryControlRef}
                                         />,
                                         managementHost
                                     )
@@ -673,115 +670,34 @@ export function WorkspacePage() {
                     }}
                 </ChartStudies>
             </section>
-            <aside className="context-panel" aria-label="上下文面板">
-                <div className="panel-tabs" role="group" aria-label="上下文面板视图">
-                    <button
-                        type="button"
-                        className="panel-tab"
-                        aria-pressed={panelTab === "watchlist"}
-                        onClick={() => {
-                            setPanelTab("watchlist");
-                        }}
-                    >
-                        自选
-                    </button>
-                    <button
-                        type="button"
-                        className="panel-tab"
-                        aria-pressed={panelTab === "inspector"}
-                        onClick={() => {
-                            setPanelTab("inspector");
-                        }}
-                    >
-                        检查器
-                    </button>
-                    <button
-                        type="button"
-                        className="panel-toggle context-panel__close"
-                        aria-label="收起上下文面板"
-                        onClick={() => {
-                            setPanelOpen(false);
-                            panelToggle.current?.focus();
-                        }}
-                    >
-                        <WorkspaceIcon name="menu" />
-                    </button>
-                </div>
-                <div className="panel-scroll">
-                    {panelTab === "watchlist" ? (
-                        <WatchlistPanel
-                            controller={watchlists}
-                            market={market}
-                            sources={marketData.selectableSources}
-                            enabled={panelOpen}
-                            onSelect={marketData.selectWatchlistInstrument}
-                            onSearch={openSearch}
-                        />
-                    ) : inspector.length === 0 ? (
-                        <p className="panel-note">尚未选择行情上下文</p>
-                    ) : (
-                        <table className="data-table">
-                            <caption className="visually-hidden">行情检查器</caption>
-                            <tbody>
-                                {inspector.map((row) => (
-                                    <tr key={row.label}>
-                                        <th scope="row">{row.label}</th>
-                                        <td className="value">{row.value}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
-            </aside>
-            {railHost === null ? tray : createPortal(tray, railHost)}
-            <section className="bottom-panel" aria-label="研究面板">
-                <header className="bottom-panel__header">
-                    <div className="panel-tabs" role="group" aria-label="下方面板视图">
+            <div className="workspace-under-chart">
+                <div ref={setStudiesCardHost} />
+                <section className="workspace-summary-card" aria-label="工作区">
+                    <header>
+                        <h2>工作区</h2>
                         <button
                             type="button"
-                            className="panel-tab"
-                            aria-pressed={bottomTab === "runs"}
-                            onClick={() => {
-                                setBottomTab("runs");
+                            disabled={
+                                workspace.busy ||
+                                workspace.pending !== null ||
+                                workspace.book === null ||
+                                studyContext === null ||
+                                studyRestoring
+                            }
+                            onClick={(event) => {
+                                libraryControlRef.current?.open("save", event.currentTarget);
                             }}
                         >
-                            研究运行
+                            保存副本
                         </button>
-                        <button
-                            type="button"
-                            className="panel-tab"
-                            aria-pressed={bottomTab === "results"}
-                            onClick={() => {
-                                setBottomTab("results");
-                            }}
-                        >
-                            研究结果
-                        </button>
-                        <Link className="panel-tab" to="/backtest">
-                            回测
-                        </Link>
-                    </div>
-                    <div className="bottom-panel__meta">
-                        <button
-                            type="button"
-                            className="rail-button"
-                            aria-expanded={!bottomCollapsed}
-                            aria-label={bottomCollapsed ? "展开下方面板" : "收起下方面板"}
-                            onClick={() => {
-                                setBottomCollapsed(!bottomCollapsed);
-                            }}
-                        >
-                            <WorkspaceIcon name={bottomCollapsed ? "up" : "down"} />
-                        </button>
-                    </div>
-                </header>
-                <div className="panel-scroll" hidden={bottomCollapsed}>
-                    <p className="panel-note">
-                        {bottomTab === "runs" ? "研究运行尚未实现" : "研究结果尚未实现"}
+                    </header>
+                    <p>
+                        {workspace.activeWorkspace?.name ??
+                            "还没有保存的工作区，“保存副本”可保存当前布局与绘图。"}
                     </p>
-                </div>
-            </section>
+                    <p className="faint">布局与绘图随工作区持久化</p>
+                </section>
+            </div>
             {searchOpen ? (
                 <SymbolSearch
                     market={market}

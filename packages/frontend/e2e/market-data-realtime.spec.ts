@@ -535,7 +535,7 @@ for (const width of [1440, 1024, 390]) {
             subscriptions: market.subscriptions.length,
             acquisitions: market.acquisitions()
         };
-        const trigger = page.getByRole("button", { name: "指标", exact: true });
+        const trigger = page.getByRole("button", { name: "目录", exact: true });
         await trigger.focus();
         await page.keyboard.press("Enter");
         const dialog = page.getByRole("dialog", { name: "指标 / 因子目录" });
@@ -636,7 +636,7 @@ test("registered discovery selection without Runtime preserves BTCUSDT history a
         subscriptions: market.subscriptions.length,
         acquisitions: market.acquisitions()
     };
-    await page.getByRole("button", { name: "指标", exact: true }).click();
+    await page.getByRole("button", { name: "目录", exact: true }).click();
     await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
     await page.getByText("参数说明与技术详情", { exact: true }).click();
     const handoff = page.getByTestId("calculation-handoff");
@@ -703,7 +703,7 @@ for (const width of [1440, 1024, 390]) {
             subscriptions: market.subscriptions.length,
             acquisitions: market.acquisitions()
         };
-        const trigger = page.getByRole("button", { name: "指标", exact: true });
+        const trigger = page.getByRole("button", { name: "目录", exact: true });
         const pickerSelection = page
             .getByRole("dialog", { name: "指标 / 因子目录" })
             .getByRole("button", { name: /选择 SMA.*配置草稿/ });
@@ -873,7 +873,7 @@ test("exact Study confirmation rejects paired schema changes without creating a 
     });
     await page.goto("/");
     await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    await page.getByRole("button", { name: "指标", exact: true }).click();
+    await page.getByRole("button", { name: "目录", exact: true }).click();
     await page.getByRole("button", { name: /选择 SMA/ }).click();
     const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
     await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeEnabled();

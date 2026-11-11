@@ -9,10 +9,10 @@ import {
     validPresentation
 } from "./chartStudy";
 import { studyColorName } from "./studyColors";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createUuidV4 } from "../../api/integrations/submissionIntent";
 import type { ChartCalculationDraft } from "../../api/research/chartCatalog";
-import { CalculationPicker } from "./CalculationPicker";
+import { CalculationPicker, type CalculationPickerControl } from "./CalculationPicker";
 import { ChartStudyEditor } from "./ChartStudyEditor";
 import {
     studyDescriptor,
@@ -31,9 +31,13 @@ export function ChartStudies({
     children,
     credentials,
     restoration,
-    toolbarTarget
+    toolbarTarget,
+    studiesCardTarget,
+    onRestoringChange
 }: {
     readonly toolbarTarget?: HTMLElement | null;
+    readonly studiesCardTarget?: HTMLElement | null;
+    readonly onRestoringChange?: (restoring: boolean) => void;
     readonly restoration?: {
         readonly key: string;
         readonly contextKey: string;
@@ -62,6 +66,9 @@ export function ChartStudies({
     const [returnFocus, setReturnFocus] = useState<HTMLElement | null>(null);
     const [initializedRestore, setInitializedRestore] = useState<string | null>(null);
     const [pendingRestore, setPendingRestore] = useState<readonly WorkspaceStudy[] | null>(null);
+    useEffect(() => {
+        onRestoringChange?.(pendingRestore !== null);
+    }, [pendingRestore, onRestoringChange]);
     const [restoreError, setRestoreError] = useState<string | null>(null);
     const [restoreRetry, setRestoreRetry] = useState(0);
     if (restoration != null && restoration.key !== initializedRestore) {
@@ -89,7 +96,10 @@ export function ChartStudies({
                         row.semantic_version === saved.semantic_version
                 );
                 if (capability === undefined) throw new Error("精确指标版本不可用");
-                const selection = { source: "CHART_STUDY_TRANSIENT" as const, capability };
+                const selection = {
+                    source: "CHART_STUDY_TRANSIENT" as const,
+                    capability
+                };
                 const configuration = {
                     parameters: Object.fromEntries(
                         Object.entries(saved.parameters).map(([name, value]) => [
@@ -159,7 +169,10 @@ export function ChartStudies({
                     admitted.has(instance.instanceId)
                         ? {
                               ...instance,
-                              selection: { source: "CHART_STUDY_TRANSIENT", capability },
+                              selection: {
+                                  source: "CHART_STUDY_TRANSIENT",
+                                  capability
+                              },
                               connectionState: "CONFIGURED_NOT_EXECUTED"
                           }
                         : instance
@@ -185,7 +198,10 @@ export function ChartStudies({
             setIncarnationKey(createUuidV4());
             // Focus is a re-observation boundary, not a cached validity/TTL claim.
             setInstances((previous) =>
-                previous.map((instance) => ({ ...instance, connectionState: "STALE_CONFIG" }))
+                previous.map((instance) => ({
+                    ...instance,
+                    connectionState: "STALE_CONFIG"
+                }))
             );
         };
         window.addEventListener("focus", invalidate);
@@ -195,10 +211,163 @@ export function ChartStudies({
             unsubscribe?.();
         };
     }, [credentials]);
+    const pickerControl = useRef<CalculationPickerControl | null>(null);
+    const studiesList =
+        instances.length === 0 ? null : (
+            <ul className="chart-studies__list">
+                {instances.map((instance) => {
+                    const descriptor = studyDescriptor(instance.selection);
+                    return (
+                        <li
+                            key={instance.instanceId}
+                            data-testid="chart-study-instance"
+                            data-instance-id={instance.instanceId}
+                            data-chart-context-key={instance.context.key}
+                            data-registration-source={instance.selection.source}
+                            data-connection-state={instance.connectionState}
+                            data-configuration={JSON.stringify(instance.configuration)}
+                            data-presentation={JSON.stringify(instance.presentation)}
+                            data-selected={selectedId === instance.instanceId}
+                        >
+                            <div className="chart-studies__identity">
+                                <span
+                                    className="study-color"
+                                    style={{
+                                        backgroundColor: instance.presentation.color,
+                                        opacity: instance.presentation.opacity
+                                    }}
+                                    aria-hidden="true"
+                                />
+                                <button
+                                    type="button"
+                                    aria-pressed={selectedId === instance.instanceId}
+                                    aria-label={`选择 ${studyName(instance.selection)}`}
+                                    onClick={() => {
+                                        setSelectedId(instance.instanceId);
+                                    }}
+                                >
+                                    {studyDisplayLabel(instance)}
+                                </button>
+                                <span className="chart-studies__state">
+                                    {instance.presentation.visible ? "图中" : "未上屏"}
+                                </span>
+                            </div>
+                            <div className="chart-studies__actions">
+                                <button
+                                    type="button"
+                                    aria-pressed={instance.presentation.visible}
+                                    onClick={() => {
+                                        setInstances((previous) =>
+                                            previous.map((row) =>
+                                                row.instanceId === instance.instanceId
+                                                    ? {
+                                                          ...row,
+                                                          presentation: {
+                                                              ...row.presentation,
+                                                              visible: !row.presentation.visible
+                                                          }
+                                                      }
+                                                    : row
+                                            )
+                                        );
+                                    }}
+                                >
+                                    {instance.presentation.visible ? "隐藏" : "显示"}{" "}
+                                    {studyName(instance.selection)}
+                                </button>
+                                {instance.connectionState === "STALE_CONFIG" ? (
+                                    <span>
+                                        配置已过期；
+                                        {instance.selection.source === "CHART_STUDY_TRANSIENT"
+                                            ? "正在重新验证"
+                                            : "需重新验证"}
+                                    </span>
+                                ) : instance.selection.source !== "CHART_STUDY_TRANSIENT" ? (
+                                    <span>已配置，尚未接入后端计算</span>
+                                ) : null}
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                        setReturnFocus(event.currentTarget);
+                                        setEditing(instance);
+                                        setDraft(instance.selection);
+                                    }}
+                                >
+                                    编辑 {studyName(instance.selection)}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (selectedId === instance.instanceId) setSelectedId(null);
+                                        setInstances((previous) =>
+                                            previous.filter(
+                                                (row) => row.instanceId !== instance.instanceId
+                                            )
+                                        );
+                                    }}
+                                >
+                                    移除配置
+                                </button>
+                                <details className="chart-studies__details">
+                                    <summary
+                                        aria-label={`配置详情 ${studyName(instance.selection)}`}
+                                    >
+                                        详情
+                                    </summary>
+                                    <p>
+                                        {descriptor.typeId} · {descriptor.semanticVersion}
+                                    </p>
+                                    <p>
+                                        {Object.entries(instance.configuration.parameters)
+                                            .map(
+                                                ([name, value]) => `${name}=${String(value.value)}`
+                                            )
+                                            .join(" · ")}{" "}
+                                        → {instance.configuration.outputNames.join(", ")}
+                                    </p>
+                                    <p>
+                                        {instance.presentation.placement === "PRICE_OVERLAY"
+                                            ? "主图 Overlay"
+                                            : "独立 Pane"}{" "}
+                                        · {studyColorName(instance.presentation.color)} ·{" "}
+                                        {instance.presentation.lineWidth}px ·{" "}
+                                        {instance.presentation.opacity} ·{" "}
+                                        {instance.presentation.visible ? "显示偏好" : "隐藏偏好"}
+                                    </p>
+                                </details>
+                            </div>
+                        </li>
+                    );
+                })}
+            </ul>
+        );
+    const studiesCard =
+        studiesCardTarget === null || studiesCardTarget === undefined ? null : (
+            <section className="chart-studies chart-studies--card" aria-label="指标">
+                <header className="chart-studies__card-head">
+                    <h2>指标</h2>
+                    <button
+                        type="button"
+                        disabled={pendingRestore !== null}
+                        aria-haspopup="dialog"
+                        onClick={(event) => {
+                            pickerControl.current?.open("INDICATOR", event.currentTarget);
+                        }}
+                    >
+                        目录
+                    </button>
+                </header>
+                {studiesList ?? (
+                    <p className="chart-studies__empty">还没有添加指标，从目录添加。</p>
+                )}
+            </section>
+        );
     const picker = (
         <div className="chart-studies__toolbar" inert={pendingRestore !== null}>
             <CalculationPicker
                 draft={draft}
+                openControlRef={pickerControl}
+                showTriggers={studiesCardTarget === undefined || studiesCardTarget === null}
                 onDraftChange={changeDraft}
                 {...(credentials === undefined ? {} : { credentials })}
             />
@@ -212,6 +381,11 @@ export function ChartStudies({
                     : toolbarTarget === null
                       ? null
                       : createPortal(picker, toolbarTarget)}
+                {studiesCard === null ||
+                studiesCardTarget === null ||
+                studiesCardTarget === undefined
+                    ? null
+                    : createPortal(studiesCard, studiesCardTarget)}
                 {pendingRestore === null ? null : (
                     <section aria-label="待恢复指标配置">
                         <p role="status">
@@ -252,131 +426,7 @@ export function ChartStudies({
                         </button>
                     </section>
                 )}
-                {instances.length === 0 ? null : (
-                    <ul className="chart-studies__list">
-                        {instances.map((instance) => {
-                            const descriptor = studyDescriptor(instance.selection);
-                            return (
-                                <li
-                                    key={instance.instanceId}
-                                    data-testid="chart-study-instance"
-                                    data-instance-id={instance.instanceId}
-                                    data-chart-context-key={instance.context.key}
-                                    data-registration-source={instance.selection.source}
-                                    data-connection-state={instance.connectionState}
-                                    data-configuration={JSON.stringify(instance.configuration)}
-                                    data-presentation={JSON.stringify(instance.presentation)}
-                                    data-selected={selectedId === instance.instanceId}
-                                >
-                                    <span
-                                        className="study-color"
-                                        style={{
-                                            backgroundColor: instance.presentation.color,
-                                            opacity: instance.presentation.opacity
-                                        }}
-                                        aria-hidden="true"
-                                    />
-                                    <button
-                                        type="button"
-                                        aria-pressed={selectedId === instance.instanceId}
-                                        aria-label={`选择 ${studyName(instance.selection)}`}
-                                        onClick={() => {
-                                            setSelectedId(instance.instanceId);
-                                        }}
-                                    >
-                                        {studyDisplayLabel(instance)}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        aria-pressed={instance.presentation.visible}
-                                        onClick={() => {
-                                            setInstances((previous) =>
-                                                previous.map((row) =>
-                                                    row.instanceId === instance.instanceId
-                                                        ? {
-                                                              ...row,
-                                                              presentation: {
-                                                                  ...row.presentation,
-                                                                  visible: !row.presentation.visible
-                                                              }
-                                                          }
-                                                        : row
-                                                )
-                                            );
-                                        }}
-                                    >
-                                        {instance.presentation.visible ? "隐藏" : "显示"}{" "}
-                                        {studyName(instance.selection)}
-                                    </button>
-                                    {instance.connectionState === "STALE_CONFIG" ? (
-                                        <span>
-                                            配置已过期；
-                                            {instance.selection.source === "CHART_STUDY_TRANSIENT"
-                                                ? "正在重新验证"
-                                                : "需重新验证"}
-                                        </span>
-                                    ) : instance.selection.source !== "CHART_STUDY_TRANSIENT" ? (
-                                        <span>已配置，尚未接入后端计算</span>
-                                    ) : null}
-                                    <details className="chart-studies__details">
-                                        <summary
-                                            aria-label={`配置详情 ${studyName(instance.selection)}`}
-                                        >
-                                            详情
-                                        </summary>
-                                        <p>
-                                            {descriptor.typeId} · {descriptor.semanticVersion}
-                                        </p>
-                                        <p>
-                                            {Object.entries(instance.configuration.parameters)
-                                                .map(
-                                                    ([name, value]) =>
-                                                        `${name}=${String(value.value)}`
-                                                )
-                                                .join(" · ")}{" "}
-                                            → {instance.configuration.outputNames.join(", ")}
-                                        </p>
-                                        <p>
-                                            {instance.presentation.placement === "PRICE_OVERLAY"
-                                                ? "主图 Overlay"
-                                                : "独立 Pane"}{" "}
-                                            · {studyColorName(instance.presentation.color)} ·{" "}
-                                            {instance.presentation.lineWidth}px ·{" "}
-                                            {instance.presentation.opacity} ·{" "}
-                                            {instance.presentation.visible
-                                                ? "显示偏好"
-                                                : "隐藏偏好"}
-                                        </p>
-                                    </details>
-                                    <button
-                                        type="button"
-                                        onClick={(event) => {
-                                            setReturnFocus(event.currentTarget);
-                                            setEditing(instance);
-                                            setDraft(instance.selection);
-                                        }}
-                                    >
-                                        编辑 {studyName(instance.selection)}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            if (selectedId === instance.instanceId)
-                                                setSelectedId(null);
-                                            setInstances((previous) =>
-                                                previous.filter(
-                                                    (row) => row.instanceId !== instance.instanceId
-                                                )
-                                            );
-                                        }}
-                                    >
-                                        移除配置
-                                    </button>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                )}
+                {studiesCardTarget === undefined || studiesCardTarget === null ? studiesList : null}
                 {draft === null ? null : (
                     <ChartStudyEditor
                         selection={draft}
@@ -395,7 +445,10 @@ export function ChartStudies({
                                 setInstances((previous) =>
                                     previous.map((instance) =>
                                         instance.instanceId === editing.instanceId
-                                            ? { ...instance, connectionState: "STALE_CONFIG" }
+                                            ? {
+                                                  ...instance,
+                                                  connectionState: "STALE_CONFIG"
+                                              }
                                             : instance
                                     )
                                 );

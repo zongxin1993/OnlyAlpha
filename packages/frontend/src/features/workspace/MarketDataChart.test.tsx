@@ -673,7 +673,7 @@ it("preserves configuration-only discovery in Shipping Workspace without a local
     );
     await selectSource(user);
     await selectBtcInstrument(user);
-    await user.click(screen.getByRole("button", { name: "指标" }));
+    await user.click(screen.getByRole("button", { name: "目录" }));
     await user.click(await screen.findByRole("button", { name: "选择 SMA · 配置草稿" }));
     await user.click(screen.getByText("高级选项"));
     // jsdom does not load the Shipping accent CSS custom property.
@@ -743,8 +743,8 @@ it("defaults to the exact server Binance GLOBAL source and BTCUSDT with first hi
     expect(screen.queryByTestId("market-data-source-tag")).not.toBeInTheDocument();
     expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "指标" })).toHaveAttribute("aria-haspopup", "dialog");
-    expect(screen.getByRole("button", { name: "因子" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.getByRole("button", { name: "目录" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByRole("button", { name: "因子" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
 });
 
@@ -1052,11 +1052,9 @@ it.each(["timeframe", "instrument"] as const)(
         });
         const user = userEvent.setup();
         await user.click(
-            within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole("button", {
-                name: "检查器"
-            })
+            within(screen.getByRole("group", { name: "行情检查器" })).getByText("行情检查器")
         );
-        const inspector = within(screen.getByRole("complementary", { name: "上下文面板" }));
+        const inspector = within(screen.getByRole("group", { name: "行情检查器" }));
         expect(inspector.getByText("COMPLETE")).toBeInTheDocument();
         expect(inspector.getByText(TEMPORARY_VECTOR_FINGERPRINT)).toBeInTheDocument();
         if (variant === "timeframe")
@@ -1732,16 +1730,14 @@ it("renders only canonical Product bars in real READY and disables synthetic ove
     expect(renderedPrices()).toEqual([...Array<number>(1999).fill(101), 102.5]);
     expect(chartMocks.overlays.setData).not.toHaveBeenCalled();
     expect(screen.queryByTestId("real-overlay-note")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /指标/ })).toHaveAttribute("aria-haspopup", "dialog");
-    expect(screen.getByRole("button", { name: /因子/ })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.getByRole("button", { name: "目录" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByRole("button", { name: "因子" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
     expect(screen.getByTestId("market-data-status")).toHaveTextContent("● 连接中");
     await user.click(
-        within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole("button", {
-            name: "检查器"
-        })
+        within(screen.getByRole("group", { name: "行情检查器" })).getByText("行情检查器")
     );
-    const inspector = within(screen.getByRole("complementary", { name: "上下文面板" }));
+    const inspector = within(screen.getByRole("group", { name: "行情检查器" }));
     expect(inspector.getByText("test.market_data.live")).toBeVisible();
     expect(inspector.getByText(TEMPORARY_VECTOR_FINGERPRINT)).toBeVisible();
     expect(screen.getByTestId("market-data-status")).toHaveAttribute(

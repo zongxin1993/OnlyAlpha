@@ -157,8 +157,7 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
             agentWrites.push(request.url());
     });
     async function navigateProduct(label: string) {
-        await page.getByRole("button", { name: "更多功能", exact: true }).click();
-        await page.getByRole("menuitem", { name: label, exact: true }).click();
+        await productNav.getByRole("link", { name: label, exact: true }).click();
     }
     async function resultView(requireBuy = true) {
         await expect(page.getByRole("heading", { name: "回测结果", exact: true })).toBeVisible({
@@ -198,13 +197,10 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
         };
     }
     await page.goto("/");
-    await page.getByRole("button", { name: "更多功能", exact: true }).click();
-    const productMenu = page.getByRole("menu");
-    await expect(productMenu.getByRole("menuitem", { name: "策略", exact: true })).toBeVisible();
-    await expect(productMenu.getByRole("menuitem", { name: "因子研究", exact: true })).toHaveCount(
-        0
-    );
-    await page.keyboard.press("Escape");
+    // 左栏导航壳（c16d6aa8）取代旧产品下拉菜单：产品入口直接可达。
+    const productNav = page.getByRole("navigation", { name: "产品导航" });
+    await expect(productNav.getByRole("link", { name: "策略", exact: true })).toBeVisible();
+    await expect(productNav.getByRole("link", { name: "因子研究", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "全局设置", exact: true }).click();
     const settings = page.getByRole("dialog", { name: "设置", exact: true });
     await expect(settings.getByRole("tab", { name: "数据源", exact: true })).toBeVisible();
@@ -313,7 +309,8 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
         expect(agentWrites).toEqual([]);
         return;
     }
-    await page.getByRole("button", { name: "因子", exact: true }).click();
+    await page.getByRole("button", { name: "目录", exact: true }).click();
+    await page.getByRole("tab", { name: "因子库", exact: true }).click();
     await page.getByRole("button", { name: "创建 / 编辑私有因子" }).click();
     const editor = page.getByRole("dialog", { name: "私有 Factor 草稿与历史" });
     await editor.getByRole("button", { name: "新建因子", exact: true }).click();

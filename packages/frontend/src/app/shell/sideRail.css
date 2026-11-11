@@ -233,7 +233,8 @@
     .app-shell > .side-rail {
         position: fixed;
         inset: 0 auto 0 0;
-        z-index: 45;
+        /* 高于遮罩 60；遮罩需盖过 TradingView 图内 pane（内置 z-index:50）。 */
+        z-index: 65;
         width: var(--rail-w, 200px);
         transform: translateX(-100%);
         visibility: hidden;
@@ -261,7 +262,7 @@
         display: block;
         position: fixed;
         inset: 0;
-        z-index: 35;
+        z-index: 60;
         background: rgb(0 0 0 / 45%);
     }
 }

@@ -1,5 +1,5 @@
 import { requiredValue } from "../../test/requiredValue";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationApiClient } from "../../api/integrations/client";
 import { AppProviders } from "../../app/providers";
@@ -9,7 +9,8 @@ import {
     integrationClient,
     operationalStatus
 } from "../../test/integrationClient";
-import { marketDataClient } from "../../test/marketDataClient";
+import { marketDataClient, marketDataSource } from "../../test/marketDataClient";
+import { marketDataBarSemantic } from "../../api/marketData/model";
 import { MemoryRouter, createMemoryRouter, RouterProvider } from "react-router-dom";
 import { WorkstationShell } from "../../app/shell/WorkstationShell";
 import { WorkspacePage } from "./WorkspacePage";
@@ -19,6 +20,23 @@ vi.mock("../../charts/lightweight/PriceChart", () => ({
 }));
 
 beforeEach(() => {
+    // jsdom 未实现原生 dialog 模态方法；目录 dialog 按打开态语义补齐。
+    Object.defineProperties(HTMLDialogElement.prototype, {
+        showModal: {
+            configurable: true,
+            writable: true,
+            value: function showModal(this: HTMLDialogElement) {
+                this.setAttribute("open", "");
+            }
+        },
+        close: {
+            configurable: true,
+            writable: true,
+            value: function close(this: HTMLDialogElement) {
+                this.removeAttribute("open");
+            }
+        }
+    });
     vi.stubEnv("VITE_ONLYALPHA_LOCAL_SESSION", "true");
     vi.stubGlobal(
         "fetch",
@@ -48,7 +66,9 @@ function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     return render(
         <AppProviders
             integrationClient={client}
-            marketDataClient={marketDataClient({ listSources: () => Promise.resolve([]) })}
+            marketDataClient={marketDataClient({
+                listSources: () => Promise.resolve([])
+            })}
         >
             <MemoryRouter>
                 <WorkspacePage />
@@ -57,52 +77,31 @@ function renderWorkspace(client: IntegrationApiClient = integrationClient()) {
     );
 }
 
-it("lays the primary workspace out as rail, chart, context panel and bottom panel", async () => {
-    const { container } = renderWorkspace();
-    await waitFor(() => {
-        expect(screen.getByTestId("market-data-status")).toHaveTextContent(
-            "尚未配置可用的行情来源"
-        );
-    });
+it("keeps chart tools and watchlists without the retired bottom panel", async () => {
+    renderWorkspace();
+    await screen.findByTestId("market-data-status");
     expect(screen.getByRole("toolbar", { name: "图表工具" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "主图" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "上下文面板" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "展开下方面板" })).toHaveAttribute(
-        "aria-expanded",
-        "false"
-    );
-    expect(screen.getByTestId("price-chart")).toBeInTheDocument();
-    expect(container.querySelector(".chart-workspace")).toHaveAttribute(
-        "data-tools-collapsed",
-        "true"
-    );
-    expect(container.querySelector(".chart-workspace")).toHaveAttribute(
-        "data-bottom-collapsed",
-        "true"
-    );
-});
-
-it("keeps both rails compact without an expansion control and retains the bottom panel", async () => {
-    const user = userEvent.setup();
-    const { container } = renderWorkspace();
-    const workspace = container.querySelector(".chart-workspace");
-    expect(workspace).toHaveAttribute("data-tools-collapsed", "true");
-    expect(screen.queryByRole("button", { name: /展开工具条|收起工具条/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "展开下方面板" }));
-    expect(workspace).toHaveAttribute("data-bottom-collapsed", "false");
-    await user.click(screen.getByRole("button", { name: "收起下方面板" }));
-    expect(workspace).toHaveAttribute("data-bottom-collapsed", "true");
+    expect(screen.getByRole("complementary", { name: "自选" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "研究面板" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "研究运行" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "研究结果" })).not.toBeInTheDocument();
     expect(screen.getByTestId("price-chart")).toBeInTheDocument();
 });
 
 it("orders the live chart controls beside the brand icon in the top workspace bar", async () => {
     const router = createMemoryRouter([
-        { element: <WorkstationShell />, children: [{ path: "/", element: <WorkspacePage /> }] }
+        {
+            element: <WorkstationShell />,
+            children: [{ path: "/", element: <WorkspacePage /> }]
+        }
     ]);
     render(
         <AppProviders
             integrationClient={integrationClient()}
-            marketDataClient={marketDataClient({ listSources: () => Promise.resolve([]) })}
+            marketDataClient={marketDataClient({
+                listSources: () => Promise.resolve([])
+            })}
         >
             <RouterProvider router={router} />
         </AppProviders>
@@ -123,22 +122,17 @@ it("orders the live chart controls beside the brand icon in the top workspace ba
     expect(within(toolbar).getByRole("button", { name: "图表类型" })).toBeInTheDocument();
 });
 
-it("exposes honest unconnected watchlist, inspector, runs, results and backtest views", async () => {
+it("exposes honest watchlist and collapsible inspector states", async () => {
     const user = userEvent.setup();
     renderWorkspace();
-    const contextPanel = screen.getByRole("complementary", { name: "上下文面板" });
-    expect(within(contextPanel).getByRole("region", { name: "自选行情" })).toBeInTheDocument();
-    await user.click(within(contextPanel).getByRole("button", { name: "检查器" }));
-    expect(within(contextPanel).getByText("尚未选择行情上下文")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "展开下方面板" }));
-    const bottomPanel = screen.getByRole("region", { name: "研究面板" });
-    await user.click(within(bottomPanel).getByRole("button", { name: "研究结果" }));
-    expect(within(bottomPanel).getByText("研究结果尚未实现")).toBeInTheDocument();
-    expect(within(bottomPanel).getByRole("link", { name: "回测" })).toHaveAttribute(
-        "href",
-        "/backtest"
-    );
-    expect(within(bottomPanel).queryByText("回测尚未实现")).not.toBeInTheDocument();
+    const watchColumn = screen.getByRole("complementary", { name: "自选" });
+    expect(within(watchColumn).getByRole("region", { name: "自选行情" })).toBeInTheDocument();
+    const inspectorCard = within(watchColumn).getByRole("group", {
+        name: "行情检查器"
+    });
+    expect(inspectorCard).not.toHaveAttribute("open");
+    await user.click(within(inspectorCard).getByText("行情检查器"));
+    expect(within(inspectorCard).getByText("尚未选择行情上下文")).toBeInTheDocument();
     expect(
         screen.queryByText(/600519|rev-2c7d18|snap-1f0a|res-4d81|bt-2f5e18|fill-88c1/)
     ).not.toBeInTheDocument();
@@ -155,8 +149,8 @@ it("never presents absent API proof as synthetic business facts or success", asy
     expect(
         screen.queryByText(/synthetic|1486\.20|run-0f3a91|MA 20|20 日动量/)
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "指标" })).toHaveAttribute("aria-haspopup", "dialog");
-    expect(screen.getByRole("button", { name: "因子" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByRole("button", { name: "指标" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "因子" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("calculation-handoff")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
 });
@@ -165,7 +159,9 @@ const configuredClient = () =>
     integrationClient({
         listTypes: () =>
             Promise.resolve([
-                dataSourceType({ capabilities: ["HISTORICAL_BARS", "LIVE_TICKS", "INSTRUMENTS"] })
+                dataSourceType({
+                    capabilities: ["HISTORICAL_BARS", "LIVE_TICKS", "INSTRUMENTS"]
+                })
             ]),
         listDataSources: () => Promise.resolve([dataSourceSummary()]),
         getOperationalStatus: () => Promise.resolve(operationalStatus({ status: "UNKNOWN" }))
@@ -233,68 +229,85 @@ it("traps the manager dialog, marks the app inert and restores focus on close", 
     container.remove();
 });
 
-it("starts the narrow workspace unobstructed and restores focus after closing its panel", async () => {
+it("工作区卡显示当前工作区名称（命名分支）", async () => {
+    vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string) =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify(
+                        url === "/api/v2/workspace"
+                            ? {
+                                  schema_version: 3,
+                                  version: 1,
+                                  active_workspace_id: "00000000-0000-4000-8000-000000000002",
+                                  workspaces: [
+                                      {
+                                          workspace_id: "00000000-0000-4000-8000-000000000002",
+                                          name: "主趋势布局",
+                                          configuration: {
+                                              source: {
+                                                  integration_id: marketDataSource().integration_id,
+                                                  integration_revision_fingerprint:
+                                                      marketDataSource()
+                                                          .integration_revision_fingerprint,
+                                                  expected_type_id: marketDataSource().type_id
+                                              },
+                                              instrument_id: "BTCUSDT.TEST",
+                                              bar_semantic: marketDataBarSemantic(7),
+                                              studies: []
+                                          }
+                                      }
+                                  ]
+                              }
+                            : { schema_version: 2, version: 0, lists: [] }
+                    )
+                )
+            )
+        )
+    );
+    renderWorkspace();
+    const card = screen.getByRole("region", { name: "工作区" });
+    expect(await within(card).findByText("主趋势布局")).toBeInTheDocument();
+});
+
+it("图下双卡宿主是工作区 grid 的直接子级（不陷在主图区内）", () => {
+    const { container } = renderWorkspace();
+    const under = container.querySelector(".workspace-under-chart");
+    expect(under).not.toBeNull();
+    expect(under?.parentElement?.classList.contains("chart-workspace")).toBe(true);
+    const chart = container.querySelector(".chart-region");
+    expect(chart?.contains(under)).toBe(false);
+});
+
+it("图下出现指标因子卡：已挂列表、目录入口与诚实空态", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    const studiesCard = screen.getByRole("region", { name: "指标" });
+    expect(within(studiesCard).getByText("还没有添加指标，从目录添加。")).toBeInTheDocument();
+    await user.click(within(studiesCard).getByRole("button", { name: "目录" }));
+    expect(await screen.findByRole("dialog", { name: "指标 / 因子目录" })).toBeInTheDocument();
+});
+
+it("图下工作区卡：诚实空态；无行情上下文时保存闸门关闭", () => {
+    renderWorkspace();
+    const card = screen.getByRole("region", { name: "工作区" });
+    expect(
+        within(card).getByText("还没有保存的工作区，“保存副本”可保存当前布局与绘图。")
+    ).toBeInTheDocument();
+    // 无行情上下文时保存闸门关闭（与既有"保存工作区"入口同条件）；可保存路径见 WorkspacePageSave。
+    expect(within(card).getByRole("button", { name: "保存副本" })).toBeDisabled();
+});
+
+it("自选竖列常开，托盘面板开关已撤除", () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
     try {
-        const user = userEvent.setup();
-        const { container } = renderWorkspace();
-        const workspace = container.querySelector(".chart-workspace");
-        const toggle = within(screen.getByRole("toolbar", { name: "工作区面板" })).getByRole(
-            "button",
-            { name: "自选" }
-        );
-        expect(workspace).toHaveAttribute("data-panel-open", "false");
-        expect(toggle).toHaveAttribute("aria-pressed", "true");
-        expect(screen.getByRole("button", { name: "因子" })).toBeEnabled();
-        await user.click(toggle);
-        expect(workspace).toHaveAttribute("data-panel-open", "true");
-        await user.click(
-            within(screen.getByRole("complementary", { name: "上下文面板" })).getByRole("button", {
-                name: "收起上下文面板"
-            })
-        );
-        expect(workspace).toHaveAttribute("data-panel-open", "false");
-        expect(toggle).toHaveFocus();
+        renderWorkspace();
+        const watchColumn = screen.getByRole("complementary", { name: "自选" });
+        expect(within(watchColumn).getByRole("region", { name: "自选行情" })).toBeInTheDocument();
+        expect(screen.queryByRole("toolbar", { name: "工作区面板" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "收起上下文面板" })).not.toBeInTheDocument();
         expect(screen.getByTestId("price-chart")).toBeInTheDocument();
-    } finally {
-        vi.unstubAllGlobals();
-    }
-});
-
-it("keeps the context panel open on a wide workstation", () => {
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
-    try {
-        const { container } = renderWorkspace();
-        expect(container.querySelector(".chart-workspace")).toHaveAttribute(
-            "data-panel-open",
-            "true"
-        );
-    } finally {
-        vi.unstubAllGlobals();
-    }
-});
-
-it("keeps panel visibility and quote admission aligned when the workstation layout changes", () => {
-    const layout = new EventTarget();
-    Object.assign(layout, { matches: false });
-    const remove = vi.spyOn(layout, "removeEventListener");
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(layout));
-    try {
-        const { container, unmount } = renderWorkspace();
-        const workspace = container.querySelector(".chart-workspace");
-        const chart = screen.getByTestId("price-chart");
-        expect(workspace).toHaveAttribute("data-panel-open", "false");
-        act(() => {
-            layout.dispatchEvent(Object.assign(new Event("change"), { matches: true }));
-        });
-        expect(workspace).toHaveAttribute("data-panel-open", "true");
-        act(() => {
-            layout.dispatchEvent(Object.assign(new Event("change"), { matches: false }));
-        });
-        expect(workspace).toHaveAttribute("data-panel-open", "false");
-        expect(screen.getByTestId("price-chart")).toBe(chart);
-        unmount();
-        expect(remove).toHaveBeenCalledWith("change", expect.any(Function));
     } finally {
         vi.unstubAllGlobals();
     }

@@ -48,7 +48,8 @@ test("exact Factor reads reject missing content, mismatches and missing revision
     expect(first.revision_fingerprint).not.toBe(current.revision_fingerprint);
     expect(first.source_sha256).not.toBe(current.source_sha256);
     await page.goto("/");
-    await page.getByRole("button", { name: "因子", exact: true }).click();
+    await page.getByRole("button", { name: "目录", exact: true }).click();
+    await page.getByRole("tab", { name: "因子库", exact: true }).click();
     await expect(
         page
             .getByRole("dialog", { name: "指标 / 因子目录" })

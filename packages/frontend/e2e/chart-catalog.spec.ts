@@ -51,7 +51,7 @@ for (const condition of [
             });
         });
         await page.goto("/");
-        await page.getByRole("button", { name: "指标", exact: true }).click();
+        await page.getByRole("button", { name: "目录", exact: true }).click();
         const dialog = page.getByRole("dialog", { name: "指标 / 因子目录" });
         if (condition === "missing-readiness" || condition === "unsupported")
             await expect(dialog.getByRole("button", { name: /选择 SMA/ })).toBeDisabled();
@@ -82,7 +82,7 @@ test("Catalog selection detects a later active switch and clears previous handof
         return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
     });
     await page.goto("/");
-    const trigger = page.getByRole("button", { name: "指标", exact: true });
+    const trigger = page.getByRole("button", { name: "目录", exact: true });
     await trigger.click();
     await page.getByRole("button", { name: /选择 SMA/ }).click();
     await page.getByText("参数说明与技术详情", { exact: true }).click();
@@ -126,7 +126,7 @@ for (const width of [1440, 1024, 390]) {
             });
         });
         await page.goto("/");
-        const trigger = page.getByRole("button", { name: "指标", exact: true });
+        const trigger = page.getByRole("button", { name: "目录", exact: true });
         await trigger.click();
         const dialog = page.getByRole("dialog");
         await expect(dialog.getByText("默认 20", { exact: true })).toBeVisible();
@@ -168,7 +168,8 @@ for (const width of [1440, 1024, 390]) {
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toHaveCount(0);
         await expect(trigger).toBeFocused();
-        await page.getByRole("button", { name: "因子", exact: true }).click();
+        await page.getByRole("button", { name: "目录", exact: true }).click();
+        await page.getByRole("tab", { name: "因子库", exact: true }).click();
         await expect(dialog.getByText(/当前发现目录没有此类已登记项/)).toBeVisible();
         await expect(dialog.getByRole("button", { name: /选择 / })).toHaveCount(0);
         expect(requests.filter((path) => path.endsWith("/catalog/calculations"))).toHaveLength(4);
@@ -227,7 +228,7 @@ test("required NULL BOOLEAN keeps explicit choice and keyboard focus after selec
         })
     );
     await page.goto("/");
-    await page.getByRole("button", { name: "指标", exact: true }).click();
+    await page.getByRole("button", { name: "目录", exact: true }).click();
     await page.getByRole("button", { name: /选择 BOOLEAN/ }).click();
     const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
     const choice = editor.getByRole("combobox", { name: "enabled", exact: true });

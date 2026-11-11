@@ -122,3 +122,63 @@
 ---
 
 **验收（P0 整体）**：真实浏览器经正式入口走完上列路径；`f65eab3b` 基线上的 18 个既有 spec 与新增 shell-nav 全绿；无新增依赖；工作树干净。
+
+---
+
+# P1 细则：工作台二分（2026-11-11 制定，P0 关闭后撰写）
+
+**闸门核查（P1 前置）**：自选增删 Command/Query 完备——`/api/v2/watchlists` GET/PUT + `/commands/{id}`（乐观并发、schema v2、后端 application/persistence 齐备）；排序能力存在（members 有序 + PUT 全量），冻结稿无排序 UI 诉求 → **无 COMMAND_GAP**。
+
+**布局裁决（冻结稿未覆盖的能力去留）**：
+- 左列 210px 通高 = 自选卡（主）+ 检查器折叠卡（details，默认收起；能力不丢）。
+- 图下 wb-c 双卡 = "指标 / 因子"（已挂列表 + 色块 + 图中/未上屏 + 目录按钮）与"工作区"（当前工作区 + 保存副本）。
+- 研究面板（研究运行/研究结果）为现役能力，冻结稿未画——保留为图下第三行，P2 研究画面重组时迁出工作台。
+- 自选行保持 `<table>` 语义，CSS 对齐冻结稿观感（名称截断、价格列不挤、tabular numerals）；现有交互（选标的、行菜单、行情轮询）全保留。
+- 路由不动；ctxbar/工具条 portal 不动；桌面托盘"自选/检查器"开关随左列常开而撤除（shell 右轨宿主保留）。
+
+### Task 7: 左自选竖列与托盘整合
+
+**Files:**
+- Modify: `src/features/workspace/WorkspacePage.tsx`（左 aside 常开竖列、检查器入折叠卡、tray 撤除）、`src/features/workspace/watchlists.css`（竖列观感对齐冻结稿：行高 9px 16px、`--line-soft`、截断）、必要处 `toolbars.css`
+- Test: `WorkspacePage.test.tsx`、`WatchlistPanel.test.tsx` 同步（改锚不改意图）
+
+- [ ] **Step 1** 失败测试：`/` 渲染 `aside.workspace-watchlist-column[aria-label=自选]` 常开（无 panelOpen 开关亦可见）、检查器为折叠卡默认收起、托盘"自选/检查器"按钮不再渲染。
+- [ ] **Step 2** FAIL → **Step 3** 实现 → **Step 4** PASS → **Step 5** Commit `feat(webui): 工作台左自选竖列`。
+
+### Task 8: 图下"指标 / 因子"卡
+
+**Files:**
+- Create: `src/features/workspace/ActiveStudiesCard.tsx`（+.css 或并入 chartStudy.css）
+- Modify: `WorkspacePage.tsx`（wb-c 区渲染，instances/颜色/上屏态来自既有 ChartStudies 状态；"目录"按钮打开既有指标目录 dialog——提升受控入口，工具条六控件不动）
+- Test: 新卡单测（列出已挂实例、色块、图中/未上屏、目录按钮触发）
+
+- [ ] **Step 1** 失败测试 → **Step 2** FAIL → **Step 3** 实现 → **Step 4** PASS → **Step 5** Commit `feat(webui): 图下指标因子卡`。
+
+### Task 9: 图下"工作区"卡
+
+**Files:**
+- Create: `src/features/workspace/WorkspaceSummaryCard.tsx`
+- Modify: `WorkspacePage.tsx`（当前工作区名可得则显示、否则诚实空态；"保存副本"接既有保存流程入口）
+- Test: 新卡单测（命名/空态/保存触发既有 command）
+
+- [ ] **Step 1** 失败测试 → **Step 2** FAIL → **Step 3** 实现 → **Step 4** PASS → **Step 5** Commit `feat(webui): 图下工作区卡`。
+
+### Task 10: 二分/单列响应式布局
+
+**Files:**
+- Modify: `WorkspacePage` 布局容器 CSS（≥900：grid `210px minmax(0,1fr)`，areas a/b、a/c、a/d；≤880 单列序：图表→指标行→工作区→研究面板→自选）
+- Test: 布局合同由 Task 11 E2E 承担 + 单元 DOM 顺序锚
+
+- [ ] **Step 1** 样式实现 → **Step 2** `npm run check` 绿 → **Step 3** Commit `feat(webui): 工作台二分响应式`。
+
+### Task 11: 工作台 E2E 契约 + 全量回归
+
+**Files:**
+- Create: `e2e/workspace-layout.spec.ts`（1440：左自选竖列可见+点行切标的+图下双卡标题存在；390：单列序、无横向溢出；受影响既有 spec 修正锚点不改意图）
+- Modify: `deploy/run-web-e2e.sh`（A 组加入新 spec）
+
+- [ ] **Step 1** 写 spec 并经正式 native 入口跑绿；**Step 2** 全量默认计划回归对照（新增失败=0）；**Step 3** `npm run check` + prettier；**Step 4** Commit `test(webui): 工作台布局契约`；**Step 5** fresh-reviewer 全分支审查 → 修 Important → §11 核对 → 汇报 P1 关闭，不自动进入 P2。
+
+---
+
+**验收（P1 整体）**：`/` 呈冻结稿二分（真实数据、真实交互）；能力零丢失（检查器/研究面板/托盘功能各有归置）；壳 3 spec 与全部既有 web E2E 相对基线零新增失败；单元全绿。
