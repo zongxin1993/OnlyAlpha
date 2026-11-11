@@ -135,6 +135,20 @@ function page(path = "/backtest") {
         </MemoryRouter>
     );
 }
+it("回测列表带冻结稿页头（h1 回测 + 副标题）", async () => {
+    page("/backtest");
+    expect(await screen.findByRole("heading", { level: 1, name: "回测" })).toBeInTheDocument();
+    expect(screen.getByText("运行任务与证据")).toBeInTheDocument();
+});
+it("回测证据视图页头为 h1 回测结果", async () => {
+    vi.mocked(api.loadPreparation).mockResolvedValue({
+        ...ready,
+        backtest_outcome: "ACCEPTED",
+        run_id: run
+    });
+    page(`/backtest/preparations/${preparation}`);
+    expect(await screen.findByRole("heading", { level: 1, name: "回测结果" })).toBeInTheDocument();
+});
 beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();

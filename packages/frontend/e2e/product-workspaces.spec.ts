@@ -20,8 +20,8 @@ const destinations = [
     {
         path: "/backtest",
         feature: "回测",
-        heading: "策略回测",
-        exactHeading: false,
+        heading: "回测",
+        exactHeading: true,
         deferred: false
     },
     {

@@ -15,6 +15,7 @@ import {
 import { BacktestEquityChart } from "../../visualization/scientific/echarts/BacktestEquityChart";
 import * as api from "./api";
 import { BacktestSetup } from "./BacktestSetup";
+import { PageHeader } from "../../app/shell/PageHeader";
 import "./backtest.css";
 
 type Run = Awaited<ReturnType<typeof api.loadRun>>;
@@ -266,366 +267,368 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
                   ? "回测执行服务已停止"
                   : undefined;
     return (
-        <main className="backtest-page" aria-label="策略回测">
-            <header className="backtest-page-header">
-                <div>
-                    <Typography.Title level={2}>
-                        {result ? "回测结果" : "策略回测"}
-                    </Typography.Title>
-                    <Typography.Text type="secondary">
-                        Binance 现货 · BTCUSDT · 1 分钟
-                    </Typography.Text>
-                </div>
-                <Space wrap>
-                    <Link to="/strategies">我的策略</Link>
-                    {!fresh && <Link to="/backtest/new">新建回测</Link>}
-                    {!inventory && <Link to="/backtest">回测记录</Link>}
-                    <Button onClick={onRefresh} disabled={busy !== null}>
-                        重新查看
-                    </Button>
-                </Space>
-            </header>
-            {problem && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    title={problem}
-                    action={
-                        notStarted !== null ? (
-                            <Button
-                                disabled={busy !== null}
-                                onClick={() => {
-                                    void reviewConditions(notStarted);
-                                }}
-                            >
-                                返回条件重新确认
-                            </Button>
-                        ) : recovery !== null ? (
-                            <Space>
+        <div className="page-with-head">
+            <PageHeader title={result ? "回测结果" : "回测"} subtitle="运行任务与证据" />
+            <main className="backtest-page" aria-label="策略回测">
+                <header className="backtest-page-header">
+                    <div>
+                        <Typography.Text type="secondary">
+                            Binance 现货 · BTCUSDT · 1 分钟
+                        </Typography.Text>
+                    </div>
+                    <Space wrap>
+                        <Link to="/strategies">我的策略</Link>
+                        {!fresh && <Link to="/backtest/new">新建回测</Link>}
+                        {!inventory && <Link to="/backtest">回测记录</Link>}
+                        <Button onClick={onRefresh} disabled={busy !== null}>
+                            重新查看
+                        </Button>
+                    </Space>
+                </header>
+                {problem && (
+                    <Alert
+                        type="warning"
+                        showIcon
+                        title={problem}
+                        action={
+                            notStarted !== null ? (
                                 <Button
                                     disabled={busy !== null}
                                     onClick={() => {
-                                        void act(recovery.action, recovery.observe);
+                                        void reviewConditions(notStarted);
                                     }}
                                 >
-                                    查看任务进度
+                                    返回条件重新确认
                                 </Button>
-                            </Space>
-                        ) : undefined
-                    }
-                />
-            )}
-            {!inventory && !fresh && !runRoute && !preparationRoute && (
-                <Empty description="请选择已有回测，或选择已保存的策略开始" />
-            )}
-            {loading && (
-                <Spin description="正在读取回测记录">
-                    <div className="backtest-loading" />
-                </Spin>
-            )}
-            {inventory && (
-                <Table<Run>
-                    rowKey="run_id"
-                    loading={loading}
-                    pagination={{ pageSize: 12 }}
-                    dataSource={runs}
-                    locale={{
-                        emptyText: (
-                            <Empty description="尚无回测记录">
-                                <Link to="/backtest/new">选择策略准备回测</Link>
-                            </Empty>
-                        )
-                    }}
-                    columns={[
-                        {
-                            title: "创建时间（UTC）",
-                            render: (_: unknown, value: Run) => time(value.accepted_at)
-                        },
-                        {
-                            title: "进度",
-                            render: (_: unknown, value: Run) => label(value.state)
-                        },
-                        {
-                            title: "操作",
-                            render: (_: unknown, value: Run) => (
-                                <Link to={`/backtest/runs/${value.run_id}`}>查看回测</Link>
-                            )
+                            ) : recovery !== null ? (
+                                <Space>
+                                    <Button
+                                        disabled={busy !== null}
+                                        onClick={() => {
+                                            void act(recovery.action, recovery.observe);
+                                        }}
+                                    >
+                                        查看任务进度
+                                    </Button>
+                                </Space>
+                            ) : undefined
                         }
-                    ]}
-                />
-            )}
-            {fresh && preparation === null && (
-                <BacktestSetup
-                    query={location.search}
-                    busy={busy !== null || recovery !== null}
-                    onPrepare={(action) => {
-                        void act("prepare", action);
-                    }}
-                />
-            )}
-            {preparation !== null && (
-                <Card title="确认回测条件" size="small">
-                    <Descriptions
-                        column={{ xs: 1, sm: 2 }}
-                        size="small"
-                        items={[
+                    />
+                )}
+                {!inventory && !fresh && !runRoute && !preparationRoute && (
+                    <Empty description="请选择已有回测，或选择已保存的策略开始" />
+                )}
+                {loading && (
+                    <Spin description="正在读取回测记录">
+                        <div className="backtest-loading" />
+                    </Spin>
+                )}
+                {inventory && (
+                    <Table<Run>
+                        rowKey="run_id"
+                        loading={loading}
+                        pagination={{ pageSize: 12 }}
+                        dataSource={runs}
+                        locale={{
+                            emptyText: (
+                                <Empty description="尚无回测记录">
+                                    <Link to="/backtest/new">选择策略准备回测</Link>
+                                </Empty>
+                            )
+                        }}
+                        columns={[
                             {
-                                key: "sample",
-                                label: "样本（UTC）",
-                                children: "2025-01-03 00:00 至 12:00"
+                                title: "创建时间（UTC）",
+                                render: (_: unknown, value: Run) => time(value.accepted_at)
                             },
                             {
-                                key: "capital",
-                                label: "初始资金",
-                                children: "10,000 USDT"
+                                title: "进度",
+                                render: (_: unknown, value: Run) => label(value.state)
                             },
                             {
-                                key: "size",
-                                label: "仓位",
-                                children: "每笔 0.01 BTC，仅持有一笔多头"
-                            },
-                            {
-                                key: "cost",
-                                label: "费用",
-                                children: "手续费每边 0.1%；滑点每边 0.02%"
+                                title: "操作",
+                                render: (_: unknown, value: Run) => (
+                                    <Link to={`/backtest/runs/${value.run_id}`}>查看回测</Link>
+                                )
                             }
                         ]}
                     />
-                    <Typography.Paragraph type="secondary">
-                        使用固定的完整交易规则和已封存行情，收盘信号最早在下一分钟开盘成交。不借币、不加仓。准备完成后再确认开始回测。
-                    </Typography.Paragraph>
-                    <Alert
-                        type={
-                            ready
-                                ? "success"
-                                : submissionUnknown || blocked.has(preparation.state)
-                                  ? "warning"
-                                  : "info"
-                        }
-                        showIcon
-                        title={
-                            submissionUnknown
-                                ? "结果尚未确认，正在读取原任务"
-                                : preparation.state === "READY" && !ready
-                                  ? "当前回测环境暂不可用，请重新查看"
-                                  : label(preparation.state)
-                        }
+                )}
+                {fresh && preparation === null && (
+                    <BacktestSetup
+                        query={location.search}
+                        busy={busy !== null || recovery !== null}
+                        onPrepare={(action) => {
+                            void act("prepare", action);
+                        }}
                     />
-                    <Space wrap>
-                        <Button
-                            type="primary"
-                            disabled={!ready || busy !== null}
-                            loading={busy === "start"}
-                            onClick={() => {
-                                void act("start", () => api.confirmBacktest(preparation));
-                            }}
-                        >
-                            开始回测
-                        </Button>
-                        {preparation.run_id === null && blocked.has(preparation.state) && (
+                )}
+                {preparation !== null && (
+                    <Card title="确认回测条件" size="small">
+                        <Descriptions
+                            column={{ xs: 1, sm: 2 }}
+                            size="small"
+                            items={[
+                                {
+                                    key: "sample",
+                                    label: "样本（UTC）",
+                                    children: "2025-01-03 00:00 至 12:00"
+                                },
+                                {
+                                    key: "capital",
+                                    label: "初始资金",
+                                    children: "10,000 USDT"
+                                },
+                                {
+                                    key: "size",
+                                    label: "仓位",
+                                    children: "每笔 0.01 BTC，仅持有一笔多头"
+                                },
+                                {
+                                    key: "cost",
+                                    label: "费用",
+                                    children: "手续费每边 0.1%；滑点每边 0.02%"
+                                }
+                            ]}
+                        />
+                        <Typography.Paragraph type="secondary">
+                            使用固定的完整交易规则和已封存行情，收盘信号最早在下一分钟开盘成交。不借币、不加仓。准备完成后再确认开始回测。
+                        </Typography.Paragraph>
+                        <Alert
+                            type={
+                                ready
+                                    ? "success"
+                                    : submissionUnknown || blocked.has(preparation.state)
+                                      ? "warning"
+                                      : "info"
+                            }
+                            showIcon
+                            title={
+                                submissionUnknown
+                                    ? "结果尚未确认，正在读取原任务"
+                                    : preparation.state === "READY" && !ready
+                                      ? "当前回测环境暂不可用，请重新查看"
+                                      : label(preparation.state)
+                            }
+                        />
+                        <Space wrap>
                             <Button
-                                disabled={busy !== null}
+                                type="primary"
+                                disabled={!ready || busy !== null}
+                                loading={busy === "start"}
                                 onClick={() => {
-                                    void act("resume", () => api.resumePreparation(preparation));
+                                    void act("start", () => api.confirmBacktest(preparation));
                                 }}
                             >
-                                继续准备
+                                开始回测
                             </Button>
-                        )}
-                        {preparation.run_id === null &&
-                            !["CANCEL_REQUESTED", "CANCELLED"].includes(preparation.state) && (
+                            {preparation.run_id === null && blocked.has(preparation.state) && (
                                 <Button
-                                    danger
                                     disabled={busy !== null}
                                     onClick={() => {
-                                        void act("cancel", () =>
-                                            api.cancelPreparation(preparation)
+                                        void act("resume", () =>
+                                            api.resumePreparation(preparation)
                                         );
                                     }}
                                 >
-                                    取消准备
+                                    继续准备
                                 </Button>
                             )}
-                    </Space>
-                </Card>
-            )}
-            {run && result === null && (
-                <Card title="回测进度">
-                    {workerWarning !== undefined && (
+                            {preparation.run_id === null &&
+                                !["CANCEL_REQUESTED", "CANCELLED"].includes(preparation.state) && (
+                                    <Button
+                                        danger
+                                        disabled={busy !== null}
+                                        onClick={() => {
+                                            void act("cancel", () =>
+                                                api.cancelPreparation(preparation)
+                                            );
+                                        }}
+                                    >
+                                        取消准备
+                                    </Button>
+                                )}
+                        </Space>
+                    </Card>
+                )}
+                {run && result === null && (
+                    <Card title="回测进度">
+                        {workerWarning !== undefined && (
+                            <Alert
+                                type="warning"
+                                showIcon
+                                title={workerWarning}
+                                description="原回测记录仍然保留，系统会继续查询同一任务，不会自动重新提交。"
+                            />
+                        )}
                         <Alert
-                            type="warning"
                             showIcon
-                            title={workerWarning}
-                            description="原回测记录仍然保留，系统会继续查询同一任务，不会自动重新提交。"
+                            type={completed.has(run.state) ? "warning" : "info"}
+                            title={label(run.state)}
+                            description={
+                                run.report_status.state === "UNAVAILABLE"
+                                    ? "结果暂时无法核验，原任务仍然保留。请稍后重新查看。"
+                                    : "页面刷新后仍会读取同一次回测。"
+                            }
                         />
-                    )}
-                    <Alert
-                        showIcon
-                        type={completed.has(run.state) ? "warning" : "info"}
-                        title={label(run.state)}
-                        description={
-                            run.report_status.state === "UNAVAILABLE"
-                                ? "结果暂时无法核验，原任务仍然保留。请稍后重新查看。"
-                                : "页面刷新后仍会读取同一次回测。"
-                        }
-                    />
-                    {!completed.has(run.state) && run.state !== "CANCEL_REQUESTED" && (
-                        <Button
-                            danger
-                            disabled={busy !== null}
-                            onClick={() => {
-                                void act("cancel-run", () => api.cancelBacktest(run));
-                            }}
-                        >
-                            取消回测
-                        </Button>
-                    )}
-                </Card>
-            )}
-            {result && (
-                <>
-                    <Alert
-                        type="info"
-                        showIcon
-                        title={
-                            result.state === "CANCELLED"
-                                ? "回测已取消，以下为已完成部分的结果"
-                                : "探索性回测"
-                        }
-                        description={result.limitations.join(" ")}
-                    />
-                    <div className="backtest-metrics">
-                        {[
-                            ["净收益（USDT）", result.metrics.net_pnl],
-                            ["区间收益率", percentage(result.metrics.return_since_start)],
-                            ["最大回撤", percentage(result.metrics.maximum_drawdown)],
-                            ["手续费（USDT）", result.metrics.fees],
-                            ["成交笔数", result.metrics.fill_count],
-                            ["完整交易次数", result.metrics.roundtrip_count]
-                        ].map(([title, value]) => (
-                            <Card key={title} size="small">
-                                <Statistic
-                                    title={title}
-                                    value={value ?? "暂不可用"}
-                                    formatter={() => String(value ?? "暂不可用")}
-                                />
-                            </Card>
-                        ))}
-                    </div>
-                    <Card title="账户权益与回撤" size="small">
-                        <EquityChart result={result} />
-                        {result.baseline && (
-                            <Typography.Paragraph type="secondary">
-                                同一时段买入并持有 0.01 BTC，采用相同费用和滑点假设：期末权益{" "}
-                                {result.baseline.final_equity} USDT，区间收益率{" "}
-                                {percentage(result.baseline.return_since_start)}
-                                。这是一项估算参照。
-                            </Typography.Paragraph>
+                        {!completed.has(run.state) && run.state !== "CANCEL_REQUESTED" && (
+                            <Button
+                                danger
+                                disabled={busy !== null}
+                                onClick={() => {
+                                    void act("cancel-run", () => api.cancelBacktest(run));
+                                }}
+                            >
+                                取消回测
+                            </Button>
                         )}
                     </Card>
-                    <Card title="成交明细" size="small">
-                        <Table<Result["trades"][number]>
-                            rowKey="ordinal"
-                            dataSource={result.trades}
-                            size="small"
-                            scroll={{ x: 760 }}
-                            pagination={{ pageSize: 10 }}
-                            columns={[
-                                {
-                                    title: "成交时间（UTC）",
-                                    render: (_: unknown, value: Result["trades"][number]) =>
-                                        nanos(value.time_ns)
-                                },
-                                {
-                                    title: "方向",
-                                    render: (_: unknown, value: Result["trades"][number]) =>
-                                        value.side === "BUY" ? "买入" : "卖出"
-                                },
-                                { title: "数量（BTC）", dataIndex: "quantity" },
-                                { title: "成交价（USDT）", dataIndex: "price" },
-                                { title: "手续费（USDT）", dataIndex: "fee" },
-                                {
-                                    title: "交易原因",
-                                    render: (_: unknown, value: Result["trades"][number]) => (
-                                        <>
-                                            {value.signal}
-                                            <br />
-                                            <Typography.Text type="secondary">
-                                                信号形成于 {nanos(value.signal_time_ns)} UTC
-                                            </Typography.Text>
-                                        </>
-                                    )
-                                }
-                            ]}
-                        />
-                    </Card>
-                    <Card title="期末持仓" size="small">
-                        <Table<Result["positions"][number]>
-                            rowKey="instrument"
-                            pagination={false}
-                            dataSource={result.positions}
-                            size="small"
-                            columns={[
-                                { title: "标的", render: () => "BTCUSDT" },
-                                {
-                                    title: "持仓数量（BTC）",
-                                    dataIndex: "quantity"
-                                },
-                                {
-                                    title: "持仓均价（USDT）",
-                                    render: (_: unknown, value: Result["positions"][number]) =>
-                                        value.average_price ?? "—"
-                                },
-                                {
-                                    title: "状态",
-                                    render: (_: unknown, value: Result["positions"][number]) =>
-                                        value.state === "CLOSED"
-                                            ? "已平仓"
-                                            : value.state === "OPEN"
-                                              ? "持有多头"
-                                              : "正在核对持仓"
-                                }
-                            ]}
-                        />
-                    </Card>
-                    <Descriptions
-                        size="small"
-                        column={{ xs: 1, sm: 2 }}
-                        items={[
-                            {
-                                key: "initial",
-                                label: "初始资金（USDT）",
-                                children: result.metrics.initial_equity
-                            },
-                            {
-                                key: "final",
-                                label: "期末权益（USDT）",
-                                children: result.metrics.final_equity
-                            },
-                            {
-                                key: "realized",
-                                label: "已实现盈亏（USDT）",
-                                children: result.metrics.realized_pnl
-                            },
-                            {
-                                key: "unrealized",
-                                label: "未实现盈亏（USDT）",
-                                children: result.metrics.unrealized_pnl
-                            },
-                            {
-                                key: "sample",
-                                label: "样本（UTC）",
-                                children: `${time(result.sample.start_at)} 至 ${time(result.sample.end_at)}`
-                            },
-                            {
-                                key: "rules",
-                                label: "交易规则获取时间（UTC）",
-                                children: time(result.sample.rule_observed_at)
+                )}
+                {result && (
+                    <>
+                        <Alert
+                            type="info"
+                            showIcon
+                            title={
+                                result.state === "CANCELLED"
+                                    ? "回测已取消，以下为已完成部分的结果"
+                                    : "探索性回测"
                             }
-                        ]}
-                    />
-                </>
-            )}
-        </main>
+                            description={result.limitations.join(" ")}
+                        />
+                        <div className="backtest-metrics">
+                            {[
+                                ["净收益（USDT）", result.metrics.net_pnl],
+                                ["区间收益率", percentage(result.metrics.return_since_start)],
+                                ["最大回撤", percentage(result.metrics.maximum_drawdown)],
+                                ["手续费（USDT）", result.metrics.fees],
+                                ["成交笔数", result.metrics.fill_count],
+                                ["完整交易次数", result.metrics.roundtrip_count]
+                            ].map(([title, value]) => (
+                                <Card key={title} size="small">
+                                    <Statistic
+                                        title={title}
+                                        value={value ?? "暂不可用"}
+                                        formatter={() => String(value ?? "暂不可用")}
+                                    />
+                                </Card>
+                            ))}
+                        </div>
+                        <Card title="账户权益与回撤" size="small">
+                            <EquityChart result={result} />
+                            {result.baseline && (
+                                <Typography.Paragraph type="secondary">
+                                    同一时段买入并持有 0.01 BTC，采用相同费用和滑点假设：期末权益{" "}
+                                    {result.baseline.final_equity} USDT，区间收益率{" "}
+                                    {percentage(result.baseline.return_since_start)}
+                                    。这是一项估算参照。
+                                </Typography.Paragraph>
+                            )}
+                        </Card>
+                        <Card title="成交明细" size="small">
+                            <Table<Result["trades"][number]>
+                                rowKey="ordinal"
+                                dataSource={result.trades}
+                                size="small"
+                                scroll={{ x: 760 }}
+                                pagination={{ pageSize: 10 }}
+                                columns={[
+                                    {
+                                        title: "成交时间（UTC）",
+                                        render: (_: unknown, value: Result["trades"][number]) =>
+                                            nanos(value.time_ns)
+                                    },
+                                    {
+                                        title: "方向",
+                                        render: (_: unknown, value: Result["trades"][number]) =>
+                                            value.side === "BUY" ? "买入" : "卖出"
+                                    },
+                                    { title: "数量（BTC）", dataIndex: "quantity" },
+                                    { title: "成交价（USDT）", dataIndex: "price" },
+                                    { title: "手续费（USDT）", dataIndex: "fee" },
+                                    {
+                                        title: "交易原因",
+                                        render: (_: unknown, value: Result["trades"][number]) => (
+                                            <>
+                                                {value.signal}
+                                                <br />
+                                                <Typography.Text type="secondary">
+                                                    信号形成于 {nanos(value.signal_time_ns)} UTC
+                                                </Typography.Text>
+                                            </>
+                                        )
+                                    }
+                                ]}
+                            />
+                        </Card>
+                        <Card title="期末持仓" size="small">
+                            <Table<Result["positions"][number]>
+                                rowKey="instrument"
+                                pagination={false}
+                                dataSource={result.positions}
+                                size="small"
+                                columns={[
+                                    { title: "标的", render: () => "BTCUSDT" },
+                                    {
+                                        title: "持仓数量（BTC）",
+                                        dataIndex: "quantity"
+                                    },
+                                    {
+                                        title: "持仓均价（USDT）",
+                                        render: (_: unknown, value: Result["positions"][number]) =>
+                                            value.average_price ?? "—"
+                                    },
+                                    {
+                                        title: "状态",
+                                        render: (_: unknown, value: Result["positions"][number]) =>
+                                            value.state === "CLOSED"
+                                                ? "已平仓"
+                                                : value.state === "OPEN"
+                                                  ? "持有多头"
+                                                  : "正在核对持仓"
+                                    }
+                                ]}
+                            />
+                        </Card>
+                        <Descriptions
+                            size="small"
+                            column={{ xs: 1, sm: 2 }}
+                            items={[
+                                {
+                                    key: "initial",
+                                    label: "初始资金（USDT）",
+                                    children: result.metrics.initial_equity
+                                },
+                                {
+                                    key: "final",
+                                    label: "期末权益（USDT）",
+                                    children: result.metrics.final_equity
+                                },
+                                {
+                                    key: "realized",
+                                    label: "已实现盈亏（USDT）",
+                                    children: result.metrics.realized_pnl
+                                },
+                                {
+                                    key: "unrealized",
+                                    label: "未实现盈亏（USDT）",
+                                    children: result.metrics.unrealized_pnl
+                                },
+                                {
+                                    key: "sample",
+                                    label: "样本（UTC）",
+                                    children: `${time(result.sample.start_at)} 至 ${time(result.sample.end_at)}`
+                                },
+                                {
+                                    key: "rules",
+                                    label: "交易规则获取时间（UTC）",
+                                    children: time(result.sample.rule_observed_at)
+                                }
+                            ]}
+                        />
+                    </>
+                )}
+            </main>
+        </div>
     );
 }
