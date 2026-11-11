@@ -36,7 +36,8 @@ test("1440 下七项导航中文可见并逐项目击到目标画面", async ({ 
     await expect(page).toHaveURL(/\/backtest/);
 
     await nav.getByRole("link", { name: "数据" }).click();
-    await expect(page.getByRole("heading", { name: "数据 · 未实现" })).toBeVisible();
+    await expect(page).toHaveURL(/\/data\/inputs$/);
+    await expect(page.getByRole("heading", { name: "数据", exact: true })).toBeVisible();
 
     await nav.getByRole("link", { name: "系统" }).click();
     await expect(page.getByRole("heading", { name: "系统 · 未实现" })).toBeVisible();

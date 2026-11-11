@@ -222,6 +222,7 @@ function integrationClient(overrides: Partial<IntegrationApiClient> = {}): Integ
 function renderDataSources(path: string, client: IntegrationApiClient) {
     const router = createMemoryRouter(
         [
+            { path: "/data/inputs", element: <DataSourcesPage /> },
             { path: "/data/sources", element: <DataSourcesPage /> },
             { path: "/data/sources/new", element: <NewDataSourcePage /> },
             { path: "/data/sources/:integrationId", element: <DataSourceDetailPage /> }
@@ -235,6 +236,15 @@ function renderDataSources(path: string, client: IntegrationApiClient) {
     );
     return router;
 }
+
+it.each(["/data/inputs", "/data/sources", "/data/sources/new", `/data/sources/${ID}`])(
+    "%s 画面以冻结稿页头呈现（h1 数据 + 副标题）",
+    async (path) => {
+        renderDataSources(path, integrationClient());
+        expect(await screen.findByRole("heading", { level: 1, name: "数据" })).toBeInTheDocument();
+        expect(screen.getByText("数据源接入与授权")).toBeInTheDocument();
+    }
+);
 
 it("lists configured sources with status, capabilities and non-primary archive", async () => {
     renderDataSources("/data/sources", integrationClient());

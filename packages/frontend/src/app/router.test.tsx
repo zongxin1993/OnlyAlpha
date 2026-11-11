@@ -13,10 +13,37 @@ vi.mock("../features/strategies/StrategyWorkflow", () => ({
 }));
 vi.mock("../features/backtest/BacktestPage", () => ({ BacktestPage: () => <h1>策略回测</h1> }));
 
+vi.mock("../features/data/sources/DataSourcesPage", () => ({
+    DataSourcesPage: () => <h1>数据画面</h1>
+}));
+vi.mock("../features/data/sources/NewDataSourcePage", () => ({
+    NewDataSourcePage: () => <h1>数据画面</h1>
+}));
+vi.mock("../features/data/sources/DataSourceDetailPage", () => ({
+    DataSourceDetailPage: () => <h1>数据画面</h1>
+}));
+
 it.each([
     ["/strategies/private.strategy.btc_momentum", "策略验证"],
     ["/backtest", "策略回测"]
 ])("%s opens its Shipping workflow", (path, label) => {
+    const router = createMemoryRouter(shippingRouter.routes, { initialEntries: [path] });
+    render(
+        <AppProviders>
+            <RouterProvider router={router} />
+        </AppProviders>
+    );
+    expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
+    expect(screen.queryByText(/未实现/)).not.toBeInTheDocument();
+});
+
+it.each([
+    ["/data", "数据画面"], // 裸 /data 重定向到导航锚 /data/inputs。
+    ["/data/inputs", "数据画面"],
+    ["/data/sources", "数据画面"],
+    ["/data/sources/new", "数据画面"],
+    ["/data/sources/existing-source", "数据画面"]
+])("%s 打开数据画面而非 Deferred 占位", (path, label) => {
     const router = createMemoryRouter(shippingRouter.routes, { initialEntries: [path] });
     render(
         <AppProviders>
@@ -34,8 +61,6 @@ afterEach(() => {
 const deferredDestinations = [
     ["/research/new", "研究"],
     ["/research/results/exact-result/statistics/exact-statistics", "研究"],
-    ["/data/inputs", "数据"],
-    ["/data/sources/existing-source", "数据"],
     ["/system/health", "系统"]
 ] as const;
 

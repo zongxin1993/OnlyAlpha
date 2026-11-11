@@ -1,13 +1,43 @@
 import { expect, test, type ElementHandle } from "@playwright/test";
 
-// 研究与数据、系统仍是占位画面（策略转真实工作流见 aa0b3349，工具条整合见 e14e22c8）；
-// 策略与回测已是真实页面，断言各自的真实标题而非"未实现"占位。
+// 研究仍是占位画面、系统将在 P2 后续任务接回（策略转真实工作流见 aa0b3349，工具条整合见 e14e22c8）；
+// 数据已是真实画面（P2 Task 12），断言其页内标题而非"未实现"占位。
 const destinations = [
-    { path: "/research/new", feature: "研究", heading: "研究 · 未实现", deferred: true },
-    { path: "/strategies", feature: "策略", heading: "我的策略", deferred: false },
-    { path: "/backtest", feature: "回测", heading: "策略回测", deferred: false },
-    { path: "/data/inputs", feature: "数据", heading: "数据 · 未实现", deferred: true },
-    { path: "/system/health", feature: "系统", heading: "系统 · 未实现", deferred: true }
+    {
+        path: "/research/new",
+        feature: "研究",
+        heading: "研究 · 未实现",
+        exactHeading: false,
+        deferred: true
+    },
+    {
+        path: "/strategies",
+        feature: "策略",
+        heading: "我的策略",
+        exactHeading: false,
+        deferred: false
+    },
+    {
+        path: "/backtest",
+        feature: "回测",
+        heading: "策略回测",
+        exactHeading: false,
+        deferred: false
+    },
+    {
+        path: "/data/inputs",
+        feature: "数据",
+        heading: "数据",
+        exactHeading: true,
+        deferred: false
+    },
+    {
+        path: "/system/health",
+        feature: "系统",
+        heading: "系统 · 未实现",
+        exactHeading: false,
+        deferred: true
+    }
 ] as const;
 
 // 左侧栏 DOM 顺序（NAV_GROUPS）：总览、工作台、研究、策略、回测、数据、系统。
@@ -61,7 +91,10 @@ for (const width of [1440, 390]) {
             await expect(
                 page.locator(`.side-rail nav a[href="${destination.path}"]`)
             ).toHaveAttribute("aria-current", "page");
-            await expect(page.getByRole("heading", { name: destination.heading })).toBeVisible();
+            const heading = destination.exactHeading
+                ? page.getByRole("heading", { name: destination.heading, exact: true })
+                : page.getByRole("heading", { name: destination.heading });
+            await expect(heading).toBeVisible();
             if (destination.deferred) {
                 await expect(page.getByRole("status")).toContainText("此功能尚未实现");
                 expect(businessRequests.length).toBe(requestsBefore);
