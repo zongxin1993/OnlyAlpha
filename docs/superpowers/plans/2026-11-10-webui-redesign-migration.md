@@ -182,3 +182,91 @@
 ---
 
 **验收（P1 整体）**：`/` 呈冻结稿二分（真实数据、真实交互）；能力零丢失（检查器/研究面板/托盘功能各有归置）；壳 3 spec 与全部既有 web E2E 相对基线零新增失败；单元全绿。
+
+---
+
+# P2 细则：画面重组（2026-11-11 制定，P1 关闭后撰写）
+
+**范围裁决（负责人已确认，2026-11-11）**：
+- **数据画面接回**：`DataSourceManager` 以既有整页包装器挂 `/data/*` 正式路由，成为真画面；Deferred E2E 契约同步改写。
+- **研究画面暂不接**：`/research/*` 维持「研究 · 未实现」Deferred 契约不动，`research.spec.ts` 保持全绿；P2 只产出 Gap 盘点清单（Task 16）。工作台研究面板**不迁出**（P1 细则的迁出义务随研究画面交付延后，记录于此）。
+- **样式对齐深度 = 外壳对齐**：view-head 页头 + 卡片/`.tw` 表格容器 + 徽章纪律 + 单列断点到位；antd 表单、对话框等内部控件保留现状，不逐 DOM 复刻冻结稿。
+- **系统画面 = 诚实画面**：只用真实可得事实，版本/迁移号缺口诚实标注，P2 不动后端。
+
+**闸门核查（P2 前置，已核源码）**：
+1. 后端 `packages/backend/src/transport/routes.rs::navigation()` 已注册 `/data`、`/data/inputs`、`/data/sources`、`/data/sources/new`、`/data/sources/{id}`、`/system`、`/system/health`（契约测试 `tests/transport/web_navigation.rs` 绿）→ **数据/系统接回零后端改动**。
+2. `/health/live`、`/health/ready` 为 product-api v2 正式契约端点，返回 `NativeHealthDto { status: "LIVE" | "READY" }`，同源可达（`vite.config.ts` 已代理 `/health`）；`/health/execution` 恒 501，**不使用**。系统画面因此有真实运行时事实可读；「后端版本/迁移号」无端点 → 记 QUERY_GAP，界面宁缺毋假。
+3. `DataSourcesPage` / `NewDataSourcePage` / `DataSourceDetailPage` 整页包装器与 `DataSourcesWorkspace.test.tsx`（memory router 按 `/data/sources{,/new,/:integrationId}`）完备，仅缺路由挂载与页头。
+4. `Product API 无 version 端点`：P0 footer「宁缺毋假」裁决继续成立，P2 不改 footer。
+
+**布局裁决（冻结稿 → 现有实现映射）**：
+- 路由：`/data` → redirect `/data/inputs`；`/data/inputs` 与 `/data/sources` → `DataSourcesPage`；`/data/sources/new` → `NewDataSourcePage`；`/data/sources/:integrationId` → `DataSourceDetailPage`；`/system` → redirect `/system/health`；`/system/health` → 新建 `SystemHealthPage`。导航锚 `nav.ts` 不动。
+- 三个数据整页包装器各加 `PageHeader title="数据" subtitle="数据源接入与授权"`（冻结稿 v-data 页头文案）；`DataSourceManager` 本体不感知页头 → 设置抽屉与工作台弹层两个既有入口原样保留，能力零丢失。
+- 策略/回测：页头换 `PageHeader`（h1=画面名，副标题取冻结稿「草稿、冻结版本与晋级」「运行任务与证据」）；替换各自 `strategy-workflow-header` / `backtest-page-header` 顶栏中的 `Typography.Title` 职责，头部操作钮（刷新、返回链接等）保留为页头行右侧或次级行；`main` 的 `aria-label`（"策略记录"「策略回测」等）**不动**，是既有 E2E 锚。回测结果视图 h1 用「回测结果」。
+- 系统画面内容（自上而下）：PageHeader「系统 / 运行时状态」→ 运行时健康卡（liveness/readiness 实测，成功显示 LIVE/READY 徽章，失败/503 按简报纪律说明「发生了什么、本次查看未生效、可重试」）→ 偏好说明卡（主题/密度当前值与切换指引，来自本地真实状态）→ 诚实缺省卡：「后端版本与迁移号暂无正式查询端点（QUERY_GAP），此处宁缺毋假」。不做任何演示数据。
+- 共享样式：新增 `.view-detail`（冻结稿 `.detail`：`grid-template-columns: 1fr 340px; gap:16px; align-items:start`，`@media (max-width:1239px)` 转单列）与 `.tw`（`overflow-x:auto` 表格横滚容器）进 `src/app/styles/base.css` 共享层；策略/回测正文按语义套 `page-with-head`。
+
+**Deferred 契约同步（改锚不改意图）**：
+- `product-workspaces.spec.ts`：`/data/inputs` heading 锚 `数据 · 未实现` → `数据`（exact，level 1）`deferred:true→false`；`/system/health` → `系统`，`deferred:false`；`/strategies` 锚 `我的策略` → `策略`（level 1）；`/backtest` 锚 `策略回测` → `回测`（level 1，`main aria-label="策略回测"` 仍在但不再作 heading 锚）；研究行不动；文件头注释同步。Deferred 目的地「零业务请求」判定仅对研究保留。
+- `analysis.spec.ts`：`/data/inputs`、`/data/sources/existing-source` 两行从 deferred 列表改为真画面移动锚（view-head 可见 + 390 零横向溢出 + 左栏可回工作台）；`/research/analysis` deferred 不动。
+- `shell-nav.spec.ts`：38–42 行 `数据 · 未实现`/`系统 · 未实现` 锚改 `数据`/`系统`。
+- `research.spec.ts` 与后端 `web_navigation.rs`：不动。
+
+---
+
+### Task 12: 数据画面接回
+
+**Files:**
+- Modify: `src/app/router.tsx`（`/data` redirect 与三个整页包装路由）、`src/features/data/sources/DataSourcesPage.tsx`、`NewDataSourcePage.tsx`、`DataSourceDetailPage.tsx`（各加 PageHeader）、`DataSourcesWorkspace.test.tsx`（页头断言追加）
+- Modify: `e2e/analysis.spec.ts`、`e2e/product-workspaces.spec.ts`、`e2e/shell-nav.spec.ts`（按上表改锚）
+
+- [ ] **Step 1** 失败测试：单测 `/data/inputs` 渲染 `view-head` h1「数据」与管理器主体；`/data/sources/new` 打开「添加数据源」页签；`/data/sources/<id>` 定位该 Integration。
+- [ ] **Step 2** FAIL → **Step 3** 实现路由与页头 → **Step 4** PASS + 三个 E2E 改锚后本地跑绿 + `npm run check` → **Step 5** Commit `feat(webui): 数据画面接回正式路由`。
+
+### Task 13: 策略画面外壳对齐
+
+**Files:**
+- Modify: `src/features/strategies/StrategyWorkflow.tsx`（PageHeader 替换自绘头、正文套 `page-with-head`/`.view-detail`/`.tw`、空状态对齐冻结稿文案骨架——「还没有策略…」按现有真实操作改写，不造「新建策略」假入口，入口沿用现有真实流程）、`strategyWorkflow.css`
+- Test: `StrategyWorkflow.test.tsx`、`ManualStrategyWorkflow.test.tsx`（改锚不改意图）
+
+- [ ] **Step 1** 失败测试：列表视图 h1「策略」+ 副标题存在；原「我的策略」降为卡内 h2；≤1239px 单列由 Task 17 E2E 承担。
+- [ ] **Step 2** FAIL → **Step 3** 实现 → **Step 4** PASS + `npm run check` → **Step 5** Commit `feat(webui): 策略画面外壳对齐`。
+
+### Task 14: 回测画面外壳对齐 + 徽章纪律
+
+**Files:**
+- Modify: `src/features/backtest/BacktestPage.tsx`（PageHeader：列表/新建 h1「回测」、结果视图 h1「回测结果」，副标题「运行任务与证据」；表格入 `.tw`；`aria-label="策略回测"` 不动）、`backtest.css`；徽章文案核查——徽章只放短状态词（完成/运行中/取消/失败），限定与后果移入正文字段，逐处记录
+- Test: `BacktestPage.test.tsx`、`BacktestSetup.test.tsx`
+
+- [ ] **Step 1** 失败测试（h1 锚 + 徽章短词断言）→ **Step 2** FAIL → **Step 3** 实现 → **Step 4** PASS + `e2e/backtest.spec.ts` 相关锚本地绿 + `npm run check` → **Step 5** Commit `feat(webui): 回测画面外壳对齐与徽章纪律`。
+
+### Task 15: 系统诚实画面
+
+**Files:**
+- Create: `src/features/system/SystemHealthPage.tsx`（+.test.tsx）、`src/api/health/health.ts`（`getLiveHealth()/getReadyHealth()`：同源 `GET /health/{live,ready}`，`{status}` 解析，网络失败/503 → 类型化错误；仅此读路径，不新增依赖）
+- Modify: `src/app/router.tsx`（`/system` redirect + `/system/health` 路由）、`e2e/product-workspaces.spec.ts`、`e2e/shell-nav.spec.ts`（系统行改真画面锚）
+
+- [ ] **Step 1** 失败测试：成功态渲染 LIVE/READY 徽章与实测时间戳；503/网络失败显示「发生了什么 + 查看未生效 + 重试钮」；缺省卡文案存在（无版本数据时不得显示任何版本号）。
+- [ ] **Step 2** FAIL → **Step 3** 实现 → **Step 4** PASS + E2E 锚绿 + `npm run check` → **Step 5** Commit `feat(webui): 系统画面诚实运行时状态`。
+
+### Task 16: 研究画面 Gap 盘点（纯文档，闸门豁免）
+
+**Files:**
+- Create: `docs/webui/research-screen-gap-inventory-2026-11.md`
+
+- [ ] **Step 1** 冻结稿 v-research 逐区块对照现有 product-api：私有因子表（现有 authoring/inventory 端点可覆盖程度）、版本详情（IC 均值/t 值有无契约字段）、运行记录时间线（Research Run 查询可得性）、输入指纹链接（Dataset Snapshot 引用）、「在图表中对照」（现有工作台挂载路径）；逐区块标注 `可复用 / COMMAND_GAP / QUERY_GAP`，附端点或字段证据。
+- [ ] **Step 2** Commit `docs(webui): 研究画面能力缺口盘点`。只盘点不实现；研究画面后续阶段凭此清单立任务契约。
+
+### Task 17: 画面壳 E2E + P2 全量回归
+
+**Files:**
+- Create: `e2e/screen-shells.spec.ts`：1440 下数据/策略/回测/系统四画面 view-head h1 逐项可见；数据画面经 native 真实列表可读（有配置源则名称可见，无则诚实空态）；系统画面健康徽章来自真实响应（拦截 `/health/ready` 断言确实发出且渲染一致）；1024 策略 detail 单列；390 全画面零横向溢出；`/data` `/system` redirect 生效
+- Modify: `deploy/run-web-e2e.sh`（A 组加入新 spec）
+
+- [ ] **Step 1** 写 spec 并经正式 native 入口跑绿；**Step 2** 全量默认计划回归对照（新增失败=0）；**Step 3** `npm run check` + prettier；**Step 4** Commit `test(webui): 画面壳契约 E2E`；**Step 5** fresh-reviewer 全分支审查 → 修 Important → 手册 §11 核对 → 汇报 P2 关闭，不自动进入 P3。
+
+---
+
+**验收（P2 整体）**：数据/系统是真画面（全部数字来自正式 API，零演示数据）；策略/回测外壳符合冻结稿布局契约（view-head、卡片、`.tw`、≤1239 单列、徽章短词）；研究诚实 Deferred 且有凭据的 Gap 清单入库；`research.spec.ts` 与后端导航契约全绿；全部既有 web E2E 相对基线零新增失败；单元全绿；能力零丢失（设置抽屉与工作台数据源入口原样保留）。
+
+**分支**：沿用 `feature/webui-redesign`（已与 master 同步，直接续工）。
