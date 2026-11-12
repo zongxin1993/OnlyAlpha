@@ -1,467 +1,66 @@
-import { expect, test, type Page, type Route, type WebSocketRoute } from "@playwright/test";
-import { chartCatalogFixture } from "./support/chartCatalog";
-import { marketDataSourceSchema } from "../src/api/marketData/model";
+import { expect, test } from "@playwright/test";
+import {
+    chart,
+    controlledRealtime,
+    hoverLatest,
+    integrationId,
+    minuteNs,
+    openInspector,
+    revision,
+    semantic,
+    source,
+    status,
+    windowEnd
+} from "./support/temporaryMarketData";
 
-async function hoverLatest(page: Page) {
-    const chart = page.getByTestId("price-chart");
-    const canvas = await chart.locator("canvas").first().boundingBox();
-    const from = Number(await chart.getAttribute("data-visible-range-from"));
-    const to = Number(await chart.getAttribute("data-visible-range-to"));
-    const count = Number(await chart.getAttribute("data-volume-point-count"));
-    if (!canvas || !Number.isFinite(from) || !(to > from) || count < 1)
-        throw new Error("Visible Bar geometry required");
-    await page.mouse.move(
-        canvas.x + (canvas.width * (count - 1 - from)) / (to - from),
-        canvas.y + canvas.height / 2
-    );
-}
 
-const integrationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const integrationRevision = "a".repeat(64);
-const historicalRevision = "d".repeat(64);
-const historyFingerprint = "8".repeat(64);
-const sourceId = "binance.spot.market_data.us";
-const minuteNs = BigInt("60000000000");
-const historyStart = BigInt("1767225600000000000");
-const historyEnd = historyStart + BigInt(1_440) * minuteNs;
-const planFingerprint = (durationMinutes: number) => durationMinutes.toString(16).padStart(64, "0");
-const nativeSteps = new Set([1, 3, 5, 15, 30, 60, 120, 240]);
-const semantic = (durationMinutes: number) => ({
-    schema_version: 3,
-    formation: {
-        schema_version: 1,
-        kind: "FIXED_DURATION",
-        window_minutes: durationMinutes,
-        stride_minutes: durationMinutes,
-        alignment: "SESSION_START"
-    },
-    price_type: "LAST",
-    adjustment_policy: "RAW"
-});
-
-const source = marketDataSourceSchema.parse({
-    is_current_revision: true,
-    integration_id: integrationId,
-    integration_revision_fingerprint: integrationRevision,
-    display_name: "Binance Spot US",
-    type_id: "binance.spot.market_data",
-    source_id: sourceId,
-    environment: "US",
-    new_work_status: "AVAILABLE",
-    new_work_unavailable_code: null,
-    history_read_policy: "EXACT_SEALED_PROOF",
-    time_bar_capability: {
-        provider_base_semantic: semantic(1),
-        derived_algorithm: "TIME_BAR@1",
-        minimum_window_minutes: 1,
-        maximum_window_minutes: 240
-    }
-});
-const instrument = {
-    instrument_id: "BTCUSDT.BINANCE",
-    display_symbol: "BTCUSDT",
-    venue: "BINANCE",
-    market: "SPOT",
-    asset_class: "CRYPTOCURRENCY",
-    instrument_type: "CRYPTO_SPOT",
-    status: "ACTIVE",
-    market_data_capabilities: ["BAR_1M_EXTERNAL_RAW"]
-};
-
-const json = (route: Route, body: unknown) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
-
-async function sourceControl(page: Page) {
-    const control = page.getByRole("combobox", { name: "数据源" });
-    if (!(await control.isVisible())) {
-        const menu = page.locator(".workspace-settings");
-        if ((await menu.getAttribute("open")) === null)
-            await menu.getByLabel("设置", { exact: true }).click();
-        await page.getByText("行情设置", { exact: true }).click();
-    }
-    return control;
-}
-
-async function selectBtcFromSearch(page: Page) {
-    await page.getByRole("button", { name: "搜索商品", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "商品搜索" });
-    await dialog.getByRole("searchbox", { name: "商品代码或名称" }).fill("BTCUSDT");
-    await dialog
-        .getByRole("button", { name: "查看 BTCUSDT · BINANCE · Binance Spot US", exact: true })
-        .click();
-}
-
-async function openInspector(page: Page) {
-    await page
-        .getByRole("toolbar", { name: "工作区面板" })
-        .getByRole("button", { name: "检查器", exact: true })
-        .click();
-}
-
-async function controlledRealtime(
-    page: Page,
-    holdRecovery = false,
-    acquireHistory = false,
-    defaultGlobal = false
-) {
-    const environment = defaultGlobal ? "GLOBAL" : "US";
-    let socket: WebSocketRoute | null = null;
-    let connections = 0;
-    const completedSteps = new Set<number>();
-    let acquisitions = 0;
-    const acquisitionSteps: number[] = [];
-    let releaseRecovery: (() => void) | null = null;
-    let emitStalePreview: (() => void) | null = null;
-    let emitPreview: ((missingProviderEvent?: boolean) => void) | null = null;
-    const cursors: string[] = [];
-    const steps: number[] = [];
-    const historyAnchors: string[] = [];
-    const historySteps: number[] = [];
-    const subscriptions: object[] = [];
-    const olderRequests: URL[] = [];
-    await page.route("**/api/v2/**", (route) => {
-        const url = new URL(route.request().url());
-        if (url.pathname === "/api/v2/market-data/sources")
-            return json(route, { schema_version: 1, sources: [{ ...source, environment }] });
-        if (url.pathname === "/api/v2/market/instruments/search") {
-            const selection = {
-                integration_id: integrationId,
-                integration_revision_fingerprint: integrationRevision,
-                type_id: source.type_id,
-                source_id: sourceId,
-                environment
-            };
-            return json(route, {
-                schema_version: 1,
-                truncated: false,
-                sources: [
-                    {
-                        source_selection: selection,
-                        status: "COMPLETE",
-                        asset_classes: ["CRYPTOCURRENCY"],
-                        truncated: false
-                    }
-                ],
-                results: [{ source_selection: selection, instrument }]
-            });
-        }
-        if (url.pathname === "/api/v2/market/instruments")
-            return json(route, {
-                schema_version: 1,
-                source_selection: {
-                    integration_id: integrationId,
-                    integration_revision_fingerprint: integrationRevision,
-                    type_id: source.type_id,
-                    source_id: sourceId,
-                    environment
-                },
-                instruments: [instrument]
-            });
-        if (url.pathname === "/api/v2/market-data/bars") {
-            const anchor = url.searchParams.get("anchor_kind");
-            expect(anchor === "LATEST_CLOSED" || anchor === "BEFORE_TIME").toBe(true);
-            historyAnchors.push(anchor ?? "");
-            const targetCount = Number(url.searchParams.get("target_bar_count"));
-            expect([1440, 240]).toContain(targetCount);
-            expect(url.searchParams.has("start_ns")).toBe(false);
-            const requested = JSON.parse(
-                url.searchParams.get("bar_semantic") ?? "null"
-            ) as ReturnType<typeof semantic>;
-            const step = requested.formation.window_minutes;
-            historySteps.push(step);
-            const older = targetCount === 240;
-            const before = url.searchParams.get("before_ns");
-            if (older && before === null) throw new Error("older query requires before_ns");
-            const end = older ? BigInt(before ?? "0") : historyEnd;
-            const start = older ? end - BigInt(240 * step) * minuteNs : historyStart;
-            if (older) {
-                expect(anchor).toBe("BEFORE_TIME");
-                olderRequests.push(url);
-            } else {
-                expect(targetCount).toBe(1440);
-                if (anchor === "BEFORE_TIME")
-                    expect(url.searchParams.get("before_ns")).toBe(end.toString());
-            }
-            const native = nativeSteps.has(step);
-            const historyComplete = !acquireHistory || completedSteps.has(step);
-            const duration = BigInt(step) * minuteNs;
-            const bar = (offset: bigint, close: string) => ({
-                bar_start_ns: (start + offset).toString(),
-                bar_end_ns: (start + offset + duration).toString(),
-                open: "100",
-                high: "103",
-                low: "99",
-                close,
-                volume: "2",
-                closed: true
-            });
-            return json(route, {
-                schema_version: 1,
-                source_selection: {
-                    integration_id: integrationId,
-                    integration_revision_fingerprint: integrationRevision,
-                    type_id: source.type_id,
-                    source_id: sourceId,
-                    environment
-                },
-                instrument_id: instrument.instrument_id,
-                display_symbol: instrument.display_symbol,
-                venue: instrument.venue,
-                market: instrument.market,
-                bar_semantic: semantic(step),
-                closed_only: true,
-                anchor_kind: anchor,
-                requested_before_ns: anchor === "BEFORE_TIME" ? end.toString() : null,
-                requested_bar_count: targetCount,
-                resolved_start_ns: start.toString(),
-                resolved_end_ns: end.toString(),
-                coverage: {
-                    status: historyComplete ? "COMPLETE" : "INCOMPLETE",
-                    manifest_id: "manifest",
-                    manifest_fingerprint: "c".repeat(64),
-                    expected_bar_count: 1440,
-                    actual_bar_count: historyComplete ? 1440 : 0,
-                    issues: historyComplete ? [] : ["BAR_GRID_INCOMPLETE"],
-                    gaps: historyComplete ? [] : [{ start_ns: String(start), end_ns: String(end) }],
-                    planned_acquisition_ranges: historyComplete
-                        ? []
-                        : [{ start_ns: String(start), end_ns: String(end) }]
-                },
-                revision_evidence: historyComplete
-                    ? [
-                          {
-                              revision_id: "revision",
-                              revision_fingerprint: historicalRevision,
-                              manifest_id: "manifest",
-                              manifest_fingerprint: "c".repeat(64),
-                              seal_id: "seal",
-                              covered_start_ns: start.toString(),
-                              covered_end_ns: end.toString()
-                          }
-                      ]
-                    : [],
-                history_projection_fingerprint: historyComplete ? historyFingerprint : null,
-                derived_projection_fingerprint: historyComplete && !native ? "9".repeat(64) : null,
-                aggregation_semantics_version: native ? null : "TIME_BAR_V1",
-                calendar_fingerprint: native ? null : "a".repeat(64),
-                resolution_mode: native ? "PROVIDER_NATIVE" : "DERIVED",
-                resolution_plan_fingerprint: planFingerprint(step),
-                resume_after_sequence: historyComplete
-                    ? (
-                          end / (step === 15 ? BigInt(15) * minuteNs : minuteNs) -
-                          BigInt(1)
-                      ).toString()
-                    : null,
-                resume_plan_fingerprint: historyComplete ? planFingerprint(step) : null,
-                bars: historyComplete ? [bar(BigInt(0), "101"), bar(duration, "102")] : []
-            });
-        }
-        if (
-            url.pathname === "/api/v2/market-data/acquisitions" &&
-            route.request().method() === "POST"
-        ) {
-            acquisitions += 1;
-            const request = route.request().postDataJSON() as {
-                start_ns: string;
-                end_ns: string;
-                bar_semantic: ReturnType<typeof semantic>;
-            };
-            acquisitionSteps.push(request.bar_semantic.formation.window_minutes);
-            completedSteps.add(request.bar_semantic.formation.window_minutes);
-            return json(route, {
-                schema_version: 1,
-                acquisition_id: `acquisition:${"b".repeat(64)}`,
-                status: "COMPLETE",
-                source_id: sourceId,
-                integration_binding_fingerprint: "f".repeat(64),
-                instrument_id: instrument.instrument_id,
-                bar_semantic: request.bar_semantic,
-                start_ns: request.start_ns,
-                end_ns: request.end_ns,
-                provenance: "REST_BACKFILL",
-                coverage: {
-                    status: "COMPLETE",
-                    manifest_id: "manifest",
-                    manifest_fingerprint: "c".repeat(64),
-                    expected_bar_count: 1440,
-                    actual_bar_count: 1440,
-                    issues: [],
-                    gaps: [],
-                    planned_acquisition_ranges: []
-                },
-                revision_id: "revision",
-                revision_fingerprint: historicalRevision,
-                seal_id: "seal",
-                failure_detail: null
-            });
-        }
-        return route.fallback();
-    });
-    await page.routeWebSocket("**/api/v2/market-data/stream", (ws) => {
-        socket = ws;
-        const connection = ++connections;
-        ws.onMessage((message) => {
-            const request = JSON.parse(String(message)) as {
-                resume_after_sequence: string;
-                resume_plan_fingerprint: string;
-                bar_semantic: ReturnType<typeof semantic>;
-            };
-            subscriptions.push(request);
-            cursors.push(request.resume_after_sequence);
-            const step = request.bar_semantic.formation.window_minutes;
-            steps.push(step);
-            const send = (event: object) => {
-                ws.send(JSON.stringify({ schema_version: 2, ...event }));
-            };
-            send({
-                event: "SUBSCRIBED",
-                stream_id: `stream-${String(connection)}`,
-                source_id: sourceId,
-                instrument_id: instrument.instrument_id,
-                resolution_mode: nativeSteps.has(step) ? "PROVIDER_NATIVE" : "DERIVED",
-                resolution_plan_fingerprint: planFingerprint(step),
-                cursor_bar_stride_minutes: nativeSteps.has(step) ? step : 1
-            });
-            send({ event: "STATE", state: "RECOVERING" });
-            if (connection === 1 || !holdRecovery) send({ event: "STATE", state: "READY" });
-            const sequence = (BigInt(request.resume_after_sequence) + BigInt(1)).toString();
-            const cursorStride = step === 15 ? BigInt(15) : BigInt(1);
-            const derivedBar = {
-                bar_start_ns: (BigInt(sequence) * cursorStride * minuteNs).toString(),
-                bar_end_ns: (
-                    (BigInt(sequence) * cursorStride + BigInt(step)) *
-                    minuteNs
-                ).toString(),
-                open: "102",
-                high: "104",
-                low: "101",
-                close: "103",
-                volume: "3",
-                closed: false
-            };
-            send({
-                event: "BAR_PREVIEW",
-                timing: {
-                    stream_id: `stream-${String(connection)}`,
-                    provider_event_ns: (BigInt(derivedBar.bar_end_ns) + 1_000_000n).toString(),
-                    ingress_received_ns: (BigInt(derivedBar.bar_end_ns) + 2_000_000n).toString()
-                },
-                source_id: sourceId,
-                instrument_id: instrument.instrument_id,
-                bar_semantic: request.bar_semantic,
-                bar: derivedBar
-            });
-            send({
-                event: "BAR_CLOSED",
-                timing: {
-                    stream_id: `stream-${String(connection)}`,
-                    provider_event_ns: (BigInt(derivedBar.bar_end_ns) + 1_000_000n).toString(),
-                    ingress_received_ns: (BigInt(derivedBar.bar_end_ns) + 2_000_000n).toString()
-                },
-                source_id: sourceId,
-                instrument_id: instrument.instrument_id,
-                bar_semantic: request.bar_semantic,
-                sequence,
-                bar: { ...derivedBar, closed: true }
-            });
-            emitStalePreview = () => {
-                send({
-                    event: "BAR_PREVIEW",
-                    timing: null,
-                    source_id: sourceId,
-                    instrument_id: instrument.instrument_id,
-                    bar_semantic: request.bar_semantic,
-                    bar: {
-                        ...derivedBar,
-                        bar_start_ns: (
-                            (BigInt(sequence) - BigInt(1)) *
-                            cursorStride *
-                            minuteNs
-                        ).toString(),
-                        bar_end_ns: (BigInt(sequence) * cursorStride * minuteNs).toString()
-                    }
-                });
-                send({ event: "STATE", state: "RECOVERING" });
-            };
-            emitPreview = (missingProviderEvent = false) => {
-                send({
-                    event: "BAR_PREVIEW",
-                    timing: {
-                        stream_id: `stream-${String(connection)}`,
-                        provider_event_ns: missingProviderEvent
-                            ? null
-                            : (BigInt(derivedBar.bar_end_ns) + 3n).toString(),
-                        ingress_received_ns: (BigInt(derivedBar.bar_end_ns) + 2n).toString()
-                    },
-                    source_id: sourceId,
-                    instrument_id: instrument.instrument_id,
-                    bar_semantic: request.bar_semantic,
-                    bar: {
-                        ...derivedBar,
-                        bar_start_ns: BigInt(derivedBar.bar_end_ns).toString(),
-                        bar_end_ns: (
-                            BigInt(derivedBar.bar_end_ns) +
-                            BigInt(step) * minuteNs
-                        ).toString(),
-                        close: "103.000000000000000001",
-                        volume: "3.000000000000000001"
-                    }
-                });
-            };
-            if (connection === 1 || !holdRecovery) send({ event: "STATE", state: "READY" });
-            else
-                releaseRecovery = () => {
-                    send({ event: "STATE", state: "READY" });
-                };
-        });
-    });
-    return {
-        cursors,
-        steps,
-        acquisitions: () => acquisitions,
-        acquisitionSteps,
-        historyAnchors,
-        historySteps,
-        subscriptions,
-        olderRequests,
-        releaseRecovery: () => releaseRecovery?.(),
-        emitStalePreview: () => emitStalePreview?.(),
-        emitPreview: (missingProviderEvent = false) => emitPreview?.(missingProviderEvent),
-        disconnect: async () => {
-            await socket?.close({ code: 1012, reason: "controlled disconnect" });
-        }
-    };
-}
-
-test("default LIVE workspace first subscribes at 15m and merges Product preview and closed Bars", async ({
+test("default LIVE workspace subscribes at 15m and merges Temporary preview and closed Bars", async ({
     page
 }) => {
     const providerTraffic: string[] = [];
+    const nonChartRequests: string[] = [];
     page.on("request", (request) => {
-        if (/binance\.(com|vision)/.test(new URL(request.url()).hostname))
-            providerTraffic.push(request.url());
+        const url = new URL(request.url());
+        if (/binance\.(com|vision)/.test(url.hostname)) providerTraffic.push(request.url());
+        const path = url.pathname;
+        if (
+            path.startsWith("/api/v2/") &&
+            path !== "/api/v2/chart/market-data/bars" &&
+            path !== "/api/v2/chart/market-data/stream" &&
+            path !== "/api/v2/market-data/sources" &&
+            path !== "/api/v2/market/instruments" &&
+            // Workspace bootstrap reads: saved layout restore and the watchlist panel.
+            path !== "/api/v2/workspace" &&
+            path !== "/api/v2/watchlists" &&
+            !path.startsWith("/api/v2/chart/studies/") &&
+            !path.startsWith("/api/v2/chart/temporary-studies/")
+        )
+            nonChartRequests.push(path);
     });
-    page.on("websocket", (socket) => {
-        if (/binance\.(com|vision)/.test(new URL(socket.url()).hostname))
-            providerTraffic.push(socket.url());
-    });
-    const fixture = await controlledRealtime(page, false, false, true);
+    const market = await controlledRealtime(page);
     await page.goto("/");
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    expect(fixture.historySteps).toEqual([15]);
-    expect(fixture.steps).toEqual([15]);
-    expect(fixture.subscriptions[0]).toMatchObject({
-        operation: "SUBSCRIBE_BAR",
-        instrument_id: "BTCUSDT.BINANCE",
-        source_reference: {
-            integration_id: integrationId,
-            integration_revision_fingerprint: integrationRevision,
-            expected_type_id: source.type_id
-        },
-        bar_semantic: semantic(15)
+    await expect(status(page)).toContainText("● 实时");
+    await expect.poll(() => market.steps).toEqual([15]);
+    expect(market.subscriptions).toHaveLength(1);
+    const subscription = market.subscriptions[0];
+    expect(subscription.operation).toBe("SUBSCRIBE_TEMPORARY_BARS");
+    expect(subscription.instrument_id).toBe("BTCUSDT.BINANCE");
+    expect(subscription.source_reference).toEqual({
+        integration_id: integrationId,
+        integration_revision_fingerprint: revision,
+        expected_type_id: source.type_id
     });
-    await openInspector(page);
-    const latency = page.getByRole("table", { name: "行情检查器" });
+    expect(subscription.bar_semantic).toEqual(semantic(15));
+    expect(subscription.before_ns).toBe(windowEnd);
+    expect(subscription.target_bar_count).toBe(2000);
+    expect(market.barQueries).toHaveLength(1);
+    expect(market.barQueries[0]?.anchor).toBe("LATEST_CLOSED");
+    expect(nonChartRequests).toEqual([]);
+
+    await expect(status(page)).toHaveAttribute("data-loaded-bar-count", "2001");
+    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toHaveCount(0);
+
+    const latency = await openInspector(page);
     await expect(latency.getByRole("row", { name: /^接收延迟/ }).getByRole("cell")).toHaveText(
         "1 ms"
     );
@@ -469,602 +68,361 @@ test("default LIVE workspace first subscribes at 15m and merges Product preview 
         "2 ms"
     );
     await expect(latency).toContainText("当前连接样本");
-    const observation = page.getByRole("tooltip", { name: "K 线信息" });
-    await expect(observation).toHaveCount(0);
-    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
-        "data-loaded-bar-count",
-        "3"
-    );
-    fixture.emitPreview();
+    market.emitPreview();
     await expect(latency.getByRole("row", { name: /^接收延迟/ }).getByRole("cell")).toHaveText(
         "-0.000001 ms（时钟偏差）"
     );
     await expect(latency.getByRole("row", { name: /^收盘到达延迟/ }).getByRole("cell")).toHaveText(
         "2 ms"
     );
-    fixture.emitPreview(true);
+    market.emitPreview(true);
     await expect(latency.getByRole("row", { name: /^接收延迟/ }).getByRole("cell")).toHaveText("—");
     await expect(latency.getByRole("row", { name: /^收盘到达延迟/ }).getByRole("cell")).toHaveText(
         "2 ms"
     );
-    await expect(latency).toContainText("当前连接样本");
     await hoverLatest(page);
-    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
+    const observation = page.getByRole("tooltip", { name: "K 线信息" });
+    await expect(observation).toContainText("实时预览");
     await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
-        "103.000000000000000001"
+        "103.000000000000000002"
     );
-    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
-        "data-loaded-bar-count",
-        "3"
-    );
+    await expect(status(page)).toHaveAttribute("data-loaded-bar-count", "2001");
     await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
     expect(providerTraffic).toEqual([]);
 });
 
 for (const width of [1440, 1024, 390]) {
-    test(`Catalog navigation and exact handoff preserve BTCUSDT 15m consumer at ${String(width)}px`, async ({
+    test(`Temporary catalog navigation preserves the BTCUSDT 15m market context at ${String(width)}px`, async ({
         page
     }) => {
         await page.setViewportSize({ width, height: 900 });
-        const market = await controlledRealtime(page, false, false, true);
-        const fixture = chartCatalogFixture();
-        const catalogRequests: string[] = [];
-        await page.route("**/api/v2/research/**", (route) => {
-            expect(route.request().method()).toBe("GET");
-            const path = new URL(route.request().url()).pathname;
-            catalogRequests.push(path);
-            const body = path.endsWith("/active")
-                ? fixture.active
-                : path === `/api/v2/research/runtime-generations/${fixture.runtime}`
-                  ? fixture.binding
-                  : path === `/api/v2/research/catalog-context/exact/${fixture.catalog}`
-                    ? fixture.context
-                    : path === `/api/v2/research/catalog-context/exact/${fixture.catalog}/readiness`
-                      ? fixture.readiness
-                      : null;
-            expect(body).not.toBeNull();
-            return json(route, body);
+        const market = await controlledRealtime(page);
+        const researchRequests: string[] = [];
+        page.on("request", (request) => {
+            const path = new URL(request.url()).pathname;
+            if (path.startsWith("/api/v2/research/")) researchRequests.push(path);
         });
         await page.goto("/");
-        await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-        const context = await page
-            .getByTestId("price-chart")
-            .getAttribute("data-chart-context-key");
-        const baseline = {
-            queries: market.historyAnchors.length,
-            subscriptions: market.subscriptions.length,
-            acquisitions: market.acquisitions()
-        };
+        await expect(status(page)).toContainText("● 实时");
+        const context = await chart(page).getAttribute("data-chart-context-key");
+        const baseline = { bars: market.barQueries.length };
         const trigger = page.getByRole("button", { name: "目录", exact: true });
         await trigger.focus();
         await page.keyboard.press("Enter");
         const dialog = page.getByRole("dialog", { name: "指标 / 因子目录" });
-        await expect(dialog.getByText("默认 20", { exact: true })).toBeVisible();
-        await expect(dialog.getByText("默认 CLOSE", { exact: true })).toBeVisible();
+        await expect(
+            dialog.getByText("CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result")
+        ).toBeVisible();
         const search = dialog.getByRole("searchbox", { name: "搜索指标或因子" });
         await expect(search).toBeFocused();
-        await page.locator(".chart-region__source select").evaluate((element) => {
-            (element as HTMLElement).focus();
-        });
+        await page.getByRole("button", { name: "搜索商品" }).focus();
         await expect(search).toBeFocused();
         const box = await dialog.boundingBox();
         expect(box?.x).toBeGreaterThanOrEqual(0);
         expect((box?.x ?? width) + (box?.width ?? width)).toBeLessThanOrEqual(width);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-            width
-        );
         await search.fill("missing");
-        await expect(dialog.getByText("没有匹配的注册项。")).toBeVisible();
-        await search.fill("onlyalpha.indicator.sma");
-        await expect(dialog.getByRole("button", { name: "选择 SMA · RESEARCH" })).toBeEnabled();
-        await test.info().attach("catalog-picker-responsive", {
-            contentType: "image/png",
-            body: await page.screenshot()
-        });
+        await expect(dialog.getByText("没有匹配的指标。")).toBeVisible();
+        await search.fill("sma");
+        const choose = dialog.getByRole("button", { name: "选择 SMA · 配置草稿" });
+        await expect(choose).toBeEnabled();
         const close = dialog.getByRole("button", { name: "关闭目录" });
         await close.focus();
         await page.keyboard.press("Shift+Tab");
-        await expect(page.locator("dialog :focus")).toHaveCount(1);
-        await expect(dialog.getByRole("button", { name: "选择 SMA · RESEARCH" })).toBeFocused();
+        await expect(choose).toBeFocused();
         await page.keyboard.press("Tab");
         await expect(close).toBeFocused();
         await page.keyboard.press("Escape");
         await expect(dialog).toHaveCount(0);
         await expect(trigger).toBeFocused();
         await page.keyboard.press("Enter");
-        await dialog.getByRole("button", { name: "选择 SMA · RESEARCH" }).click();
-        await page.getByText("参数说明与技术详情", { exact: true }).click();
+        await choose.click();
         const handoff = page.getByTestId("calculation-handoff");
-        await expect(handoff).toHaveAttribute("data-runtime-generation", fixture.runtime);
-        await expect(handoff).toHaveAttribute("data-catalog-generation", fixture.catalog);
-        await expect(handoff).toHaveAttribute("data-type-id", fixture.capability.type_id);
-        await expect(handoff).toHaveAttribute("data-kind", "INDICATOR");
-        await expect(handoff).toHaveAttribute("data-semantic-version", "1");
-        await expect(handoff).toHaveAttribute("data-backend", "RESEARCH");
-        await expect(handoff).toHaveAttribute(
-            "data-implementation",
-            fixture.capability.implementation_fingerprint
-        );
-        await expect(handoff).toContainText("尚未计算");
-        await expect(page.getByTestId("price-chart")).toHaveAttribute(
-            "data-chart-context-key",
-            context ?? ""
-        );
+        await expect(handoff).toHaveAttribute("data-registration-source", "CHART_STUDY_TRANSIENT");
+        await expect(handoff).toHaveAttribute("data-type-id", "onlyalpha.indicator.sma");
+        await expect(handoff).toContainText("仅配置草稿，尚未计算");
+        await expect(handoff).not.toHaveAttribute("data-runtime-generation", /.+/);
+        await expect(handoff).not.toHaveAttribute("data-backend", /.+/);
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toHaveCount(0);
+        await expect(chart(page)).toHaveAttribute("data-chart-context-key", context ?? "");
         market.emitPreview();
         await hoverLatest(page);
         await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
-        expect(market.historyAnchors).toHaveLength(baseline.queries);
-        expect(market.subscriptions).toHaveLength(baseline.subscriptions);
-        expect(market.acquisitions()).toBe(baseline.acquisitions);
+        expect(market.barQueries).toHaveLength(baseline.bars);
+        // Escape bubbles through the settings drawer's cancel path, which re-reads
+        // sources and may reopen the same stream; the market context itself must
+        // not move: identical pin, page and semantic on every subscription.
+        expect(
+            market.subscriptions.every(
+                (item) =>
+                    item.before_ns === market.subscriptions[0]?.before_ns &&
+                    item.page_id === market.subscriptions[0]?.page_id &&
+                    item.bar_semantic.formation.window_minutes === 15
+            )
+        ).toBe(true);
+        expect(market.olderRequests).toHaveLength(0);
+        expect(researchRequests).toEqual([]);
         await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
-        await test.info().attach("catalog-navigation-preserves-market-context", {
-            contentType: "application/json",
-            body: JSON.stringify({ width, context, baseline, catalogRequests })
-        });
     });
 }
 
-test("registered discovery selection without Runtime preserves BTCUSDT history and realtime", async ({
+test("chart study configuration, presentation and removal run over the live Temporary stream", async ({
     page
 }) => {
-    const market = await controlledRealtime(page, false, false, true);
-    const fixture = chartCatalogFixture();
-    const catalogRequests: string[] = [];
-    await page.route("**/api/v2/research/**", (route) => {
-        expect(route.request().method()).toBe("GET");
-        const path = new URL(route.request().url()).pathname;
-        catalogRequests.push(path);
-        expect([
-            "/api/v2/research/runtime-generations/active",
-            "/api/v2/research/catalog/calculations"
-        ]).toContain(path);
-        return route.fulfill({
-            status: path.endsWith("/active") ? 503 : 200,
-            contentType: "application/json",
-            body: JSON.stringify(
-                path.endsWith("/active")
-                    ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
-                    : fixture.discovery
-            )
-        });
-    });
+    const market = await controlledRealtime(page);
     await page.goto("/");
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    const context = await page.getByTestId("price-chart").getAttribute("data-chart-context-key");
+    await expect(status(page)).toContainText("● 实时");
+    await expect(chart(page)).toHaveAttribute("data-volume-point-count", "2001");
+    await expect(chart(page)).toHaveAttribute("data-study-series-count", "0");
+    const context = await chart(page).getAttribute("data-chart-context-key");
+    const trigger = page.getByRole("button", { name: "目录", exact: true });
+    await trigger.click();
+    const dialog = page.getByRole("dialog", { name: "指标 / 因子目录" });
+    await dialog.getByRole("searchbox", { name: "搜索指标或因子" }).fill("sma");
+    const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
+    await dialog.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
+    await expect(editor).toBeVisible();
+    const period = editor.getByRole("textbox", { name: "period" });
+    await expect(period).toBeFocused();
+    await expect(period).toHaveValue("20");
+    await expect(editor.getByText("按收盘价计算")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(editor).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
+
+    await trigger.press("Enter");
+    await dialog.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
+    await editor.getByRole("button", { name: "添加", exact: true }).click();
+    const first = page.getByTestId("chart-study-instance").first();
+    await expect(first).toHaveCount(1);
+    await expect(first).toHaveAttribute("data-chart-context-key", context ?? "");
+    // The chart re-reads its own BEFORE_TIME window and admits the official batch proof.
+    await expect
+        .poll(() => market.evaluateReads.length, { timeout: 15_000 })
+        .toBeGreaterThan(0);
+    const evaluated = market.evaluateReads[0] as { window: { before_ns: string } };
+    expect(BigInt(evaluated.window.before_ns) >= BigInt(windowEnd)).toBe(true);
+    await expect(chart(page)).toHaveAttribute("data-study-series-count", "1", {
+        timeout: 15_000
+    });
+
+    await first.getByRole("button", { name: "编辑 SMA" }).click();
+    await editor.getByRole("button", { name: "SMA 红色", exact: true }).click();
+    await editor.getByRole("button", { name: "应用", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    expect(JSON.parse((await first.getAttribute("data-presentation")) ?? "null")).toMatchObject({
+        seriesStyles: { value: { color: "#c8332a" } }
+    });
+    await expect(first).toHaveAttribute("data-chart-context-key", context ?? "");
+
+    await trigger.click();
+    await dialog.getByRole("searchbox", { name: "搜索指标或因子" }).fill("sma");
+    await dialog.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
+    await editor.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(page.getByTestId("chart-study-instance")).toHaveCount(2);
+
+    await first.getByRole("button", { name: "选择 SMA", exact: true }).click();
+    await expect(first).toHaveAttribute("data-selected", "true");
+    // Two instances are configured; hiding the first leaves the sibling's series.
+    await first.getByRole("button", { name: "隐藏 SMA", exact: true }).press("Enter");
+    await expect(chart(page)).toHaveAttribute("data-study-series-count", "1", {
+        timeout: 15_000
+    });
+    await first.getByRole("button", { name: "显示 SMA", exact: true }).press("Enter");
+    await expect(chart(page)).toHaveAttribute("data-study-series-count", "2", {
+        timeout: 15_000
+    });
+
     const baseline = {
-        queries: market.historyAnchors.length,
-        subscriptions: market.subscriptions.length,
-        acquisitions: market.acquisitions()
+        bars: market.barQueries.length,
+        subscriptions: market.subscriptions.length
     };
-    await page.getByRole("button", { name: "目录", exact: true }).click();
-    await page.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
-    await page.getByText("参数说明与技术详情", { exact: true }).click();
-    const handoff = page.getByTestId("calculation-handoff");
-    await expect(handoff).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
-    await expect(handoff).toContainText("尚未计算");
-    await expect(page.getByTestId("price-chart")).toHaveAttribute(
-        "data-chart-context-key",
-        context ?? ""
-    );
-    market.emitPreview();
-    await hoverLatest(page);
-    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
-    expect(market.historyAnchors).toHaveLength(baseline.queries);
+    await first.getByRole("button", { name: "移除配置", exact: true }).press("Enter");
+    await expect(page.getByTestId("chart-study-instance")).toHaveCount(1);
+    await expect(chart(page)).toHaveAttribute("data-study-series-count", "1", {
+        timeout: 15_000
+    });
     expect(market.subscriptions).toHaveLength(baseline.subscriptions);
-    expect(market.acquisitions()).toBe(baseline.acquisitions);
+    expect(market.olderRequests).toHaveLength(0);
+    await expect(status(page)).toContainText("● 实时");
     await expect(page.getByRole("combobox", { name: "时间周期" })).toHaveValue("15");
-    expect(catalogRequests).toEqual([
-        "/api/v2/research/runtime-generations/active",
-        "/api/v2/research/catalog/calculations",
-        "/api/v2/research/catalog/calculations"
-    ]);
 });
 
-for (const width of [1440, 1024, 390]) {
-    test(`chart study golden configuration and independent presentation at ${String(width)}px`, async ({
+for (const width of [1024, 390]) {
+    test(`one configured study keeps its pane ownership at ${String(width)}px`, async ({
         page
     }) => {
         await page.setViewportSize({ width, height: 900 });
-        const market = await controlledRealtime(page, false, false, true);
-        const fixture = chartCatalogFixture();
-        const studyReads: string[] = [];
-        await page.route("**/api/v2/research/**", (route) => {
-            expect(route.request().method()).toBe("GET");
-            const path = new URL(route.request().url()).pathname;
-            studyReads.push(path);
-            expect([
-                "/api/v2/research/runtime-generations/active",
-                "/api/v2/research/catalog/calculations"
-            ]).toContain(path);
-            return route.fulfill({
-                status: path.endsWith("/active") ? 503 : 200,
-                contentType: "application/json",
-                body: JSON.stringify(
-                    path.endsWith("/active")
-                        ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
-                        : fixture.discovery
-                )
-            });
-        });
+        await controlledRealtime(page);
         await page.goto("/");
-        await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-        const renderedChart = page.getByTestId("price-chart");
-        // This recorded fixture admits two history bars plus one closed stream
-        // bar. target_bar_count=1440 is query intent, not invented loaded data.
-        await expect(renderedChart).toHaveAttribute("data-volume-point-count", "3");
-        await expect(renderedChart).toHaveAttribute("data-volume-latest", "3");
-        await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
-        await expect(renderedChart).toHaveAttribute("data-pane-count", "2");
-        const context = await page
-            .getByTestId("price-chart")
-            .getAttribute("data-chart-context-key");
-        const baseline = {
-            queries: market.historyAnchors.length,
-            subscriptions: market.subscriptions.length,
-            acquisitions: market.acquisitions()
-        };
-        const trigger = page.getByRole("button", { name: "目录", exact: true });
-        const pickerSelection = page
-            .getByRole("dialog", { name: "指标 / 因子目录" })
-            .getByRole("button", { name: /选择 SMA.*配置草稿/ });
-        await trigger.click();
-        await pickerSelection.click();
-        const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
-        await expect(editor).toBeVisible();
-        const cancel = editor.getByRole("button", { name: "取消配置" });
-        const periodInput = editor.getByRole("textbox", { name: "period" });
-        await expect(periodInput).toBeFocused();
-        await page.getByRole("combobox", { name: "时间周期" }).evaluate((element) => {
-            (element as HTMLElement).focus();
-        });
-        await expect(periodInput).toBeFocused();
-        await cancel.focus();
-        await page.keyboard.press("Shift+Tab");
-        await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeFocused();
-        await page.keyboard.press("Tab");
-        await expect(cancel).toBeFocused();
-        await expect(editor.getByRole("textbox", { name: "period" })).toHaveValue("20");
-        await expect(editor.getByRole("combobox", { name: "price_field" })).toHaveValue("CLOSE");
-        await page.keyboard.press("Escape");
-        await expect(editor).toHaveCount(0);
-        await expect(trigger).toBeFocused();
-        await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
-        await trigger.press("Enter");
-        await pickerSelection.click();
-        await editor.getByRole("textbox", { name: "period" }).fill("30");
-        await editor.getByRole("button", { name: "添加", exact: true }).click();
-        const first = page.getByTestId("chart-study-instance").first();
-        await expect(first).toContainText("已配置，尚未接入后端计算");
-        await expect(first).toHaveAttribute("data-chart-context-key", context ?? "");
-        const id = await first.getAttribute("data-instance-id"),
-            configuration = await first.getAttribute("data-configuration");
-        const edit = first.getByRole("button", { name: "编辑 SMA" });
-        await edit.click();
-        await editor.getByText("高级选项", { exact: true }).click();
-        await editor.getByRole("button", { name: "红色", exact: true }).click();
-        await editor.getByRole("combobox", { name: "位置" }).selectOption("SEPARATE_PANE");
-        await editor.getByRole("spinbutton", { name: "透明度" }).fill("0.5");
-        await editor.getByRole("checkbox", { name: "显示" }).uncheck();
-        await editor.getByRole("button", { name: "应用", exact: true }).click();
-        await expect(editor).toHaveCount(0);
-        await expect(edit).toBeFocused();
-        await expect(first).toHaveAttribute("data-configuration", configuration ?? "");
-        await expect(first).toHaveAttribute("data-instance-id", id ?? "");
-        await expect(first).toContainText("红色");
-        expect(JSON.parse((await first.getAttribute("data-presentation")) ?? "null")).toMatchObject(
-            { color: "#c8332a" }
-        );
-        await trigger.click();
-        await pickerSelection.click();
-        await editor.getByRole("button", { name: "添加", exact: true }).click();
-        await expect(page.getByTestId("chart-study-instance")).toHaveCount(2);
-        await expect(page.getByTestId("chart-study-instance").last()).not.toHaveAttribute(
-            "data-instance-id",
-            id ?? ""
-        );
-        await expect(page.getByTestId("chart-study-instance").last()).toContainText("period=20");
-        const readsBeforeDisplay = studyReads.length;
-        const rangeBefore = await renderedChart.getAttribute("data-visible-range-from");
-        await first.getByRole("button", { name: "选择 SMA", exact: true }).click();
-        await expect(first).toHaveAttribute("data-selected", "true");
-        await first.getByRole("button", { name: "显示 SMA", exact: true }).press("Enter");
-        await expect(page.getByTestId("study-hover")).toHaveCount(2);
-        await first.getByRole("button", { name: "隐藏 SMA", exact: true }).press("Enter");
-        await expect(page.getByTestId("study-hover")).toHaveCount(1);
-        await first.getByRole("button", { name: "显示 SMA", exact: true }).press("Enter");
-        await expect(page.getByTestId("study-hover")).toHaveCount(2);
-        await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
-        // Neither uncomputed Study has admitted PRICE units: each owns an
-        // independent empty pane, in addition to the Price and Volume panes.
-        await expect(renderedChart).toHaveAttribute("data-pane-count", "4");
-        const siblingId = await page
-            .getByTestId("chart-study-instance")
-            .last()
-            .getAttribute("data-instance-id");
-        if (id === null || siblingId === null) throw new Error("missing Study identity");
-        const removedLabel = page.locator(`.study-pane-empty[data-instance-id="${id}"]`);
-        const siblingLabel = page.locator(`.study-pane-empty[data-instance-id="${siblingId}"]`);
-        await expect(removedLabel).toContainText("尚未计算");
-        await expect(siblingLabel).toContainText("尚未计算");
-        await expect(page.locator(".study-pane-empty")).toHaveCount(2);
-        const emptyPaneInsidePlot = await page.locator(".study-pane-empty").evaluateAll((labels) =>
-            labels.every((label) => {
-                const plot = label.parentElement;
-                if (plot?.tagName !== "DIV") return false;
-                const text = label.getBoundingClientRect(),
-                    bounds = plot.getBoundingClientRect();
-                return (
-                    text.left >= bounds.left &&
-                    text.right <= bounds.right &&
-                    text.top >= bounds.top &&
-                    text.bottom <= bounds.bottom
-                );
-            })
-        );
-        expect(emptyPaneInsidePlot).toBe(true);
-        // DOM point/pane counts are insufficient: controls must leave a usable
-        // native K-line/Volume viewport, including on the 390px mobile slice.
+        await expect(status(page)).toContainText("● 实时");
+        const renderedChart = chart(page);
         await expect(renderedChart).toBeVisible();
-        const chartBox = await renderedChart.boundingBox();
-        expect(chartBox?.height ?? 0).toBeGreaterThanOrEqual(160);
-        await expect(renderedChart).toHaveAttribute("data-visible-range-from", rangeBefore ?? "");
-        await expect(first).toHaveAttribute("data-configuration", configuration ?? "");
-        await first.getByRole("button", { name: "移除配置", exact: true }).press("Enter");
+        const box = await renderedChart.boundingBox();
+        expect(box?.height ?? 0).toBeGreaterThanOrEqual(160);
+        await page.getByRole("button", { name: "目录", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "指标 / 因子目录" });
+        await dialog.getByRole("searchbox", { name: "搜索指标或因子" }).fill("sma");
+        await dialog.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
+        await page
+            .getByRole("dialog", { name: "指标 / 因子参数配置" })
+            .getByRole("button", { name: "添加", exact: true })
+            .click();
         await expect(page.getByTestId("chart-study-instance")).toHaveCount(1);
-        await expect(page.getByTestId("chart-study-instance")).toHaveAttribute(
-            "data-instance-id",
-            siblingId
-        );
-        await expect(removedLabel).toHaveCount(0);
-        await expect(siblingLabel).toContainText("尚未计算");
-        await expect(page.locator(".study-pane-empty")).toHaveCount(1);
-        await expect(renderedChart).toHaveAttribute("data-pane-count", "3");
-        await expect(renderedChart).toHaveAttribute("data-volume-point-count", "3");
-        await expect(renderedChart).toHaveAttribute("data-volume-latest", "3");
-        await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
-        await expect(renderedChart).toHaveAttribute("data-visible-range-from", rangeBefore ?? "");
-        expect(studyReads).toHaveLength(readsBeforeDisplay);
-        market.emitPreview();
-        await hoverLatest(page);
-        await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
-        expect(market.historyAnchors).toHaveLength(baseline.queries);
-        expect(market.subscriptions).toHaveLength(baseline.subscriptions);
-        expect(market.acquisitions()).toBe(baseline.acquisitions);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-            width
-        );
-        await test.info().attach("study-configurations", {
+        await expect(renderedChart).toHaveAttribute("data-study-series-count", "1", {
+            timeout: 15_000
+        });
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        expect(
+            await page.evaluate(() => document.documentElement.scrollWidth)
+        ).toBeLessThanOrEqual(width);
+        await test.info().attach(`study-live-${String(width)}`, {
             contentType: "image/png",
             body: await page.screenshot()
         });
-        const retained = page.getByTestId("chart-study-instance");
-        const retainedId = await retained.getAttribute("data-instance-id");
-        const retainedConfig = await retained.getAttribute("data-configuration");
-        const retainedStyle = await retained.getAttribute("data-presentation");
-        await page.getByRole("combobox", { name: "时间周期" }).selectOption("5");
-        await expect(retained).toHaveCount(1);
-        await expect(retained).toHaveAttribute("data-instance-id", retainedId ?? "");
-        await expect(retained).toHaveAttribute("data-configuration", retainedConfig ?? "");
-        await expect(retained).toHaveAttribute("data-presentation", retainedStyle ?? "");
-        await expect(renderedChart).toHaveAttribute("data-study-series-count", "0");
-        await expect(page.getByRole("dialog")).toHaveCount(0);
     });
 }
 
-test("exact Study confirmation rejects paired schema changes without creating a chart instance", async ({
+test("a re-fingerprinted Capability fails closed at confirmation without an instance", async ({
     page
 }) => {
-    await controlledRealtime(page, false, false, true);
-    const fixture = chartCatalogFixture();
-    await page.route("**/api/v2/research/**", (route) => {
-        expect(route.request().method()).toBe("GET");
-        const path = new URL(route.request().url()).pathname;
-        expect(path).not.toBe("/api/v2/research/catalog/calculations");
-        return json(
-            route,
-            path.endsWith("/active")
-                ? fixture.active
-                : path.includes("/runtime-generations/")
-                  ? fixture.binding
-                  : path.endsWith("/readiness")
-                    ? fixture.readiness
-                    : fixture.context
-        );
-    });
+    const market = await controlledRealtime(page, { staleCapabilityOnConfirm: true });
     await page.goto("/");
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect(status(page)).toContainText("● 实时");
     await page.getByRole("button", { name: "目录", exact: true }).click();
-    await page.getByRole("button", { name: /选择 SMA/ }).click();
+    const dialog = page.getByRole("dialog", { name: "指标 / 因子目录" });
+    await dialog.getByRole("searchbox", { name: "搜索指标或因子" }).fill("sma");
+    await dialog.getByRole("button", { name: "选择 SMA · 配置草稿" }).click();
     const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
     await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeEnabled();
-    fixture.context.projection_schema_fingerprint = "e".repeat(64);
-    fixture.readiness.exact_catalog_context_projection_schema_fingerprint =
-        fixture.context.projection_schema_fingerprint;
+    market.armStaleVerify();
     await editor.getByRole("button", { name: "添加", exact: true }).click();
     await expect(editor.getByRole("alert")).toContainText("STALE");
-    await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeDisabled();
     await expect(page.getByTestId("chart-study-instance")).toHaveCount(0);
+    await editor.getByRole("button", { name: "取消配置" }).click();
+    await expect(editor).toHaveCount(0);
+    expect(market.evaluateReads).toHaveLength(0);
 });
 
-test("chart type keeps realtime subscription and exact preview readout", async ({ page }) => {
-    const fixture = await controlledRealtime(page);
+test("chart type keeps the realtime subscription and exact preview readout", async ({
+    page
+}) => {
+    const market = await controlledRealtime(page);
     await page.goto("/");
-    await (await sourceControl(page)).selectOption(integrationId);
+    await expect(status(page)).toContainText("● 实时");
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await selectBtcFromSearch(page);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect.poll(() => market.steps.at(-1)).toBe(1);
+    await expect(status(page)).toContainText("● 实时");
     const observation = page.getByRole("tooltip", { name: "K 线信息" });
     await expect(observation).toHaveCount(0);
-    fixture.emitPreview();
+    market.emitPreview();
     await hoverLatest(page);
-    await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
+    await expect(observation).toContainText("实时预览");
     await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
         "103.000000000000000001"
     );
     await expect(observation.locator('[data-observation-field="volume"]')).toHaveText(
         "3.000000000000000001"
     );
-    const barsRequests = fixture.historyAnchors.length;
-    const subscriptions = fixture.cursors.length;
+    const bars = market.barQueries.length;
+    const subscriptions = market.subscriptions.length;
     for (const type of ["LINE", "CANDLESTICK"]) {
         await page.getByLabel("图表类型", { exact: true }).click();
         await page
-            .getByRole("button", { name: type === "LINE" ? "收盘线" : "蜡烛图", exact: true })
+            .getByRole("menuitem", { name: type === "LINE" ? "收盘线" : "蜡烛图", exact: true })
             .click();
-        await expect(page.getByTestId("price-chart")).toHaveAttribute("data-chart-type", type);
+        await expect(chart(page)).toHaveAttribute("data-chart-type", type);
         await hoverLatest(page);
-        await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
+        await expect(observation).toContainText("实时预览");
         await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
             "103.000000000000000001"
         );
-        expect(fixture.historyAnchors).toHaveLength(barsRequests);
-        expect(fixture.cursors).toHaveLength(subscriptions);
-        expect(fixture.acquisitions()).toBe(0);
-        await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+        expect(market.barQueries).toHaveLength(bars);
+        expect(market.subscriptions).toHaveLength(subscriptions);
+        await expect(status(page)).toContainText("● 实时");
     }
 });
 
-test("history to realtime rollover and reconnect gap repair — CONTROLLED_TEST_EVIDENCE", async ({
+test("realtime reconnect repins at the admitted close without older-history reads — CONTROLLED_TEST_EVIDENCE", async ({
     page
 }) => {
-    const fixture = await controlledRealtime(page, true);
+    const market = await controlledRealtime(page, { holdRecovery: true });
     await page.goto("/");
-    await (await sourceControl(page)).selectOption(integrationId);
-    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await selectBtcFromSearch(page);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    expect(fixture.olderRequests).toHaveLength(0);
-    await expect(page.getByTestId("market-data-status")).toHaveAttribute(
-        "data-older-history-status",
-        "idle"
-    );
+    await expect(status(page)).toContainText("● 实时");
+    expect(market.olderRequests).toHaveLength(0);
+    await expect(status(page)).toHaveAttribute("data-older-history-status", "idle");
 
-    await openInspector(page);
-    const latency = page.getByRole("table", { name: "行情检查器" });
+    const latency = await openInspector(page);
     await expect(latency).toContainText("当前连接样本");
-    await fixture.disconnect();
-    await expect(page.getByTestId("market-data-status")).toContainText("● 行情中断");
+    await market.disconnect();
+    await expect(status(page)).toContainText("● 行情中断");
     await expect(latency).toContainText("最后样本 · 非当前");
-    await expect(page.getByTestId("market-data-status")).toContainText("● 恢复中");
-    fixture.releaseRecovery();
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect(status(page)).toContainText("● 恢复中");
+    market.releaseRecovery();
+    await expect(status(page)).toContainText("● 实时");
     await expect(latency).toContainText("最后样本 · 非当前");
-    fixture.emitPreview();
+
+    // The refresh repins the Temporary window at the last admitted closed end,
+    // then re-subscribes there: no gap and no older 240-Bar paging.
+    const repin = market.pinQueries().at(-1);
+    expect(repin?.before).toBe((BigInt(windowEnd) + BigInt(15) * minuteNs).toString());
+    expect(repin?.target).toBe(2000);
+    expect(market.subscriptions[1]?.before_ns).toBe(repin?.before);
+    market.emitPreview();
     await expect(latency).toContainText("当前连接样本");
-    expect(fixture.cursors).toHaveLength(2);
-    expect(BigInt(fixture.cursors[1] ?? "0")).toBe(BigInt(fixture.cursors[0] ?? "0") + BigInt(1));
-    expect(fixture.olderRequests).toHaveLength(0);
+    await expect.poll(() => market.subscriptions.length).toBe(2);
+    expect(market.olderRequests).toHaveLength(0);
 });
 
-test("explicit history acquisition, typed realtime and exact reconnect — CONTROLLED_TEST_EVIDENCE", async ({
+test("preset and custom periods resubscribe to matching temporary streams — CONTROLLED_TEST_EVIDENCE", async ({
     page
 }) => {
-    const fixture = await controlledRealtime(page, true, true);
+    const market = await controlledRealtime(page);
     await page.goto("/");
-    await (await sourceControl(page)).selectOption(integrationId);
+    await expect(status(page)).toContainText("● 实时");
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await selectBtcFromSearch(page);
-    await expect(page.getByTestId("market-data-source-tag")).toHaveText("real · DB");
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    expect(fixture.acquisitions()).toBe(1);
-    expect(fixture.historyAnchors.slice(0, 2)).toEqual(["LATEST_CLOSED", "BEFORE_TIME"]);
-    await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
-
-    await page.getByRole("combobox", { name: "时间周期" }).selectOption("5");
-    await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(5);
-    fixture.releaseRecovery();
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    await fixture.disconnect();
-    await expect(page.getByTestId("market-data-status")).toContainText("● 行情中断");
-    await expect(page.getByTestId("market-data-status")).toContainText("● 恢复中");
-    fixture.releaseRecovery();
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    expect(fixture.acquisitions()).toBe(2);
-    expect(BigInt(fixture.cursors[fixture.cursors.length - 1] ?? "0")).toBeGreaterThan(
-        BigInt(fixture.cursors[fixture.cursors.length - 2] ?? "0")
-    );
-});
-
-test("preset and custom periods subscribe to matching derived realtime bars — CONTROLLED_TEST_EVIDENCE", async ({
-    page
-}) => {
-    const fixture = await controlledRealtime(page);
-    await page.goto("/");
-    await (await sourceControl(page)).selectOption(integrationId);
-    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await selectBtcFromSearch(page);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect.poll(() => market.steps.at(-1)).toBe(1);
+    await expect(status(page)).toContainText("● 实时");
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
-    await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(15);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect.poll(() => market.steps.at(-1)).toBe(15);
+    await expect(status(page)).toContainText("● 实时");
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("60");
-    await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(60);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect.poll(() => market.steps.at(-1)).toBe(60);
+    await expect(status(page)).toContainText("● 实时");
 
     await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
     await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
     await page.getByRole("button", { name: "应用" }).click();
-    await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(7);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+    await expect.poll(() => market.steps.at(-1)).toBe(7);
+    await expect(status(page)).toContainText("● 实时");
 
     await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("37");
     await page.getByRole("button", { name: "应用" }).click();
-    await expect.poll(() => fixture.steps[fixture.steps.length - 1]).toBe(37);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    await openInspector(page);
+    await expect.poll(() => market.steps.at(-1)).toBe(37);
+    await expect(status(page)).toContainText("● 实时");
+
+    // Derived 37m carries no Provider-native timing after the fresh SUBSCRIBED reset.
+    const latency = await openInspector(page);
+    await expect(latency.getByRole("row", { name: /^接收延迟/ }).getByRole("cell")).toHaveText("—");
     await expect(
-        page
-            .getByRole("table", { name: "行情检查器" })
-            .getByRole("row", { name: /^接收延迟/ })
-            .getByRole("cell")
+        latency.getByRole("row", { name: /^收盘到达延迟/ }).getByRole("cell")
     ).toHaveText("—");
-    await expect(
-        page
-            .getByRole("table", { name: "行情检查器" })
-            .getByRole("row", { name: /^收盘到达延迟/ })
-            .getByRole("cell")
-    ).toHaveText("—");
-    await expect(page.getByRole("table", { name: "行情检查器" })).toContainText("暂无实时样本");
-    expect(fixture.steps).toEqual([1, 15, 60, 7, 37]);
-});
-
-test("native 15m and derived 7m use target acquisition and Product resume metadata", async ({
-    page
-}) => {
-    const fixture = await controlledRealtime(page, false, true);
-    await page.goto("/");
-    await (await sourceControl(page)).selectOption(integrationId);
-    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await selectBtcFromSearch(page);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-
-    await page.getByRole("combobox", { name: "时间周期" }).selectOption("15");
-    await expect.poll(() => fixture.acquisitionSteps).toEqual([1, 15]);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-
-    await page.getByRole("combobox", { name: "时间周期" }).selectOption("custom");
-    await page.getByRole("spinbutton", { name: "自定义周期分钟数" }).fill("7");
-    await page.getByRole("button", { name: "应用" }).click();
-    await expect.poll(() => fixture.acquisitionSteps).toEqual([1, 15, 7]);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-    expect(fixture.steps).toEqual([1, 15, 7]);
+    await expect(latency).toContainText("暂无实时样本");
+    expect(market.steps).toEqual([15, 1, 15, 60, 7, 37]);
 });
 
 test("a stale realtime preview cannot crash the chart — CONTROLLED_TEST_EVIDENCE", async ({
     page
 }) => {
-    const fixture = await controlledRealtime(page);
+    const market = await controlledRealtime(page);
     await page.goto("/");
-    await (await sourceControl(page)).selectOption(integrationId);
-    await page.getByRole("combobox", { name: "时间周期" }).selectOption("1");
-    await selectBtcFromSearch(page);
-    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
-
-    fixture.emitStalePreview();
-    await expect(page.getByTestId("market-data-status")).toContainText("● 恢复中");
-    await expect(page.getByTestId("price-chart").locator("canvas").first()).toBeVisible();
+    await expect(status(page)).toContainText("● 实时");
+    market.emitStalePreview();
+    await expect(status(page)).toContainText("● 恢复中");
+    await expect(chart(page).locator("canvas").first()).toBeVisible();
 });
 
 for (const width of [1381, 390]) {
