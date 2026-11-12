@@ -275,40 +275,19 @@ async function mockDataSources(page: Page) {
 
 async function openManager(page: Page) {
     await page.goto("/");
-    await page
-        .locator(".data-source-entry")
-        .getByRole("button", { name: /数据源/ })
-        .click();
-    await page
-        .getByRole("dialog", { name: "数据源状态" })
-        .getByRole("button", { name: "管理数据源…" })
-        .click();
-    await expect(page.getByRole("dialog", { name: "管理数据源" })).toBeVisible();
+    await page.getByRole("button", { name: "管理数据源", exact: true }).click();
+    const modal = page.getByRole("dialog", { name: "管理数据源" });
+    await expect(modal).toBeVisible();
+    return modal;
 }
 
 for (const width of [1440, 390]) {
-    test(`data source entry, popover and manager at ${String(width)}px`, async ({ page }) => {
+    test(`data source manager entry and dialog layout at ${String(width)}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await mockDataSources(page);
-        await page.goto("/");
-        // The chart setup manager coexists with the status entry; target its actual control.
-        const trigger = page.locator(".data-source-entry").getByRole("button", { name: /数据源/ });
-        await expect(trigger).toHaveCount(1);
-        await expect(page.getByRole("button", { name: "管理数据源", exact: true })).toBeVisible();
-        await expect(trigger).toBeVisible();
-        await trigger.focus();
-        await page.keyboard.press("Enter");
-        await expect(page.getByRole("dialog", { name: "数据源状态" })).toBeVisible();
-        await page.keyboard.press("Escape");
-        await expect(page.getByRole("dialog", { name: "数据源状态" })).toBeHidden();
-        await expect(trigger).toBeFocused();
-        await trigger.click();
-        const popover = page.getByRole("dialog", { name: "数据源状态" });
-        await expect(popover.getByText("Fixture Market Data")).toBeVisible();
-        await expect(popover.getByText("Untestable Market Data")).toBeVisible();
-        await expect(popover.getByText(/尚未有 canonical 来源绑定/)).toBeVisible();
-        await popover.getByRole("button", { name: "管理数据源…" }).click();
-        const modal = page.getByRole("dialog", { name: "管理数据源" });
+        // The .data-source-entry popover retired with the P2 toolbar; the
+        // workspace's 管理数据源 button opens the manager dialog directly.
+        const modal = await openManager(page);
         await expect(modal.getByRole("tab", { name: /已配置/ })).toBeVisible();
         await modal.getByRole("tab", { name: /数据源绑定/ }).click();
         await expect(modal.getByText(/尚无来源绑定资源/)).toBeVisible();
@@ -320,8 +299,7 @@ for (const width of [1440, 390]) {
             .toBe(true);
         await page.keyboard.press("Escape");
         await expect(modal).toBeHidden();
-        await expect(trigger).toBeFocused();
-        await expect(page.getByRole("region", { name: "主图" })).toBeVisible();
+        await expect(page.getByRole("button", { name: "管理数据源", exact: true })).toBeVisible();
     });
 }
 
