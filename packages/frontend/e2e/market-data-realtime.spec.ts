@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
     chart,
     controlledRealtime,
-    hoverLatest,
+    hoverPreview,
     integrationId,
     minuteNs,
     openInspector,
@@ -80,7 +80,7 @@ test("default LIVE workspace subscribes at 15m and merges Temporary preview and 
     await expect(latency.getByRole("row", { name: /^收盘到达延迟/ }).getByRole("cell")).toHaveText(
         "2 ms"
     );
-    await hoverLatest(page);
+    await hoverPreview(page);
     const observation = page.getByRole("tooltip", { name: "K 线信息" });
     await expect(observation).toContainText("实时预览");
     await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
@@ -146,7 +146,7 @@ for (const width of [1440, 1024, 390]) {
         await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toHaveCount(0);
         await expect(chart(page)).toHaveAttribute("data-chart-context-key", context ?? "");
         market.emitPreview();
-        await hoverLatest(page);
+        await hoverPreview(page);
         await expect(page.getByRole("tooltip", { name: "K 线信息" })).toContainText("实时预览");
         expect(market.barQueries).toHaveLength(baseline.bars);
         // Escape bubbles through the settings drawer's cancel path, which re-reads
@@ -317,7 +317,7 @@ test("chart type keeps the realtime subscription and exact preview readout", asy
     const observation = page.getByRole("tooltip", { name: "K 线信息" });
     await expect(observation).toHaveCount(0);
     market.emitPreview();
-    await hoverLatest(page);
+    await hoverPreview(page);
     await expect(observation).toContainText("实时预览");
     await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
         "103.000000000000000001"
@@ -333,7 +333,7 @@ test("chart type keeps the realtime subscription and exact preview readout", asy
             .getByRole("menuitem", { name: type === "LINE" ? "收盘线" : "蜡烛图", exact: true })
             .click();
         await expect(chart(page)).toHaveAttribute("data-chart-type", type);
-        await hoverLatest(page);
+        await hoverPreview(page);
         await expect(observation).toContainText("实时预览");
         await expect(observation.locator('[data-observation-field="close"]')).toHaveText(
             "103.000000000000000001"

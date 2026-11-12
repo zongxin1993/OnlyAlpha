@@ -465,6 +465,24 @@ export async function hoverLatest(page: Page) {
     await page.mouse.move(x, canvas.y + canvas.height / 2);
 }
 
+// A fresh Preview may merge one frame after the stream write; re-hovering keeps
+// the crosshair pinned to the newest Bar instead of the previous last close.
+export async function hoverPreview(page: Page) {
+    await expect
+        .poll(
+            async () => {
+                await hoverLatest(page);
+                const text = await page
+                    .getByRole("tooltip", { name: "K 线信息" })
+                    .textContent()
+                    .catch(() => "");
+                return (text ?? "").includes("实时预览");
+            },
+            { timeout: 10_000 }
+        )
+        .toBe(true);
+}
+
 export async function openInspector(page: Page) {
     const inspector = page.getByRole("group", { name: "行情检查器" });
     await inspector.locator("summary").click();
