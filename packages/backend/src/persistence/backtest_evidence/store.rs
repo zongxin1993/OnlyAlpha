@@ -1,6 +1,7 @@
 //! One immutable Evidence owner. Only the concrete positively joined producer may publish.
 use super::{
     BUDGET, BacktestReadContext, CompletionProof, INVALID, Manifest, Result, UNAVAILABLE,
+    context::cut_verify_stats,
     physical::{self, Bundle},
 };
 use crate::{
@@ -19,13 +20,36 @@ use onlyalpha_backtest::{RunSpec, TerminalSnapshot};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
+    io::Write,
     os::fd::AsFd,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Instant,
 };
 const HISTORICAL: &str = "BACKTEST_HISTORICAL_READER_UNAVAILABLE";
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
     v[k].as_str().ok_or(INVALID)
+}
+/// 完成证据发布自身的分阶段耗时，只用于诊断重复遍历的占比，不改变任何返回码或顺序。
+fn phase(name: &str, started: Instant) {
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "BACKTEST_EVIDENCE_PHASE name={name} elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+}
+/// 发布路径的拒绝点很多都收敛到同一个码，这里记下真正的出处供定位。
+fn note(check: &'static str, detail: &dyn std::fmt::Debug) {
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "BACKTEST_EVIDENCE_REFUSED check={check} detail={detail:?}"
+    );
+}
+/// 透传同一错误码，仅补记出处。
+fn logged<T>(check: &'static str, result: Result<T>) -> Result<T> {
+    result.inspect_err(|code| {
+        note(check, code);
+    })
 }
 pub(super) struct Cut {
     context: BacktestReadContext,
@@ -225,6 +249,15 @@ impl Store {
         &self,
         context: &BacktestReadContext,
     ) -> Result<Option<VerifiedEvidence>> {
+        let started = Instant::now();
+        let outcome = self.read_verified_inner(context);
+        phase("read_verified", started);
+        outcome
+    }
+    fn read_verified_inner(
+        &self,
+        context: &BacktestReadContext,
+    ) -> Result<Option<VerifiedEvidence>> {
         self.require_context(context)?;
         let source =
             Arc::new(SourceLock::publication(&self.evidence.path).map_err(|_| UNAVAILABLE)?);
@@ -313,7 +346,8 @@ impl Store {
             .transpose()
     }
     pub(crate) fn commit(&self, joined: JoinedBacktest) -> Result<CompletionProof> {
-        joined.verify_cut()?;
+        let started = Instant::now();
+        logged("joined_cut", joined.verify_cut())?;
         let context = joined.read_context();
         self.require_context(context)?;
         // Existing corrupt history is never an invitation to overwrite it.
@@ -332,20 +366,35 @@ impl Store {
             joined.verify_cut()?;
             return existing.completion();
         }
-        let snapshot = self.terminal(context)?;
+        let marker = Instant::now();
+        let snapshot = logged("terminal", self.terminal(context))?;
+        phase("terminal", marker);
+        let marker = Instant::now();
         let actual =
-            ObservedBacktest::from_terminal(context.prepared(), &snapshot).map_err(|_| INVALID)?;
+            ObservedBacktest::from_terminal(context.prepared(), &snapshot).map_err(|error| {
+                note("from_terminal", &error.0);
+                INVALID
+            })?;
+        phase("from_terminal", marker);
         if actual.record() != joined.observation().record()
             || actual.result() != joined.observation().result()
             || actual.proof() != joined.observation().proof()
             || actual.trace() != joined.observation().trace()
         {
+            note("observed_record_mismatch", &"record/result/proof/trace");
             return Err(INVALID);
         }
         let (manifest, files) = contents(context, &actual)?;
-        source.verify().map_err(|_| INVALID)?;
-        joined.verify_cut()?;
-        snapshot.verify_cut().map_err(|_| INVALID)?;
+        source.verify().map_err(|code| {
+            note("source_verify_pre_put", &code);
+            INVALID
+        })?;
+        logged("joined_cut_pre_put", joined.verify_cut())?;
+        snapshot.verify_cut().map_err(|error| {
+            note("snapshot_verify_pre_put", &error.0);
+            INVALID
+        })?;
+        let marker = Instant::now();
         immutable_json::put_bundle_at(
             self.evidence.fd.as_fd(),
             &[
@@ -356,11 +405,22 @@ impl Store {
             &files,
             BUDGET,
         )
-        .map_err(|_| INVALID)?;
-        source.verify().map_err(|_| INVALID)?;
-        joined.verify_cut()?;
-        snapshot.verify_cut().map_err(|_| INVALID)?;
+        .map_err(|code| {
+            note("put_bundle", &code);
+            INVALID
+        })?;
+        phase("put_bundle", marker);
+        source.verify().map_err(|code| {
+            note("source_verify_post_put", &code);
+            INVALID
+        })?;
+        logged("joined_cut_post_put", joined.verify_cut())?;
+        snapshot.verify_cut().map_err(|error| {
+            note("snapshot_verify_post_put", &error.0);
+            INVALID
+        })?;
         if self.find(joined.run().run_id())?.as_deref() != Some(manifest.fingerprint()) {
+            note("find_after_put_mismatch", &manifest.fingerprint());
             return Err(INVALID);
         }
         // Release the membership barrier before obtaining the retained read cut.
@@ -373,6 +433,14 @@ impl Store {
         let proof = verified.completion()?;
         joined.verify_cut()?;
         proof.verify_cut()?;
+        let (count, ms) = cut_verify_stats();
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "BACKTEST_EVIDENCE_COMMIT_TOTAL elapsed_ms={} cut_verify_count={} cut_verify_ms={}",
+            started.elapsed().as_millis(),
+            count,
+            ms
+        );
         Ok(proof)
     }
 }
@@ -387,6 +455,15 @@ fn compare_observation(value: &VerifiedEvidence, actual: &ObservedBacktest) -> R
     value.verify_cut()
 }
 fn contents(
+    context: &BacktestReadContext,
+    observed: &ObservedBacktest,
+) -> Result<(Manifest, BTreeMap<String, Vec<u8>>)> {
+    let started = Instant::now();
+    let outcome = bundle_contents(context, observed);
+    phase("contents", started);
+    outcome
+}
+fn bundle_contents(
     context: &BacktestReadContext,
     observed: &ObservedBacktest,
 ) -> Result<(Manifest, BTreeMap<String, Vec<u8>>)> {

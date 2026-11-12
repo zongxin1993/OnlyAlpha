@@ -24,9 +24,14 @@ use crate::{
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
+    io::Write,
     os::fd::AsFd,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Instant,
 };
 use tokio_postgres::Client;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -38,6 +43,33 @@ fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
 }
 fn worker(code: crate::application::research_admission::PreparationError) -> &'static str {
     code.code()
+}
+/// 读切面校验自身的次数与累计耗时。完成证据路径会反复调用它，需要知道它占多少代价。
+static CUT_VERIFY_COUNT: AtomicU64 = AtomicU64::new(0);
+static CUT_VERIFY_MS: AtomicU64 = AtomicU64::new(0);
+/// 供完成证据发布打印占比使用，只统计本进程内的读切面校验。
+pub(crate) fn cut_verify_stats() -> (u64, u64) {
+    (
+        CUT_VERIFY_COUNT.load(Ordering::Relaxed),
+        CUT_VERIFY_MS.load(Ordering::Relaxed),
+    )
+}
+/// 记录读切面内部哪一项拒绝以及它自带的错误码，返回给调用方的码保持不变。
+fn probe<T>(check: &'static str, result: Result<T>) -> Result<T> {
+    result.inspect_err(|&code| {
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "BACKTEST_EVIDENCE_CUT_FAILURE check={check} code={code}"
+        );
+    })
+}
+/// 同上，用于本模块自身的比较失败，调用方仍只看到 INVALID。
+fn refused(check: &'static str) -> &'static str {
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "BACKTEST_EVIDENCE_CUT_FAILURE check={check} code={INVALID}"
+    );
+    INVALID
 }
 
 #[derive(Clone)]
@@ -96,32 +128,58 @@ impl BacktestReadContext {
         }
         Ok(())
     }
+    /// 计时只覆盖一次完整读切面校验，用于回答重复校验各占多少代价。
     pub(crate) fn verify_cut(&self) -> Result<()> {
-        self.owners.history.verify_cut()?;
-        self.owners.runtime.verify()?;
-        self.owners.dataset_cut.verify()?;
+        let started = Instant::now();
+        let outcome = self.verify_sources();
+        CUT_VERIFY_COUNT.fetch_add(1, Ordering::Relaxed);
+        CUT_VERIFY_MS.fetch_add(
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
+        outcome
+    }
+    /// 合法读切面必须同时成立的历史、Runtime、Dataset 与策略授权证据。
+    fn verify_sources(&self) -> Result<()> {
+        probe("history", self.owners.history.verify_cut())?;
+        probe("runtime", self.owners.runtime.verify())?;
+        probe("dataset_cut", self.owners.dataset_cut.verify())?;
         if let Some(validation) = &self.owners.validation {
-            validation.require_backtest_inputs(
-                &self.operation,
-                self.source_revision(),
-                &self.owners.dataset,
+            probe(
+                "validation",
+                validation.require_backtest_inputs(
+                    &self.operation,
+                    self.source_revision(),
+                    &self.owners.dataset,
+                ),
             )?;
         }
-        let again = MaterializedDataset::load(
-            &self.owners.datasets,
-            text(self.owners.dataset.lineage(), "materialization_id")?,
+        let again = probe(
+            "dataset_load",
+            MaterializedDataset::load(
+                &self.owners.datasets,
+                text(self.owners.dataset.lineage(), "materialization_id")?,
+            ),
         )?;
         if again.lineage() != self.owners.dataset.lineage()
             || again.verified().manifest() != self.owners.dataset.verified().manifest()
-            || self.owners.prepared.record() != self.run.resolution()["preparation"]
-            || self.owners.runtime.binding() != &self.run.resolution()["runtime_work_binding"]
-            || self.owners.runtime.backtest_binding_data()?
-                != self.run.resolution()["backtest_binding"]
         {
-            return Err(INVALID);
+            return Err(refused("dataset_lineage_drift"));
         }
-        self.owners.runtime.verify()?;
-        Ok(())
+        if self.owners.prepared.record() != self.run.resolution()["preparation"] {
+            return Err(refused("prepared_drift"));
+        }
+        if self.owners.runtime.binding() != &self.run.resolution()["runtime_work_binding"] {
+            return Err(refused("runtime_binding_drift"));
+        }
+        let binding = probe(
+            "backtest_binding",
+            self.owners.runtime.backtest_binding_data(),
+        )?;
+        if binding != self.run.resolution()["backtest_binding"] {
+            return Err(refused("backtest_binding_drift"));
+        }
+        probe("runtime_again", self.owners.runtime.verify())
     }
 }
 /// Original caller-owned readonly connection. No second socket, Command lock,

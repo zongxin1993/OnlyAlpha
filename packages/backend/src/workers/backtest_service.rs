@@ -638,6 +638,7 @@ pub(crate) fn produce(
                 }
             }
         }
+        let marker = std::time::Instant::now();
         let observation = if paused {
             None
         } else {
@@ -646,6 +647,12 @@ pub(crate) fn produce(
                     .map_err(|_| INVALID)?,
             )
         };
+        if !paused {
+            eprintln!(
+                "BACKTEST_PRODUCE_PHASE name=observe elapsed_ms={}",
+                marker.elapsed().as_millis()
+            );
+        }
         #[cfg(test)]
         let paused_trace = if paused {
             Some(run.trace().map_err(|_| UNAVAILABLE)?)
@@ -654,7 +661,12 @@ pub(crate) fn produce(
         };
         drop(run);
         children.join()?;
+        let marker = std::time::Instant::now();
         work.hold.verify()?;
+        eprintln!(
+            "BACKTEST_PRODUCE_PHASE name=hold_verify elapsed_ms={}",
+            marker.elapsed().as_millis()
+        );
         selected.verify()?;
         // No child or abandoned candidate may retain the lifetime after join.
         if Arc::strong_count(&work.hold) != 1 {
