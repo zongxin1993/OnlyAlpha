@@ -2,11 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 // Real Shipping UI and canonical native owners; no mocked Product responses.
 async function openSources(page: Page) {
-    await page.getByLabel("设置", { exact: true }).click();
-    await page
-        .locator(".workspace-settings")
-        .getByRole("button", { name: "管理数据源", exact: true })
-        .click();
+    await page.getByRole("button", { name: "管理数据源", exact: true }).click();
     return page.getByRole("dialog", { name: "管理数据源" });
 }
 
