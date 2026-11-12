@@ -56,6 +56,8 @@ cargo bench -p onlyalpha-backtest
 基准不设质量门禁，也不向仓库提交基线数字，测量结果留在任务上下文。
 本地无 Rust 工具链时使用固定开发环境执行：`python3 scripts/dev_verification.py run -- cargo bench -p onlyalpha-backtest`。
 
+步数口径（一步不等于一根 K 线）、计时边界、构建档与容器存储差异，以及外部开源口径的可比范围，统一见 [回测性能测量口径](../../docs/engineering/backtest_performance_notes.md)。
+
 集成测试位于 [`tests/`](tests/)，独立单元测试统一集中在 `src/tests/`，仍由原业务模块挂载并保留私有访问；内联测试可保留。 无外部服务依赖的库验证可在宿主机运行并记录平台；数据库或运行中应用验证使用固定 `onlyalpha-dev` 环境。
 
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。

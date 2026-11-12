@@ -60,6 +60,12 @@ cargo test -p onlyalpha-execution
 cargo doc -p onlyalpha-execution --no-deps
 ```
 
+增长探针 [`tests/chain_growth.rs`](tests/chain_growth.rs) 使用内存存储量化账户交易链随交易笔数的增长形态，并拆分夹具构造、`prepare` 与 `coordinate` 三段每步成本。它默认忽略、不设质量门禁；不写入数据库，绝对值低于真实回放，只用于同机同 profile 的相对比较。放在 `tests/` 而非 `benches/`，是因为 `scripts/rust_kernel_check.py` 只允许 `tests/` 下的文件用 `include_str!` 读取参考数据。口径与解读见 [回测性能测量口径](../../docs/engineering/backtest_performance_notes.md)。
+
+```sh
+cargo test -p onlyalpha-execution --release --test chain_growth -- --ignored --exact --nocapture
+```
+
 集成测试位于 [`tests/`](tests/)，独立单元测试统一集中在 `src/tests/`，仍由原业务模块挂载并保留私有访问；内联测试可保留。 无外部服务依赖的库验证可在宿主机运行并记录平台；数据库或运行中应用验证使用固定 `onlyalpha-dev` 环境。
 
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
