@@ -1,241 +1,179 @@
-import { expect, test } from "@playwright/test";
-import { chartCatalogFixture } from "./support/chartCatalog";
+import { expect, test, type Page } from "@playwright/test";
+import {
+    controlledRealtime,
+    fingerprint,
+    status,
+    studySample
+} from "./support/temporaryMarketData";
 
-for (const condition of [
-    "missing-catalog",
-    "missing-readiness",
-    "unsupported",
-    "duplicate",
-    "stale",
-    "disappeared",
-    "transport"
-] as const) {
-    test(`Catalog fails closed for ${condition} without submitting commands`, async ({ page }) => {
-        const fixture = chartCatalogFixture();
-        let activeReads = 0;
-        const requests: string[] = [];
-        if (condition === "missing-readiness")
-            fixture.readiness.ordered_calculation_readiness_capabilities = [];
-        if (condition === "unsupported") fixture.witness.readiness_contract_versions = [];
-        if (condition === "duplicate")
-            fixture.context.ordered_calculation_capabilities.push(fixture.capability);
-        await page.route("**/api/v2/research/**", async (route) => {
-            expect(route.request().method()).toBe("GET");
-            const path = new URL(route.request().url()).pathname;
-            requests.push(path);
-            let status = 200;
-            let body: unknown;
-            if (path.endsWith("/active")) {
-                activeReads++;
-                body = fixture.active;
-                if (condition === "stale" && activeReads > 1)
-                    body = { ...fixture.active, runtime_generation_fingerprint: "b".repeat(64) };
-                if (condition === "disappeared" && activeReads > 1) {
-                    status = 503;
-                    body = { detail: "RUNTIME_GENERATION_NOT_ACTIVE" };
-                }
-                if (condition === "transport") return route.abort("failed");
-            } else if (path.includes("/runtime-generations/")) body = fixture.binding;
-            else if (path.endsWith("/readiness")) body = fixture.readiness;
-            else {
-                body = fixture.context;
-                if (condition === "missing-catalog") {
-                    status = 404;
-                    body = { detail: "EXACT_CATALOG_CONTEXT_NOT_FOUND" };
-                }
-            }
-            await route.fulfill({
-                status,
-                contentType: "application/json",
-                body: JSON.stringify(body)
-            });
-        });
-        await page.goto("/");
-        await page.getByRole("button", { name: "目录", exact: true }).click();
-        const dialog = page.getByRole("dialog", { name: "指标 / 因子目录" });
-        if (condition === "missing-readiness" || condition === "unsupported")
-            await expect(dialog.getByRole("button", { name: /选择 SMA/ })).toBeDisabled();
-        else await expect(dialog.getByRole("alert")).toBeVisible();
-        await expect(page.getByTestId("calculation-handoff")).toHaveCount(0);
-        expect(requests.length).toBeGreaterThan(0);
-        expect(requests).not.toContain("/api/v2/research/catalog/calculations");
-        await page.keyboard.press("Escape");
-        await expect(dialog).toHaveCount(0);
-    });
+// The workspace catalog dialog renders the CHART_STUDY_TRANSIENT surface: the
+// official /api/v2/chart/studies/capabilities projection, never the Research
+// exact-registered path. Determinism comes from re-fingerprinted variants of
+// test-data/web/chart-studies/query.json so client admission self-verification
+// (api/chartStudies/client.ts readChartStudyCapabilities) passes unchanged.
+
+const variantLabels: readonly (readonly [string, string])[] = [
+    ["SMA", "onlyalpha.indicator.sma"],
+    ["变体乙", "onlyalpha.indicator.sma2"],
+    ["变体丙", "onlyalpha.indicator.sma3"],
+    ["变体丁", "onlyalpha.indicator.sma4"],
+    ["变体戊", "onlyalpha.indicator.sma5"],
+    ["变体己", "onlyalpha.indicator.sma6"],
+    ["变体庚", "onlyalpha.indicator.sma7"],
+    ["变体辛", "onlyalpha.indicator.sma8"]
+];
+
+// A Capability Identity variant: every field pairing the client admission
+// re-verifies (descriptor mirror, calculation_type_reference, presentation
+// mirror) moves together, then the canonical fingerprints are recomputed.
+async function capabilityVariant(
+    displayName: string,
+    typeId: string
+): Promise<Record<string, unknown>> {
+    const capability = structuredClone(studySample.capability) as Record<string, unknown> & {
+        capability_projection: Record<string, unknown>;
+        descriptor: Record<string, unknown>;
+        presentation: Record<string, unknown>;
+    };
+    const projection = capability.capability_projection;
+    const projectionDescriptor = projection.descriptor as Record<string, unknown>;
+    const projectionPresentation = projection.presentation as Record<string, unknown>;
+    const implementation = projection.implementation as Record<string, unknown>;
+    (implementation.calculation_type_reference as Record<string, unknown>).type_id = typeId;
+    capability.type_id = typeId;
+    capability.descriptor.type_id = typeId;
+    projectionDescriptor.type_id = typeId;
+    capability.presentation.display_name = displayName;
+    projectionPresentation.display_name = displayName;
+    capability.descriptor_fingerprint = await fingerprint(projectionDescriptor);
+    capability.capability_projection_fingerprint = await fingerprint(projection);
+    return capability;
 }
 
-test("Catalog selection detects a later active switch and clears previous handoff", async ({
+async function catalogVariants(): Promise<readonly Record<string, unknown>[]> {
+    const variants: Record<string, unknown>[] = [];
+    for (const [displayName, typeId] of variantLabels)
+        variants.push(await capabilityVariant(displayName, typeId));
+    return variants;
+}
+
+const openCatalog = async (page: Page) => {
+    await page.getByRole("button", { name: "目录", exact: true }).click();
+    return page.getByRole("dialog", { name: "指标 / 因子目录" });
+};
+
+test("the transient catalog pages eight Capabilities and hands one draft over", async ({
     page
 }) => {
-    const fixture = chartCatalogFixture();
-    let active = fixture.runtime;
-    await page.route("**/api/v2/research/**", (route) => {
-        expect(route.request().method()).toBe("GET");
-        const path = new URL(route.request().url()).pathname;
-        const body = path.endsWith("/active")
-            ? { ...fixture.active, runtime_generation_fingerprint: active }
-            : path.includes("/runtime-generations/")
-              ? fixture.binding
-              : path.endsWith("/readiness")
-                ? fixture.readiness
-                : fixture.context;
-        return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
+    const variants = await catalogVariants();
+    const researchRequests: string[] = [];
+    page.on("request", (request) => {
+        const path = new URL(request.url()).pathname;
+        if (path.startsWith("/api/v2/research/")) researchRequests.push(path);
     });
+    await controlledRealtime(page, { capabilities: () => variants });
     await page.goto("/");
-    const trigger = page.getByRole("button", { name: "目录", exact: true });
-    await trigger.click();
-    await page.getByRole("button", { name: /选择 SMA/ }).click();
-    await page.getByText("参数说明与技术详情", { exact: true }).click();
-    await expect(page.getByTestId("calculation-handoff")).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toHaveCount(0);
-    await trigger.click();
-    await expect(page.getByTestId("calculation-handoff")).toHaveCount(0);
-    const select = page.getByRole("button", { name: /选择 SMA/ });
-    await expect(select).toBeEnabled();
-    active = "b".repeat(64);
-    await select.click();
-    await expect(page.getByRole("alert")).toContainText("已切换");
-    await expect(page.getByTestId("calculation-handoff")).toHaveCount(0);
-    await expect(select).toHaveCount(0);
+    await expect(status(page)).toContainText("● 实时");
+    const dialog = await openCatalog(page);
+    await expect(
+        dialog.getByText("CHART_STUDY_TRANSIENT · DISPLAY_ONLY · 不是 Research Result")
+    ).toBeVisible();
+    await expect(dialog.getByRole("status")).toContainText("8 类指标");
+    const pagination = dialog.getByRole("navigation", { name: "目录分页" });
+    await expect(pagination).toContainText("共 8 项 · 第 1 / 2 页");
+    await expect(pagination.getByRole("button", { name: "上一页" })).toBeDisabled();
+    await pagination.getByRole("button", { name: "下一页" }).click();
+    await expect(pagination).toContainText("共 8 项 · 第 2 / 2 页");
+    await expect(dialog.getByRole("heading", { name: "变体庚", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "变体辛", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "SMA", exact: true })).toHaveCount(0);
+    await expect(pagination.getByRole("button", { name: "下一页" })).toBeDisabled();
+    await pagination.getByRole("button", { name: "上一页" }).click();
+    const technical = dialog.locator("details").first();
+    await technical.locator("summary").click();
+    await expect(technical).toContainText("onlyalpha.indicator.sma@1");
+    const search = dialog.getByRole("searchbox", { name: "搜索指标或因子" });
+    await search.fill("missing");
+    await expect(dialog.getByText("没有匹配的指标。")).toBeVisible();
+    await search.fill("变体辛");
+    await expect(pagination).toContainText("共 1 项 · 第 1 / 1 页");
+    await dialog.getByRole("button", { name: "选择 变体辛 · 配置草稿" }).click();
+    const handoff = page.getByTestId("calculation-handoff");
+    await expect(handoff).toHaveAttribute("data-registration-source", "CHART_STUDY_TRANSIENT");
+    await expect(handoff).toHaveAttribute("data-type-id", "onlyalpha.indicator.sma8");
+    await expect(handoff).toContainText("仅配置草稿，尚未计算");
+    expect(researchRequests).toEqual([]);
 });
 
-for (const width of [1440, 1024, 390]) {
-    test(`Registered catalog is searchable and selectable without Runtime at ${String(width)}px`, async ({
-        page
-    }) => {
-        await page.setViewportSize({ width, height: 900 });
-        const fixture = chartCatalogFixture();
-        const requests: string[] = [];
-        await page.route("**/api/v2/research/**", (route) => {
-            expect(route.request().method()).toBe("GET");
-            const path = new URL(route.request().url()).pathname;
-            requests.push(path);
-            expect([
-                "/api/v2/research/runtime-generations/active",
-                "/api/v2/research/catalog/calculations"
-            ]).toContain(path);
-            return route.fulfill({
-                status: path.endsWith("/active") ? 503 : 200,
-                contentType: "application/json",
-                body: JSON.stringify(
-                    path.endsWith("/active")
-                        ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
-                        : fixture.discovery
-                )
-            });
-        });
-        await page.goto("/");
-        const trigger = page.getByRole("button", { name: "目录", exact: true });
-        await trigger.click();
-        const dialog = page.getByRole("dialog");
-        await expect(dialog.getByText("默认 20", { exact: true })).toBeVisible();
-        await expect(dialog.getByText("默认 CLOSE", { exact: true })).toBeVisible();
-        await expect(dialog.getByRole("status")).toContainText("Runtime 未激活");
-        const search = dialog.getByRole("searchbox");
-        await expect(search).toBeFocused();
-        await search.fill("missing");
-        await expect(dialog.getByText("没有匹配的注册项。", { exact: true })).toBeVisible();
-        await search.fill("sma");
-        const choose = dialog.getByRole("button", { name: "选择 SMA · 配置草稿" });
-        await expect(choose).toBeEnabled();
-        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-            width
-        );
-        await dialog.getByRole("button", { name: "关闭目录" }).focus();
-        await page.keyboard.press("Shift+Tab");
-        await expect(choose).toBeFocused();
-        await page.keyboard.press("Tab");
-        await expect(dialog.getByRole("button", { name: "关闭目录" })).toBeFocused();
-        await page.keyboard.press("Escape");
-        await expect(dialog).toHaveCount(0);
-        await expect(trigger).toBeFocused();
-        await trigger.click();
-        await choose.click();
-        await page.getByText("参数说明与技术详情", { exact: true }).click();
-        const handoff = page.getByTestId("calculation-handoff");
-        await expect(handoff).toHaveAttribute("data-registration-source", "REGISTERED_DISCOVERY");
-        await expect(handoff).toHaveAttribute("data-type-id", "onlyalpha.indicator.sma");
-        await expect(handoff).toContainText("执行未接入");
-        for (const name of [
-            "runtime-generation",
-            "catalog-generation",
-            "backend",
-            "implementation",
-            "readiness-capability"
-        ])
-            await expect(handoff).not.toHaveAttribute(`data-${name}`, /.+/);
-        await page.keyboard.press("Escape");
-        await expect(page.getByRole("dialog", { name: "指标 / 因子参数配置" })).toHaveCount(0);
-        await expect(trigger).toBeFocused();
-        await page.getByRole("button", { name: "目录", exact: true }).click();
-        await page.getByRole("tab", { name: "因子库", exact: true }).click();
-        await expect(dialog.getByText(/当前发现目录没有此类已登记项/)).toBeVisible();
-        await expect(dialog.getByRole("button", { name: /选择 / })).toHaveCount(0);
-        expect(requests.filter((path) => path.endsWith("/catalog/calculations"))).toHaveLength(4);
-    });
-}
+test("the transient catalog stays inside a 390px viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    const variants = await catalogVariants();
+    await controlledRealtime(page, { capabilities: () => variants });
+    await page.goto("/");
+    await expect(status(page)).toContainText("● 实时");
+    const dialog = await openCatalog(page);
+    const box = await dialog.boundingBox();
+    expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect((box?.x ?? 391) + (box?.width ?? 391)).toBeLessThanOrEqual(390);
+    const pagination = dialog.getByRole("navigation", { name: "目录分页" });
+    await expect(pagination).toContainText("共 8 项 · 第 1 / 2 页");
+    await pagination.getByRole("button", { name: "下一页" }).click();
+    await expect(pagination).toContainText("共 8 项 · 第 2 / 2 页");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        390
+    );
+});
 
-test("required NULL BOOLEAN keeps explicit choice and keyboard focus after selecting false", async ({
+test("a failed Capability read fails closed with the catalog alert", async ({ page }) => {
+    await controlledRealtime(page);
+    // Registered later, this route wins over the shared catch-all: the catalog
+    // transport now behaves like an unavailable official service.
+    await page.route("**/api/v2/chart/studies/capabilities", (route) => void route.abort());
+    await page.goto("/");
+    await expect(status(page)).toContainText("● 实时");
+    const dialog = await openCatalog(page);
+    // ChartStudyWebError failures map to the picker's INVALID presentation; the
+    // Research TRANSPORT wording belongs to the retired exact-catalog path.
+    await expect(dialog.getByRole("alert")).toHaveText("目录身份或契约验证失败；不可选择。");
+    await expect(dialog.getByRole("button", { name: /配置草稿/ })).toHaveCount(0);
+    await expect(page.getByTestId("calculation-handoff")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "关闭目录" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByTestId("market-data-status")).toContainText("● 实时");
+});
+
+test("a Capability Projection switch at selection hands over nothing", async ({ page }) => {
+    const variants = await catalogVariants();
+    const market = await controlledRealtime(page, {
+        capabilities: () => variants,
+        staleCapabilityOnConfirm: true
+    });
+    await page.goto("/");
+    await expect(status(page)).toContainText("● 实时");
+    const dialog = await openCatalog(page);
+    await dialog.getByRole("searchbox", { name: "搜索指标或因子" }).fill("变体辛");
+    market.armStaleVerify();
+    await dialog.getByRole("button", { name: "选择 变体辛 · 配置草稿" }).click();
+    // The re-read reports the same Identity under a switched projection; the
+    // selection must not produce a draft under any label.
+    await expect(dialog.getByRole("alert")).toHaveText(
+        "目录或 Runtime Generation 已切换；旧目录与选择已失效，请刷新目录。"
+    );
+    await expect(page.getByTestId("calculation-handoff")).toHaveCount(0);
+    expect(market.evaluateReads).toHaveLength(0);
+});
+
+test("the factor library tab swaps the transient list for the metadata board", async ({
     page
 }) => {
-    const discovery = {
-        schema_version: 2,
-        calculations: [
-            {
-                kind: "INDICATOR",
-                type_reference: {
-                    kind: "INDICATOR",
-                    type_id: "example.boolean",
-                    semantic_version: "1"
-                },
-                parameters: [
-                    {
-                        name: "enabled",
-                        type: "BOOLEAN",
-                        required: true,
-                        default: { type: "NULL", value: null },
-                        minimum: null,
-                        maximum: null,
-                        enum_values: [],
-                        uppercase: false
-                    }
-                ],
-                inputs: [],
-                outputs: [
-                    {
-                        name: "value",
-                        data_type: "BOOLEAN",
-                        nullable: false,
-                        dimensions: ["TIME"],
-                        semantic_type: "BOOLEAN_SERIES",
-                        unit: null
-                    }
-                ],
-                parameter_sweep_allowed: true
-            }
-        ]
-    };
-    await page.route("**/api/v2/research/**", (route) =>
-        route.fulfill({
-            status: route.request().url().endsWith("/active") ? 503 : 200,
-            contentType: "application/json",
-            body: JSON.stringify(
-                route.request().url().endsWith("/active")
-                    ? { detail: "RUNTIME_GENERATION_NOT_ACTIVE" }
-                    : discovery
-            )
-        })
-    );
+    const variants = await catalogVariants();
+    await controlledRealtime(page, { capabilities: () => variants });
     await page.goto("/");
-    await page.getByRole("button", { name: "目录", exact: true }).click();
-    await page.getByRole("button", { name: /选择 BOOLEAN/ }).click();
-    const editor = page.getByRole("dialog", { name: "指标 / 因子参数配置" });
-    const choice = editor.getByRole("combobox", { name: "enabled", exact: true });
-    await choice.focus();
-    await choice.selectOption("false");
-    await expect(choice).toBeFocused();
-    await expect(choice).toHaveValue("false");
-    await page.keyboard.press("Tab");
-    await expect(editor.getByRole("combobox", { name: "输出", exact: true })).toBeFocused();
+    await expect(status(page)).toContainText("● 实时");
+    const dialog = await openCatalog(page);
+    await dialog.getByRole("tab", { name: "因子库" }).click();
+    await expect(dialog.getByRole("heading", { name: "Factor / Indicator Library" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /配置草稿/ })).toHaveCount(0);
+    await dialog.getByRole("tab", { name: "指标" }).click();
+    await expect(dialog.getByRole("button", { name: "选择 SMA · 配置草稿" })).toBeVisible();
 });
