@@ -7,6 +7,9 @@ publish.workspace = true
 build = false
 [lib]
 path = "src/lib.rs"
+[[bench]]
+name = "replay_throughput"
+harness = false
 [lints]
 workspace = true
 [dependencies]

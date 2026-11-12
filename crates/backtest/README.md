@@ -46,7 +46,15 @@ RunLoop 管理输入关闭、取消、暂停、恢复和终止；Runtime 保存�
 ```sh
 cargo test -p onlyalpha-backtest
 cargo doc -p onlyalpha-backtest --no-deps
+cargo bench -p onlyalpha-backtest
 ```
+
+性能基准位于 [`benches/replay_throughput.rs`](benches/replay_throughput.rs)：用合成 1 分钟 Bar 驱动 `RunLoop` 公开入口，
+输出每步耗时基数、`steps_per_s` 与相邻长度（每次翻倍）的中位耗时增长比——2.0 表示线性，4.0 表示平方级。
+参与者是空实现计数桩，不含策略、算子、行情装配与产品准入，因此该数字只界定回放骨架自身成本，
+不等于产品端到端速度；输出中的 `profile` 标明编译档（bench 继承 release，`--profile dev` 为 dev），跨档禁止混比。
+基准不设质量门禁，也不向仓库提交基线数字，测量结果留在任务上下文。
+本地无 Rust 工具链时使用固定开发环境执行：`python3 scripts/dev_verification.py run -- cargo bench -p onlyalpha-backtest`。
 
 集成测试位于 [`tests/`](tests/)，独立单元测试统一集中在 `src/tests/`，仍由原业务模块挂载并保留私有访问；内联测试可保留。 无外部服务依赖的库验证可在宿主机运行并记录平台；数据库或运行中应用验证使用固定 `onlyalpha-dev` 环境。
 
