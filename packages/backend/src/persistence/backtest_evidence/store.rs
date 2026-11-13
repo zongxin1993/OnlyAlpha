@@ -211,6 +211,7 @@ impl Store {
         Ok(selected)
     }
     fn terminal(&self, context: &BacktestReadContext) -> Result<Arc<TerminalSnapshot>> {
+        let marker = Instant::now();
         let run = context.run();
         let binding = &run.resolution()["backtest_binding"];
         let artifact = text(binding, "executor_artifact_sha256")?;
@@ -234,15 +235,25 @@ impl Store {
             .child("runtime", false)
             .and_then(|d| d.child(run.run_id(), false))
             .map_err(|_| INVALID)?;
+        phase("terminal_setup", marker);
+        let marker = Instant::now();
         let snapshot = TerminalSnapshot::read(
             &directory.path,
             specification,
             prepared.inputs(),
             crate::workers::backtest::terminal_policy,
         )
-        .map_err(|_| INVALID)?;
+        .map_err(|error| {
+            note("terminal_read", &error);
+            INVALID
+        })?;
+        phase("terminal_read", marker);
+        let marker = Instant::now();
         directory.verify().map_err(|_| INVALID)?;
+        phase("terminal_dir_verify", marker);
+        let marker = Instant::now();
         snapshot.verify_cut().map_err(|_| INVALID)?;
+        phase("terminal_cut", marker);
         Ok(Arc::new(snapshot))
     }
     pub(crate) fn read_verified(
