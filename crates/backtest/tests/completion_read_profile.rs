@@ -16,6 +16,7 @@
 //! 可选 `OA_PROFILE_ROUNDS`（默认 3 轮）。
 use onlyalpha_runtime::VerifiedReplaySnapshot;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -74,6 +75,86 @@ fn completion_read_profile() {
         "stat_probe_per_step_ms":two(stats / count as f64),
         "note":"封板首次发布按代码路径要读两次 terminal：近似 2×(open+steps)，另加每次 verify_cut 一次整库读"}),
     );
+}
+
+/// 封板读取循环体的成本复现：每步把上一状态投影成期望状态、与实际状态深比较，
+/// 再对 participants 的三个子对象各做一次 canonical JSON 与 sha256，
+/// 对应 terminal.rs 里 control 比较与 hash 的量级。
+/// 读步与循环体分开计时，用来判定观察到的每步成本能否由这类操作解释；
+/// 这是成本量级复现，不是产品代码路径本身。
+#[test]
+#[ignore = "需要一次真实回放保留的 runtime 目录与身份文件，见模块头口径说明"]
+fn verify_body_replica() {
+    let root = required("OA_PROFILE_RUNTIME_ROOT");
+    let identity = identity_inputs(&required("OA_PROFILE_IDENTITY"));
+    let artifact = identity["kernel_artifact"]
+        .as_str()
+        .expect("身份文件必须带 kernel_artifact")
+        .to_owned();
+    let snapshot =
+        VerifiedReplaySnapshot::read(&root, identity["configuration"].clone(), &artifact)
+            .expect("只读快照必须能打开");
+    let refs = snapshot.refs().to_vec();
+    let mut previous = snapshot.state().clone();
+    let mut digests = Vec::with_capacity(refs.len() * 3);
+    let mut read_ms = 0.0;
+    let mut body_ms = 0.0;
+    let mut matched_steps = 0usize;
+    let started = Instant::now();
+    for reference in &refs {
+        let mark = Instant::now();
+        let step = snapshot.read_step(reference).expect("必须能读回步");
+        read_ms += elapsed(&mark);
+        let mark = Instant::now();
+        let state = &step["state"];
+        let mut expected = control(&previous);
+        expected["cursor"] = json!(1);
+        let participants = &state["participants"];
+        let mut step_digests = Vec::with_capacity(3);
+        for key in ["policy", "native_policy"] {
+            step_digests.push(sha(&participants[key]));
+        }
+        step_digests.push(sha(&json!([
+            participants["native_policy"],
+            participants["policy"]
+        ])));
+        digests.append(&mut step_digests);
+        let matched = control(state) == expected;
+        previous = state.clone();
+        body_ms += elapsed(&mark);
+        if matched {
+            matched_steps += 1;
+        }
+    }
+    let total_ms = elapsed(&started);
+    let count = refs.len().max(1) as f64;
+    assert_eq!(digests.len(), refs.len() * 3, "每步必须真的算出三个摘要");
+    emit(json!({"kind":"verify_body_replica","steps":refs.len(),
+        "total_ms":two(total_ms),"per_step_ms":two(total_ms / count),
+        "read_ms":two(read_ms),"body_ms":two(body_ms),
+        "body_per_step_ms":two(body_ms / count),"matched_steps":matched_steps,
+        "scope":"读步与循环体分列；循环体＝control 投影与深比较 + participants 三次 canonical JSON 与 sha256"}));
+}
+
+/// 与封板读取一致的状态投影：去掉 participants 之外的全部字段保留。
+fn control(value: &Value) -> Value {
+    Value::Object(
+        value
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, _)| key.as_str() != "participants")
+            .map(|(key, item)| (key.clone(), item.clone()))
+            .collect(),
+    )
+}
+
+/// canonical JSON 的 sha256，与内核里 hash 的成本量级一致。
+fn sha(value: &Value) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.to_string().as_bytes());
+    let digest = hasher.finalize();
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// 一轮测量：打开 → 逐条读回 → 再校验，另测同等次数的文件元数据与小读探针。
