@@ -11,7 +11,9 @@
 
 不拥有后端 PostgreSQL 产品存储、任务准入、Runtime Generation 选择或 LIVE 权限；不是独立产品运行入口。
 
-直接依赖的仓内库：[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-broker`](../broker/README.md)。
+直接依赖的仓内库：[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-observability`](../observability/README.md)。
+
+观测仅接入存储及只读重建边界，记录原查询、组件恢复和完整性检查的耗时与已有输入计数；不改变事实、恢复结果或状态摘要。公开调用方自行管理诊断 Session，库不读取环境或安装全局订阅器。
 完整依赖、特性及编译配置见 [Cargo.toml](Cargo.toml)。调用方只能通过公开接口集成，不直接访问私有模块或修改所属状态。
 
 ## 公开接口
@@ -60,3 +62,9 @@ cargo doc -p onlyalpha-runtime --no-deps
 配置 3 的 Funding 及其后的所有新输入都通过 [RunPlan](src/store.rs) 提交。`Runtime::apply` 直接处理原输入。分步调用时，先用 `prepare_run_plan` 从当前 Run 的原件准备，再用同一持锁会话的 `apply_run_plan` 提交。专用入口 `prepare_original_funding` 和 `apply_original_funding` 额外检查操作为 Funding。重开会话后按原输入重新准备。前缀含 Funding 时，`apply_prepared` 对普通输入只能确认已经存在且完整匹配的 Ready 原行。
 
 `Runtime::backtest_result` 和 `VerifiedReplaySnapshot::backtest_result` 核验原 SQL 与六组投影后返回 [RunBacktestResult](src/transcript.rs)。`record()` 和 `encode()` 提供已有 BACKTEST_RESULT@1 记录和规范字节。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。
+
+### 新框架的接口边界
+
+[有限作业契约](../../docs/job-execution-contract.md)规定本库后续与因子构建、共同信号、typed会话或完成owner的接口关系。第一阶段不改变本库运行接口；不把设计目标当作当前已实现能力。后端冻结身份不反向进入纯库依赖，数据库／权限接线留在Backend。

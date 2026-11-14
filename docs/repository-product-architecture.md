@@ -213,3 +213,9 @@ Distribution Artifact Manifest `3` 将内置算子 Provider、24 项资产以及
 `BACKEND_RUNTIME` ELF。Provider 版本为 `7`。算子的 Research 和 Trading 实现身份分别绑定实际
 入口及完整 ELF 摘要。该格式不再发布 Python 算子 wheel，也不把相同 ELF 包装成第二份发行工件。
 Manifest `1`、`2` 仍按原字段和身份读取，历史引用不通过当前实现重写。
+
+## Research／回测存储与信号边界演进
+
+[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)及[有限作业契约](job-execution-contract.md)明确新框架：业务发布／控制／正式内容在PostgreSQL，K线实体在ClickHouse，有限作业未发布过程在内存；业务SQLite／文件Source退役。Runtime提供typed会话与纯持久化port，具体PostgreSQL接线属于Backend。原表中Runtime的store/replay职责不要求保留旧介质或逐Bar恢复。
+
+Research与交易复用同一纯信号程序，信号只依赖行情／因子／显式参数；只读仓位、资金、风险和买卖意图属于后续交易环节。受限Python只承担因子编写／构建前端，实际typed程序与数值执行由Rust拥有。新框架不要求为旧接口／格式提供兼容；历史事实、工件及当前实际实现状态不得被文档声明重写。当前只完成第一阶段契约，后续实施与验证按各阶段进行。

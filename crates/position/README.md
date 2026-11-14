@@ -56,3 +56,5 @@ cargo doc -p onlyalpha-position --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 永续估值意图的 MARK 带有来源价格的 precision。Position 按该精度校验标记价，独立使用合约乘数和持仓成本推导盈亏；成交价和现金模式 CLOSED_BAR 仍验证冻结的委托价格规格。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

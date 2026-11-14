@@ -58,3 +58,5 @@ cargo doc -p onlyalpha-account --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 永续配置 3 使用 new_checkpoint5。账户按 Margin 的真实生产记录投影 maintenance_status；缺少新的维护额时，maintenance_required 和 maintenance_to_equity 为空，last_confirmed_maintenance 保存最近整笔已确认事务的金额、时间及来源。原有成交和 Funding 可继续更新现金、占用和权益。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

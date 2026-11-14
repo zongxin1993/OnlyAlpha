@@ -18,3 +18,5 @@ pub mod backtest_terminal;
 pub(crate) mod backtest_worker;
 
 pub mod research_calculations;
+
+pub(crate) mod backtest_profile;

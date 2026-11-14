@@ -56,3 +56,5 @@ cargo doc -p onlyalpha-broker --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 来源查询的 [QueryPhase 和 source_query_id](src/source.rs) 编码阶段、两个前驱、完整命令、查询结果和原序事实。SourceHistory 和 Discovery 可用于独立计算与协议回放。绑定来源凭据由保存实际场所查询的具体宿主提供。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

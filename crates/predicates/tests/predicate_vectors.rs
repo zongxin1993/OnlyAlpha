@@ -13,7 +13,7 @@ fn scalar(token: &str) -> Option<bool> {
 #[test]
 fn recorded_vectors_are_exact_in_both_orders_and_repeated_evaluations() {
     let path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test-data/predicate/boolean-v1.tsv");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/predicate/boolean-v1.tsv");
     let corpus = fs::read_to_string(path).expect("shared immutable vectors must exist");
     let mut lines = corpus.lines();
     assert_eq!(

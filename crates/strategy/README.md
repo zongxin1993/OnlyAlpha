@@ -46,3 +46,9 @@ cargo doc -p onlyalpha-strategy --no-deps
 集成测试位于 [`tests/`](tests/)，独立单元测试统一集中在 `src/tests/`，仍由原业务模块挂载并保留私有访问；内联测试可保留。 无外部服务依赖的库验证可在宿主机运行并记录平台；数据库或运行中应用验证使用固定 `onlyalpha-dev` 环境。
 
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。
+
+### 新框架的接口边界
+
+[有限作业契约](../../docs/job-execution-contract.md)规定本库后续与因子构建、共同信号、typed会话或完成owner的接口关系。第一阶段不改变本库运行接口；不把设计目标当作当前已实现能力。后端冻结身份不反向进入纯库依赖，数据库／权限接线留在Backend。

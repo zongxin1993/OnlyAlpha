@@ -5,6 +5,7 @@ use crate::application::{
     backtest_preparation::BacktestOrigin, private_assets, private_strategy::Definition,
 };
 use std::collections::BTreeMap;
+use tracing::Instrument;
 const ENV_INVALID: &str = "BACKTEST_ENVIRONMENT_INPUT_MISMATCH";
 /// Follow actual saved Strategy bindings. Port aliases never imply historical semantics.
 fn explicit_factor_bindings(
@@ -162,7 +163,7 @@ impl Host {
         let factor_revision = revision.clone();
         // Reuse the installed SDK's full Strategy library/archive contract. The
         // available Target type library creates no Manual Target node or Research work.
-        let prepared = tokio::task::spawn_blocking(move || {
+        let prepared = crate::workers::backtest_profile::spawn_blocking(move || {
             research_environment::prepare_strategy(
                 &installation,
                 &background.release_root,
@@ -204,7 +205,20 @@ impl Host {
             .to_vec();
         let at = now().map_err(|error| error.code())?;
         let binding = {
-            let mut writer = self.writer.lock().await;
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut writer = self
+                .writer
+                .lock()
+                .instrument(writer_wait.span().clone())
+                .await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
             let session = writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             let tx = session
                 .client_mut()
@@ -229,32 +243,34 @@ impl Host {
             crate::persistence::authority_session::AuthoritySession::verify_transaction(&tx)
                 .await
                 .map_err(|_| "PRODUCT_AUTHORITY_UNAVAILABLE")?;
-            let binding = tokio::task::spawn_blocking(move || -> Result<Value> {
-                let mut registry = Registry::open_existing(&root)?;
-                let prior = original_activation(&root, &command)?;
-                if prior.is_none() && registry.snapshot()["active_for_new_work"] != json!(expected)
-                {
-                    return Err("GENERATION_ACTIVATION_CONFLICT".into());
-                }
-                prepared.publish(&mut registry, &source, &actor, at)?;
-                if prior.is_some()
-                    || expected.as_deref() != Some(&actual)
-                    || registry.snapshot()["active_for_new_work"] != actual
-                {
-                    registry.activate(&command, &actual, expected.as_deref(), &actor, at)?;
-                } else {
-                    let original =
-                        last_activation(&root)?.ok_or("RESEARCH_ACTIVATION_PROOF_UNAVAILABLE")?;
-                    if original["generation_fingerprint"] != actual {
-                        return Err(ENV_INVALID.into());
+            let binding =
+                crate::workers::backtest_profile::spawn_blocking(move || -> Result<Value> {
+                    let mut registry = Registry::open_existing(&root)?;
+                    let prior = original_activation(&root, &command)?;
+                    if prior.is_none()
+                        && registry.snapshot()["active_for_new_work"] != json!(expected)
+                    {
+                        return Err("GENERATION_ACTIVATION_CONFLICT".into());
                     }
-                }
-                registry
-                    .bind_new_work_exact(&work, &actual, &future, &actor, at)
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|_| "RESEARCH_PREPARATION_OUTCOME_UNKNOWN")??;
+                    prepared.publish(&mut registry, &source, &actor, at)?;
+                    if prior.is_some()
+                        || expected.as_deref() != Some(&actual)
+                        || registry.snapshot()["active_for_new_work"] != actual
+                    {
+                        registry.activate(&command, &actual, expected.as_deref(), &actor, at)?;
+                    } else {
+                        let original = last_activation(&root)?
+                            .ok_or("RESEARCH_ACTIVATION_PROOF_UNAVAILABLE")?;
+                        if original["generation_fingerprint"] != actual {
+                            return Err(ENV_INVALID.into());
+                        }
+                    }
+                    registry
+                        .bind_new_work_exact(&work, &actual, &future, &actor, at)
+                        .map_err(Into::into)
+                })
+                .await
+                .map_err(|_| "RESEARCH_PREPARATION_OUTCOME_UNKNOWN")??;
             tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE")
                 .await
                 .map_err(|_| "RESEARCH_PREPARATION_OUTCOME_UNKNOWN")?;

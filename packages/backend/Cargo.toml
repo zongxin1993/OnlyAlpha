@@ -13,6 +13,8 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
+onlyalpha-observability = { path = "../../crates/observability" }
+tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 onlyalpha-market-crypto = { path = "../../plugs/onlyalpha-market-crypto" }
 onlyalpha-backtest = { path = "../../crates/backtest" }
 onlyalpha-account = { path = "../../crates/account" }
@@ -69,6 +71,7 @@ libc = { version = "=0.2.191", default-features = false }
 seccompiler = { version = "=0.5.0", default-features = false }
 
 [dev-dependencies]
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["registry", "std"] }
 onlyalpha-runtime = { path = "../../crates/runtime" }
 onlyalpha-clock = { path = "../../crates/clock" }
 hyper = { version = "=1.12.0", default-features = false, features = ["http1", "client"] }
@@ -202,3 +205,15 @@ name = "backtest_owner_probe"
 path = "tests/application/support/backtest_owner_probe.rs"
 harness = false
 test = false
+
+[[bench]]
+name = "backtest_chain"
+harness = false
+
+[[test]]
+name = "transport_observability"
+path = "tests/transport/observability.rs"
+
+[[test]]
+name = "application_observability"
+path = "tests/application/observability.rs"

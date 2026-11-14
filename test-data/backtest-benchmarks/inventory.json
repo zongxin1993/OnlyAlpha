@@ -1,0 +1,340 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "crate": "order",
+      "target": "recovery",
+      "operation": "Manager::new / restore / checkpoint / damaged checkpoint rejection",
+      "unit": "bytes",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "position",
+      "target": "recovery",
+      "operation": "Manager::new / restore / checkpoint / damaged checkpoint rejection",
+      "unit": "bytes",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "account",
+      "target": "recovery",
+      "operation": "Manager::new / restore / checkpoint / damaged checkpoint rejection",
+      "unit": "bytes",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "strategy-ledger",
+      "target": "recovery",
+      "operation": "Manager::new / restore / checkpoint / damaged checkpoint rejection",
+      "unit": "bytes",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "risk",
+      "target": "recovery",
+      "operation": "Manager::new / restore / checkpoint / damaged checkpoint rejection",
+      "unit": "bytes",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "fee",
+      "target": "recovery",
+      "operation": "Catalog quote_one_fill / Manager first+duplicate admitted target / checkpoint restore",
+      "unit": "bytes",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "margin",
+      "target": "recovery",
+      "operation": "Manager::new / restore / checkpoint (spot authority state)",
+      "unit": "bytes",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "settlement",
+      "target": "recovery",
+      "operation": "Authority whole-fill admission first+duplicate / checkpoint restore",
+      "unit": "bytes",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "domain",
+      "target": "workload",
+      "operation": "OnlyBar::from_record / exact roundtrip",
+      "unit": "bars",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "clock",
+      "target": "workload",
+      "operation": "OnlyVirtualClock schedule_at / advance_to (dispatch timed)",
+      "unit": "timers",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "predicates",
+      "target": "workload",
+      "operation": "DecimalLiteralPredicate gt/ge/le actual native comparisons (true/false/null)",
+      "unit": "comparisons",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "operators",
+      "target": "workload",
+      "operation": "algebra::Stream RollingMean/Delay period20 actual native v2 paths",
+      "unit": "samples",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "calculation",
+      "target": "workload",
+      "operation": "ExecutionCursor::prepare / commit / exact ordered receipts",
+      "unit": "events",
+      "sizes": [
+        1,
+        32,
+        256
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "strategy",
+      "target": "workload",
+      "operation": "Executor::process / checkpoint using controlled integration NodePort",
+      "unit": "bars",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "calculation-bridge",
+      "target": "workload",
+      "operation": "OperatorCalculation RollingMean/Delay stream push/restore",
+      "unit": "samples",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "market-data",
+      "target": "workload",
+      "operation": "OnlyMarketDataState::apply_closed / checkpoint (history limit 128)",
+      "unit": "bars",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "market-data-construction",
+      "target": "workload",
+      "operation": "OnlyConstructionGraph::from_record / OnlyConstructionPlan::compile of actual provider graph",
+      "unit": "graphs",
+      "sizes": [
+        1,
+        8,
+        32
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "metadata-json",
+      "target": "workload",
+      "operation": "canonical_json / fingerprint of actual bar metadata",
+      "unit": "bytes",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "integration-contract",
+      "target": "workload",
+      "operation": "IntegrationTypeId::new / invalid latest alias rejection",
+      "unit": "identifiers",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "broker",
+      "target": "workload",
+      "operation": "BrokerCommand::decode of controlled submit (no connector side effects)",
+      "unit": "commands",
+      "sizes": [
+        16,
+        128,
+        740
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "execution",
+      "target": "recovery",
+      "operation": "Components::restore / Harness::prepare ADMIT same prefix / admission accept/reject cold/reused",
+      "unit": "bytes/commands",
+      "sizes": [
+        64,
+        129,
+        326
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "runtime",
+      "target": "retained",
+      "operation": "VerifiedReplaySnapshot read/steps/verify_cut",
+      "unit": "replay_entries",
+      "sizes": [
+        1482
+      ],
+      "status": "retained-reference-required",
+      "external_input": "OA_BENCH_RUNTIME",
+      "rounds": 3,
+      "shape": {
+        "native_updates": 1481,
+        "replay_entries": 1482,
+        "execution_records": 326,
+        "checkpoints": 6,
+        "bars": 740
+      },
+      "stages": [
+        "source.read",
+        "source.steps",
+        "source.verify_cut"
+      ]
+    },
+    {
+      "crate": "backtest",
+      "target": "retained",
+      "operation": "TerminalSnapshot::read / verify_cut",
+      "unit": "replay_entries",
+      "sizes": [
+        1482
+      ],
+      "status": "retained-reference-required",
+      "external_input": "OA_BENCH_RUNTIME",
+      "rounds": 3,
+      "shape": {
+        "native_updates": 1481,
+        "replay_entries": 1482,
+        "execution_records": 326,
+        "checkpoints": 6,
+        "bars": 740
+      },
+      "stages": [
+        "terminal.read",
+        "terminal.verify_cut"
+      ]
+    },
+    {
+      "crate": "runtime",
+      "target": "recovery",
+      "operation": "Runtime open/recover/close and complete valuation apply+log append histories",
+      "unit": "records",
+      "sizes": [
+        8,
+        32,
+        128
+      ],
+      "status": "reference-required"
+    },
+    {
+      "crate": "backend",
+      "target": "backtest_chain",
+      "operation": "PreparedNextOpen / Source / Terminal / ObservedBacktest read-only composition",
+      "unit": "chains",
+      "sizes": [
+        1
+      ],
+      "rounds": 3,
+      "external_input": "OA_BENCH_RUNTIME",
+      "status": "retained-reference-required"
+    },
+    {
+      "crate": "observability",
+      "target": "overhead",
+      "operation": "Off/Basic/Detail noop / operation / event / cross_task; setup and flush outside timer",
+      "unit": "elements",
+      "sizes": [
+        1,
+        32,
+        256
+      ],
+      "status": "reference-required"
+    }
+  ]
+}

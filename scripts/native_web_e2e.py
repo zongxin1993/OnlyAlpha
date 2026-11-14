@@ -900,9 +900,18 @@ def main() -> int:
     )
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--artifact-sha256")
+    parser.add_argument("--backtest-profile", action="store_true", help="Record optional backtest stage timings")
+    parser.add_argument(
+        "--backtest-diagnostic",
+        action="store_true",
+        help="One isolated diagnostic, including original 20s drain within a 20 minute budget",
+    )
     parser.add_argument("--grep", help="Select the affected ordinary Shipping UI tests only")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    from scripts.backtest_diagnostic import validate_selection
+
+    validate_selection(args)
     if args.tushare_daily_market_input and (
         args.chart_sma_market_input
         or args.backtest_market_input
@@ -1041,6 +1050,11 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         ONLYALPHA_CLICKHOUSE_USER=os.environ["ONLYALPHA_TEST_CLICKHOUSE_USER"],
         ONLYALPHA_CLICKHOUSE_PASSWORD=os.environ["ONLYALPHA_TEST_CLICKHOUSE_PASSWORD"],
     )
+    if args.backtest_profile:
+        env["ONLYALPHA_BACKTEST_PROFILE"] = "1"
+    if args.backtest_diagnostic:
+        env["ONLYALPHA_DIAGNOSTICS"] = "detail"
+        env["ONLYALPHA_DIAGNOSTICS_PATH"] = str(output / "observations.jsonl")
     selected_artifact(ROOT, resources, selected_sha)
 
     def run_host(phase: str) -> int:
@@ -1048,7 +1062,11 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         phase_output.mkdir(exist_ok=True)
         started = time.monotonic()
         events: queue.Queue[bytes] = queue.Queue()
-        with (phase_output / "native.log").open("wb") as log:
+        diagnostic_started = None
+        close_output = (
+            (phase_output / "diagnostic-close.jsonl").open("xb") if args.backtest_diagnostic else nullcontext(None)
+        )
+        with (phase_output / "native.log").open("wb") as log, close_output as close_log:
             child = subprocess.Popen(
                 [str(executable), "--user-data-root", str(data)],
                 env=env,
@@ -1063,6 +1081,9 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                 for line in child.stderr:
                     log.write(line)
                     log.flush()
+                    if close_log is not None and line.startswith(b"ONLYALPHA_DIAGNOSTIC "):
+                        close_log.write(line.removeprefix(b"ONLYALPHA_DIAGNOSTIC "))
+                        close_log.flush()
                     events.put(line)
                 events.put(b"")
 
@@ -1116,35 +1137,51 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                     run_product(phase, output, dsn)
                     results["tushare_daily_api"] = 0
                 if not args.contract_fuzz or args.tests:
-                    browser = subprocess.run(
-                        [
-                            "npm",
-                            "exec",
-                            "--",
-                            "playwright",
-                            "test",
-                            "--workers=1",
-                            *args.tests,
-                            *(["--grep", args.grep] if args.grep else []),
-                        ],
-                        cwd=ROOT / "packages/frontend",
-                        env={
-                            **os.environ,
-                            "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
-                            "ONLYALPHA_BROWSER_RESTART_PHASE": phase,
-                            "ONLYALPHA_BROWSER_TUSHARE_DAILY_INPUT": "1" if args.tushare_daily_market_input else "0",
-                            "ONLYALPHA_BROWSER_CHART_SMA_INPUT": "1" if args.chart_sma_market_input else "0",
-                            "ONLYALPHA_BROWSER_CONTROLLED_SOURCE_HTTPS": "1" if args.controlled_source_https else "0",
-                            "ONLYALPHA_BROWSER_HOST_PID": str(child.pid),
-                            "ONLYALPHA_BROWSER_USER_DATA_ROOT": str(data),
-                            "ONLYALPHA_BROWSER_RESTART_EVIDENCE": str(output / "factor-restart-input.json"),
-                            "ONLYALPHA_BROWSER_CONTROLLED_MARKET_INPUT": (
-                                str(output / "controlled-market-input.json") if args.retained_market_input else ""
-                            ),
-                            "PLAYWRIGHT_OUTPUT_DIR": str(phase_output / "browser"),
-                        },
-                    )
-                    result = browser.returncode
+                    browser_command = [
+                        "npm",
+                        "exec",
+                        "--",
+                        "playwright",
+                        "test",
+                        "--workers=1",
+                        *args.tests,
+                        *(["--grep", args.grep] if args.grep else []),
+                    ]
+                    browser_env = {
+                        **os.environ,
+                        "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
+                        "ONLYALPHA_BROWSER_RESTART_PHASE": phase,
+                        "ONLYALPHA_BROWSER_TUSHARE_DAILY_INPUT": "1" if args.tushare_daily_market_input else "0",
+                        "ONLYALPHA_BROWSER_CHART_SMA_INPUT": "1" if args.chart_sma_market_input else "0",
+                        "ONLYALPHA_BROWSER_CONTROLLED_SOURCE_HTTPS": "1" if args.controlled_source_https else "0",
+                        "ONLYALPHA_BROWSER_HOST_PID": str(child.pid),
+                        "ONLYALPHA_BROWSER_USER_DATA_ROOT": str(data),
+                        "ONLYALPHA_BROWSER_RESTART_EVIDENCE": str(output / "factor-restart-input.json"),
+                        "ONLYALPHA_BROWSER_CONTROLLED_MARKET_INPUT": (
+                            str(output / "controlled-market-input.json") if args.retained_market_input else ""
+                        ),
+                        "PLAYWRIGHT_OUTPUT_DIR": str(phase_output / "browser"),
+                    }
+                    if args.backtest_diagnostic:
+                        from scripts.backtest_diagnostic import run_browser
+
+                        browser_env.update(
+                            ONLYALPHA_BROWSER_BACKTEST_DIAGNOSTIC="1",
+                            ONLYALPHA_BROWSER_DIAGNOSTIC_LOG=str(output / "observations.jsonl"),
+                            ONLYALPHA_BROWSER_DIAGNOSTIC_NAMESPACE=deployment_id,
+                            ONLYALPHA_BROWSER_DIAGNOSTIC_EVIDENCE=str(output / "diagnostic-browser.json"),
+                        )
+                        diagnostic_started = time.monotonic()
+                        result = run_browser(
+                            browser_command,
+                            cwd=ROOT / "packages/frontend",
+                            env=browser_env,
+                            receipt=output / "diagnostic-budget.json",
+                        )
+                    else:
+                        result = subprocess.run(
+                            browser_command, cwd=ROOT / "packages/frontend", env=browser_env
+                        ).returncode
                     results["browser"] = result
                     (phase_output / "functional-results.json").write_text(json.dumps(results, indent=2) + "\n")
                 if args.contract_fuzz:
@@ -1184,6 +1221,16 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                                 "pid": child.pid,
                                 "exit": child.returncode,
                                 "remaining_process_group": remaining_processes,
+                                **(
+                                    {
+                                        "diagnostic_elapsed_seconds": time.monotonic() - diagnostic_started,
+                                        "diagnostic_overall_budget_seconds": 1200,
+                                        "diagnostic_overall_budget_exceeded": time.monotonic() - diagnostic_started
+                                        > 1200,
+                                    }
+                                    if diagnostic_started is not None
+                                    else {}
+                                ),
                             },
                             indent=2,
                         )
@@ -1193,6 +1240,16 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                         raise RuntimeError("Native process group did not drain")
         if child.returncode != 0:
             raise RuntimeError("Native Host failed its owned lifecycle")
+        if args.backtest_diagnostic:
+            from scripts.backtest_diagnostic import finish_capture
+
+            result = finish_capture(
+                output / "observations.jsonl",
+                phase_output / "diagnostic-close.jsonl",
+                child.pid,
+                result,
+                output / "diagnostic-completion.json",
+            )
         selected_artifact(ROOT, resources, selected_sha)
         return result
 

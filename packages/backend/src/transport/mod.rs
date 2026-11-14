@@ -38,3 +38,5 @@ mod host_manual_backtest_context;
 
 #[cfg(test)]
 pub use host_research_preparation::run_owner_scenario as run_backtest_owner_scenario;
+
+pub(crate) mod observability;

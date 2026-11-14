@@ -13,6 +13,7 @@ struct OriginalExecution<'a> {
     genesis: Vec<Value>,
     cursor: usize,
     end: usize,
+    admission: onlyalpha_execution::AdmissionPreview,
 }
 impl OriginalExecution<'_> {
     fn body_components(&self) -> Result<Vec<Value>, Error> {
@@ -190,13 +191,17 @@ impl NativeExecution for OriginalExecution<'_> {
                 return Err(err("TERMINAL_NATIVE_INPUT"));
             }
             self.cursor += 1;
+            self.admission = Default::default();
             return Ok(());
         }
-        if input["op"] == "ADMIT"
-            && let Some(rejection) =
-                Components::admission_rejection(self.configuration, &self.checkpoint()?, input)?
-        {
-            return Err(rejection);
+        if input["op"] == "ADMIT" {
+            let checkpoint = self.checkpoint()?;
+            if let Some(rejection) = self
+                .admission
+                .check(self.configuration, &checkpoint, input)?
+            {
+                return Err(rejection);
+            }
         }
         Err(err("TERMINAL_NATIVE_INPUT_MISSING"))
     }
@@ -296,6 +301,7 @@ pub(crate) fn verify(
         genesis,
         cursor: 0,
         end: 0,
+        admission: Default::default(),
     };
     let mut previous = binding["initial_state"].clone();
     for reference in source.refs() {

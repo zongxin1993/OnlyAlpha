@@ -36,12 +36,20 @@ Components 接收配置和交易输入，Prepared 表示准备结果；Store、C
 
 ```rust
 pub use components::Components;
+pub use planning::AdmissionPreview;
 pub use model::{Error, Prepared, digest};
 pub use coordinator::{CommitIntent, Record, Store, coordinate, pending_events, recover};
 pub use reconciliation::LedgerReconciliation;
 pub use performance::RuntimePerformance;
 pub use backtest_result::{BacktestResult, TranscriptDraft};
 ```
+
+`AdmissionPreview::default()` 创建单次只读验证专用的空复算上下文；`check(configuration, checkpoint, input)`
+对完整 checkpoint 冷恢复一次，内容完全相同时复用该组件数据。每个输入从独立候选重新检查 scope、
+序号、别名、风险和账户容量，`Some(Error)` 仅表示重新推导的业务拒绝，`None` 不证明原始 ADMIT 事实存在。
+完整 checkpoint 改变时先丢弃旧基线，恢复错误不回退。该上下文不提供可变组件、Store、Ready、派发或提交权限，
+也不验证调用方的 Run/原始来源归属；调用方须逐次证明实际来源，并把上下文限制在同一次来源验证内。
+原 `Components::admission_rejection` 每次仍新建上下文并完整冷恢复，任意 checkpoint 的恢复契约不变。
 
 ## 状态与生命周期
 
@@ -65,3 +73,5 @@ cargo doc -p onlyalpha-execution --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 显式 BACKTEST 配置 3 的 margin_observation_capacity 默认 512，可冻结为 1 至 512 的整数。达到上界后拒绝新风险；已接纳委托的成交、终态及随后仍发生的标记价、资金费继续由各自所有者记账。账户维护额缺证可从 maintenance_status 以及 last_confirmed_maintenance 查询。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

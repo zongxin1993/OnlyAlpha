@@ -1,6 +1,7 @@
 //! Opaque read-only source proof. This cannot recover or acknowledge a Store.
 use crate::{RunBacktestResult, SqliteStore};
 use onlyalpha_execution::{Components, Error, Record};
+use onlyalpha_observability::{Correlation, Operation, measure};
 use serde_json::Value;
 #[cfg(not(target_os = "linux"))]
 use std::io::Read;
@@ -100,33 +101,66 @@ impl Source {
         artifact: &str,
         expected: Option<&[crate::ReplayEntryRef]>,
     ) -> Result<Self, Error> {
-        let store = SqliteStore::read_only(root, configuration, artifact)?;
-        let (components, records, checkpoints) = store.read_ready_components()?;
-        let binding = store.replay_binding()?.ok_or_else(|| bad("UNBOUND"))?;
-        let refs = store.replay_refs_from_source(&records)?;
-        if refs.iter().any(|row| !row.ready()) {
-            return Err(bad("REPLAY_NOT_READY"));
-        }
-        if let Some(expected) = expected {
-            if refs != expected {
-                return Err(bad("SOURCE_CHANGED"));
+        let operation = Operation::start("runtime", "source.read", Correlation::default());
+        let result: Result<Self, Error> = operation.span().in_scope(|| {
+            let store = measure("runtime", "source.open", Correlation::default(), || {
+                SqliteStore::read_only(root, configuration, artifact)
+            })?;
+            let (components, records, checkpoints) = measure(
+                "runtime",
+                "source.checkpoints.rebuild",
+                Correlation::default(),
+                || store.read_ready_components(),
+            )?;
+            let binding = measure("runtime", "source.binding", Correlation::default(), || {
+                store.replay_binding()
+            })?
+            .ok_or_else(|| bad("UNBOUND"))?;
+            let refs = measure(
+                "runtime",
+                "source.replay_refs",
+                Correlation::default(),
+                || store.replay_refs_from_source(&records),
+            )?;
+            if refs.iter().any(|row| !row.ready()) {
+                return Err(bad("REPLAY_NOT_READY"));
             }
-        } else {
-            for reference in &refs {
-                store.logical_step(reference)?;
+            if let Some(expected) = expected {
+                if refs != expected {
+                    return Err(bad("SOURCE_CHANGED"));
+                }
+            } else {
+                for reference in &refs {
+                    measure(
+                        "runtime",
+                        "source.replay_step.validate",
+                        Correlation::default(),
+                        || store.logical_step(reference),
+                    )?;
+                }
             }
-        }
-        let state = store.with_ready_source(&components, |source| source.state(&components))?;
-        verify_file(&source_path(root)?, &store.read_lease()?)?;
-        Ok(Self {
-            store,
-            components,
-            records,
-            binding,
-            refs,
-            state,
-            checkpoints,
-        })
+            let state = measure(
+                "runtime",
+                "source.final_state",
+                Correlation::default(),
+                || store.with_ready_source(&components, |source| source.state(&components)),
+            )?;
+            verify_file(&source_path(root)?, &store.read_lease()?)?;
+            Ok(Self {
+                store,
+                components,
+                records,
+                binding,
+                refs,
+                state,
+                checkpoints,
+            })
+        });
+        let count = result
+            .as_ref()
+            .map_or(0, |source| source.records.len() as u64);
+        operation.finish(if result.is_ok() { "ok" } else { "failed" }, count, 0);
+        result
     }
 }
 /// The held shared lease excludes legitimate writers. Ref expectations are
@@ -177,14 +211,22 @@ impl VerifiedReplaySnapshot {
                 return Err(bad("INODE"));
             }
         }
-        if source.store.storage_version != self.storage_version
-            || source.binding != self.binding
-            || source.state != self.state
-            || source.records != self.records
-            || source.checkpoints != self.checkpoints
-        {
-            return Err(bad("SOURCE_CHANGED"));
-        }
+        measure(
+            "runtime",
+            "source.cut.compare",
+            Correlation::default(),
+            || {
+                if source.store.storage_version != self.storage_version
+                    || source.binding != self.binding
+                    || source.state != self.state
+                    || source.records != self.records
+                    || source.checkpoints != self.checkpoints
+                {
+                    return Err(bad("SOURCE_CHANGED"));
+                }
+                Ok(())
+            },
+        )?;
         verify_file(&source_path(&self.root)?, &self.lease)?;
         Ok(source)
     }

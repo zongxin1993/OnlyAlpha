@@ -74,7 +74,9 @@ def environment_inputs(root: Path) -> dict[str, str]:
         paths += sorted((root / directory).glob("*/pyproject.toml"))
     paths += sorted((root / "packages/backend/python").glob("*/pyproject.toml"))
     paths += [
-        root / name for name in ("hatch_build.py", "scripts/embed_build_provenance.py") if (root / name).is_file()
+        root / name
+        for name in ("hatch_build.py", "scripts/embed_build_provenance.py", "scripts/dev_browser_cache.py")
+        if (root / name).is_file()
     ]
     paths += [
         root / name / "pyproject.toml"
@@ -874,6 +876,69 @@ def run_inside(
         return status if status >= 0 else 128 - status
 
 
+def browser_cache_build_arguments(root: Path, container: dict, operation_id: str) -> list[str]:
+    """Reuse only the immutable image already admitted for this validation container."""
+    from scripts.dev_browser_cache import validate_reuse
+
+    image = json.loads(subprocess.check_output(["docker", "image", "inspect", IMAGE], text=True, timeout=15))[0]
+    source = image["Id"]
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", source) is None or container.get("Image") != source:
+        raise ValueError("DEV_BROWSER_CACHE_IMAGE_IDENTITY_MISMATCH")
+    inspection = json.loads(
+        subprocess.check_output(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--read-only",
+                "--entrypoint",
+                "python",
+                source,
+                "-I",
+                "-B",
+                "-c",
+                (root / "scripts/dev_browser_cache.py").read_text(),
+                "--environment",
+                str(ENVIRONMENT_RECORD),
+            ],
+            text=True,
+            timeout=120,
+        )
+    )
+    validate_reuse(root, inspection["admitted_environment"], inspection)
+    tag = "onlyalpha-dev-browser-cache:" + source.removeprefix("sha256:")
+    try:
+        existing = json.loads(
+            subprocess.check_output(
+                ["docker", "image", "inspect", tag],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+            )
+        )[0]
+    except subprocess.CalledProcessError:
+        subprocess.run(["docker", "tag", source, tag], check=True, timeout=15)
+    else:
+        if existing["Id"] != source:
+            raise ValueError("DEV_BROWSER_CACHE_IMAGE_IDENTITY_MISMATCH")
+    receipt = {"source_image": source, "cache_image": tag, **inspection}
+    directory = root / "test-results/dev-verification"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"browser-cache-{operation_id}.json").write_text(json.dumps(receipt, sort_keys=True, indent=2))
+    return [
+        "--build-arg",
+        "ONLYALPHA_DEV_BROWSER_SOURCE=playwright-cached",
+        "--build-arg",
+        "ONLYALPHA_DEV_BROWSER_CACHE_IMAGE=" + tag,
+        "--build-arg",
+        "ONLYALPHA_DEV_BROWSER_CACHE_SHA256=" + inspection["tree_sha256"],
+        "--build-arg",
+        "ONLYALPHA_DEV_BROWSER_CACHE_VERSION=" + inspection["playwright_version"],
+    ]
+
+
 def run_host(
     mode: str,
     command: list[str],
@@ -882,10 +947,13 @@ def run_host(
     rebuild: bool,
     reservation: dict[str, Any],
     controlled_source_https: bool = False,
+    reuse_browser_cache: bool = False,
 ) -> int:
     # Early refusals have no outstanding command. Once an operation is submitted,
     # only an observed completion/owning worker receipt can settle this fence.
     reservation["completed"] = True
+    if reuse_browser_cache and (mode != "prepare" or not rebuild):
+        raise ValueError("DEV_BROWSER_CACHE_REUSE_REFUSED")
     if (
         controlled_source_https
         != ("--controlled-source-https" in command or command == CONTROLLED_BACKTEST_FIXTURE_COMMAND)
@@ -994,6 +1062,12 @@ def run_host(
             ).returncode
             == 0
         )
+        browser_arguments = []
+        if reuse_browser_cache:
+            if not available or not ids:
+                raise ValueError("DEV_BROWSER_CACHE_SOURCE_REQUIRED")
+            reservation["completed"] = False
+            browser_arguments = browser_cache_build_arguments(ROOT, records[0], reservation["operation_id"])
         reservation["completed"] = False
         subprocess.run(
             [*compose, "pull", "--policy", "missing", "postgres", "clickhouse"],
@@ -1002,7 +1076,7 @@ def run_host(
             check=True,
         )
         if rebuild or not available:
-            subprocess.run([*compose, "build", "validation"], cwd=ROOT, env=environment, check=True)
+            subprocess.run([*compose, "build", *browser_arguments, "validation"], cwd=ROOT, env=environment, check=True)
         image = json.loads(subprocess.check_output(["docker", "image", "inspect", IMAGE], text=True, timeout=15))[0]
         environment["ONLYALPHA_DEV_TOOL_IMAGE_ID"] = image["Id"]
         subprocess.run(
@@ -1103,15 +1177,22 @@ def main() -> int:
     )
     parser.add_argument("--web", action="store_true")
     parser.add_argument("--rebuild", action="store_true")
+    parser.add_argument(
+        "--reuse-browser-cache",
+        action="store_true",
+        help="prepare --rebuild 时校验并复用当前固定工具镜像的同版本浏览器缓存",
+    )
     parser.add_argument("--operation-id", default="")
     parser.add_argument("--controlled-source-https", action="store_true")
     parser.add_argument("--controlled-chart-stream", action="store_true")
     parser.add_argument("--controlled-tushare-daily", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.reuse_browser_cache and (args.mode != "prepare" or not args.rebuild):
+        raise ValueError("DEV_BROWSER_CACHE_REUSE_REFUSED")
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if args.mode in {"controlled-https-begin", "controlled-https-restore"}:
-        if command or args.web or args.rebuild or args.controlled_source_https:
+        if command or args.web or args.rebuild or args.controlled_source_https or args.reuse_browser_cache:
             raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
         print(
             json.dumps(
@@ -1170,6 +1251,7 @@ def main() -> int:
             rebuild=args.rebuild,
             reservation=reservation,
             controlled_source_https=args.controlled_source_https,
+            reuse_browser_cache=args.reuse_browser_cache,
         )
 
 

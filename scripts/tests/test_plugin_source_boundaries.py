@@ -451,3 +451,26 @@ def test_cash_consumer_filesystem_capability_stays_in_linux_tests(monkeypatch, m
     monkeypatch.setattr(Path, "read_text", read)
     with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
         validate_infrastructure_sources(ROOT)
+
+
+@pytest.mark.parametrize(
+    "owner",
+    [
+        "isolated_runtime_persistence",
+        "isolated_backtest",
+        "isolated_backend",
+        "isolated_plugin_binance",
+        "isolated_broker_binance",
+    ],
+)
+def test_runtime_consumers_copy_their_complete_declared_local_dependency_closure(tmp_path, owner):
+    from scripts import rust_kernel_check
+
+    manifest = getattr(rust_kernel_check, owner)(ROOT, tmp_path / "workspace")
+    isolated = manifest.parent
+    for member in tomllib.loads(manifest.read_text())["workspace"]["members"]:
+        package = isolated / member / "Cargo.toml"
+        for section in ("dependencies", "dev-dependencies", "build-dependencies"):
+            for name, dependency in tomllib.loads(package.read_text()).get(section, {}).items():
+                if isinstance(dependency, dict) and "path" in dependency:
+                    assert (package.parent / dependency["path"] / "Cargo.toml").is_file(), (owner, member, name)

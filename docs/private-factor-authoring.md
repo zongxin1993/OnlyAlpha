@@ -1,8 +1,15 @@
 # Private Factor authoring
 
 This Product capability derives from ADRs 0104, 0124, 0129 and 0142. PostgreSQL Private Asset tables own mutable Drafts and
-immutable Revisions. The backend owns authoring Commands; Web submits intent and displays returned facts. Authoring never
-executes source, admits a Calculation, activates a Generation, qualifies a Factor or starts Research/Backtest.
+immutable Revisions. The backend owns authoring Commands; Web submits intent and displays returned facts. Saving authoring content never executes source, admits a Calculation, activates a Generation, qualifies a Factor or starts Research/Backtest. Immutable publication requests an independent build under ADR 0151; it does not claim build success.
+
+## 新构建边界（ADR 0151）
+
+[有限作业契约](job-execution-contract.md)定义新框架的版本、构建程序和精确参数认证；本节取代下文对稳定旧Python执行接口及“发布不触发任何构建”的承诺。第一阶段仅提供契约模型，第三阶段才替换编写／执行接口，不宣称已上线。草稿保存仍不执行；不可变版本创建后独立建立构建／默认参数认证任务，资产已保存不等于程序或所有参数已READY。
+
+受限Python只作编写与AST构建前端，降为Rust拥有的typed程序；不执行用户字节码、不允许任意while／可变容器／隐藏IO，不逐行解析源码。声明式窗口调用复用原生数学语义。源码／接口／构建器／数值规范／原语实现决定构建身份；解析后的精确参数和对应证书决定认证绑定。新参数不重新解析相同通用程序。
+
+新数值规范为28位有效数字、HALF_EVEN、q12输出与正零；null／warmup／除零等沿精确原语规则，不改变资金／数量的精度。构建认证和实际输入校验分别执行。Research只消费真实owning reader确认的确切READY绑定，不在热路径隐式补认证。公开示例必须与私有资产共用导入、校验与执行，不另设特供接口；不保留旧API兼容层。
 
 ## Conversational consumer boundary
 
@@ -246,6 +253,6 @@ existing formal API and Rust Authority. Tests may observe exact pins; user steps
 ## Implementation boundary
 
 The pure authoring model remains inside backend's Private Asset Application module; PostgreSQL adapts its owning tables and
-Commands. The stable Python `calculate(api, inputs, parameters)` SDK is retained. Old Python business/reference consumers may
+Commands. The current Python `calculate(api, inputs, parameters)` SDK remains implemented until phase three; its execution API will evolve directly to the typed-program build boundary above, without compatibility shims. Old Python business/reference consumers may
 retire only after their actual callers and assertions migrate; source stored in a Factor is user content, not Python backend
 business code eligible for deletion. Research, Strategy authoring, Registry admission and execution remain separate capabilities.

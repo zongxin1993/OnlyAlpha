@@ -3,6 +3,86 @@ use bigdecimal::{BigDecimal, Zero};
 use onlyalpha_domain::{base::OnlyDomainModel, execution::OnlyOrderRequest, value::OnlyPrice};
 use serde_json::{Value, json};
 use std::sync::Arc;
+/// 单次只读验证中的准入复算基线；不授予 Store、Ready、运行或提交资格。
+/// 调用方仍须逐次证明 checkpoint 来自本次验证的确切原始前缀。
+/// 完整 checkpoint 改变时冷恢复；每个输入从独立候选执行，不保留拒绝结果。
+#[derive(Default)]
+pub struct AdmissionPreview {
+    baseline: Option<(Value, Components)>,
+    #[cfg(test)]
+    restores: usize,
+}
+impl AdmissionPreview {
+    /// 检查本次确切 checkpoint 和输入；返回 Some 仅表示重新推导出的业务拒绝。
+    /// None 不证明缺失的原始 ADMIT 事实存在；错误仍按原准入/恢复契约传播。
+    pub fn check(
+        &mut self,
+        configuration: &Value,
+        checkpoint: &Value,
+        input: &Value,
+    ) -> Result<Option<Error>, Error> {
+        if self.baseline.as_ref().is_some_and(|(original, baseline)| {
+            original != checkpoint || baseline.configuration() != configuration
+        }) {
+            // 来源内容或配置变化，即使新输入 scope 无效也不保留旧基线。
+            self.baseline = None;
+        }
+        if input["op"] != "ADMIT" || checkpoint["config"] != *configuration {
+            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+        }
+        for field in [
+            "engine",
+            "runtime",
+            "account",
+            "gateway",
+            "generation",
+            "runtime_kind",
+        ] {
+            if input[field] != configuration[field] {
+                return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+            }
+        }
+        let cluster = text(&input["cluster"])?;
+        if input["revision"] != configuration["profiles"][cluster]["revision"]
+            || input["revision"].is_null()
+        {
+            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+        }
+        if self.baseline.is_none() {
+            let mut baseline = Components::new(configuration.clone())?;
+            baseline.restore(checkpoint, &hash(checkpoint))?;
+            self.baseline = Some((checkpoint.clone(), baseline));
+            #[cfg(test)]
+            {
+                self.restores += 1;
+            }
+        }
+        let mut candidate = self
+            .baseline
+            .as_ref()
+            .expect("restored exact checkpoint")
+            .1
+            .clone_data();
+        if candidate.pending.is_some() {
+            return Err(err("EXECUTION_PENDING"));
+        }
+        candidate.validate_planning_input(input)?;
+        candidate.invalidate_payloads();
+        match candidate.apply_operation(input) {
+            Ok(()) => Ok(None),
+            Err(error)
+                if matches!(
+                    error.0.as_str(),
+                    "EXECUTION_RISK_DENIED" | "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+                ) =>
+            {
+                Ok(Some(error))
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
 impl Components {
     fn validate_planning_input(&self, input: &Value) -> Result<u64, Error> {
         row(
@@ -326,46 +406,7 @@ impl Components {
         checkpoint: &Value,
         input: &Value,
     ) -> Result<Option<Error>, Error> {
-        if input["op"] != "ADMIT" || checkpoint["config"] != *configuration {
-            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
-        }
-        for field in [
-            "engine",
-            "runtime",
-            "account",
-            "gateway",
-            "generation",
-            "runtime_kind",
-        ] {
-            if input[field] != configuration[field] {
-                return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
-            }
-        }
-        let cluster = text(&input["cluster"])?;
-        if input["revision"] != configuration["profiles"][cluster]["revision"]
-            || input["revision"].is_null()
-        {
-            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
-        }
-        let mut candidate = Self::new(configuration.clone())?;
-        candidate.restore(checkpoint, &hash(checkpoint))?;
-        if candidate.pending.is_some() {
-            return Err(err("EXECUTION_PENDING"));
-        }
-        candidate.validate_planning_input(input)?;
-        candidate.invalidate_payloads();
-        match candidate.apply_operation(input) {
-            Ok(()) => Ok(None),
-            Err(error)
-                if matches!(
-                    error.0.as_str(),
-                    "EXECUTION_RISK_DENIED" | "EXECUTION_ACCOUNT_CAPACITY_DENIED"
-                ) =>
-            {
-                Ok(Some(error))
-            }
-            Err(error) => Err(error),
-        }
+        AdmissionPreview::default().check(configuration, checkpoint, input)
     }
     pub(crate) fn admit(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
@@ -1177,3 +1218,7 @@ pub(crate) fn allocation_witness(a: &Value, p: u8) -> Result<Value, Error> {
         json!({"schema_version":1,"identity":a["id"],"cycle":a["cycle"],"realized_exact":exact_record(&exact(&a["realized_exact"])?,p),"quantity":a["quantity"],"cost":exact_record(&exact(&a["cost"])?,p),"realized":exact_record(&exact(&a["realized_pnl"])?,p),"version":a["version"]}),
     )
 }
+
+#[cfg(test)]
+#[path = "tests/admission_preview_tests.rs"]
+mod admission_preview_tests;

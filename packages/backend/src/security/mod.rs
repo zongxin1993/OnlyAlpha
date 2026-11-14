@@ -7,3 +7,5 @@ pub mod protected_files;
 pub mod proposal_access;
 
 pub(crate) mod immutable_json;
+
+mod ingress_socket;

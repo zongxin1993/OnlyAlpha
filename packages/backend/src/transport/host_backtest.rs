@@ -26,8 +26,10 @@ use axum::{
 };
 use http::{Method, Request, StatusCode};
 use onlyalpha_domain::{base::OnlyDomainModel, time::OnlyTimestamp};
+use onlyalpha_observability::{Correlation, Operation};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
+use tracing::Instrument;
 
 const INVALID: &str = "BACKTEST_RESULT_UNAVAILABLE";
 struct FilledOpening {
@@ -293,37 +295,57 @@ impl Host {
         run: &str,
         human: &human_access::Session,
     ) -> Result<(Arc<BacktestReadContext>, VerifiedEvidence), Failure> {
-        self.human_access.check_session(human)?;
-        let owner = human.subject_id()?;
-        let config = &self.research_preparation_config;
-        let context = {
-            let mut reader = self.reader.lock().await;
-            let client = reader
-                .as_mut()
-                .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-            backtest_evidence::read_context(
-                client,
-                self.inputs.namespace(),
+        let operation = Operation::start(
+            "transport",
+            "http.backtest.result_owners",
+            Correlation {
+                run_id: Some(run.into()),
+                ..Default::default()
+            },
+        );
+        let result = async {
+            self.human_access.check_session(human)?;
+            let owner = human.subject_id()?;
+            let config = &self.research_preparation_config;
+            let context = {
+                let mut reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let wait =
+                    Operation::start("transport", "http.reader.wait", Correlation::default());
+                let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+                wait.finish("acquired", 1, 0);
+                reader_hold.acquired("reader", "reader.hold");
+                let _reader_release = reader_hold.begin_release_marker();
+                let client = reader
+                    .as_mut()
+                    .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+                backtest_evidence::read_context(
+                    client,
+                    self.inputs.namespace(),
+                    &config.research_root,
+                    &config.runtime_root,
+                    run,
+                    Some(owner),
+                )
+                .await
+                .map_err(failed)?
+            };
+            let store = backtest_evidence::Store::open(
+                &self.backtest_root,
                 &config.research_root,
                 &config.runtime_root,
-                run,
-                Some(owner),
             )
-            .await
-            .map_err(failed)?
-        };
-        let store = backtest_evidence::Store::open(
-            &self.backtest_root,
-            &config.research_root,
-            &config.runtime_root,
-        )
-        .map_err(failed)?;
-        let evidence = store
-            .read_verified(&context)
-            .map_err(failed)?
-            .ok_or_else(|| failed("BACKTEST_RESULT_NOT_READY"))?;
-        self.human_access.check_session(human)?;
-        Ok((context, evidence))
+            .map_err(failed)?;
+            let evidence = store
+                .read_verified(&context)
+                .map_err(failed)?
+                .ok_or_else(|| failed("BACKTEST_RESULT_NOT_READY"))?;
+            self.human_access.check_session(human)?;
+            Ok((context, evidence))
+        }
+        .instrument(operation.span().clone())
+        .await;
+        operation.finish(if result.is_ok() { "ok" } else { "failed" }, 1, 0);
+        result
     }
 
     pub(crate) async fn backtest_product(
@@ -341,7 +363,13 @@ impl Host {
         let owner = human.subject_id()?.to_owned();
         if path == "/api/v2/backtest/runs" && method == Method::GET {
             let rows = {
-                let mut reader = self.reader.lock().await;
+                let mut reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let wait =
+                    Operation::start("transport", "http.reader.wait", Correlation::default());
+                let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+                wait.finish("acquired", 1, 0);
+                reader_hold.acquired("reader", "reader.hold");
+                let _reader_release = reader_hold.begin_release_marker();
                 let client = reader
                     .as_mut()
                     .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
@@ -380,7 +408,13 @@ impl Host {
                 serde_json::from_value(body).map_err(|_| invalid())?;
             body.validate(id).map_err(failed)?;
             let (run, _) = {
-                let mut reader = self.reader.lock().await;
+                let mut reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let wait =
+                    Operation::start("transport", "http.reader.wait", Correlation::default());
+                let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+                wait.finish("acquired", 1, 0);
+                reader_hold.acquired("reader", "reader.hold");
+                let _reader_release = reader_hold.begin_release_marker();
                 let client = reader
                     .as_mut()
                     .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
@@ -425,7 +459,13 @@ impl Host {
             }
             self.wake_backtest_after_commit();
             let (run, status) = {
-                let mut reader = self.reader.lock().await;
+                let mut reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let wait =
+                    Operation::start("transport", "http.reader.wait", Correlation::default());
+                let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+                wait.finish("acquired", 1, 0);
+                reader_hold.acquired("reader", "reader.hold");
+                let _reader_release = reader_hold.begin_release_marker();
                 let client = reader
                     .as_mut()
                     .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
@@ -450,7 +490,13 @@ impl Host {
         }
         if action.is_empty() {
             let (run, status) = {
-                let mut reader = self.reader.lock().await;
+                let mut reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let wait =
+                    Operation::start("transport", "http.reader.wait", Correlation::default());
+                let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+                wait.finish("acquired", 1, 0);
+                reader_hold.acquired("reader", "reader.hold");
+                let _reader_release = reader_hold.begin_release_marker();
                 let client = reader
                     .as_mut()
                     .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
@@ -487,7 +533,11 @@ impl Host {
         }
         let (context, evidence) = self.backtest_result_owners(id, &human).await?;
         let response = if action == "result" {
-            Json(display_result(&context, &evidence)?).into_response()
+            crate::workers::backtest_profile::measure(
+                id,
+                "http.result.project_and_serialize",
+                || Ok::<_, Failure>(Json(display_result(&context, &evidence)?).into_response()),
+            )?
         } else if action == "evidence" {
             Json(BacktestEvidenceView {
                 schema_version: 1,

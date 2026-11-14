@@ -27,6 +27,7 @@ fn original_position_order_view_borrows_actual_prepared_components_without_full_
                 genesis: genesis.clone(),
                 cursor,
                 end: history.records().len(),
+                admission: Default::default(),
             };
             let state = c.state().unwrap();
             let checkpoint = c.checkpoint().unwrap();
@@ -65,6 +66,7 @@ fn original_position_order_view_borrows_actual_prepared_components_without_full_
             genesis: genesis.clone(),
             cursor: history.records().len() + 1,
             end: history.records().len(),
+            admission: Default::default(),
         };
         assert!(
             current_view(&c).is_err(),
@@ -94,6 +96,7 @@ fn original_order_lookup_reads_only_original_order_data_and_keeps_full_snapshot_
             genesis,
             cursor: history.records().len(),
             end: history.records().len(),
+            admission: Default::default(),
         };
         let expected = c.component(0).unwrap()["state"]["orders"][0]["snapshot"].clone();
         ORIGINAL_BODY_READS.with(|n| n.set(0));
@@ -184,6 +187,7 @@ fn compact_order_data_never_waives_duplicate_scope_or_deep_domain_snapshot_valid
             genesis: genesis.clone(),
             cursor: records.len(),
             end: records.len(),
+            admission: Default::default(),
         };
         if fault == "omitted-metadata" {
             assert!(c.order("cluster", "runtime-ORDER-000001").is_ok());
@@ -232,11 +236,21 @@ fn retained_account_capacity_denial_is_positive_exact_and_preserves_safety_recov
         genesis: genesis.clone(),
         cursor: records.len(),
         end: records.len(),
+        admission: Default::default(),
     };
     assert_eq!(
         original.apply(&denied).unwrap_err().0,
         "EXECUTION_ACCOUNT_CAPACITY_DENIED"
     );
+    for n in 0..4 {
+        let mut next = denied.clone();
+        next["input_id"] = json!(format!("denied-preview-{n}"));
+        next["source_ref"] = json!(format!("denied-preview-source-{n}"));
+        assert_eq!(
+            original.apply(&next).unwrap_err().0,
+            "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+        );
+    }
     assert_eq!(original.cursor, records.len());
     assert_eq!(original.checkpoint().unwrap(), before);
     for field in ["runtime", "account", "generation", "revision"] {
@@ -277,6 +291,7 @@ fn retained_account_capacity_denial_is_positive_exact_and_preserves_safety_recov
         genesis,
         cursor: records.len(),
         end: records.len(),
+        admission: Default::default(),
     };
     assert_ne!(
         missing.apply(&denied).unwrap_err().0,
@@ -315,4 +330,38 @@ fn retained_account_capacity_denial_is_positive_exact_and_preserves_safety_recov
     let recovered =
         crate::Candidate::new(cold.configuration().clone(), cold.records().to_vec()).unwrap();
     assert_eq!(recovered.checkpoint().unwrap(), cold.checkpoint().unwrap());
+}
+
+#[test]
+fn warm_admissible_preview_never_invents_missing_original_admit() {
+    let configuration = configuration(true);
+    let genesis = Components::new(configuration.clone())
+        .unwrap()
+        .checkpoint()
+        .unwrap()["components"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let mut original = OriginalExecution {
+        configuration: &configuration,
+        records: &[],
+        genesis,
+        cursor: 0,
+        end: 0,
+        admission: Default::default(),
+    };
+    let input = original_three_facts()[0].clone();
+    for _ in 0..3 {
+        assert_eq!(
+            original.apply(&input).unwrap_err().0,
+            err("TERMINAL_NATIVE_INPUT_MISSING").0
+        );
+        assert_eq!(original.cursor, 0);
+    }
+    original.cursor = 1;
+    original.end = 1;
+    assert_eq!(
+        original.apply(&input).unwrap_err().0,
+        err("TERMINAL_EXECUTION_PREFIX").0
+    );
 }

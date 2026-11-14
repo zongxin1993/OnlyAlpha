@@ -1,6 +1,7 @@
 use onlyalpha_execution::{
     CommitIntent, Components, Error, Prepared, Record, Store, digest, recover,
 };
+use onlyalpha_observability::{Correlation, Operation, measure, measure_counted};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
 use std::{
@@ -380,7 +381,9 @@ impl SqliteStore {
             identity,
             _lease: lease,
         };
-        store.validate_schema()?;
+        measure("runtime", "source.schema", Correlation::default(), || {
+            store.validate_schema()
+        })?;
         crate::readonly::verify_file(&path, &store._lease)?;
         Ok(store)
     }
@@ -391,7 +394,14 @@ impl SqliteStore {
     /// No Store recovery, planner, projection completion or acknowledgement runs.
     pub(crate) fn read_ready_components(&self) -> Result<(Components, Vec<Record>, Value), Error> {
         let records = self.read_records()?;
-        self.verify_perpetual_inputs(&records)?;
+        measure_counted(
+            "runtime",
+            "source.perpetual_inputs.verify",
+            Correlation::default(),
+            records.len() as u64,
+            0,
+            || self.verify_perpetual_inputs(&records),
+        )?;
         if records
             .iter()
             .any(|record| !record.ready() || !record.delivered())
@@ -401,38 +411,116 @@ impl SqliteStore {
         let mut statement = sql(self
             .connection
             .prepare("SELECT sequence,payload,digest FROM checkpoints ORDER BY sequence"))?;
-        let rows = sql(sql(statement.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        }))?
-        .collect::<rusqlite::Result<Vec<_>>>())?;
-        self.verify_perpetual_inputs(&records)?;
+        let sql_operation =
+            Operation::start("runtime", "checkpoint.rows.sql", Correlation::default());
+        let sql_result: Result<Vec<(i64, String, String)>, Error> = (|| {
+            sql(sql(statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            }))?
+            .collect::<rusqlite::Result<Vec<_>>>())
+        })();
+        let (items, bytes) = sql_result.as_ref().map_or((0, 0), |rows| {
+            (
+                rows.len() as u64,
+                rows.iter().fold(0u64, |total, (_, raw, _)| {
+                    total.saturating_add(raw.len() as u64)
+                }),
+            )
+        });
+        sql_operation.finish(
+            if sql_result.is_ok() { "ok" } else { "failed" },
+            items,
+            bytes,
+        );
+        let rows = sql_result?;
+        measure_counted(
+            "runtime",
+            "source.perpetual_inputs.verify",
+            Correlation::default(),
+            records.len() as u64,
+            0,
+            || self.verify_perpetual_inputs(&records),
+        )?;
         let mut current = None;
         let mut witnesses = Vec::new();
         for (sequence, raw, expected) in rows {
-            let checkpoint = decoded(&raw, &expected)?;
-            let end = usize::try_from(sequence).map_err(|_| error("CHECKPOINT_SEQUENCE"))?;
-            let prefix = records
-                .get(..end)
-                .ok_or_else(|| error("CHECKPOINT_AHEAD"))?;
-            let mut components = Components::new(self.identity["configuration"].clone())?;
-            components.restore(&checkpoint["components"], &hash(&checkpoint["components"]))?;
-            // The existing owning source/reconciliation readers bind all six
-            // typed owners to this actual Ready prefix, including Fee history.
-            let view = Replay {
-                rows: prefix.to_vec(),
-            };
-            view.compare(&components)?;
-            if self.checkpoint_value(&components, prefix)? != checkpoint {
-                return Err(error("CHECKPOINT_SOURCE_OR_COMPONENTS"));
-            }
-            witnesses.push(json!({"sequence":sequence,"digest":expected}));
-            if end == records.len() {
-                current = Some(components);
-            }
+            let checkpoint_scope =
+                Operation::start("runtime", "checkpoint.rebuild", Correlation::default());
+            let checkpoint_bytes = raw.len() as u64;
+            let rebuilt: Result<(), Error> = checkpoint_scope.span().in_scope(|| {
+                let checkpoint = measure_counted(
+                    "runtime",
+                    "checkpoint.decode",
+                    Correlation::default(),
+                    1,
+                    raw.len() as u64,
+                    || decoded(&raw, &expected),
+                )?;
+                let end = usize::try_from(sequence).map_err(|_| error("CHECKPOINT_SEQUENCE"))?;
+                let prefix = records
+                    .get(..end)
+                    .ok_or_else(|| error("CHECKPOINT_AHEAD"))?;
+                let mut components = measure_counted(
+                    "runtime",
+                    "checkpoint.components.new",
+                    Correlation::default(),
+                    1,
+                    0,
+                    || Components::new(self.identity["configuration"].clone()),
+                )?;
+                measure_counted(
+                    "runtime",
+                    "checkpoint.components.restore",
+                    Correlation::default(),
+                    end as u64,
+                    raw.len() as u64,
+                    || {
+                        components
+                            .restore(&checkpoint["components"], &hash(&checkpoint["components"]))
+                    },
+                )?;
+                // The existing owning source/reconciliation readers bind all six
+                // typed owners to this actual Ready prefix, including Fee history.
+                let view = Replay {
+                    rows: prefix.to_vec(),
+                };
+                measure_counted(
+                    "runtime",
+                    "checkpoint.prefix.compare",
+                    Correlation::default(),
+                    end as u64,
+                    0,
+                    || view.compare(&components),
+                )?;
+                measure_counted(
+                    "runtime",
+                    "checkpoint.source.compare",
+                    Correlation::default(),
+                    end as u64,
+                    raw.len() as u64,
+                    || {
+                        if self.checkpoint_value(&components, prefix)? != checkpoint {
+                            return Err(error("CHECKPOINT_SOURCE_OR_COMPONENTS"));
+                        }
+                        Ok(())
+                    },
+                )?;
+                witnesses.push(json!({"sequence":sequence,"digest":expected}));
+                if end == records.len() {
+                    current = Some(components);
+                }
+                Ok(())
+            });
+            checkpoint_scope.finish(
+                if rebuilt.is_ok() { "ok" } else { "failed" },
+                1,
+                checkpoint_bytes,
+            );
+            rebuilt?;
         }
         let components = current.ok_or_else(|| error("READ_ONLY_HEAD_CHECKPOINT_REQUIRED"))?;
         Ok((components, records, Value::Array(witnesses)))
@@ -921,6 +1009,11 @@ impl SqliteStore {
         Ok(hashes)
     }
     pub(crate) fn read_records(&self) -> Result<Vec<Record>, Error> {
+        let operation =
+            Operation::start("runtime", "records.read_validate", Correlation::default());
+        let mut observed_rows = 0u64;
+        let mut observed_bytes = 0u64;
+        let result: Result<Vec<Record>,Error> = operation.span().in_scope(|| {
         self.validate_identity()?;
         let mut statement = sql(self
             .connection
@@ -932,6 +1025,7 @@ impl SqliteStore {
         let mut input_ids = std::collections::BTreeSet::new();
         let mut dictionary: Option<std::sync::Arc<DictionaryAnchorSource>> = None;
         while let Some(row) = sql(rows.next())? {
+            observed_rows=observed_rows.saturating_add(1);
             let sequence =
                 u64::try_from(sql(row.get::<_, i64>(0))?).map_err(|_| error("SEQUENCE"))?;
             let input_id = text_column(row, 1)?;
@@ -944,6 +1038,7 @@ impl SqliteStore {
                     .filter(|cached| cached.version == self.storage_version)
                     .map(|cached| &cached.payload),
             )?;
+            observed_bytes=observed_bytes.saturating_add(payload.as_str().len() as u64);
             let expected = text_column(row, 3)?;
             let ready: Option<i64> = sql(row.get(4))?;
             let delivered: Option<i64> = sql(row.get(5))?;
@@ -1028,6 +1123,13 @@ impl SqliteStore {
             return Err(error("HEAD_COMPLETENESS"));
         }
         Ok(records)
+        });
+        operation.finish(
+            if result.is_ok() { "ok" } else { "failed" },
+            observed_rows,
+            observed_bytes,
+        );
+        result
     }
     fn checkpoint_value(&self, c: &Components, records: &[Record]) -> Result<Value, Error> {
         let source = records

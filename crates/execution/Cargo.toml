@@ -22,3 +22,10 @@ onlyalpha-strategy-ledger = { path = "../strategy-ledger" }
 onlyalpha-risk = { path = "../risk" }
 
 onlyalpha-broker = { path = "../broker" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "recovery"
+harness = false

@@ -35,12 +35,27 @@ pub(super) struct Cut {
 }
 impl Cut {
     pub(super) fn verify(&self) -> Result<()> {
-        self.source.verify().map_err(|_| INVALID)?;
-        self.context.verify_cut()?;
-        self.bundle.verify()?;
-        self.snapshot.verify_cut().map_err(|_| INVALID)?;
-        self.source.verify().map_err(|_| INVALID)?;
-        self.context.verify_cut()
+        crate::workers::backtest_profile::measure(
+            self.context.run().run_id(),
+            "evidence.cut.verify",
+            || {
+                self.source.verify().map_err(|_| INVALID)?;
+                self.context.verify_cut()?;
+                crate::workers::backtest_profile::measure(
+                    self.context.run().run_id(),
+                    "evidence.bundle.verify",
+                    || self.bundle.verify(),
+                )?;
+                crate::workers::backtest_profile::measure(
+                    self.context.run().run_id(),
+                    "terminal.verify_cut",
+                    || self.snapshot.verify_cut(),
+                )
+                .map_err(|_| INVALID)?;
+                self.source.verify().map_err(|_| INVALID)?;
+                self.context.verify_cut()
+            },
+        )
     }
 }
 pub(crate) struct VerifiedEvidence {
@@ -149,9 +164,15 @@ impl Store {
         immutable_json::inspect_source_layout(&self.evidence.path).map_err(|_| INVALID)
     }
     fn require_context(&self, context: &BacktestReadContext) -> Result<()> {
-        self.verify_layout()?;
-        context.roots_match(&self.research, &self.runtime)?;
-        context.verify_cut()
+        crate::workers::backtest_profile::measure(
+            context.run().run_id(),
+            "evidence.require_context",
+            || {
+                self.verify_layout()?;
+                context.roots_match(&self.research, &self.runtime)?;
+                context.verify_cut()
+            },
+        )
     }
     /// The original Run locator is selected only when SQL has not yet pinned
     /// its terminal bundle. Every encountered manifest retains exact SHA identity.
@@ -187,120 +208,155 @@ impl Store {
         Ok(selected)
     }
     fn terminal(&self, context: &BacktestReadContext) -> Result<Arc<TerminalSnapshot>> {
-        let run = context.run();
-        let binding = &run.resolution()["backtest_binding"];
-        let artifact = text(binding, "executor_artifact_sha256")?;
-        // Observe the actually loaded image only. Never re-describe archived
-        // implementation manifests using a different currently running image.
-        let current =
-            describe_research_runtime(env!("CARGO_PKG_VERSION")).map_err(|_| HISTORICAL)?;
-        if current["artifact"] != artifact || current["version"] != binding["executor_version"] {
-            return Err(HISTORICAL);
-        }
-        let prepared = context.prepared();
-        let specification = RunSpec {
-            work_id: run.run_id().into(),
-            configuration: prepared.configuration().clone(),
-            kernel_artifact: artifact.into(),
-            driver_artifact: artifact.into(),
-            initial_ns: prepared.initial_ns().clone(),
-        };
-        let directory = self
-            .root
-            .child("runtime", false)
-            .and_then(|d| d.child(run.run_id(), false))
-            .map_err(|_| INVALID)?;
-        let snapshot = TerminalSnapshot::read(
-            &directory.path,
-            specification,
-            prepared.inputs(),
-            crate::workers::backtest::terminal_policy,
+        crate::workers::backtest_profile::measure(
+            context.run().run_id(),
+            "evidence.terminal",
+            || {
+                let run = context.run();
+                let binding = &run.resolution()["backtest_binding"];
+                let artifact = text(binding, "executor_artifact_sha256")?;
+                // Observe the actually loaded image only. Never re-describe archived
+                // implementation manifests using a different currently running image.
+                let current =
+                    describe_research_runtime(env!("CARGO_PKG_VERSION")).map_err(|_| HISTORICAL)?;
+                if current["artifact"] != artifact
+                    || current["version"] != binding["executor_version"]
+                {
+                    return Err(HISTORICAL);
+                }
+                let prepared = context.prepared();
+                let specification = RunSpec {
+                    work_id: run.run_id().into(),
+                    configuration: prepared.configuration().clone(),
+                    kernel_artifact: artifact.into(),
+                    driver_artifact: artifact.into(),
+                    initial_ns: prepared.initial_ns().clone(),
+                };
+                let directory = self
+                    .root
+                    .child("runtime", false)
+                    .and_then(|d| d.child(run.run_id(), false))
+                    .map_err(|_| INVALID)?;
+                let snapshot = crate::workers::backtest_profile::measure(
+                    run.run_id(),
+                    "terminal.read",
+                    || {
+                        TerminalSnapshot::read(
+                            &directory.path,
+                            specification,
+                            prepared.inputs(),
+                            crate::workers::backtest::terminal_policy,
+                        )
+                    },
+                )
+                .map_err(|_| INVALID)?;
+                directory.verify().map_err(|_| INVALID)?;
+                crate::workers::backtest_profile::measure(
+                    context.run().run_id(),
+                    "terminal.verify_cut",
+                    || snapshot.verify_cut(),
+                )
+                .map_err(|_| INVALID)?;
+                Ok(Arc::new(snapshot))
+            },
         )
-        .map_err(|_| INVALID)?;
-        directory.verify().map_err(|_| INVALID)?;
-        snapshot.verify_cut().map_err(|_| INVALID)?;
-        Ok(Arc::new(snapshot))
     }
     pub(crate) fn read_verified(
         &self,
         context: &BacktestReadContext,
     ) -> Result<Option<VerifiedEvidence>> {
-        self.require_context(context)?;
-        let source =
-            Arc::new(SourceLock::publication(&self.evidence.path).map_err(|_| UNAVAILABLE)?);
-        let run = context.run();
-        let selected = if let Some((e, _, _)) = run.completion_fingerprints() {
-            Some(e.to_owned())
-        } else {
-            self.find(run.run_id())?
-        };
-        let Some(identity) = selected else {
-            if run.state() == RunState::Completed
-                || (run.state() == RunState::Cancelled && run.was_started())
-            {
-                return Err(INVALID);
-            }
-            source.verify().map_err(|_| INVALID)?;
-            self.require_context(context)?;
-            return Ok(None);
-        };
-        if run.state() == RunState::Failed
-            || (run.state() == RunState::Cancelled && !run.was_started())
-        {
-            return Err(INVALID);
-        }
-        let directory = physical::optional(&self.evidence, &["sha256", &identity[..2], &identity])?
-            .ok_or(INVALID)?;
-        let bundle = Arc::new(Bundle::open(directory, &identity)?);
-        if !matches!(bundle.manifest().schema_version(), 2 | 3) {
-            return Err(HISTORICAL);
-        }
-        let snapshot = self.terminal(context)?;
-        let retained_trace = physical::parsed(bundle.bytes("replay-trace.json")?)?;
-        snapshot
-            .verify_encoded_trace(&retained_trace)
-            .map_err(|_| INVALID)?;
-        let observed =
-            ObservedBacktest::from_terminal(context.prepared(), &snapshot).map_err(|_| INVALID)?;
-        let (expected, files) = contents(context, &observed)?;
-        if bundle.manifest().record() != expected.record() {
-            return Err(INVALID);
-        }
-        for (name, raw) in &files {
-            if bundle.bytes(name)? != raw {
-                return Err(INVALID);
-            }
-        }
-        if let Some((e, r, d)) = run.completion_fingerprints()
-            && (e != identity
-                || expected.record()["result_fingerprint"] != r
-                || expected.record()["determinism_fingerprint"] != d)
-        {
-            return Err(INVALID);
-        }
-        let status = text(observed.proof(), "status")?;
-        if matches!(run.state(), RunState::Completed | RunState::Cancelled)
-            && status != run.state().as_str()
-        {
-            return Err(INVALID);
-        }
-        let mut values = BTreeMap::new();
-        for name in super::manifest::NAMES {
-            values.insert(name.into(), physical::parsed(bundle.bytes(name)?)?);
-        }
-        let value = VerifiedEvidence {
-            manifest: expected,
-            values,
-            cut: Arc::new(Cut {
-                context: context.clone(),
-                source,
-                bundle,
-                snapshot,
-            }),
-        };
-        value.verify_cut()?;
-        self.require_context(context)?;
-        Ok(Some(value))
+        crate::workers::backtest_profile::measure(
+            context.run().run_id(),
+            "evidence.read_verified",
+            || {
+                self.require_context(context)?;
+                let source = Arc::new(
+                    SourceLock::publication(&self.evidence.path).map_err(|_| UNAVAILABLE)?,
+                );
+                let run = context.run();
+                let selected = if let Some((e, _, _)) = run.completion_fingerprints() {
+                    Some(e.to_owned())
+                } else {
+                    self.find(run.run_id())?
+                };
+                let Some(identity) = selected else {
+                    if run.state() == RunState::Completed
+                        || (run.state() == RunState::Cancelled && run.was_started())
+                    {
+                        return Err(INVALID);
+                    }
+                    source.verify().map_err(|_| INVALID)?;
+                    self.require_context(context)?;
+                    return Ok(None);
+                };
+                if run.state() == RunState::Failed
+                    || (run.state() == RunState::Cancelled && !run.was_started())
+                {
+                    return Err(INVALID);
+                }
+                let directory =
+                    physical::optional(&self.evidence, &["sha256", &identity[..2], &identity])?
+                        .ok_or(INVALID)?;
+                let bundle = Arc::new(crate::workers::backtest_profile::measure(
+                    context.run().run_id(),
+                    "evidence.bundle.open",
+                    || Bundle::open(directory, &identity),
+                )?);
+                if !matches!(bundle.manifest().schema_version(), 2 | 3) {
+                    return Err(HISTORICAL);
+                }
+                let snapshot = self.terminal(context)?;
+                let retained_trace = physical::parsed(bundle.bytes("replay-trace.json")?)?;
+                snapshot
+                    .verify_encoded_trace(&retained_trace)
+                    .map_err(|_| INVALID)?;
+                let observed = crate::workers::backtest_profile::measure(
+                    context.run().run_id(),
+                    "result.from_terminal",
+                    || ObservedBacktest::from_terminal(context.prepared(), &snapshot),
+                )
+                .map_err(|_| INVALID)?;
+                let (expected, files) = contents(context, &observed)?;
+                if bundle.manifest().record() != expected.record() {
+                    return Err(INVALID);
+                }
+                for (name, raw) in &files {
+                    if bundle.bytes(name)? != raw {
+                        return Err(INVALID);
+                    }
+                }
+                if let Some((e, r, d)) = run.completion_fingerprints()
+                    && (e != identity
+                        || expected.record()["result_fingerprint"] != r
+                        || expected.record()["determinism_fingerprint"] != d)
+                {
+                    return Err(INVALID);
+                }
+                let status = text(observed.proof(), "status")?;
+                if matches!(run.state(), RunState::Completed | RunState::Cancelled)
+                    && status != run.state().as_str()
+                {
+                    return Err(INVALID);
+                }
+                let mut values = BTreeMap::new();
+                for name in super::manifest::NAMES {
+                    values.insert(name.into(), physical::parsed(bundle.bytes(name)?)?);
+                }
+                let value = VerifiedEvidence {
+                    manifest: expected,
+                    values,
+                    cut: Arc::new(Cut {
+                        context: context.clone(),
+                        source,
+                        bundle,
+                        snapshot,
+                    }),
+                };
+                value.verify_cut()?;
+                self.require_context(context)?;
+                Ok(Some(value))
+            },
+        )
     }
     /// Recovery consumes the same complete owning cut as read_verified. Neither
     /// filesystem existence nor a result-shaped DTO can construct this proof.
@@ -313,67 +369,89 @@ impl Store {
             .transpose()
     }
     pub(crate) fn commit(&self, joined: JoinedBacktest) -> Result<CompletionProof> {
-        joined.verify_cut()?;
-        let context = joined.read_context();
-        self.require_context(context)?;
-        // Existing corrupt history is never an invitation to overwrite it.
-        if let Some(existing) = self.read_verified(context)? {
-            compare_observation(&existing, joined.observation())?;
+        crate::workers::backtest_profile::measure(joined.run().run_id(), "evidence.commit", || {
             joined.verify_cut()?;
-            return existing.completion();
-        }
-        // Serialize Run-to-bundle membership with the existing source barrier.
-        // SHA NOREPLACE alone cannot prevent two different manifests for one Run.
-        let source = SourceLock::acquire(&self.evidence.path).map_err(|_| UNAVAILABLE)?;
-        if self.find(joined.run().run_id())?.is_some() {
+            let context = joined.read_context();
+            self.require_context(context)?;
+            // Existing corrupt history is never an invitation to overwrite it.
+            if let Some(existing) = self.read_verified(context)? {
+                compare_observation(&existing, joined.observation())?;
+                joined.verify_cut()?;
+                return existing.completion();
+            }
+            // Serialize Run-to-bundle membership with the existing source barrier.
+            // SHA NOREPLACE alone cannot prevent two different manifests for one Run.
+            let source = SourceLock::acquire(&self.evidence.path).map_err(|_| UNAVAILABLE)?;
+            if self.find(joined.run().run_id())?.is_some() {
+                drop(source);
+                let existing = self.read_verified(context)?.ok_or(INVALID)?;
+                compare_observation(&existing, joined.observation())?;
+                joined.verify_cut()?;
+                return existing.completion();
+            }
+            let snapshot = self.terminal(context)?;
+            let actual = crate::workers::backtest_profile::measure(
+                context.run().run_id(),
+                "result.from_terminal",
+                || ObservedBacktest::from_terminal(context.prepared(), &snapshot),
+            )
+            .map_err(|_| INVALID)?;
+            if actual.record() != joined.observation().record()
+                || actual.result() != joined.observation().result()
+                || actual.proof() != joined.observation().proof()
+                || actual.trace() != joined.observation().trace()
+            {
+                return Err(INVALID);
+            }
+            let (manifest, files) = contents(context, &actual)?;
+            source.verify().map_err(|_| INVALID)?;
+            joined.verify_cut()?;
+            crate::workers::backtest_profile::measure(
+                context.run().run_id(),
+                "terminal.verify_cut",
+                || snapshot.verify_cut(),
+            )
+            .map_err(|_| INVALID)?;
+            crate::workers::backtest_profile::measure(
+                context.run().run_id(),
+                "evidence.put_bundle",
+                || {
+                    immutable_json::put_bundle_at(
+                        self.evidence.fd.as_fd(),
+                        &[
+                            "sha256",
+                            &manifest.fingerprint()[..2],
+                            manifest.fingerprint(),
+                        ],
+                        &files,
+                        BUDGET,
+                    )
+                },
+            )
+            .map_err(|_| INVALID)?;
+            source.verify().map_err(|_| INVALID)?;
+            joined.verify_cut()?;
+            crate::workers::backtest_profile::measure(
+                context.run().run_id(),
+                "terminal.verify_cut",
+                || snapshot.verify_cut(),
+            )
+            .map_err(|_| INVALID)?;
+            if self.find(joined.run().run_id())?.as_deref() != Some(manifest.fingerprint()) {
+                return Err(INVALID);
+            }
+            // Release the membership barrier before obtaining the retained read cut.
+            // Another publisher must now observe this original Run, never append a second.
             drop(source);
-            let existing = self.read_verified(context)?.ok_or(INVALID)?;
-            compare_observation(&existing, joined.observation())?;
+            // No fresh identity on original UNKNOWN/crash recovery. This read also
+            // rejects any second terminal bundle for an unpinned original Run.
+            let verified = self.read_verified(context)?.ok_or(INVALID)?;
+            compare_observation(&verified, &actual)?;
+            let proof = verified.completion()?;
             joined.verify_cut()?;
-            return existing.completion();
-        }
-        let snapshot = self.terminal(context)?;
-        let actual =
-            ObservedBacktest::from_terminal(context.prepared(), &snapshot).map_err(|_| INVALID)?;
-        if actual.record() != joined.observation().record()
-            || actual.result() != joined.observation().result()
-            || actual.proof() != joined.observation().proof()
-            || actual.trace() != joined.observation().trace()
-        {
-            return Err(INVALID);
-        }
-        let (manifest, files) = contents(context, &actual)?;
-        source.verify().map_err(|_| INVALID)?;
-        joined.verify_cut()?;
-        snapshot.verify_cut().map_err(|_| INVALID)?;
-        immutable_json::put_bundle_at(
-            self.evidence.fd.as_fd(),
-            &[
-                "sha256",
-                &manifest.fingerprint()[..2],
-                manifest.fingerprint(),
-            ],
-            &files,
-            BUDGET,
-        )
-        .map_err(|_| INVALID)?;
-        source.verify().map_err(|_| INVALID)?;
-        joined.verify_cut()?;
-        snapshot.verify_cut().map_err(|_| INVALID)?;
-        if self.find(joined.run().run_id())?.as_deref() != Some(manifest.fingerprint()) {
-            return Err(INVALID);
-        }
-        // Release the membership barrier before obtaining the retained read cut.
-        // Another publisher must now observe this original Run, never append a second.
-        drop(source);
-        // No fresh identity on original UNKNOWN/crash recovery. This read also
-        // rejects any second terminal bundle for an unpinned original Run.
-        let verified = self.read_verified(context)?.ok_or(INVALID)?;
-        compare_observation(&verified, &actual)?;
-        let proof = verified.completion()?;
-        joined.verify_cut()?;
-        proof.verify_cut()?;
-        Ok(proof)
+            proof.verify_cut()?;
+            Ok(proof)
+        })
     }
 }
 fn compare_observation(value: &VerifiedEvidence, actual: &ObservedBacktest) -> Result<()> {
@@ -390,70 +468,72 @@ fn contents(
     context: &BacktestReadContext,
     observed: &ObservedBacktest,
 ) -> Result<(Manifest, BTreeMap<String, Vec<u8>>)> {
-    context.verify_cut()?;
-    let run = context.run();
-    let proof = observed.proof();
-    let result = observed.result();
-    let status = text(proof, "status")?;
-    if observed.trace()["binding"]["participants"]["program"]["revision"]["product"]["source"]
-        != context.source_revision().to_record()
-    {
-        return Err(INVALID);
-    }
-    if !matches!(status, "COMPLETED" | "CANCELLED")
-        || proof["drained"] != true
-        || (status == "COMPLETED" && proof["market_exhausted"] != true)
-        || observed.preparation() != &run.resolution()["preparation"]
-    {
-        return Err(INVALID);
-    }
-    let streamed = match observed.trace()["schema_version"].as_u64() {
-        Some(1) => false,
-        Some(2) if observed.trace()["kind"] == "RUNTIME_ENCODED_REPLAY_TRACE" => true,
-        _ => return Err(INVALID),
-    };
-    if !proof["source"].as_str().is_some_and(crate::is_sha256_hex) {
-        return Err(INVALID);
-    }
-    let operation = context.original_operation();
-    let runtime = json!({"schema_version":if streamed{2}else{1},"contract":if streamed{"ONLYALPHA_NATIVE_BACKTEST_PRODUCER_V2"}else{"ONLYALPHA_NATIVE_BACKTEST_PRODUCER_V1"},
+    crate::workers::backtest_profile::measure(context.run().run_id(), "evidence.contents", || {
+        context.verify_cut()?;
+        let run = context.run();
+        let proof = observed.proof();
+        let result = observed.result();
+        let status = text(proof, "status")?;
+        if observed.trace()["binding"]["participants"]["program"]["revision"]["product"]["source"]
+            != context.source_revision().to_record()
+        {
+            return Err(INVALID);
+        }
+        if !matches!(status, "COMPLETED" | "CANCELLED")
+            || proof["drained"] != true
+            || (status == "COMPLETED" && proof["market_exhausted"] != true)
+            || observed.preparation() != &run.resolution()["preparation"]
+        {
+            return Err(INVALID);
+        }
+        let streamed = match observed.trace()["schema_version"].as_u64() {
+            Some(1) => false,
+            Some(2) if observed.trace()["kind"] == "RUNTIME_ENCODED_REPLAY_TRACE" => true,
+            _ => return Err(INVALID),
+        };
+        if !proof["source"].as_str().is_some_and(crate::is_sha256_hex) {
+            return Err(INVALID);
+        }
+        let operation = context.original_operation();
+        let runtime = json!({"schema_version":if streamed{2}else{1},"contract":if streamed{"ONLYALPHA_NATIVE_BACKTEST_PRODUCER_V2"}else{"ONLYALPHA_NATIVE_BACKTEST_PRODUCER_V1"},
         "run":run.record(),"preparation_command_id":operation.command.value(),"accepted_preparation":operation.accepted,
         "ready":operation.outputs["ready"],"runtime_manifest":context.runtime_manifest(),"executor_manifest":context.executor_manifest(),"installed_proof":context.installed_proof(),
         "replay_binding":observed.trace()["binding"]});
-    let mut files = BTreeMap::new();
-    for (name, value) in [
-        ("observation.json", observed.record()),
-        ("replay-proof.json", proof),
-        ("replay-trace.json", observed.trace()),
-        ("result.json", result),
-        ("runtime.json", &runtime),
-    ] {
-        files.insert(name.into(), physical::canonical(value)?);
-    }
-    let artifacts=files.iter().map(|(name,bytes)|json!({"name":name,"sha256":physical::sha(bytes),"size":bytes.len(),"media_type":"application/json"})).collect::<Vec<_>>();
-    let resolution = run.resolution();
-    let mut record = json!({"schema_version":if streamed{3}else{2},"kind":"NATIVE_BTC_SPOT_NEXT_OPEN_EVIDENCE","backtest_run_id":run.run_id(),
+        let mut files = BTreeMap::new();
+        for (name, value) in [
+            ("observation.json", observed.record()),
+            ("replay-proof.json", proof),
+            ("replay-trace.json", observed.trace()),
+            ("result.json", result),
+            ("runtime.json", &runtime),
+        ] {
+            files.insert(name.into(), physical::canonical(value)?);
+        }
+        let artifacts=files.iter().map(|(name,bytes)|json!({"name":name,"sha256":physical::sha(bytes),"size":bytes.len(),"media_type":"application/json"})).collect::<Vec<_>>();
+        let resolution = run.resolution();
+        let mut record = json!({"schema_version":if streamed{3}else{2},"kind":"NATIVE_BTC_SPOT_NEXT_OPEN_EVIDENCE","backtest_run_id":run.run_id(),
         "specification_fingerprint":run.specification_fingerprint(),"admission_resolution_fingerprint":run.admission_resolution_fingerprint(),
         "strategy_fingerprint":resolution["strategy_fingerprint"],"dataset_snapshot_fingerprint":resolution["dataset_snapshot_fingerprint"],
         "dataset_binding_fingerprint":resolution["dataset_binding_fingerprint"],"runtime_generation_fingerprint":run.runtime_generation_fingerprint(),
         "preparation_fingerprint":resolution["preparation_fingerprint"],"result_fingerprint":result["result_fingerprint"],
         "determinism_fingerprint":result["determinism_fingerprint"],"artifacts":artifacts});
-    if streamed {
-        record["trace_format"] = json!("RUNTIME_ENCODED_REPLAY_TRACE@2");
-        record["logical_trace_fingerprint"] = proof["source"].clone();
-    }
-    record["evidence_fingerprint"] = json!(hash(&record)?);
-    let manifest = Manifest::from_record(&record)?;
-    files.insert("manifest.json".into(), physical::canonical(&record)?);
-    let total = files.values().try_fold(0_usize, |total, raw| {
-        total
-            .checked_add(raw.len())
-            .filter(|n| *n <= BUDGET)
-            .ok_or(UNAVAILABLE)
-    })?;
-    if total == 0 {
-        return Err(INVALID);
-    }
-    context.verify_cut()?;
-    Ok((manifest, files))
+        if streamed {
+            record["trace_format"] = json!("RUNTIME_ENCODED_REPLAY_TRACE@2");
+            record["logical_trace_fingerprint"] = proof["source"].clone();
+        }
+        record["evidence_fingerprint"] = json!(hash(&record)?);
+        let manifest = Manifest::from_record(&record)?;
+        files.insert("manifest.json".into(), physical::canonical(&record)?);
+        let total = files.values().try_fold(0_usize, |total, raw| {
+            total
+                .checked_add(raw.len())
+                .filter(|n| *n <= BUDGET)
+                .ok_or(UNAVAILABLE)
+        })?;
+        if total == 0 {
+            return Err(INVALID);
+        }
+        context.verify_cut()?;
+        Ok((manifest, files))
+    })
 }

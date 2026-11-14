@@ -17,3 +17,10 @@ onlyalpha-metadata-json = { path = "../metadata-json" }
 
 onlyalpha-domain = { path = "../domain" }
 onlyalpha-market-data-construction = { path = "../market-data-construction" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "workload"
+harness = false

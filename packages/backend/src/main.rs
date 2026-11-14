@@ -340,22 +340,22 @@ async fn run() -> Result<(), String> {
         }
         return Ok(());
     }
-    if let [command, root] = args.as_slice() {
-        if matches!(
+    if let [command, root] = args.as_slice()
+        && matches!(
             command.as_str(),
             "--extend-strategy-research-namespace" | "--extend-manual-backtest-namespace"
-        ) {
-            let identity = extend_research_namespace(
-                std::path::Path::new(root),
-                command == "--extend-manual-backtest-namespace",
-            )
-            .await?;
-            println!(
-                "{}",
-                serde_json::json!({"schema_version":1,"semantic_store_id":identity.value()})
-            );
-            return Ok(());
-        }
+        )
+    {
+        let identity = extend_research_namespace(
+            std::path::Path::new(root),
+            command == "--extend-manual-backtest-namespace",
+        )
+        .await?;
+        println!(
+            "{}",
+            serde_json::json!({"schema_version":1,"semantic_store_id":identity.value()})
+        );
+        return Ok(());
     }
     if args.len() == 2
         && matches!(
@@ -423,6 +423,26 @@ async fn run() -> Result<(), String> {
     };
     let config = configuration(user_data).map_err(String::from)?;
     let address = config.listen;
+    // 仅正式服务角色初始化诊断。导出、运维和算法协议角色已在上方返回。
+    // 诊断配置/输出错误不替换业务启动结果；受控取证由协调器检查 session_start。
+    let diagnostics = {
+        let configured = std::env::var("ONLYALPHA_DIAGNOSTICS").ok();
+        let legacy = std::env::var("ONLYALPHA_BACKTEST_PROFILE").ok();
+        let output = std::env::var_os("ONLYALPHA_DIAGNOSTICS_PATH").map(PathBuf::from);
+        match onlyalpha_backend::bootstrap::observability::mode(
+            configured.as_deref(),
+            legacy.as_deref(),
+        )
+        .and_then(|mode| {
+            onlyalpha_backend::bootstrap::observability::start(mode, output.as_deref())
+        }) {
+            Ok(session) => session,
+            Err(code) => {
+                eprintln!("{code}");
+                None
+            }
+        }
+    };
     // Register both maintained OS signal streams before any protected startup work.
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| "SIGNAL_UNAVAILABLE")?;
@@ -453,6 +473,9 @@ async fn run() -> Result<(), String> {
     .await;
     signal.abort();
     let _ = signal.await;
+    if let Some(session) = diagnostics {
+        eprintln!("ONLYALPHA_DIAGNOSTIC {}", session.close().record());
+    }
     result
 }
 

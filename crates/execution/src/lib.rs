@@ -8,6 +8,7 @@ mod perpetual_fees;
 mod planning;
 pub use components::Components;
 pub use model::{Error, Prepared, digest};
+pub use planning::AdmissionPreview;
 mod coordinator;
 pub use coordinator::{CommitIntent, Record, Store, coordinate, pending_events, recover};
 

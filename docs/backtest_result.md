@@ -1,77 +1,37 @@
-# Rust Backtest Result / Final Seal
+# 回测结果、完成候选与正式发布
 
-## Responsibility and authority
+本契约依据[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)演进原文件Evidence／SQLite读取与部分终态结果发布规则。完整成员和接口见[有限作业契约](job-execution-contract.md)。第一阶段只补齐定义，旧实现尚未切换；这里不声明新结果已可通过API读取。
 
-`onlyalpha_execution::Components::backtest_result(store, manifest, outcome)` is a read-only composition adapter over the existing independently buildable Execution library. It returns a private-field immutable `BacktestResult` with detached `record()` and canonical `encode()` reads. There is no derived-result decoder, writer, cache, persistence format, new dependency or independently deployed service. Result assembly observes owning managers; it never recalculates fees, Account economics, Cluster returns or reconciliation adjustments.
+## 经济归属
 
-The native semantic identity is `BACKTEST_RESULT@1`, schema1. This isolated result is not wire-compatible with the currently admitted Python Result (whose actual serializer is schema4). ADR0034's schema3 decision established Account/Cluster authority separation; it does not grant language/artifact equivalence. Native results retain distinct exact implementation provenance.
+结果组合只观察各owner的事实和计算结果，不重算费用、Account经济、Ledger收益或制造对账调整。Account拥有runtime_performance，StrategyLedger拥有cluster_performance；后者不合成为虚假的Account收益。保留所属金额／数量／收益精度，因子的新数值规范不改变这些边界。
 
-`ProjectionData::transcript` 复用相同的统计与明细组装，返回 `TranscriptDraft`。候选数据可以重算尚未在 Runtime 提交或确认 Ready 的行，因此其正文不含 `final_seal`、`determinism_fingerprint`、`result_fingerprint` 和最终 `id`。
+最终持仓、Allocation、完整订单生命周期和交易／费用、Account和各Ledger时间线（含实际genesis）、诊断以及因果事实必须留存。不是只保存PnL。原close_curve的NAV／高水位／回撤／账户序号、已观察sample和同数量buy-and-hold比较由ResultPlan明确绑定；短样本不凭空年化，无成交时仍保留完整合法空集合和轴。
 
-原生 Run 的 `Runtime::backtest_result` 及 `VerifiedReplaySnapshot::backtest_result` 返回 `onlyalpha_runtime::RunBacktestResult`。两者从原 SQLite 完整重读 Ready 前缀、核对工件与六组当前投影。配置 3 还要按原场所和行情逐笔重推。只读快照先重新验证已绑定的原切片。结果先附加 `READ_ONLY_OBSERVATION`，再计算两个指纹，最后计算 `BTR-` 身份。结果与现行 BACKTEST_RESULT@1 使用同一字段和字节规则。
+## 完成候选和Authority
 
-## Explicit completion boundary
+经济内部transcript只能证明自身范围，不证明Dataset耗尽、信号／Broker／Event drain、子进程回收、权限或Product发布。只有真实执行owner完成实际输入、经济不变量、drain和ResultPlan成员后才能产生私有CompletedBacktest。Backend监督者正向回收原子进程后，才能组合私有CompletedJobCandidate。manifest、客户端hash／boolean／DTO均不可构造此权限。
 
-The mandatory caller-declared manifest is an exact schema1 object with:
+内存未发布候选可在取消、失败或进程中断后释放，不能被Freeze／Qualification／Promotion消费。诊断日志不替代正式结果。当前`BACKTEST_RESULT@1`内部transcript与旧BTR／Evidence身份不改写为新格式，也不建立旧reader兼容。
 
-- `configuration`: SHA256 of the complete canonical Execution configuration, including BACKTEST kind, Generation, all Cluster revisions and capital scope;
-- `kernel_artifact`: exact immutable Kernel artifact digest;
-- `input_pin`: exact immutable upstream input composition digest;
-- `initial_time` and `final_time`: canonical Domain Timestamp records, explicit nanosecond instants;
-- `inputs`: the complete ordered list of canonical Execution input SHA256 values, with no duplicate entries and at most65536 occurrences.
+## 身份和完整内容
 
-The owning caller must retain and bind this manifest to its immutable work identity. The library verifies the actual current Ready prefix against every observed manifest element, not merely a final count or shared head. Completion requires consuming the entire declared transcript, and every observed fact must lie within the declared time interval. Changed mandatory inputs, artifact, pin, time or configuration produce a different result or an error. Missing, malformed or wrong-family proof cannot establish absence.
+FrozenJobBinding包含原Run scope、完整配置／初始状态、策略／程序／精确参数、Kernel和规则工件以及有序输入身份。ResultPlan声明全成员的逻辑键、类型、schema、轴和计数要求。最终结果身份绑定全正式内容与该冻结绑定；Attempt、主机、PID、耗时／当前时间不参加经济身份。
 
-**`completion_scope` is always `EXECUTION_TRANSCRIPT`.** The current Rust composition does not own market replay, Dataset exhaustion, Strategy dispatch, Broker queue drain or Event delivery lifecycle. A caller-declared digest is not producer authentication or proof of those lifecycle facts. A complete transcript proves only that this declared bounded sequence and its owning projections are available and checked. It does not certify official Backtest completion, Runtime READY, Evidence publication, a service restart/upgrade or Rust activation. R5 must bind these inputs through the actual admitted Runtime driver, prove its upstream input closure and lifecycle drains, and pass the normal Shipping Web UI flow. A boolean `completed` or an empty pending queue alone is never completion evidence.
+canonical编码使用既有规范化指纹算法、精确整数时间和十进制字符串，不用float或展示标签替代原事实。重复引用和错误关联拒绝；成员缺失不能默认空表，读取不可用不能当作确定不存在。集合规范序与因果事件顺序分开。
 
-Final seal freezes the returned observation; it does not freeze the mutable Execution source or forbid subsequent safety processing. Further accepted input yields another source/result identity. The old returned value stays immutable. The seal is a separate `READ_ONLY_OBSERVATION` with explicit final time and the verified source. It is not a fabricated Account journal occurrence and does not increment owning performance point counts.
+## 原子发布和查询
 
-## Source, facts and projections
+全部正式内容、唯一publication及Run／Attempt终态在同一PostgreSQL事务写入。事务核对Run、修订、有效claim／lease／fence、精确绑定和完整成员；相同Run的冲突必须比较全部绑定，不可ON CONFLICT后直接称成功。普通应用角色不得改删正式内容。
 
-The complete Ready guard verifies Store availability/head, no pending projection, contiguous genesis lineage, every transaction-cause index, exact configuration/Generation/Cluster revision and all six current owner checkpoint hashes. Result, Account performance and final Fee-aware reconciliation must bind the same source. The Store contract remains serialized and immutable; digest verification does not authenticate an untrusted Store implementation.
+提交确认后才能返回完成；COMMIT未知先观察原事务和原Run，不制造FAILED、不换Run。只在证明未发布且获得合法新Claim后，才允许从原冻结输入重算。查询校验权限、正文和成员关联，读取完整正式结果，不再次执行整段回测。
 
-Only Ready input facts enter the ordered `facts` sequence. Only its FILL family enters `trades`; transport delivery receipts are not execution facts. Order count comes from the owning Order state. The result includes final Account, Position and Allocation snapshots, all configured Ledger snapshots, Order lifecycle records, the full Account timeline, each complete Ledger occurrence timeline with an explicit genesis observation, and structured diagnostics. Cluster membership and stable ordering come from the complete configured scope, never the first Ledger or registration position.
+## 终止规则
 
-`runtime_performance` is the existing Account-owned result, including its exact numerical and historical-quality semantics. Each `cluster_performance` explicitly names `STRATEGY_LEDGER` authority and projects the corresponding owning Ledger's existing performance fields. Ledger rates use their owning single precision8 HALF_EVEN boundary (including the corrected large-coefficient double-rounding regression); Ledger availability conventions are not silently replaced with Account analytical policy, and Cluster values are not combined to manufacture Account returns. Genesis points and per-Cluster occurrence indexes are read-only views; original Ledger sequence/time/cause/outcome and snapshots remain intact.
+COMPLETED必须拥有完整发布。CANCELLED、FAILED只保留真实控制／错误原因，不发布前缀结果、假空成交或全零收益。UNKNOWN保留原身份和观察路径，不能映射为已失败／已取消／未提交。CANCEL_REQUESTED是意图，完成竞争沿原状态机裁定；迟到取消不撤销已完成结果。
 
-## Outcomes and failure semantics
+只有真实经济不变量通过才可完成；开放／UNKNOWN订单、未处理Risk hold、保留现金／Margin或对账错误不能凭终止标签消除。合法持仓和未结算状态按所属契约判断，不能虚构强平取得完成。
 
-The strict schema1 outcome has `status` and `reason`. COMPLETED requires a null reason; FAILED, CANCELLED, INCOMPLETE and UNKNOWN require a bounded nonempty business reason. The original request and reason are retained, and driver termination is the first diagnostic so final checks cannot hide it.
+## 回归与证据
 
-- A missing/unavailable/corrupt/foreign/unready current source, wrong manifest prefix, extra observed input or invalid time is an error, including when partial output was requested. No official fact is invented for an unready transaction.
-- A requested COMPLETED result with an unconsumed transcript is an error.
-- A valid current manifest prefix may produce FAILED, CANCELLED or INCOMPLETE output; its explicit closure remains partial. UNKNOWN maps to INCOMPLETE while preserving the UNKNOWN request and reason. Cancellation never implies that orders were cancelled or holds released.
-- Complete economic mismatch makes the result FAILED for every requested outcome, with exact Account/Ledger differences and the original termination diagnostic retained. There is no tolerance, balancing write or lost root cause.
-- A requested completion with an open/UNKNOWN Order, outstanding Risk hold, reserved Account cash/Margin, Account reconciliation flag, Position stale proof or Ledger reconciliation flag becomes FAILED. Open positions and legitimate unsettled cash/asset state are not automatically failures.
-
-Operational Event acknowledgement can change independently of economics. Returned facts exclude delivered bits, and neither content identity nor business fingerprint changes solely because an Event was acknowledged or a new process reconstructed the same source. No caller-authored operational metadata is mixed into business diagnostics. Reasons are explicit stable business inputs, not auto-formatted tracebacks, file paths or wall-clock text.
-
-## Identity and recovery
-
-`determinism_fingerprint` and `result_fingerprint` hash the entire stable result content before the two fingerprint fields and `id` are installed. They retain failures, requested outcome/reason, warnings/quality flags, all economic values, complete input manifest, scope/Generation/artifact, source and owning history. This identity compares the same immutable scoped work across restart; it is not a cross-artifact or differently scoped run equivalence claim. `BTR-` content identity additionally binds the two fingerprints. Canonical UTF8 JSON uses sorted object keys, exact integer timestamps and decimal strings, with no floats, wall-clock reads, random ids or platform-sized numeric reinterpretation.
-
-Recovery reuses the existing exact Execution/owner readers and replay. There is no Result checkpoint or parallel history writer. Real-file/new-process and every pending-projection-cut tests prove library reconstruction and refusal semantics; they do not replace actual service restart, history migration or deployment upgrade evidence.
-
-## Reference mapping and limits
-
-Python `runtime/backtest/result.py`, `run_plan.py`, `result/business_projection.py`, `result/fingerprint.py` and the Result Collector are audited migration references. Native Result assembles only facts already owned by the selected Rust composition; it does not transliterate the Python Engine/Collector/Analytics/Artifact/Report package graph.
-
-Independent literals cover empty single/multiple Cluster, zero capital and a real partial-fill/cancel path. The correct empty-run common subset exercises actual Python Account/Ledger owners, performance projector, final reconciliation, Result model/serializer and business projection. This proves the declared monetary/return/count subset, not whole-record or whole-Runtime parity. Native tests additionally cover real multi-Cluster rounding mismatch, pending/unavailable sources, wrong-context/leaf mutations, UNKNOWN and partial termination, detached history, Event receipt invariance and fresh-process equality.
-
-Reference differences are explicit: Python BacktestStatus currently has only COMPLETED/FAILED; native diagnostic cancellation/incomplete/UNKNOWN are not falsely compared. Python RunPlan appends FINAL_SEAL through its projector and may choose the Clock when valuation time is absent; native sealing is read-only with a mandatory explicit time. Python fingerprint recursively excludes named metadata keys; native accepts no operational envelope and retains every source/authority field instead of deleting nested fields by name. The previously classified Account performance reference deviations remain documented in its owning contract. No broad Python repair or compatibility shim is introduced.
-
-FP-STORAGE-001 (RQAlpha479) motivates complete source closure and missing-history rejection. [Nautilus2701](https://github.com/nautechsystems/nautilus_trader/issues/2701) motivates detached historical snapshots and direct owning consumer tests. Mutable point aliases, current-balance-only recovery and report float/clock defaults are rejected.
-
-Formal Runtime admission, official end-of-replay producer, Product API/Web integration, Artifact/Report export, FIFO analytics, SIM/LIVE, Python retirement and deployment/history migration remain separate owning work.
-
-The [native Replay Driver](rust-backtest-replay.md) can additionally bind its finite market/control stream and verify passive Broker/Event drain. Its nested Backtest Result remains an `EXECUTION_TRANSCRIPT`; neither native library proof alone grants formal Runtime/Evidence publication authority.
-
-## Native encoded replay evidence
-
-New storage3 Backtest work archives Evidence3 with `trace_format = RUNTIME_ENCODED_REPLAY_TRACE@2`. Its five existing JSON artifacts remain owned by the same immutable Evidence store. `replay-trace.json` contains every actual encoded replay entry, the original binding, immutable inputs and terminal state; it is never a mutable Runtime path or a partial descriptor. Evidence2 and Trace1 retain their original exact readers and bytes; this format change does not migrate or reinterpret an old Artifact.
-
-`logical_trace_fingerprint` binds the complete canonical Trace1 byte stream produced by the original owning replay. It is checked against the original proof source after full causal verification. The artifact SHA binds the actual stored Trace2 bytes. These are different identities and neither substitutes for the other. A new compiled Artifact remains an explicit identity input; equivalent encoding does not imply cross-Artifact Work or Result equivalence.
-
-The producer and read-side owner visit each decoded step through the original native verifier and use the same canonical economic facts to produce the close curve, fees, positions and summary. A new JSON label, a reference, a successful file write or a supplied fingerprint does not create a CompletionProof. Positive termination of the real producer and the original Runtime, Dataset, Strategy and preparation witnesses remain required.
-
-The aggregate immutable bundle and native reply each remain bounded by 128 MiB. Encoded history may be retained within that bound; the complete logical history must not be expanded into one Value in the production path. Each new logical journal entry is bounded by 8 MiB when decoded, and historical validation proceeds step by step with the original complete checks. No history, seen set, input, control, Order Intent, Fill or checkpoint is pruned to satisfy these limits.
+第一阶段测试只验证冻结值、精确参数引用和完整结果计划谓词。后续必须取得真实PG事务／权限／未知／并发、同Run重算、经济golden、取消、进程与正常Web证据。纯值模型测试不证明这些能力；不以旧SQLitebaseline或文件Witness诊断宣称新发布链路通过。

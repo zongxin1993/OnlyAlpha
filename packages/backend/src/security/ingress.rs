@@ -108,6 +108,10 @@ pub(crate) struct PhysicalConnection {
     _owner: Arc<ConnectionGuard>,
 }
 impl PhysicalConnection {
+    /// 只复制诊断关联号，不延长连接或权限生命周期。
+    pub(crate) fn diagnostic_id(&self) -> u64 {
+        self.id
+    }
     /// Only called after Hyper's actual upgrade future completed: the HTTP
     /// headers have left its buffers, and the bounded WS owner is retained.
     pub(crate) fn upgraded(&self, proof: Arc<Release>) -> Result<(), Error> {
@@ -486,6 +490,7 @@ impl LocalIngress {
             io,
             state: Arc::clone(&self.state),
             id,
+            observed: Default::default(),
         };
         let header_deadline = Instant::now() + SEND_BUDGET;
         let (prefix, duplicate_length) = {
@@ -519,7 +524,16 @@ impl LocalIngress {
                     id,
                     _owner: owner,
                 });
-                Ok::<_, Infallible>(owned.request(id, request, duplicate_length).await)
+                use tracing::{Instrument, instrument::WithSubscriber};
+                let observation = super::ingress_socket::ResponseTrace::begin(id);
+                let dispatch = tracing::dispatcher::get_default(Clone::clone);
+                let response = owned
+                    .request(id, request, duplicate_length)
+                    .instrument(observation.span())
+                    .with_subscriber(dispatch)
+                    .await;
+                observation.ready(response.status());
+                Ok::<_, Infallible>(response)
             }
         });
         let mut builder = http1::Builder::new();
@@ -1250,6 +1264,7 @@ struct WriteGate<I> {
     io: I,
     state: Arc<State>,
     id: u64,
+    observed: super::ingress_socket::SocketTrace,
 }
 impl<I> WriteGate<I> {
     fn poll_outbound<T>(
@@ -1294,23 +1309,39 @@ impl<I: AsyncWrite + Unpin> AsyncWrite for WriteGate<I> {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.poll_outbound(|io| Pin::new(io).poll_write(cx, bytes))
+        let id = self.id;
+        self.observed.begin_write(id);
+        let result = self.poll_outbound(|io| Pin::new(io).poll_write(cx, bytes));
+        self.observed.end_write(&result);
+        result
     }
     fn poll_write_vectored(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         bytes: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        self.poll_outbound(|io| Pin::new(io).poll_write_vectored(cx, bytes))
+        let id = self.id;
+        self.observed.begin_write(id);
+        let result = self.poll_outbound(|io| Pin::new(io).poll_write_vectored(cx, bytes));
+        self.observed.end_write(&result);
+        result
     }
     fn is_write_vectored(&self) -> bool {
         self.io.is_write_vectored()
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_outbound(|io| Pin::new(io).poll_flush(cx))
+        let id = self.id;
+        self.observed.begin_flush(id);
+        let result = self.poll_outbound(|io| Pin::new(io).poll_flush(cx));
+        self.observed.end_flush(&result);
+        result
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_outbound(|io| Pin::new(io).poll_shutdown(cx))
+        let id = self.id;
+        self.observed.begin_shutdown(id);
+        let result = self.poll_outbound(|io| Pin::new(io).poll_shutdown(cx));
+        self.observed.end_shutdown(&result);
+        result
     }
 }
 
@@ -1732,6 +1763,7 @@ mod tests {
             io: tokio::io::sink(),
             state: ingress.state.clone(),
             id: 42,
+            observed: Default::default(),
         };
         assert!(io.write_all(b"private response").await.is_err());
     }
@@ -2039,6 +2071,7 @@ mod tests {
                 io: raw,
                 state: ingress.state.clone(),
                 id: 42,
+                observed: Default::default(),
             };
             assert_eq!(
                 writer
@@ -2090,6 +2123,7 @@ mod tests {
             io: tokio::io::sink(),
             state: ingress.state.clone(),
             id: 42,
+            observed: Default::default(),
         };
         writer.write_all(b"public health").await.unwrap();
         ingress.shutdown().unwrap();
@@ -2171,6 +2205,7 @@ mod tests {
             io: raw,
             state: ingress.state.clone(),
             id: 42,
+            observed: Default::default(),
         };
         assert!(writer.write_all(b"expired response").await.is_err());
         assert!(
@@ -2538,6 +2573,7 @@ mod tests {
                 io: raw,
                 state: ingress.state.clone(),
                 id: 42,
+                observed: Default::default(),
             };
             ingress.withdraw().unwrap();
             assert!(writer.write_all(b"withheld").await.is_err());
@@ -2583,6 +2619,7 @@ mod tests {
                 io: raw,
                 state: target.state.clone(),
                 id: 42,
+                observed: Default::default(),
             };
             assert!(writer.write_all(b"wrong authority").await.is_err());
             assert_eq!(observed.lock().unwrap().calls, 0);
@@ -2724,5 +2761,159 @@ mod tests {
             assert!(observed.lock().unwrap().accepted.is_empty());
             assert_eq!(ingress.retained_reads(), 0);
         }
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn socket_observation_preserves_pending_partial_write_and_permission_failure() {
+        use std::io::Write;
+        use tracing::instrument::WithSubscriber;
+        #[derive(Clone, Default)]
+        struct Buffer(Arc<Mutex<Vec<u8>>>);
+        impl Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let buffer = Buffer::default();
+        let session = onlyalpha_observability::Session::new(
+            onlyalpha_observability::Config::new(
+                onlyalpha_observability::Mode::Detail,
+                "socket-probe",
+                128,
+            ),
+            buffer.clone(),
+        )
+        .unwrap();
+        async {
+            let ingress = ingress(Router::new(), false);
+            ingress.state.gate.lock().unwrap().connections.insert(
+                42,
+                ConnectionEntry {
+                    session: None,
+                    release: None,
+                    permit: None,
+                    send_deadline: None,
+                },
+            );
+            let (io, probe, _) = probe(0, vec![]);
+            let mut writer = WriteGate {
+                io,
+                state: ingress.state.clone(),
+                id: 42,
+                observed: Default::default(),
+            };
+            let mut cx = Context::from_waker(std::task::Waker::noop());
+            assert!(
+                Pin::new(&mut writer)
+                    .poll_write(&mut cx, b"abc")
+                    .is_pending()
+            );
+            probe.lock().unwrap().quota = Some(2);
+            assert_eq!(
+                std::future::poll_fn(|cx| Pin::new(&mut writer).poll_write(cx, b"abc"))
+                    .await
+                    .unwrap(),
+                2
+            );
+            writer.flush().await.unwrap();
+            ingress.state.gate.lock().unwrap().shutdown = true;
+            let calls = probe.lock().unwrap().calls;
+            assert_eq!(
+                writer.write(b"secret").await.unwrap_err().kind(),
+                io::ErrorKind::PermissionDenied
+            );
+            assert_eq!(probe.lock().unwrap().calls, calls);
+            assert_eq!(probe.lock().unwrap().accepted, b"ab");
+        }
+        .with_subscriber(session.dispatch().clone())
+        .await;
+        assert!(session.close().shutdown_complete);
+        let rows: Vec<serde_json::Value> = String::from_utf8(buffer.0.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row["operation"] == "http.socket.write"
+                    && row["event_kind"] == "operation_end"
+                    && row["outcome"] == "ok"
+                    && row["bytes"] == 2
+                    && row["request_id"] == "connection:42")
+                .count(),
+            1
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row["operation"] == "http.socket.write"
+                    && row["event_kind"] == "operation_end"
+                    && row["outcome"] == "failed")
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row["operation"] == "http.socket.flush"
+                    && row["event_kind"] == "operation_end")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn observed_ingress_ready_status_preserves_original_http_bytes() {
+        use std::io::Write;
+        use tracing::instrument::WithSubscriber;
+        #[derive(Clone, Default)]
+        struct Buffer(Arc<Mutex<Vec<u8>>>);
+        impl Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let baseline = memory_request(&ingress(data_router(), false), raw_read().as_bytes()).await;
+        let buffer = Buffer::default();
+        let session = onlyalpha_observability::Session::new(
+            onlyalpha_observability::Config::new(
+                onlyalpha_observability::Mode::Detail,
+                "ingress-response",
+                128,
+            ),
+            buffer.clone(),
+        )
+        .unwrap();
+        let app = ingress(data_router(), false);
+        let (mut client, server) = tokio::io::duplex(65536);
+        let task = tokio::spawn(
+            async move { app.serve_stream(server).await }
+                .with_subscriber(session.dispatch().clone()),
+        );
+        client.write_all(raw_read().as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut client, &mut response)
+            .await
+            .unwrap();
+        task.await.unwrap().unwrap();
+        assert_eq!(response, baseline);
+        assert!(session.close().shutdown_complete);
+        let raw = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+        let rows: Vec<serde_json::Value> = raw
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let status = rows
+            .iter()
+            .find(|r| r["operation"] == "http.ingress.dispatch" && r["event_kind"] == "summary")
+            .unwrap();
+        assert_eq!(status["outcome"], "200");
+        assert!(rows.iter().any(|r| r["operation"] == "http.socket.write"
+            && r["request_id"] == status["request_id"]
+            && r["event_kind"] == "operation_end"
+            && r["outcome"] == "ok"));
+        assert!(!raw.contains(TOKEN));
+        assert!(!raw.contains("Authorization"));
     }
 }

@@ -46,3 +46,9 @@ pub mod strategy_promotion;
 mod backtest_preparation_tests;
 
 pub(crate) mod manual_backtest_context;
+
+#[cfg(test)]
+#[path = "../tests/job_contract_tests.rs"]
+mod job_contract_tests;
+
+pub mod job_contract;

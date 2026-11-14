@@ -24,3 +24,10 @@ sha2 = { version = "=0.11.1", default-features = false }
 
 # Exact TZif bytes and the complete Python UTC range; no OS discovery or clock APIs.
 tz-rs = { version = "=0.7.3", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "workload"
+harness = false

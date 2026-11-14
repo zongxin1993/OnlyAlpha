@@ -15,9 +15,11 @@ use crate::{
     },
 };
 use onlyalpha_domain::time::OnlyUtcDateTime;
+use onlyalpha_observability::{Correlation, Operation, measure};
 use serde_json::{Value, json};
 use std::time::SystemTime;
 use tokio_postgres::{Row, Transaction};
+use tracing::Instrument;
 const UNAVAILABLE: &str = "BACKTEST_RUN_STORE_UNAVAILABLE";
 const UNCERTAIN: &str = "BACKTEST_RUN_OWNERSHIP_UNCERTAIN";
 const LOST: &str = "BACKTEST_RUN_OWNERSHIP_LOST";
@@ -576,6 +578,7 @@ impl<'a> Backtests<'a> {
                 crate::persistence::research_preparation::guard_submission(&tx,operation,expected).await?;
             }
             commit(tx).await?;
+            tracing::info!(target:"onlyalpha.observability",event_kind="summary",module="backend",operation="backtest.run.queued",run_id=verified.run_id(),command_id=request.command_id().value(),outcome="queued");
             post_commit(&mut owned,self.namespace,&verified,Some(RunStatus{state:RunState::Queued,revision:0})).await?; Ok(verified)
         }.await;
         self.finish(owned, result).await
@@ -830,11 +833,20 @@ impl<'a> Backtests<'a> {
         target: RunState,
         at: OnlyUtcDateTime,
     ) -> Result<RunStatus> {
+        let trace_finalize = Operation::start(
+            "backend",
+            "backtest.finalize",
+            Correlation {
+                run_id: Some(claim.run_id().into()),
+                ..Default::default()
+            },
+        );
+        let finalized:Result<RunStatus> = async {
         if !claim.certain {
             return Err(UNCERTAIN);
         }
         let proof = completion.proof();
-        proof.verify_cut()?;
+        measure("backend","finalize.proof.initial",Correlation::default(),||proof.verify_cut())?;
         if proof.run_id() != claim.run_id()
             || proof.specification_fingerprint() != claim.run.specification_fingerprint()
             || proof.admission_resolution_fingerprint()
@@ -849,7 +861,7 @@ impl<'a> Backtests<'a> {
             let tx=owned.client_mut().await.map_err(|e|e.code())?.transaction().await.map_err(|_|UNCERTAIN)?;bounds(&tx).await.map_err(|_|UNCERTAIN)?;
             let current=read_run(&tx,self.namespace,claim.run_id(),true).await?.ok_or(LOST)?;current.matches(&claim.run)?;
             if !matches!(current.status.state,RunState::Running|RunState::CancelRequested)||(target==RunState::Cancelled&&current.status.state!=RunState::CancelRequested){return Err(LOST);}
-            let at_db=system_time(at).map_err(db)?;current.check_time(at_db)?;proof.verify_cut()?;
+            let at_db=system_time(at).map_err(db)?;current.check_time(at_db)?;measure("backend","finalize.proof.after_run_lock",Correlation::default(),||proof.verify_cut())?;
             let attempt=if target==RunState::Completed{"SUCCEEDED"}else{"CANCELLED"};
             // The full fence and fresh server clock are checked after the Run
             // lock, rather than trusting a lease observation made before waits.
@@ -860,7 +872,7 @@ impl<'a> Backtests<'a> {
             verify_current(&tx,self.namespace,&claim.run,Some(status)).await?;
             verify_attempt(&tx,claim.run_id(),&claim.attempt,&claim.worker,claim.number,claim.fence,attempt,false).await?;
             verify_completion(&tx,completion).await?;
-            proof.verify_cut()?;
+            measure("backend","finalize.proof.before_commit",Correlation::default(),||proof.verify_cut())?;
             commit(tx).await.map_err(|_|UNCERTAIN)?;
             post_commit(&mut owned,self.namespace,&claim.run,Some(status)).await?;
             post_claim(&mut owned,claim,attempt,false).await?;
@@ -869,6 +881,9 @@ impl<'a> Backtests<'a> {
             Ok(status)
         }.await;
         self.finish(owned, result).await
+        }.instrument(trace_finalize.span().clone()).await;
+        trace_finalize.finish(if finalized.is_ok() { "ok" } else { "failed" }, 1, 0);
+        finalized
     }
 }
 async fn transition(
@@ -906,11 +921,23 @@ async fn transition(
 /// The shared owner proves the guard in this transaction, after all writes and
 /// before commit. It never acquires another socket or another lock authority.
 async fn commit(tx: Transaction<'_>) -> Result<()> {
-    AuthoritySession::verify_transaction(&tx)
+    let verify = Operation::start("backend", "sql.authority.verify", Correlation::default());
+    let verified = AuthoritySession::verify_transaction(&tx)
+        .instrument(verify.span().clone())
         .await
-        .map_err(|e| e.code())?;
-    tx.commit().await.map_err(db)
+        .map_err(|e| e.code());
+    verify.finish(if verified.is_ok() { "ok" } else { "failed" }, 1, 0);
+    verified?;
+    let operation = Operation::start("backend", "sql.commit", Correlation::default());
+    let committed = tx
+        .commit()
+        .instrument(operation.span().clone())
+        .await
+        .map_err(db);
+    operation.finish(if committed.is_ok() { "ok" } else { "failed" }, 1, 0);
+    committed
 }
+
 /// Acknowledged commit alone does not certify deferred projection effects.
 async fn post_commit(
     owned: &mut AuthoritySession,

@@ -22,8 +22,8 @@ use crate::{
     },
 };
 use onlyalpha_domain::time::OnlyUtcDateTime;
+use onlyalpha_observability::{Correlation, Operation};
 use std::{
-    io::Write as _,
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
@@ -34,6 +34,7 @@ use tokio::{
     sync::{Notify, watch},
     task::JoinHandle,
 };
+use tracing::{Instrument, instrument::WithSubscriber};
 const UNAVAILABLE: &str = "BACKTEST_SERVICE_UNAVAILABLE";
 const UNKNOWN: &str = "BACKTEST_SERVICE_OUTCOME_UNKNOWN";
 const LOST: &str = "BACKTEST_EXECUTION_OWNERSHIP_UNCERTAIN";
@@ -267,7 +268,16 @@ async fn serve(
                 return Ok(());
             }
             let run = {
-                let mut held = writer.lock().await;
+                let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let writer_wait = onlyalpha_observability::Operation::start(
+                    "backend",
+                    "writer.wait",
+                    onlyalpha_observability::Correlation::default(),
+                );
+                let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+                writer_wait.finish("acquired", 1, 0);
+                writer_hold.acquired("writer", "writer.hold");
+                let _writer_release_begin = writer_hold.begin_release_marker();
                 Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, &namespace)
                     .load(&id)
                     .await?
@@ -311,7 +321,16 @@ async fn observe(
     namespace: &SemanticStoreId,
     run: &VerifiedRun,
 ) -> Result<RunStatus> {
-    let mut held = writer.lock().await;
+    let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+    let writer_wait = onlyalpha_observability::Operation::start(
+        "backend",
+        "writer.wait",
+        onlyalpha_observability::Correlation::default(),
+    );
+    let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+    writer_wait.finish("acquired", 1, 0);
+    writer_hold.acquired("writer", "writer.hold");
+    let _writer_release_begin = writer_hold.begin_release_marker();
     Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, namespace)
         .observe(run)
         .await
@@ -321,7 +340,16 @@ async fn heartbeat(
     run: &VerifiedRun,
     claim: &mut Claim,
 ) -> Result<RunStatus> {
-    let mut held = writer.lock().await;
+    let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+    let writer_wait = onlyalpha_observability::Operation::start(
+        "backend",
+        "writer.wait",
+        onlyalpha_observability::Correlation::default(),
+    );
+    let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+    writer_wait.finish("acquired", 1, 0);
+    writer_hold.acquired("writer", "writer.hold");
+    let _writer_release_begin = writer_hold.begin_release_marker();
     let mut store = Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace());
     let current = store.observe(run).await?;
     store.heartbeat(claim).await?;
@@ -350,181 +378,253 @@ async fn run_one(
     worker: &str,
     run: &VerifiedRun,
 ) -> Result<()> {
-    let WorkerSignals { wake, status } = signals;
-    let mut current = observe(writer, run.namespace(), run).await?;
-    if current.state.terminal() {
-        return terminal(connection, writer, config, wake, status, clock, run).await;
-    }
-    if matches!(current.state, RunState::Running | RunState::CancelRequested) {
-        let mut held = writer.lock().await;
-        let expired = Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
-            .expire(run, clock().map_err(|e| e.code())?)
-            .await?;
-        if let Some(expired) = expired {
-            current = expired;
+    let command = run.resolution()["runtime_work_binding"]["reason"]
+        .as_str()
+        .map(str::to_owned);
+    let trace_job = Operation::root(
+        "backend",
+        "backtest.run_one",
+        Correlation {
+            run_id: Some(run.run_id().into()),
+            links: command.as_ref().map(|id| format!("command:{id}")),
+            command_id: command,
+            ..Default::default()
+        },
+    );
+    let observed: Result<()> = async {
+        let WorkerSignals { wake, status } = signals;
+        let mut current = observe(writer, run.namespace(), run).await?;
+        if current.state.terminal() {
+            return terminal(connection, writer, config, wake, status, clock, run).await;
         }
-    }
-    let claim = {
-        let mut held = writer.lock().await;
-        Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
-            .claim(run, worker, &uuid4()?, clock().map_err(|e| e.code())?)
-            .await?
-    };
-    let Some(mut claim) = claim else {
-        return Ok(());
-    };
-    let control = Control::default();
-    if current.state == RunState::CancelRequested {
-        control.request_cancel();
-    }
-    if wake.stopped() {
-        control.request_pause();
-    }
-    let child = control.clone();
-    let configuration = config.clone();
-    let selected = run.clone();
-    let mode = if claim.attempt_number() == 1 {
-        StartMode::Create
-    } else {
-        StartMode::Resume
-    };
-    let handle = tokio::runtime::Handle::current();
-    let mut original = connection.take().ok_or(UNKNOWN)?;
-    let mut job = tokio::task::spawn_blocking(move || {
-        let result = handle.block_on(async {
-            let started = std::time::Instant::now();
-            let phase = |name: &str| {
-                let _ = writeln!(
-                    std::io::stderr().lock(),
-                    "BACKTEST_JOB_PHASE phase={name} elapsed_ms={}",
-                    started.elapsed().as_millis()
-                );
-            };
-            phase("history-open");
-            let client = original
-                .client_mut()
-                .await
-                .map_err(|_| JobFailure::Known(UNAVAILABLE))?;
-            let context = backtest_evidence::read_context(
-                client,
-                selected.namespace(),
-                &configuration.research_root,
-                &configuration.runtime_root,
-                selected.run_id(),
-                Some(selected.owner()),
-            )
-            .await
-            .map_err(JobFailure::Known)?;
-            phase("history-ready");
-            let store = Store::open(
-                &configuration.backtest_root,
-                &configuration.research_root,
-                &configuration.runtime_root,
-            )
-            .map_err(JobFailure::Known)?;
-            if let Some(proof) = store.load_completion(&context).map_err(JobFailure::Known)? {
-                return Ok(CompletedJob::Published(proof));
+        if matches!(current.state, RunState::Running | RunState::CancelRequested) {
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
+            let expired = Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
+                .expire(run, clock().map_err(|e| e.code())?)
+                .await?;
+            if let Some(expired) = expired {
+                current = expired;
             }
-            phase("completion-read");
-            let operation = context.original_operation().clone();
-            let work = Work::restore(context, &selected, &operation, &configuration)
-                .map_err(JobFailure::Native)?;
-            phase("work-restored");
-            #[cfg(test)]
-            tests::blocking_phase(selected.run_id(), "before_produce");
-            match backtest_service::produce(work, mode, &child).map_err(JobFailure::Native)? {
-                Produced::Paused(paused) => {
-                    paused.verify_cut().map_err(JobFailure::Known)?;
-                    drop(paused);
-                    Ok(CompletedJob::Paused)
-                }
-                Produced::Terminal(joined) => {
-                    phase("result-observed");
-                    let proof = store.commit(joined).map_err(JobFailure::Known)?;
-                    phase("evidence-published");
-                    #[cfg(test)]
-                    tests::blocking_phase(selected.run_id(), "after_publish");
-                    Ok(CompletedJob::Published(proof))
-                }
-            }
+        }
+        let claim = {
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
+            Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
+                .claim(run, worker, &uuid4()?, clock().map_err(|e| e.code())?)
+                .await?
+        };
+        let Some(mut claim) = claim else {
+            return Ok(());
+        };
+        let trace_attempt = Operation::start("backend","backtest.attempt",Correlation {
+            attempt:u64::try_from(claim.attempt_number()).ok(),
+            links:Some(format!("attempt:{}",claim.attempt_id())),
+            ..Default::default()
         });
-        (original, result)
-    });
-    let mut timer = tokio::time::interval(Duration::from_secs(30));
-    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut uncertain = None;
-    let mut stopping = wake.stopped();
-    let result = loop {
-        tokio::select! {
-            finished=&mut job=>break finished.map_err(|_|UNKNOWN)?,
-            _=wake.0.changed.notified()=>{},
-            _=timer.tick()=>{},
+        let attempted:Result<()> = async {
+            tracing::info!(target:"onlyalpha.observability",event_kind="summary",module="backend",operation="backtest.run.claimed",outcome="claimed");
+        let control = Control::default();
+        if current.state == RunState::CancelRequested {
+            control.request_cancel();
         }
         if wake.stopped() {
-            stopping = true;
             control.request_pause();
-            #[cfg(test)]
-            tests::observed_phase(run.run_id(), "pause_requested");
         }
-        if uncertain.is_none() {
-            match heartbeat(writer, run, &mut claim).await {
-                Ok(observed) => {
-                    if observed.state == RunState::CancelRequested {
-                        control.request_cancel();
-                        #[cfg(test)]
-                        tests::observed_phase(run.run_id(), "cancel_observed");
+        let child = control.clone();
+        let configuration = config.clone();
+        let selected = run.clone();
+        let mode = if claim.attempt_number() == 1 {
+            StartMode::Create
+        } else {
+            StartMode::Resume
+        };
+        let handle = tokio::runtime::Handle::current();
+        let mut original = connection.take().ok_or(UNKNOWN)?;
+        let producer_span = tracing::Span::current();
+        let producer_dispatch = tracing::dispatcher::get_default(Clone::clone);
+        let mut job = tokio::task::spawn_blocking(move || {
+            let result = handle.block_on(
+                async {
+                    let client = original
+                        .client_mut()
+                        .await
+                        .map_err(|_| JobFailure::Known(UNAVAILABLE))?;
+                    let context = backtest_evidence::read_context(
+                        client,
+                        selected.namespace(),
+                        &configuration.research_root,
+                        &configuration.runtime_root,
+                        selected.run_id(),
+                        Some(selected.owner()),
+                    )
+                    .await
+                    .map_err(JobFailure::Known)?;
+
+                    let store = Store::open(
+                        &configuration.backtest_root,
+                        &configuration.research_root,
+                        &configuration.runtime_root,
+                    )
+                    .map_err(JobFailure::Known)?;
+                    if let Some(proof) =
+                        store.load_completion(&context).map_err(JobFailure::Known)?
+                    {
+                        return Ok(CompletedJob::Published(proof));
+                    }
+
+                    let operation = context.original_operation().clone();
+                    let work = super::backtest_profile::measure(
+                        selected.run_id(),
+                        "job.work.restore",
+                        || Work::restore(context, &selected, &operation, &configuration),
+                    )
+                    .map_err(JobFailure::Native)?;
+
+                    #[cfg(test)]
+                    tests::blocking_phase(selected.run_id(), "before_produce");
+                    match super::backtest_profile::measure(selected.run_id(), "job.produce", || {
+                        backtest_service::produce(work, mode, &child)
+                    })
+                    .map_err(JobFailure::Native)?
+                    {
+                        Produced::Paused(paused) => {
+                            paused.verify_cut().map_err(JobFailure::Known)?;
+                            drop(paused);
+                            Ok(CompletedJob::Paused)
+                        }
+                        Produced::Terminal(joined) => {
+                            let proof = super::backtest_profile::measure(
+                                selected.run_id(),
+                                "job.evidence.commit",
+                                || store.commit(joined),
+                            )
+                            .map_err(JobFailure::Known)?;
+
+                            #[cfg(test)]
+                            tests::blocking_phase(selected.run_id(), "after_publish");
+                            Ok(CompletedJob::Published(proof))
+                        }
                     }
                 }
-                Err(_) => {
-                    uncertain = Some(LOST);
-                    control.request_pause();
-                    status.send_replace(Status::Uncertain(LOST));
-                    #[cfg(test)]
-                    tests::observed_phase(run.run_id(), "ownership_uncertain");
+                .instrument(producer_span)
+                .with_subscriber(producer_dispatch),
+            );
+            (original, result)
+        });
+        let mut timer = tokio::time::interval(Duration::from_secs(30));
+        timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut uncertain = None;
+        let mut stopping = wake.stopped();
+        let result = loop {
+            tokio::select! {
+                finished=&mut job=>break finished.map_err(|_|UNKNOWN)?,
+                _=wake.0.changed.notified()=>{},
+                _=timer.tick()=>{},
+            }
+            if wake.stopped() {
+                stopping = true;
+                control.request_pause();
+                #[cfg(test)]
+                tests::observed_phase(run.run_id(), "pause_requested");
+            }
+            if uncertain.is_none() {
+                match heartbeat(writer, run, &mut claim).await {
+                    Ok(observed) => {
+                        if observed.state == RunState::CancelRequested {
+                            control.request_cancel();
+                            #[cfg(test)]
+                            tests::observed_phase(run.run_id(), "cancel_observed");
+                        }
+                    }
+                    Err(_) => {
+                        uncertain = Some(LOST);
+                        control.request_pause();
+                        status.send_replace(Status::Uncertain(LOST));
+                        #[cfg(test)]
+                        tests::observed_phase(run.run_id(), "ownership_uncertain");
+                    }
                 }
             }
-        }
-    };
-    *connection = Some(result.0);
-    let outcome = match result.1 {
-        Err(JobFailure::Native(error)) => {
-            let code = error.code();
-            drain_native(error, wake, status).await?;
-            return Err(uncertain.unwrap_or(code));
-        }
-        Err(JobFailure::Known(code)) => return Err(uncertain.unwrap_or(code)),
-        Ok(outcome) => outcome,
-    };
-    if let Some(code) = uncertain {
-        drop(outcome);
-        return Err(code);
-    }
-    match outcome {
-        CompletedJob::Paused => {
-            if !stopping {
-                return Err("BACKTEST_PAUSE_UNREQUESTED");
+        };
+        *connection = Some(result.0);
+        let outcome = match result.1 {
+            Err(JobFailure::Native(error)) => {
+                let code = error.code();
+                drain_native(error, wake, status).await?;
+                return Err(uncertain.unwrap_or(code));
             }
-            Ok(())
+            Err(JobFailure::Known(code)) => return Err(uncertain.unwrap_or(code)),
+            Ok(outcome) => outcome,
+        };
+        if let Some(code) = uncertain {
+            drop(outcome);
+            return Err(code);
         }
-        CompletedJob::Published(proof) => {
-            let completion = VerifiedCompletion::from_proof(proof)?;
-            {
-                let mut held = writer.lock().await;
-                let mut store = Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace());
-                if completion.proof().status() == "CANCELLED" {
-                    store
-                        .cancel(&mut claim, &completion, clock().map_err(|e| e.code())?)
-                        .await?;
-                } else {
-                    store
-                        .complete(&mut claim, &completion, clock().map_err(|e| e.code())?)
-                        .await?;
+        match outcome {
+            CompletedJob::Paused => {
+                if !stopping {
+                    return Err("BACKTEST_PAUSE_UNREQUESTED");
                 }
+                Ok(())
             }
-            drop(completion);
-            terminal(connection, writer, config, wake, status, clock, run).await
+            CompletedJob::Published(proof) => {
+                let completion = super::backtest_profile::measure(
+                    run.run_id(),
+                    "job.completion.from_proof",
+                    || VerifiedCompletion::from_proof(proof),
+                )?;
+                {
+                    let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                    let writer_wait = onlyalpha_observability::Operation::start(
+                        "backend",
+                        "writer.wait",
+                        onlyalpha_observability::Correlation::default(),
+                    );
+                    let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+                    writer_wait.finish("acquired", 1, 0);
+                    writer_hold.acquired("writer", "writer.hold");
+                    let _writer_release_begin = writer_hold.begin_release_marker();
+                    let mut store =
+                        Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace());
+                    if completion.proof().status() == "CANCELLED" {
+                        store
+                            .cancel(&mut claim, &completion, clock().map_err(|e| e.code())?)
+                            .await?;
+                    } else {
+                        store
+                            .complete(&mut claim, &completion, clock().map_err(|e| e.code())?)
+                            .await?;
+                    }
+                }
+                drop(completion);
+                terminal(connection, writer, config, wake, status, clock, run).await
+            }
         }
+        }.instrument(trace_attempt.span().clone()).await;
+        trace_attempt.finish(if attempted.is_ok() {"ok"} else {"failed"},1,0);
+        attempted
     }
+    .instrument(trace_job.span().clone())
+    .await;
+    trace_job.finish(if observed.is_ok() { "ok" } else { "failed" }, 1, 0);
+    observed
 }
 async fn drain_native(
     mut error: backtest_service::Error,
@@ -541,7 +641,7 @@ async fn drain_native(
     );
     retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        let (returned, drained) = tokio::task::spawn_blocking(move || {
+        let (returned, drained) = super::backtest_profile::spawn_blocking(move || {
             let result = error.drain();
             (error, result)
         })
@@ -567,92 +667,122 @@ async fn terminal(
     clock: &(impl Fn() -> std::result::Result<OnlyUtcDateTime, PreparationError> + Send + Sync),
     run: &VerifiedRun,
 ) -> Result<()> {
-    let current = {
-        let mut held = writer.lock().await;
-        Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
-            .load(run.run_id())
-            .await?
-    };
-    if !current.state().terminal() {
-        return Err("BACKTEST_TERMINAL_CLEANUP_CONFLICT");
-    }
-    if current.state() == RunState::Completed
-        || (current.state() == RunState::Cancelled && current.was_started())
-    {
-        let mut original = connection.take().ok_or(UNKNOWN)?;
-        let selected = current.clone();
-        let cfg = config.clone();
-        let handle = tokio::runtime::Handle::current();
-        let (returned, checked) = tokio::task::spawn_blocking(move || {
-            let result = handle.block_on(async {
-                let client = original.client_mut().await.map_err(|_| UNAVAILABLE)?;
-                let context = backtest_evidence::read_context(
-                    client,
-                    selected.namespace(),
-                    &cfg.research_root,
-                    &cfg.runtime_root,
-                    selected.run_id(),
-                    Some(selected.owner()),
-                )
-                .await?;
-                let store = Store::open(&cfg.backtest_root, &cfg.research_root, &cfg.runtime_root)?;
-                let proof = store
-                    .load_completion(&context)?
-                    .ok_or("BACKTEST_COMPLETION_PROOF_UNAVAILABLE")?;
-                proof.verify_cut()?;
-                if proof.status() != selected.state().as_str() {
-                    return Err("BACKTEST_TERMINAL_CLEANUP_CONFLICT");
-                }
-                drop(proof);
-                drop(context);
-                Ok(())
-            });
-            (original, result)
-        })
-        .await
-        .map_err(|_| UNKNOWN)?;
-        *connection = Some(returned);
-        checked?;
-    } else if current.state() != RunState::Cancelled
-        || current.was_started()
-        || current.completion_fingerprints().is_some()
-    {
-        // No known producer drain proof exists for an arbitrary FAILED row.
-        return Err("BACKTEST_TERMINAL_CLEANUP_UNPROVEN");
-    }
-    let work = current.run_id().to_owned();
-    let generation = current.runtime_generation_fingerprint().to_owned();
-    let owner = current.resolution()["runtime_work_binding"]["reason"]
-        .as_str()
-        .ok_or("BACKTEST_RUNTIME_BINDING_INVALID")?
-        .to_owned();
-    let mut retry = tokio::time::interval_at(
-        tokio::time::Instant::now() + Duration::from_secs(5),
-        Duration::from_secs(5),
+    let trace_cleanup = Operation::start(
+        "backend",
+        "backtest.terminal.cleanup",
+        Correlation {
+            run_id: Some(run.run_id().into()),
+            ..Default::default()
+        },
     );
-    retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        let root = config.runtime_root.clone();
-        let work = work.clone();
-        let generation = generation.clone();
-        let owner = owner.clone();
-        let at = clock().map_err(|e| e.code())?;
-        let result = tokio::task::spawn_blocking(move || {
-            Registry::open_existing(&root)?
-                .release_work_exact(&work, &generation, &owner, "backtest-service", at)
-                .map(drop)
-        })
-        .await
-        .map_err(|_| UNKNOWN)?;
-        match result {
-            Ok(()) => return Ok(()),
-            Err("RESEARCH_RUNTIME_UNAVAILABLE") => {
-                status.send_replace(Status::Uncertain("BACKTEST_RUNTIME_CLEANUP_PENDING"));
-                wait_cleanup(wake, &mut retry).await;
+    let cleaned: Result<()> = async {
+        let current = {
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
+            Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
+                .load(run.run_id())
+                .await?
+        };
+        if !current.state().terminal() {
+            return Err("BACKTEST_TERMINAL_CLEANUP_CONFLICT");
+        }
+        if current.state() == RunState::Completed
+            || (current.state() == RunState::Cancelled && current.was_started())
+        {
+            let mut original = connection.take().ok_or(UNKNOWN)?;
+            let selected = current.clone();
+            let cfg = config.clone();
+            let handle = tokio::runtime::Handle::current();
+            let cleanup_span = tracing::Span::current();
+            let cleanup_dispatch = tracing::dispatcher::get_default(Clone::clone);
+            let (returned, checked) = tokio::task::spawn_blocking(move || {
+                let result = handle.block_on(
+                    async {
+                        let client = original.client_mut().await.map_err(|_| UNAVAILABLE)?;
+                        let context = backtest_evidence::read_context(
+                            client,
+                            selected.namespace(),
+                            &cfg.research_root,
+                            &cfg.runtime_root,
+                            selected.run_id(),
+                            Some(selected.owner()),
+                        )
+                        .await?;
+                        let store =
+                            Store::open(&cfg.backtest_root, &cfg.research_root, &cfg.runtime_root)?;
+                        let proof = store
+                            .load_completion(&context)?
+                            .ok_or("BACKTEST_COMPLETION_PROOF_UNAVAILABLE")?;
+                        proof.verify_cut()?;
+                        if proof.status() != selected.state().as_str() {
+                            return Err("BACKTEST_TERMINAL_CLEANUP_CONFLICT");
+                        }
+                        drop(proof);
+                        drop(context);
+                        Ok(())
+                    }
+                    .instrument(cleanup_span)
+                    .with_subscriber(cleanup_dispatch),
+                );
+                (original, result)
+            })
+            .await
+            .map_err(|_| UNKNOWN)?;
+            *connection = Some(returned);
+            checked?;
+        } else if current.state() != RunState::Cancelled
+            || current.was_started()
+            || current.completion_fingerprints().is_some()
+        {
+            // No known producer drain proof exists for an arbitrary FAILED row.
+            return Err("BACKTEST_TERMINAL_CLEANUP_UNPROVEN");
+        }
+        let work = current.run_id().to_owned();
+        let generation = current.runtime_generation_fingerprint().to_owned();
+        let owner = current.resolution()["runtime_work_binding"]["reason"]
+            .as_str()
+            .ok_or("BACKTEST_RUNTIME_BINDING_INVALID")?
+            .to_owned();
+        let mut retry = tokio::time::interval_at(
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            Duration::from_secs(5),
+        );
+        retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            let root = config.runtime_root.clone();
+            let work = work.clone();
+            let generation = generation.clone();
+            let owner = owner.clone();
+            let at = clock().map_err(|e| e.code())?;
+            let result = super::backtest_profile::spawn_blocking(move || {
+                Registry::open_existing(&root)?
+                    .release_work_exact(&work, &generation, &owner, "backtest-service", at)
+                    .map(drop)
+            })
+            .await
+            .map_err(|_| UNKNOWN)?;
+            match result {
+                Ok(()) => return Ok(()),
+                Err("RESEARCH_RUNTIME_UNAVAILABLE") => {
+                    status.send_replace(Status::Uncertain("BACKTEST_RUNTIME_CLEANUP_PENDING"));
+                    wait_cleanup(wake, &mut retry).await;
+                }
+                Err(code) => return Err(code),
             }
-            Err(code) => return Err(code),
         }
     }
+    .instrument(trace_cleanup.span().clone())
+    .await;
+    trace_cleanup.finish(if cleaned.is_ok() { "ok" } else { "failed" }, 1, 0);
+    cleaned
 }
 async fn cleanup_terminal(
     connection: &mut Option<ResearchConnection>,
@@ -664,13 +794,14 @@ async fn cleanup_terminal(
     namespace: &SemanticStoreId,
 ) -> Result<()> {
     let root = config.runtime_root.clone();
-    let Some(bindings) =
-        tokio::task::spawn_blocking(move || Registry::try_unreleased_work_bindings(&root))
-            .await
-            .map_err(|_| UNKNOWN)?
-            .inspect_err(|code| {
-                eprintln!("BACKTEST_WORKER_SCAN_FAILED phase=registry-inventory code={code}")
-            })?
+    let Some(bindings) = super::backtest_profile::spawn_blocking(move || {
+        Registry::try_unreleased_work_bindings(&root)
+    })
+    .await
+    .map_err(|_| UNKNOWN)?
+    .inspect_err(|code| {
+        eprintln!("BACKTEST_WORKER_SCAN_FAILED phase=registry-inventory code={code}")
+    })?
     else {
         eprintln!(
             "BACKTEST_WORKER_SCAN_DEFERRED phase=registry-inventory code=RESEARCH_RUNTIME_INVENTORY_LOCK_BUSY"
@@ -713,7 +844,7 @@ async fn cleanup_terminal(
                         let generation = generation.clone();
                         let owner = owner.clone();
                         let at = clock().map_err(|e| e.code())?;
-                        let released = tokio::task::spawn_blocking(move || {
+                        let released = super::backtest_profile::spawn_blocking(move || {
                             Registry::open_existing(&root)?
                                 .release_work_exact(
                                     &work,

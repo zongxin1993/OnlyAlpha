@@ -135,7 +135,7 @@ def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict
 
 
 # Independently reviewed public registry closure, excluding local release metadata.
-REGISTRY_LOCK_SHA256 = "8cee94cd62e3e0c262e432065436b24cdb003a1cb00800aeb46f9e217cc797d3"
+REGISTRY_LOCK_SHA256 = "602325fedd109231dcad47915da79ec0cfccaa199089a639fc89fe45f718d809"
 DOMAIN_DEPENDENCIES = {
     "tz-rs": {"version": "=0.7.3", "default-features": False, "features": ["alloc"]},
     "jiff": {"version": "=0.2.38", "default-features": False, "features": ["std"]},
@@ -221,7 +221,19 @@ EXECUTION_DEPENDENCIES = {
 }
 
 
+OBSERVABILITY_DEPENDENCIES = {
+    "tracing": {"version": "=0.1.44", "default-features": False, "features": ["std"]},
+    "tracing-subscriber": {"version": "=0.3.23", "default-features": False, "features": ["registry", "std"]},
+    "tracing-appender": {"version": "=0.2.5", "default-features": False},
+    "serde_json": {"version": "=1.0.154", "default-features": False, "features": ["std"]},
+}
+OBSERVABILITY_TEST_DEPENDENCIES = {
+    "tokio": {"version": "=1.54.1", "default-features": False, "features": ["macros", "rt", "sync"]},
+    "criterion": {"workspace": True},
+}
+
 RUNTIME_PERSISTENCE_DEPENDENCIES = {
+    "onlyalpha-observability": {"path": "../observability"},
     "onlyalpha-broker": {"path": "../broker"},
     "flate2": {"default-features": False, "features": ["rust_backend"], "version": "=1.1.10"},
     "base64": {"default-features": False, "features": ["std"], "version": "=0.23.1"},
@@ -254,6 +266,7 @@ BACKTEST_DRIVER_TEST_DEPENDENCIES = {
 }
 
 RUNTIME_PERSISTENCE_TEST_DEPENDENCIES = {
+    "tracing": {"version": "=0.1.44", "default-features": False, "features": ["std"]},
     "onlyalpha-broker-virtual": {"path": "../../plugs/onlyalpha-broker-virtual"},
     "onlyalpha-domain": {"path": "../domain"},
     "onlyalpha-risk": {"path": "../risk"},
@@ -373,6 +386,8 @@ CRYPTO_MARKET_DEPENDENCIES = {
 
 
 BACKEND_DEPENDENCIES = {
+    "onlyalpha-observability": {"path": "../../crates/observability"},
+    "tracing": {"version": "=0.1.44", "default-features": False, "features": ["std"]},
     "onlyalpha-account": {"path": "../../crates/account"},
     "onlyalpha-market-data": {"path": "../../crates/market-data"},
     "onlyalpha-backtest": {"path": "../../crates/backtest"},
@@ -430,6 +445,7 @@ BACKEND_LINUX_DEPENDENCIES = {
     "seccompiler": {"default-features": False, "version": "=0.5.0"},
 }
 BACKEND_TEST_DEPENDENCIES = {
+    "tracing-subscriber": {"version": "=0.3.23", "default-features": False, "features": ["registry", "std"]},
     "onlyalpha-clock": {"path": "../../crates/clock"},
     "onlyalpha-runtime": {"path": "../../crates/runtime"},
     "hyper": {"default-features": False, "features": ["http1", "client"], "version": "=1.12.0"},
@@ -452,6 +468,39 @@ BUILTIN_CALCULATION_DEPENDENCIES = {
 }
 
 
+# 仅用于当前回测模块的 Cargo bench；生产依赖仍按原逐库契约检查。
+BENCHMARK_CRITERION = {"version": "=0.7.0", "default-features": False, "features": ["cargo_bench_support"]}
+BENCHMARK_DEV_DEPENDENCIES = {
+    "onlyalpha-account": {"criterion": {"workspace": True}},
+    "onlyalpha-broker": {"criterion": {"workspace": True}},
+    "onlyalpha-calculation": {"criterion": {"workspace": True}},
+    "onlyalpha-calculation-bridge": {"criterion": {"workspace": True}},
+    "onlyalpha-clock": {"criterion": {"workspace": True}},
+    "onlyalpha-domain": {"criterion": {"workspace": True}},
+    "onlyalpha-execution": {"criterion": {"workspace": True}},
+    "onlyalpha-fee": {"criterion": {"workspace": True}},
+    "onlyalpha-integration-contract": {"criterion": {"workspace": True}},
+    "onlyalpha-margin": {"criterion": {"workspace": True}},
+    "onlyalpha-market-data": {"criterion": {"workspace": True}},
+    "onlyalpha-market-data-construction": {"criterion": {"workspace": True}},
+    "onlyalpha-metadata-json": {"criterion": {"workspace": True}},
+    "onlyalpha-operators": {"criterion": {"workspace": True}},
+    "onlyalpha-order": {"criterion": {"workspace": True}},
+    "onlyalpha-position": {"criterion": {"workspace": True}},
+    "onlyalpha-predicates": {"criterion": {"workspace": True}},
+    "onlyalpha-risk": {"criterion": {"workspace": True}},
+    "onlyalpha-runtime": {"criterion": {"workspace": True}},
+    "onlyalpha-settlement": {"criterion": {"workspace": True}},
+    "onlyalpha-strategy": {"criterion": {"workspace": True}},
+    "onlyalpha-strategy-ledger": {"criterion": {"workspace": True}},
+}
+for _name in ("onlyalpha-clock", "onlyalpha-operators", "onlyalpha-predicates"):
+    BENCHMARK_DEV_DEPENDENCIES[_name]["serde_json"] = DOMAIN_DEPENDENCIES["serde_json"]
+BENCHMARK_DEV_DEPENDENCIES["onlyalpha-backtest"] = {
+    "onlyalpha-market-crypto": {"path": "../../plugs/onlyalpha-market-crypto"},
+}
+
+
 def validate_workspace(root: Path) -> None:
     modules = {
         "onlyalpha-data-source-binance": "plugs/onlyalpha-data-source-binance",
@@ -466,6 +515,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-indicators": "crates/indicators",
         "onlyalpha-calculation-bridge": "crates/calculation-bridge",
         "onlyalpha-runtime": "crates/runtime",
+        "onlyalpha-observability": "crates/observability",
         "onlyalpha-backtest": "crates/backtest",
         "onlyalpha-metadata-json": "crates/metadata-json",
         "onlyalpha-integration-contract": "crates/integration-contract",
@@ -489,6 +539,8 @@ def validate_workspace(root: Path) -> None:
     }
     expected = set(modules)
     workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]
+    if workspace.get("dependencies") != {"criterion": BENCHMARK_CRITERION}:
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     if set(workspace["members"]) != set(modules.values()):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     packages = tomllib.loads((root / "Cargo.lock").read_text())["package"]
@@ -499,7 +551,8 @@ def validate_workspace(root: Path) -> None:
     driver = tomllib.loads((root / modules["onlyalpha-backtest"] / "Cargo.toml").read_text())
     if registry and (
         driver.get("dependencies") != BACKTEST_DRIVER_DEPENDENCIES
-        or driver.get("dev-dependencies", {}) != BACKTEST_DRIVER_TEST_DEPENDENCIES
+        or driver.get("dev-dependencies", {})
+        != {**BACKTEST_DRIVER_TEST_DEPENDENCIES, **BENCHMARK_DEV_DEPENDENCIES["onlyalpha-backtest"]}
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     for name, dependencies, test_dependencies in (
@@ -509,6 +562,7 @@ def validate_workspace(root: Path) -> None:
         ("onlyalpha-data-source-tushare", TUSHARE_DEPENDENCIES, TUSHARE_TEST_DEPENDENCIES),
         ("onlyalpha-broker-virtual", VIRTUAL_BROKER_DEPENDENCIES, {}),
         ("onlyalpha-broker-binance", BINANCE_BROKER_DEPENDENCIES, BINANCE_BROKER_TEST_DEPENDENCIES),
+        ("onlyalpha-observability", OBSERVABILITY_DEPENDENCIES, OBSERVABILITY_TEST_DEPENDENCIES),
         ("onlyalpha-metadata-json", METADATA_JSON_DEPENDENCIES, {}),
         ("onlyalpha-integration-contract", INTEGRATION_CONTRACT_DEPENDENCIES, {}),
         *((name, dependencies, {}) for name, dependencies in BUILTIN_CALCULATION_DEPENDENCIES.items()),
@@ -516,7 +570,7 @@ def validate_workspace(root: Path) -> None:
         manifest = tomllib.loads((root / modules[name] / "Cargo.toml").read_text())
         if registry and (
             manifest.get("dependencies") != dependencies
-            or manifest.get("dev-dependencies", {}) != test_dependencies
+            or manifest.get("dev-dependencies", {}) != {**test_dependencies, **BENCHMARK_DEV_DEPENDENCIES.get(name, {})}
             or manifest.get("build-dependencies", {})
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -656,6 +710,16 @@ def validate_workspace(root: Path) -> None:
                         and config == BROKER_DEPENDENCIES.get(alias)
                     )
                     admitted = admitted or (
+                        name == "onlyalpha-observability"
+                        and section is manifest
+                        and kind in {"dependencies", "dev-dependencies"}
+                        and alias == dependency
+                        and config
+                        == (
+                            OBSERVABILITY_DEPENDENCIES if kind == "dependencies" else OBSERVABILITY_TEST_DEPENDENCIES
+                        ).get(alias)
+                    )
+                    admitted = admitted or (
                         name == "onlyalpha-runtime"
                         and section is manifest
                         and kind in {"dependencies", "dev-dependencies"}
@@ -755,6 +819,12 @@ def validate_workspace(root: Path) -> None:
                         and kind == "dependencies"
                         and alias == dependency
                         and config == CRYPTO_MARKET_DEPENDENCIES.get(alias)
+                    )
+                    admitted = admitted or (
+                        section is manifest
+                        and kind == "dev-dependencies"
+                        and alias == dependency
+                        and config == BENCHMARK_DEV_DEPENDENCIES.get(name, {}).get(alias)
                     )
                     if not admitted:
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -871,6 +941,181 @@ def _hidden_rust_input(text: str) -> bool:
     return bool(re.search(r"#\s*\[\s*(?:path\s*=|cfg_attr\b)|\b(?:include|env|option_env)\s*!(?!=)", text))
 
 
+# 显式的技术基准输入；不允许从生产源码导入 bench，也不豁免未知 bench。
+BENCHMARK_SOURCE_INPUTS = {
+    "crates/observability/benches/overhead.rs": {"fixtures": [], "modules": []},
+    "crates/account/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+        ],
+        "modules": [],
+    },
+    "crates/backtest/benches/retained.rs": {
+        "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
+        "modules": [],
+    },
+    "crates/broker/benches/workload.rs": {
+        "fixtures": ['"../../../test-data/backtest-benchmarks/large.json"'],
+        "modules": [],
+    },
+    "crates/calculation-bridge/benches/workload.rs": {"fixtures": [], "modules": []},
+    "crates/calculation/benches/workload.rs": {"fixtures": [], "modules": []},
+    "crates/clock/benches/workload.rs": {"fixtures": [], "modules": []},
+    "crates/domain/benches/workload.rs": {
+        "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
+        "modules": [],
+    },
+    "crates/execution/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/settlement/common-v1.json"',
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+            '"../../../test-data/execution/domain-inputs.json"',
+        ],
+        "modules": ["../tests/support/mod.rs"],
+    },
+    "crates/fee/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/replay.json"',
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+        ],
+        "modules": [],
+    },
+    "crates/integration-contract/benches/workload.rs": {"fixtures": [], "modules": []},
+    "crates/margin/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+        ],
+        "modules": [],
+    },
+    "crates/market-data-construction/benches/workload.rs": {
+        "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
+        "modules": [],
+    },
+    "crates/market-data/benches/workload.rs": {
+        "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
+        "modules": [],
+    },
+    "crates/metadata-json/benches/workload.rs": {
+        "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
+        "modules": [],
+    },
+    "crates/operators/benches/workload.rs": {"fixtures": [], "modules": []},
+    "crates/order/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+        ],
+        "modules": [],
+    },
+    "crates/position/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+        ],
+        "modules": [],
+    },
+    "crates/predicates/benches/workload.rs": {"fixtures": [], "modules": []},
+    "crates/risk/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+        ],
+        "modules": [],
+    },
+    "crates/runtime/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/execution/domain-inputs.json"',
+            '"../../../test-data/settlement/common-v1.json"',
+        ],
+        "modules": ["../../execution/tests/support/mod.rs"],
+    },
+    "crates/runtime/benches/retained.rs": {
+        "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
+        "modules": [],
+    },
+    "crates/settlement/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+        ],
+        "modules": [],
+    },
+    "crates/strategy-ledger/benches/recovery.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/large.json"',
+            '"../../../test-data/backtest-benchmarks/medium.json"',
+            '"../../../test-data/backtest-benchmarks/small.json"',
+        ],
+        "modules": [],
+    },
+    "crates/strategy/benches/workload.rs": {
+        "fixtures": ['"../../../test-data/strategy/decisions-v2.jsonl"'],
+        "modules": ["../tests/support/mod.rs"],
+    },
+    "packages/backend/benches/backtest_chain.rs": {"fixtures": [], "modules": []},
+}
+
+
+def _validated_benchmark_source(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root).as_posix()
+    except ValueError:
+        return False
+    if "benches" not in Path(relative).parts:
+        return False
+    declared = BENCHMARK_SOURCE_INPUTS.get(relative)
+    if declared is None or path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    manifest = tomllib.loads((path.parent.parent / "Cargo.toml").read_text())
+    target = {"name": path.stem, "harness": False}
+    if target not in manifest.get("bench", []):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    text = path.read_text()
+    for macro in re.finditer(r"\b(include_str|include_bytes)\s*!\s*\(([^)]*)\)", text):
+        if macro[1] != "include_str" or macro[2].strip() not in declared["fixtures"]:
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    for module in declared["modules"]:
+        text = re.sub(r'#\[path\s*=\s*"' + re.escape(module) + r'"\]', "", text)
+    text = re.sub(r'\benv!\("CARGO_PKG_NAME"\)', "", text)
+    if _hidden_rust_input(text):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    return True
+
+
+def validate_benchmark_sources(root: Path) -> None:
+    manifests = [*(root / "crates").glob("*/Cargo.toml"), root / "packages/backend/Cargo.toml"]
+    for path in manifests:
+        if not path.exists():
+            continue
+        manifest = tomllib.loads(path.read_text())
+        for target in manifest.get("bench", []):
+            name = target.get("name")
+            source = path.parent / "benches" / f"{name}.rs"
+            if (
+                not isinstance(name, str)
+                or target != {"name": name, "harness": False}
+                or source.relative_to(root).as_posix() not in BENCHMARK_SOURCE_INPUTS
+                or not source.is_file()
+            ):
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    for area in (root / "crates", root / "packages/backend"):
+        for path in area.rglob("*.rs"):
+            if "benches" in path.relative_to(root).parts:
+                _validated_benchmark_source(root, path)
+
+
 def validate_domain_sources(root: Path) -> None:
     """Reject implicit source/build inputs that bypass the declared Cargo graph."""
     domain = root / "crates/domain"
@@ -899,6 +1144,8 @@ def validate_domain_sources(root: Path) -> None:
         "../../../test-data/domain/time-ranges-v1.jsonl",
     }
     for path in domain.rglob("*.rs"):
+        if _validated_benchmark_source(root, path):
+            continue
         text = path.read_text()
         if path.is_symlink() or _hidden_rust_input(text):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -926,6 +1173,8 @@ def validate_clock_sources(root: Path) -> None:
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     for path in clock.rglob("*.rs"):
+        if _validated_benchmark_source(root, path):
+            continue
         text = path.read_text()
         if path.is_symlink() or _hidden_rust_input(text):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -964,6 +1213,8 @@ def _validate_pure_sources(root: Path, area: str, permitted: set[str]) -> None:
         for target in targets.values()
     }
     for path in event.rglob("*.rs"):
+        if _validated_benchmark_source(root, path):
+            continue
         text, modules = _without_declared_infrastructure_inputs(root, path)
         if any(module.suffix != ".rs" or not module.resolve().is_relative_to(event.resolve()) for module in modules):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
@@ -1380,6 +1631,12 @@ _INFRASTRUCTURE_RESOURCES = {
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    "packages/backend/src/persistence/research_evidence/physical.rs": {
+        "../../tests/research_evidence_witness.rs": "packages/backend/src/tests/research_evidence_witness.rs",
+    },
+    "packages/backend/src/transport/observability.rs": {
+        "../tests/http_observation.rs": "packages/backend/src/tests/http_observation.rs"
+    },
     "crates/runtime/tests/broker_source_bytes.rs": {
         "support/perpetual_run.rs": "crates/runtime/tests/support/perpetual_run.rs",
     },
@@ -1411,7 +1668,11 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
     "crates/operators/src/algebra.rs": {"tests/algebra_tests.rs": "crates/operators/src/tests/algebra_tests.rs"},
     "packages/backend/src/persistence/research_runtime.rs": {
+        "../tests/generation_lock_observation.rs": "packages/backend/src/tests/generation_lock_observation.rs",
         "research_runtime/metadata_read_tests.rs": "packages/backend/src/persistence/research_runtime/metadata_read_tests.rs",
+    },
+    "crates/execution/src/planning.rs": {
+        "tests/admission_preview_tests.rs": "crates/execution/src/tests/admission_preview_tests.rs",
     },
     "crates/execution/src/components.rs": {
         "tests/components_cow_tests.rs": "crates/execution/src/tests/components_cow_tests.rs",
@@ -1456,6 +1717,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
         "physical.rs": "packages/backend/src/persistence/research_evidence/physical.rs",
     },
     "packages/backend/src/application/mod.rs": {
+        "../tests/job_contract_tests.rs": "packages/backend/src/tests/job_contract_tests.rs",
         "../../tests/application/backtest_preparation.rs": "packages/backend/tests/application/backtest_preparation.rs",
     },
     "packages/backend/src/workers/backtest_worker.rs": {
@@ -1605,6 +1867,7 @@ def _without_declared_infrastructure_inputs(root: Path, path: Path) -> tuple[str
 
 def validate_infrastructure_sources(root: Path) -> None:
     for component in (
+        "onlyalpha-observability",
         "onlyalpha-calculation-bridge",
         "onlyalpha-runtime",
         "onlyalpha-backtest",
@@ -1633,6 +1896,7 @@ def validate_infrastructure_sources(root: Path) -> None:
                 "onlyalpha-backend",
                 "onlyalpha-metadata-json",
                 "onlyalpha-integration-contract",
+                "onlyalpha-observability",
             }
             else area
         )
@@ -1645,6 +1909,8 @@ def validate_infrastructure_sources(root: Path) -> None:
             if path in checked:
                 continue
             checked.add(path)
+            if _validated_benchmark_source(root, path):
+                continue
             text, modules = _without_declared_infrastructure_inputs(root, path)
             # Follow only statically registered edges, never admit discovered inputs.
             paths.extend(modules)
@@ -1683,6 +1949,8 @@ def validate_infrastructure_sources(root: Path) -> None:
             if path in checked:
                 continue
             checked.add(path)
+            if _validated_benchmark_source(root, path):
+                continue
             text, modules = _without_declared_infrastructure_inputs(root, path)
             paths.extend(modules)
             testnet_external = (
@@ -1846,6 +2114,7 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
         if module not in {
             "calculation_bridge",
             "runtime",
+            "observability",
             "backtest",
             "backend",
             "metadata_json",
@@ -2042,6 +2311,7 @@ def isolated_plugin_binance(root: Path, destination: Path) -> Path:
             "margin",
             "execution",
             "runtime",
+            "observability",
             "plugin_virtual",
         ),
     )
@@ -2089,6 +2359,7 @@ def isolated_broker_binance(root: Path, destination: Path) -> Path:
             "margin",
             "execution",
             "runtime",
+            "observability",
             "plugin_virtual",
         ),
     )
@@ -2115,6 +2386,7 @@ def isolated_backend(root: Path, destination: Path) -> Path:
             "backend",
             "backtest",
             "runtime",
+            "observability",
             "execution",
             "clock",
             "order",
@@ -2226,6 +2498,7 @@ def isolated_runtime_persistence(root: Path, destination: Path) -> Path:
             "margin",
             "execution",
             "runtime",
+            "observability",
             "plugin_virtual",
         ),
     )
@@ -2250,7 +2523,10 @@ def isolated_backtest(root: Path, destination: Path) -> Path:
             "margin",
             "execution",
             "runtime",
+            "observability",
             "plugin_virtual",
+            "market_crypto",
+            "metadata_json",
             "calculation",
             "market_data_construction",
             "market_data",
@@ -2779,6 +3055,7 @@ def validate_crate_layout(root: Path) -> None:
 
 
 def validate_sources(root: Path) -> None:
+    validate_benchmark_sources(root)
     validate_crate_layout(root)
     validate_workspace(root)
     validate_domain_sources(root)

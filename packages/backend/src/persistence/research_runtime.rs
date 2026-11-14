@@ -2,6 +2,7 @@
 mod artifact_digest;
 mod contracts;
 mod lifecycle;
+mod observation;
 mod publication;
 use crate::{application::factor_content::hash, security::protected_files as protected};
 pub use lifecycle::Registry;
@@ -81,7 +82,7 @@ fn read(root: &OwnedFd, path: &str) -> Result<Vec<u8>> {
 pub struct RuntimeInputHold {
     root_path: PathBuf,
     root: OwnedFd,
-    lock: OwnedFd,
+    lock: observation::Held,
     records: Vec<(String, Vec<u8>)>,
     manifest: Value,
     binding: Value,
@@ -326,13 +327,21 @@ impl RuntimeInputHold {
         {
             return Err(INVALID);
         }
-        fs::flock(&lock, operation).map_err(|error| {
-            if error == rustix::io::Errno::WOULDBLOCK {
-                contention
-            } else {
-                UNAVAILABLE
-            }
-        })?;
+        let kind = match operation {
+            fs::FlockOperation::NonBlockingLockShared => "shared",
+            fs::FlockOperation::NonBlockingLockExclusive => "exclusive",
+            _ => "other",
+        };
+        let attempt = observation::attempt(kind, st.st_dev as u64, st.st_ino as u64);
+        if let Err(error) = fs::flock(&lock, operation) {
+            let contended = error == rustix::io::Errno::WOULDBLOCK;
+            observation::failed(attempt, error.raw_os_error(), contended);
+            return Err(if contended { contention } else { UNAVAILABLE });
+        }
+        let correlation = observation::correlation(&attempt);
+        attempt.finish("acquired", 1, 0);
+        let lock =
+            observation::Held::new(lock, kind, st.st_dev as u64, st.st_ino as u64, correlation);
         Ok(Self {
             root_path: root.into(),
             root: fd,
@@ -1088,3 +1097,25 @@ mod metadata_read_tests;
 
 #[cfg(test)]
 mod artifact_digest_tests;
+
+#[cfg(test)]
+mod lock_contention_tests {
+    use super::*;
+    #[test]
+    fn retained_shared_cut_rejects_new_registry_until_released() {
+        let root = std::env::temp_dir().join(publication::nonce("oa-runtime-cut-lock-").unwrap());
+        drop(Registry::initialize_fresh(&root).unwrap());
+        let cut =
+            RuntimeInputHold::acquire(&root, fs::FlockOperation::NonBlockingLockShared).unwrap();
+        assert!(matches!(Registry::open_existing(&root), Err(UNAVAILABLE)));
+        // A second retained reader is allowed; mutation remains excluded.
+        drop(RuntimeInputHold::acquire(&root, fs::FlockOperation::NonBlockingLockShared).unwrap());
+        drop(cut);
+        drop(Registry::open_existing(&root).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/generation_lock_observation.rs"]
+mod generation_lock_observation;

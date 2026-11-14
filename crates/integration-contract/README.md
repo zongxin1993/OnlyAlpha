@@ -51,3 +51,5 @@ cargo doc -p onlyalpha-integration-contract --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 历史输入 `HistoricalObservation` 随规范 Query 和原始响应提供原 producer attempt 开始时间、实际接收时间。缓存传递同一组原时间，供历史插件在封存重放中校验收盘。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

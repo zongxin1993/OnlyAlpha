@@ -1,0 +1,14 @@
+{
+  "provenance": {
+    "kind": "CONTROLLED_TECHNICAL_BENCHMARK_INPUT",
+    "operation": "855bb23e-3f6a-48bf-8707-8e4254b20304",
+    "run": "2b4220c0-3aa2-484d-a730-873f5611ec6b",
+    "note": "Only controlled test data; no Product authority or credentials; original artifacts unchanged."
+  },
+  "files": {
+    "large.json": "5a00236e01edb9dea849602e16590dc47627fbed483a7ac4936dce2a5aad04de",
+    "small.json": "5a74dc77052f3c3184dc0d84cba5ce134336f8aab7470ac7ff335425d15f3d7a",
+    "medium.json": "79a19c02fbe38a88fcf5a6d59eb2f555cc977e0ba82f6ccd3ff45329f365db34",
+    "replay.json": "3920d0b6182588c0be9b01cd0de8368e4717cc74c13d4bb30525ade2b4ea0df9"
+  }
+}

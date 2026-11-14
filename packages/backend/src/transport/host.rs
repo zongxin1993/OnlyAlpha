@@ -289,6 +289,21 @@ impl Host {
         failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")
     }
     pub async fn dispatch(self: &Arc<Self>, request: Request<Body>) -> Response {
+        use tracing::Instrument;
+        let Some(trace) = super::observability::begin(&request) else {
+            return self.dispatch_response(request).await;
+        };
+        let response = async {
+            let mut handler = super::observability::Stage::new(onlyalpha_observability::Operation::start(
+                "transport", "http.handler", onlyalpha_observability::Correlation::default()));
+            let response = self.dispatch_response(request).instrument(handler.span().clone()).await;
+            handler.span().in_scope(|| tracing::info!(target:"onlyalpha.observability",event_kind="summary",outcome=response.status().as_str()));
+            handler.finish(if response.status().is_server_error() { "failed" } else { "ok" }, 1, 0);
+            response
+        }.instrument(trace.span().clone()).await;
+        super::observability::response(response, trace)
+    }
+    async fn dispatch_response(self: &Arc<Self>, request: Request<Body>) -> Response {
         let started = Instant::now();
         let startup_read = match request.uri().path() {
             "/api/v2/market-data/sources" => Some("SOURCES"),

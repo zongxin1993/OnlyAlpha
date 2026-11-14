@@ -21,6 +21,7 @@ use crate::{
     security::protected_files,
     workers::backtest::PreparedNextOpen,
 };
+use onlyalpha_observability::{Correlation, Operation as TraceOperation};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -29,6 +30,7 @@ use std::{
     sync::Arc,
 };
 use tokio_postgres::Client;
+use tracing::Instrument;
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "BACKTEST_EVIDENCE_CORRUPT";
 const UNAVAILABLE: &str = "BACKTEST_EVIDENCE_UNAVAILABLE";
@@ -97,31 +99,61 @@ impl BacktestReadContext {
         Ok(())
     }
     pub(crate) fn verify_cut(&self) -> Result<()> {
-        self.owners.history.verify_cut()?;
-        self.owners.runtime.verify()?;
-        self.owners.dataset_cut.verify()?;
-        if let Some(validation) = &self.owners.validation {
-            validation.require_backtest_inputs(
-                &self.operation,
-                self.source_revision(),
-                &self.owners.dataset,
+        crate::workers::backtest_profile::measure(self.run().run_id(), "context.verify_cut", || {
+            crate::workers::backtest_profile::measure(
+                self.run().run_id(),
+                "context.history.verify",
+                || self.owners.history.verify_cut(),
             )?;
-        }
-        let again = MaterializedDataset::load(
-            &self.owners.datasets,
-            text(self.owners.dataset.lineage(), "materialization_id")?,
-        )?;
-        if again.lineage() != self.owners.dataset.lineage()
-            || again.verified().manifest() != self.owners.dataset.verified().manifest()
-            || self.owners.prepared.record() != self.run.resolution()["preparation"]
-            || self.owners.runtime.binding() != &self.run.resolution()["runtime_work_binding"]
-            || self.owners.runtime.backtest_binding_data()?
-                != self.run.resolution()["backtest_binding"]
-        {
-            return Err(INVALID);
-        }
-        self.owners.runtime.verify()?;
-        Ok(())
+            crate::workers::backtest_profile::measure(
+                self.run().run_id(),
+                "context.runtime.verify",
+                || self.owners.runtime.verify(),
+            )?;
+            crate::workers::backtest_profile::measure(
+                self.run().run_id(),
+                "context.dataset.verify",
+                || self.owners.dataset_cut.verify(),
+            )?;
+            if let Some(validation) = &self.owners.validation {
+                crate::workers::backtest_profile::measure(
+                    self.run().run_id(),
+                    "context.validation.verify",
+                    || {
+                        validation.require_backtest_inputs(
+                            &self.operation,
+                            self.source_revision(),
+                            &self.owners.dataset,
+                        )
+                    },
+                )?;
+            }
+            let again = crate::workers::backtest_profile::measure(
+                self.run().run_id(),
+                "context.dataset.load",
+                || {
+                    MaterializedDataset::load(
+                        &self.owners.datasets,
+                        text(self.owners.dataset.lineage(), "materialization_id")?,
+                    )
+                },
+            )?;
+            if again.lineage() != self.owners.dataset.lineage()
+                || again.verified().manifest() != self.owners.dataset.verified().manifest()
+                || self.owners.prepared.record() != self.run.resolution()["preparation"]
+                || self.owners.runtime.binding() != &self.run.resolution()["runtime_work_binding"]
+                || self.owners.runtime.backtest_binding_data()?
+                    != self.run.resolution()["backtest_binding"]
+            {
+                return Err(INVALID);
+            }
+            crate::workers::backtest_profile::measure(
+                self.run().run_id(),
+                "context.runtime.verify",
+                || self.owners.runtime.verify(),
+            )?;
+            Ok(())
+        })
     }
 }
 /// Original caller-owned readonly connection. No second socket, Command lock,
@@ -134,6 +166,15 @@ pub(crate) async fn read_context(
     id: &str,
     owner: Option<&str>,
 ) -> Result<Arc<BacktestReadContext>> {
+    let trace = TraceOperation::start(
+        "backend",
+        "evidence.read_context",
+        Correlation {
+            run_id: Some(id.into()),
+            ..Default::default()
+        },
+    );
+    let context:Result<Arc<BacktestReadContext>> = async {
     let tx = client
         .build_transaction()
         .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
@@ -335,6 +376,9 @@ pub(crate) async fn read_context(
         .map_err(|e| e.code())?;
     tx.commit().await.map_err(|_| UNAVAILABLE)?;
     Ok(value)
+    }.instrument(trace.span().clone()).await;
+    trace.finish(if context.is_ok() { "ok" } else { "failed" }, 1, 0);
+    context
 }
 pub(crate) fn implementations(
     source: &onlyalpha_strategy::SourceRevision,
