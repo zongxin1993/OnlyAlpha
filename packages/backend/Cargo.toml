@@ -217,3 +217,7 @@ path = "tests/transport/observability.rs"
 [[test]]
 name = "application_observability"
 path = "tests/application/observability.rs"
+
+[[test]]
+name = "application_job_publication"
+path = "tests/application/job_publication.rs"

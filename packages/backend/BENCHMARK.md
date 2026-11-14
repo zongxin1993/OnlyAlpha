@@ -32,3 +32,28 @@ Criterion为每case至少10个原始样本；表中使用Criterion的median估�
 ## 比较与限制
 
 各阶段按一次完整组合工作量报告，不能与纯库每条记录吞吐量直接相除。每轮结果摘要必须相同，历史kernel_artifact仅是输入绑定；统计读取器核对当前已编译binary的SHA256，拒绝用历史工件摘要替代当前二进制。原始样本由结果目录保存；不设新CI阈值。
+
+## PostgreSQL 原子发布基准
+
+2026-11-14 UTC，固定 onlyalpha-dev，Linux aarch64、Rust 1.99.1、PostgreSQL 18.6，release 优化。入口是显式测试目标 `cargo test --release --frozen --offline -p onlyalpha-backend --test application_job_publication tests::postgres_publication_performance_matrix -- --ignored --exact --nocapture`，经 dev_verification 和现有 compiler_environment 执行。源码冻结摘要 `b9dc752cc1a9f388b3375415ce2ed923bf1eea5773734d322f15a872998fad47`，operation `55bca046-816b-4430-9744-4b05384bbdc3`。原始样本与完整冻结输入清单：`test-results/strategy-research-framework/stage2/pg-publication-benchmark.json`；运行日志：同目录 `final-performance-schema-checks.log`。
+
+这是存储原语基准：真实普通 LOGIN／服务角色、原 Run／Attempt、真实 PostgreSQL 事务、全部成员正文／约束／完整读回和同步 COMMIT。每档预热一次、采样三次，逐轮核对排除 Run 绑定后的成员正文摘要相同。原 Run／Attempt 的 SQL 准备、连接建立及 register 不计入 publish；准备列只计受控候选的内存构造、规范编码与摘要。没有清除 OS 或 PostgreSQL 缓存，没有硬件独占。
+
+| 合成场景 | 成员 | 正文字节 | 描述符声明行数 | 准备编码 ms | publish 中位 ms（范围） | 独立完整读取中位 ms（范围） |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| small | 4 | 300 | 5 | 0.084 | 6.747（6.742–6.978） | 1.542（1.462–1.883） |
+| large | 35 | 4,589,025 | 67 | 6.289 | 57.193（56.980–86.501） | 10.435（10.242–12.623） |
+
+| publish 分项中位数（ms） | small | large |
+| --- | ---: | ---: |
+| 原 Run 锁获取（含 SQL 往返） | 0.076 | 0.130 |
+| 成员与清单 SQL 写入 | 0.498 | 16.514 |
+| 原 Attempt／Run 终态、约束与完整读回核对 | 3.735 | 30.663 |
+| COMMIT 往返 | 0.957 | 1.867 |
+| 其余调用内耗时 | 1.463 | 8.123 |
+
+分项在每个原始样本中闭合 publish 总耗时；各列独立取中位数，不能相加后要求等于总中位数。其余耗时包括候选正文核对、事务／预算设置、冻结关联和 Attempt 查询，不称为全部数据库锁等待。large 的三次 COMMIT 范围为 1.764–31.127 ms，不用三次样本宣称尾延迟。当前合成工作量中，终态／约束／读回占用最大；这只是存储成本观察，不是性能优化结论。
+
+small 的进程累计 VmHWM 为 4,324 kB，large 最高 23,440 kB（/proc 原值）。这是同进程累计峰值，不是单次分配量，未测 PostgreSQL 后端峰值。正文为含大量重复 x 填充的 canonical JSON，压缩性很高；声明行数是测试描述符，不是真实交易事实数。不能据此推断真实订单／曲线的存储吞吐、完整回测 bars/s、旧链路加速比或 Web 超时已解决。
+
+冻结验证投影保留主工作区两份无关用户改动（market_product/day.rs、transport/host_day.rs），不纳入本任务提交；所有本阶段修改文件与待提交内容逐文件核对一致。完整实际构建输入以原始清单为准，不把 Git HEAD 当作二进制身份。没有新增依赖、吞吐门槛或拆分正式发布事务。

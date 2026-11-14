@@ -37,3 +37,6 @@ pub mod strategy_promotion;
 pub(crate) mod strategy_validation;
 
 pub(crate) mod qualification_commands;
+
+pub mod factor_build;
+pub mod job_publication;

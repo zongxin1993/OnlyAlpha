@@ -1,6 +1,6 @@
 # 有限作业的冻结身份、结果计划与接口
 
-本契约落实[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)，约束 Research／Backtest 的新框架。实现入口为 Backend [`application::job_contract`](../packages/backend/src/application/job_contract.rs)。当前阶段只提供纯值模型和回归；没有数据库迁移、作业准入、发布实现或外部 API 接线。旧 worker 尚未迁移，不以其行为推翻本契约，也不宣称目标已经运行。
+本契约落实[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)，约束 Research／Backtest 的新框架。实现入口为 Backend [`application::job_contract`](../packages/backend/src/application/job_contract.rs)。纯值模型之外，第二阶段已提供 PostgreSQL 类型化内容仓储与原子发布原语，见[存储接口说明](postgresql-job-publication.md)；真实构建／结束 owner 和外部 API 尚未接线。旧 worker 尚未迁移，不以其行为推翻本契约，也不宣称目标已经运行。
 
 ## 事实归属和权限
 
@@ -67,9 +67,9 @@ COMPLETED 必须同事务拥有完整正式结果；CANCELLED／FAILED 不发布
 
 ContractError 分开表达 Invalid、MissingEvidence、Unavailable、Mismatch、NotReady、OutcomeUnknown、BudgetExceeded、UnexpectedResult。缺证、读失败和确定不匹配不是同一件事；OutcomeUnknown不是新的失败终态。它们是内部错误分类，尚未注册为新的公开HTTP错误码。
 
-## 下一阶段接口和权限约束
+## 分阶段接口和权限约束
 
-以下是后续实现者必须遵守的接口约定，第一阶段没有加入返回伪成功或 todo 的生产 stub。
+以下是实现者必须遵守的接口约定。第二阶段提供仓储 publish／observe／read 原语；read 直接由 PublicationRepository 实现，不另加空壳 ResultReader。其他接口按后续阶段落实，没有返回伪成功或 todo 的生产 stub。
 
 | 所属模块／接口 | 输入和输出 | 必需的真实检查 |
 |---|---|---|

@@ -1631,6 +1631,18 @@ _INFRASTRUCTURE_RESOURCES = {
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    "packages/backend/src/tests/job_publication_tests.rs": {
+        "support/job_publication_proxy.rs": "packages/backend/src/tests/support/job_publication_proxy.rs",
+    },
+    "packages/backend/src/persistence/job_publication.rs": {
+        "job_publication/model.rs": "packages/backend/src/persistence/job_publication/model.rs",
+        "job_publication/reader.rs": "packages/backend/src/persistence/job_publication/reader.rs",
+        "job_publication/writer.rs": "packages/backend/src/persistence/job_publication/writer.rs",
+        "../tests/support/job_publication_fixture.rs": "packages/backend/src/tests/support/job_publication_fixture.rs",
+    },
+    "packages/backend/src/persistence/factor_build.rs": {
+        "../tests/support/factor_build_fixture.rs": "packages/backend/src/tests/support/factor_build_fixture.rs",
+    },
     "packages/backend/src/persistence/research_evidence/physical.rs": {
         "../../tests/research_evidence_witness.rs": "packages/backend/src/tests/research_evidence_witness.rs",
     },

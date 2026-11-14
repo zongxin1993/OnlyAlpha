@@ -211,10 +211,10 @@ impl<'a> Commands<'a> {
         }
     }
 }
-pub(crate) async fn bounds(tx: &Transaction<'_>) -> Result<(), Error> {
+pub async fn bounds(tx: &Transaction<'_>) -> Result<(), Error> {
     // Preserve a stricter caller budget. PostgreSQL reports these GUCs in ms;
     // zero explicitly means unlimited, so it acquires this authority's cap.
-    let row=tx.query_one("SELECT (SELECT setting::bigint FROM pg_settings WHERE name='statement_timeout' AND unit='ms'), (SELECT setting::bigint FROM pg_settings WHERE name='lock_timeout' AND unit='ms')",&[]).await.map_err(|_|Error::Unavailable)?;
+    let row=tx.query_one("SELECT (SELECT setting::bigint FROM pg_catalog.pg_settings WHERE name='statement_timeout' AND unit='ms'), (SELECT setting::bigint FROM pg_catalog.pg_settings WHERE name='lock_timeout' AND unit='ms')",&[]).await.map_err(|_|Error::Unavailable)?;
     let statement: i64 = row
         .try_get::<_, Option<i64>>(0)
         .map_err(|_| Error::Unavailable)?
