@@ -175,14 +175,14 @@ fn verify_case(
     }
     Ok(())
 }
-/// Value validation is deliberately not a publication constructor or grant.
-pub(crate) fn verify_observation(
-    prepared: &Value,
-    observation: &Value,
-    materialized: &MaterializedDataset,
-) -> Result<Vec<Value>> {
+pub(crate) fn verify_controlled_case(
+    graph: &Graph,
+    bindings: &Value,
+    signals: &Value,
+    case: &Value,
+) -> Result<()> {
     exact(
-        observation,
+        case,
         &[
             "axis",
             "research_outputs",
@@ -190,11 +190,37 @@ pub(crate) fn verify_observation(
             "target_outputs",
             "decisions",
             "restoration",
-            "graph_cases",
-            "node_profiles",
-            "producer",
+            "case_id",
+            "rows",
         ],
     )?;
+    let axis = rows(&case["rows"])?
+        .iter()
+        .map(|r| r["at_ns"].clone())
+        .collect::<Vec<_>>();
+    verify_case(graph, bindings, signals, case, &axis)
+}
+/// Value validation is deliberately not a publication constructor or grant.
+pub(crate) fn verify_observation(
+    prepared: &Value,
+    observation: &Value,
+    materialized: &MaterializedDataset,
+) -> Result<Vec<Value>> {
+    let mut fields = vec![
+        "axis",
+        "research_outputs",
+        "streaming_outputs",
+        "target_outputs",
+        "decisions",
+        "restoration",
+        "graph_cases",
+        "node_profiles",
+        "producer",
+    ];
+    if prepared.get("build_certification").is_some() {
+        fields.push("build_certification");
+    }
+    exact(observation, &fields)?;
     let graph =
         Graph::from_record(&prepared["decision"]["decision_graph"], WORK).map_err(|_| INVALID)?;
     let signals = &prepared["decision"]["signal_semantics"];
@@ -221,6 +247,21 @@ pub(crate) fn verify_observation(
         || observation["restoration"]["restored_checkpoint_fingerprint"] != before
     {
         return Err(INVALID);
+    }
+    if prepared.get("build_certification").is_some() {
+        crate::application::calculation_build::verify_reference(
+            prepared,
+            prepared,
+            materialized.verified().dataset().definition(),
+            &materialized.verified().manifest()["provenance"][0]["source_metadata"]["construction_recipe"],
+            observation,
+        )?;
+        return equivalence::derive_certified(
+            &graph,
+            bindings,
+            observation,
+            &prepared["build_certification"],
+        );
     }
     let (cases, profiles) = planned_graph_validation(
         &graph,
@@ -505,6 +546,10 @@ impl VerifiedValidation {
         tx: &Transaction<'_>,
         namespace: &SemanticStoreId,
     ) -> Result<()> {
+        if let Some(proof) = self.record["prepared_inputs"].get("build_certification") {
+            crate::application::calculation_build::verify_fact(tx, proof).await?;
+        }
+
         self.verify_cut()?;
         if namespace != &self.namespace {
             return Err(INVALID);
@@ -701,29 +746,30 @@ impl Store {
             return Err(INVALID);
         }
         let prepared = &record["prepared_inputs"];
-        exact(
-            prepared,
-            &[
-                "semantic_store_id",
-                "origin",
-                "strategy_revision",
-                "factor_revisions",
-                "runtime_manifest",
-                "runtime_work_binding",
-                "execution_binding",
-                "algorithm_resolution",
-                "algorithm_resolution_request",
-                "native_implementations",
-                "decision",
-                "implementation_bindings",
-                "input_window",
-                "dataset_snapshot_fingerprint",
-                "dataset_manifest",
-                "dataset_materialization",
-                "dataset_construction_fingerprint",
-                "source_revision",
-            ],
-        )?;
+        let mut fields = vec![
+            "semantic_store_id",
+            "origin",
+            "strategy_revision",
+            "factor_revisions",
+            "runtime_manifest",
+            "runtime_work_binding",
+            "execution_binding",
+            "algorithm_resolution",
+            "algorithm_resolution_request",
+            "native_implementations",
+            "decision",
+            "implementation_bindings",
+            "input_window",
+            "dataset_snapshot_fingerprint",
+            "dataset_manifest",
+            "dataset_materialization",
+            "dataset_construction_fingerprint",
+            "source_revision",
+        ];
+        if prepared.get("build_certification").is_some() {
+            fields.push("build_certification");
+        }
+        exact(prepared, &fields)?;
         if prepared["semantic_store_id"] != namespace.value() {
             return Err(INVALID);
         }

@@ -149,7 +149,7 @@ pub(crate) fn build_prepared_next_open(
     {
         return Err(INVALID.into());
     }
-    let bars = dataset.bars()?;
+    let bars = crate::application::job_input::ordered_bars(dataset)?;
     if bars.len() > 8192 {
         return Err(INVALID.into());
     }

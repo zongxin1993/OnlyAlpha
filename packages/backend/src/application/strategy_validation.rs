@@ -386,6 +386,35 @@ impl ResolvedValidation {
             source,
         })
     }
+    /// Explicit mathematical build preparation; subsequent observe() only consumes
+    /// this exact immutable proof. Original Runtime and materialized input stay held.
+    pub(crate) async fn prepare_calculation_build(
+        mut self,
+        client: &mut Client,
+        materialized: &MaterializedDataset,
+        installation: Arc<ChartInstallation>,
+        control: &Control,
+    ) -> std::result::Result<Self, PreparationError> {
+        let proof =
+            crate::application::calculation_build::prepare(
+                client,
+                crate::application::calculation_build::Inputs {
+                    runtime: self.runtime.clone(),
+                    prepared: self.record.clone(),
+                    specification: self.record.clone(),
+                    definition: materialized.verified().dataset().definition().clone(),
+                    recipe: materialized.verified().manifest()["provenance"][0]["source_metadata"]
+                        ["construction_recipe"]
+                        .clone(),
+                    installation,
+                    control: control.clone(),
+                },
+                true,
+            )
+            .await?;
+        self.record["build_certification"] = proof;
+        Ok(self)
+    }
     pub(crate) fn input_window(&self) -> &Value {
         &self.record["input_window"]
     }

@@ -3,7 +3,7 @@
 //! This module is not wired to job admission or persistence in phase one.
 mod binding;
 mod result;
-pub use binding::{FactorExecutionBinding, FrozenJobBinding};
+pub use binding::{FactorExecutionBinding, FrozenJobBinding, MarketSliceBinding};
 pub use result::{
     MemberKind, ResultMember, ResultPlan, result_publication_required, validate_terminal_result,
 };

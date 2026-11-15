@@ -14,7 +14,13 @@
 
 ## 状态与生命周期
 
+[`application::job_input`](src/application/job_input.rs) 提供 `JobInputLoader::load`、`MemoryBudget` 和私有构造的 `PreparedJobInput`，从精确 Revision／Seal／segment 的真实 PostgreSQL／ClickHouse 所属读路径准备有序 Bar，并读取精确 READY 程序。输入必须携带原主体的有效 Source Session，禁止用冻结 JSON 授予读取权限。错误分别表达预算、权限、缺证、不可用、未知、不匹配及未就绪。加载不写行情副本、过程文件或结果，也不创建 Run。当前正式有限作业派发仍按后续阶段接线；旧 Research／回测先共享行情轴校验和现有 Dataset 身份算法。
+
+[`workers::research_environment::prepare_strategy`](src/workers/research_environment.rs) 仅核验实际安装的 Core、原生算子和 Target 库，不接收因子源码、不认证私有因子。后者由 `FactorBuildService` 独立构建认证，`resolve_frozen_binding` 只读核对精确证书，不能隐式构建或换用最新版本。
+
 Command、Run、Attempt及恢复各有唯一owner；新框架值／事实关系见[有限作业契约](../../docs/job-execution-contract.md)。不能用值解析、hash或日志代替真实执行与正式发布。当前实现状态与目标架构分别说明。
+
+[`application::calculation_build`](src/application/calculation_build.rs) 将精确图的受控证明作为独立构建事实保存在 PostgreSQL；构建绑定固定参数、实际实现与工件，以及固定合成语料，不绑定作业时间或 Target。`PreparedInputs::prepare_strategy` 执行明确的构建准备，`restore_strategy_inputs`／恢复仅加载原证明，缺证不修复。Research 实际观测与手工策略验证引用同一证明；正式读取重新核对 PostgreSQL 原事实、六类案例和逐节点 Witness，证明本身不授予 Run、Freeze 或交易权限。实际行情正文仍归 ClickHouse，合成认证语料不冒充行情事实。
 
 ## 使用与验证
 

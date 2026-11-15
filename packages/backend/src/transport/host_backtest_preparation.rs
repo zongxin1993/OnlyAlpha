@@ -841,6 +841,11 @@ impl Host {
                 &observed_datasets,
                 text(acquired.materialized.lineage(), "materialization_id")?,
             )?;
+            let resolved = {
+                let mut writer=self.writer.lock().await;
+                let client=writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?.client_mut().await.map_err(|_| "PRODUCT_AUTHORITY_UNAVAILABLE")?;
+                resolved.prepare_calculation_build(client,&observed,installed.clone(),&observer).await?
+            };
             let joined = crate::workers::backtest_profile::spawn_blocking(move || {
                 resolved.observe(
                     installed,

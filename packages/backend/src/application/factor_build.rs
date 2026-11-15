@@ -95,6 +95,7 @@ struct Source {
 }
 pub struct FactorBuildService<'a> {
     client: &'a mut Client,
+    namespace: SemanticStoreId,
     installation: Arc<ChartInstallation>,
     native: String,
     context: String,
@@ -177,12 +178,61 @@ impl<'a> FactorBuildService<'a> {
         )?;
         Ok(Self {
             client,
+            namespace: namespace.clone(),
             installation,
             native,
             context,
             suite,
             writable: current == "onlyalpha_factor_builder",
         })
+    }
+    pub fn namespace(&self) -> &SemanticStoreId {
+        &self.namespace
+    }
+    /// Size preflight only, never READY. The immutable exact records are still
+    /// fully verified by resolve_frozen_binding before any input is returned.
+    pub(crate) async fn read_memory_requirement(
+        &mut self,
+        binding: &crate::application::job_contract::FactorExecutionBinding,
+    ) -> Result<usize> {
+        let expected = binding.record();
+        let certificate = expected["certificate"]
+            .as_str()
+            .ok_or(BuildError::Invalid)?;
+        let tx = self
+            .client
+            .build_transaction()
+            .read_only(true)
+            .start()
+            .await
+            .map_err(db)?;
+        bounded(&tx).await?;
+        let row = tx.query_opt("SELECT c.revision_fingerprint,c.program_fingerprint,c.parameters_fingerprint,octet_length(p.payload),octet_length(c.payload),octet_length(c.parameters_payload) FROM public.factor_parameter_certificate c JOIN public.factor_built_program p ON p.program_fingerprint=c.program_fingerprint WHERE c.certificate_fingerprint=$1", &[&certificate]).await.map_err(db)?.ok_or(BuildError::Storage(PublicationError::MissingEvidence))?;
+        for (index, key) in [(0, "revision"), (1, "program"), (2, "parameters")] {
+            if expected[key].as_str() != Some(row.get::<_, String>(index).as_str()) {
+                return Err(BuildError::Storage(PublicationError::Mismatch));
+            }
+        }
+        let mut encoded = 0_usize;
+        for (index, limit) in [(3, 8 * 1024 * 1024), (4, 8 * 1024 * 1024), (5, 262144)] {
+            let bytes = usize::try_from(row.get::<_, i32>(index))
+                .map_err(|_| BuildError::Storage(PublicationError::Integrity))?;
+            if bytes == 0 || bytes > limit {
+                return Err(BuildError::Storage(PublicationError::BudgetExceeded));
+            }
+            encoded = encoded
+                .checked_add(bytes)
+                .ok_or(BuildError::Storage(PublicationError::BudgetExceeded))?;
+        }
+        // Restricted IR contains scalar values and bounded node/port records.
+        // Reserve for encoded buffers, JSON trees, decoded and bound copies;
+        // execution history belongs to the subsequent Session budget.
+        const BUILD_DECODE_RESERVE_FACTOR: usize = 64;
+        let bytes = encoded
+            .checked_mul(BUILD_DECODE_RESERVE_FACTOR)
+            .ok_or(BuildError::Storage(PublicationError::BudgetExceeded))?;
+        commit(tx).await?;
+        Ok(bytes)
     }
     pub async fn request(
         &mut self,
@@ -280,6 +330,62 @@ impl<'a> FactorBuildService<'a> {
             revision: revision.into(),
         };
         commit(tx).await?;
+        Ok(ready)
+    }
+    /// Load only the exact immutable certificate selected by a frozen job.
+    /// This operation cannot enqueue work, parse source or certify parameters.
+    pub async fn resolve_frozen_binding(
+        &mut self,
+        binding: &crate::application::job_contract::FactorExecutionBinding,
+    ) -> Result<ReadyFactorBinding> {
+        let expected = binding.record();
+        let certificate = expected["certificate"]
+            .as_str()
+            .ok_or(BuildError::Invalid)?;
+        let tx = self
+            .client
+            .build_transaction()
+            .read_only(true)
+            .start()
+            .await
+            .map_err(db)?;
+        bounded(&tx).await?;
+        let row = tx.query_opt(
+            "SELECT c.revision_fingerprint,c.program_fingerprint,c.parameters_fingerprint,CASE WHEN octet_length(c.parameters_payload)<=262144 THEN c.parameters_payload END,r.factor_id FROM public.factor_parameter_certificate c JOIN public.private_factor_revision r ON r.revision_fingerprint=c.revision_fingerprint WHERE c.certificate_fingerprint=$1",
+            &[&certificate],
+        ).await.map_err(db)?.ok_or(BuildError::Storage(PublicationError::MissingEvidence))?;
+        for (index, key) in [(0, "revision"), (1, "program"), (2, "parameters")] {
+            if expected[key].as_str() != Some(row.get::<_, String>(index).as_str()) {
+                return Err(BuildError::Storage(PublicationError::Mismatch));
+            }
+        }
+        let raw = row
+            .get::<_, Option<String>>(3)
+            .ok_or(BuildError::Storage(PublicationError::BudgetExceeded))?;
+        let parameters: Value = serde_json::from_str(&raw).map_err(calc)?;
+        if encode(&parameters, 262144)? != raw || digest(raw.as_bytes()) != expected["parameters"] {
+            return Err(BuildError::Storage(PublicationError::Integrity));
+        }
+        let factor_id: String = row.get(4);
+        let revision: String = row.get(0);
+        commit(tx).await?;
+        let arguments = Value::Object(
+            parameters
+                .as_object()
+                .ok_or(BuildError::Invalid)?
+                .iter()
+                .map(|(key, value)| (key.clone(), value["value"].clone()))
+                .collect(),
+        );
+        let ready = self
+            .resolve_ready_binding(&factor_id, &revision, &arguments)
+            .await?;
+        if ready.certificate_fingerprint() != certificate
+            || Some(ready.program_fingerprint()) != expected["program"].as_str()
+            || ready.program().parameters().fingerprint() != expected["parameters"]
+        {
+            return Err(BuildError::Storage(PublicationError::Mismatch));
+        }
         Ok(ready)
     }
     pub async fn run_pending(&mut self) -> Result<Option<BuildReport>> {

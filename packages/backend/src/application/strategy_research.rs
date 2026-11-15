@@ -22,7 +22,7 @@ pub(crate) use run_specification::tests::record as test_run_record;
 mod execution;
 pub use execution::StrategyEvaluation;
 pub(crate) use execution::{
-    GraphObservationInputs, observe_graph, planned_graph_validation, source_revision,
+    GraphObservationInputs, certify_graph, observe_graph, planned_graph_validation, source_revision,
 };
 mod decision;
 pub use decision::DecisionGraph;

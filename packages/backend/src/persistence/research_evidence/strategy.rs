@@ -196,6 +196,7 @@ fn validate_case(
     prepared: &Value,
     value: &Value,
     axis: &[Value],
+    include_targets: bool,
 ) -> Result<()> {
     let graph = spec.calculation_graph("decision")?;
     let r = output_index(
@@ -212,13 +213,17 @@ fn validate_case(
         "TRADING",
         axis.len(),
     )?;
-    let _targets = output_index(
-        &value["target_outputs"],
-        spec.target_graph(),
-        prepared,
-        "RESEARCH",
-        axis.len(),
-    )?;
+    if include_targets {
+        output_index(
+            &value["target_outputs"],
+            spec.target_graph(),
+            prepared,
+            "RESEARCH",
+            axis.len(),
+        )?;
+    } else if !rows(&value["target_outputs"])?.is_empty() {
+        return Err(INVALID);
+    }
     if value["axis"] != json!(axis) || r.keys().collect::<Vec<_>>() != t.keys().collect::<Vec<_>>()
     {
         return Err(INVALID);
@@ -275,27 +280,38 @@ fn science(
     dataset: &super::super::research_dataset::VerifiedDataset,
     at: OnlyUtcDateTime,
 ) -> Result<Science> {
-    exact(
-        observation,
-        &[
-            "schema_version",
-            "contract",
-            "run_specification_fingerprint",
-            "dataset_snapshot_fingerprint",
-            "input_window",
-            "observation_count",
-            "axis",
-            "research_outputs",
-            "streaming_outputs",
-            "target_outputs",
-            "decisions",
-            "restoration",
-            "producer",
-            "graph_cases",
-            "node_profiles",
-            "statistics",
-        ],
-    )?;
+    let certified = prepared.get("build_certification").is_some();
+    let mut fields = vec![
+        "schema_version",
+        "contract",
+        "run_specification_fingerprint",
+        "dataset_snapshot_fingerprint",
+        "input_window",
+        "observation_count",
+        "axis",
+        "research_outputs",
+        "streaming_outputs",
+        "target_outputs",
+        "decisions",
+        "restoration",
+        "producer",
+        "graph_cases",
+        "node_profiles",
+        "statistics",
+    ];
+    if certified {
+        fields.push("build_certification");
+    }
+    exact(observation, &fields)?;
+    if certified {
+        crate::application::calculation_build::verify_reference(
+            prepared,
+            spec.record(),
+            dataset.dataset().definition(),
+            &dataset.manifest()["provenance"][0]["source_metadata"]["construction_recipe"],
+            observation,
+        )?;
+    }
     let axis = dataset
         .dataset()
         .rows()
@@ -335,7 +351,7 @@ fn science(
     if observation["observation_count"] != count {
         return Err(INVALID);
     }
-    validate_case(spec, prepared, observation, &axis)?;
+    validate_case(spec, prepared, observation, &axis, true)?;
     exact(
         &observation["restoration"],
         &[
@@ -367,16 +383,17 @@ fn science(
         }
         let input = rows(&case["rows"])?;
         let case_axis = input.iter().map(|r| r["at_ns"].clone()).collect::<Vec<_>>();
-        if input.len()
-            < prepared["input_window"]["warmup_bars"]
-                .as_u64()
-                .ok_or(INVALID)? as usize
-                + 2
+        let proof_window = if certified {
+            &prepared["build_certification"]["context"]["window"]
+        } else {
+            &prepared["input_window"]
+        };
+        if input.len() < proof_window["warmup_bars"].as_u64().ok_or(INVALID)? as usize + 2
             || input.len() > 8192
         {
             return Err(INVALID);
         }
-        validate_case(spec, prepared, case, &case_axis)?;
+        validate_case(spec, prepared, case, &case_axis, !certified)?;
     }
     let instrument = dataset.dataset().definition()["instruments"][0]
         .as_str()
@@ -537,11 +554,20 @@ fn science(
     )?;
     let result = json!({"schema_version":2,"plan":plan,"research_result_plan_fingerprint":plan_fp,"dataset_snapshot_fingerprint":dataset.dataset().snapshot_fingerprint(),
         "statistics_results":stats,"research_result_content_fingerprint":content,"research_result_fingerprint":result_fp,"created_at":audit(at),"calculation_results":calcs});
-    let equivalence = equivalence::derive(
-        spec.calculation_graph("decision")?,
-        &spec.record()["implementation_bindings"],
-        observation,
-    )?;
+    let equivalence = if certified {
+        equivalence::derive_certified(
+            spec.calculation_graph("decision")?,
+            &spec.record()["implementation_bindings"],
+            observation,
+            &prepared["build_certification"],
+        )?
+    } else {
+        equivalence::derive(
+            spec.calculation_graph("decision")?,
+            &spec.record()["implementation_bindings"],
+            observation,
+        )?
+    };
     let ids = equivalence
         .iter()
         .map(|v| v["evidence_fingerprint"].clone())

@@ -964,7 +964,10 @@ BENCHMARK_SOURCE_INPUTS = {
         "modules": [],
     },
     "crates/calculation-bridge/benches/workload.rs": {"fixtures": [], "modules": []},
-    "crates/calculation/benches/workload.rs": {"fixtures": [], "modules": []},
+    "crates/calculation/benches/workload.rs": {
+        "fixtures": ['"../../../test-data/calculation/product-readers-v1.jsonl"'],
+        "modules": [],
+    },
     "crates/clock/benches/workload.rs": {"fixtures": [], "modules": []},
     "crates/domain/benches/workload.rs": {
         "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
@@ -1743,6 +1746,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
     "packages/backend/src/application/mod.rs": {
         "../tests/job_contract_tests.rs": "packages/backend/src/tests/job_contract_tests.rs",
+        "../tests/job_input_tests.rs": "packages/backend/src/tests/job_input_tests.rs",
         "../../tests/application/backtest_preparation.rs": "packages/backend/tests/application/backtest_preparation.rs",
     },
     "packages/backend/src/workers/backtest_worker.rs": {

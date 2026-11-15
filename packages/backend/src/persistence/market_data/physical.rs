@@ -4,7 +4,8 @@ use onlyalpha_domain::base::OnlyDomainModel;
 use reqwest::{Client, Url, redirect, retry};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    time::Duration,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PhysicalState {
@@ -12,6 +13,18 @@ pub enum PhysicalState {
     Exact,
     Partial,
     Conflict,
+}
+/// HTTP headers/body and JSON decode are distinct observations. Server elapsed
+/// is supplied by ClickHouse when available; it overlaps HTTP wall time.
+#[derive(Clone, Debug, Default)]
+pub struct ReadTimings {
+    pub headers: Duration,
+    pub body: Duration,
+    pub decode: Duration,
+    pub server: Duration,
+    pub server_samples: usize,
+    pub requests: usize,
+    pub bytes: usize,
 }
 /// Explicit Host-selected endpoint, semantic database, credentials and finite budgets.
 /// The owning builder disables redirects, proxies and automatic retry.
@@ -25,6 +38,7 @@ pub struct ClickHouseConfig {
     pub max_bytes: usize,
     pub max_rows: usize,
 }
+#[derive(Clone)]
 pub struct ClickHouse {
     client: Client,
     url: Url,
@@ -33,8 +47,39 @@ pub struct ClickHouse {
     password: zeroize::Zeroizing<String>,
     max_bytes: usize,
     max_rows: usize,
+    budgeted: bool,
+    timings: Option<Arc<Mutex<ReadTimings>>>,
 }
 impl ClickHouse {
+    pub(super) fn bounded(&self, rows: usize, bytes: usize) -> Result<Self> {
+        if rows == 0 || bytes == 0 {
+            return Err(Error::Invalid);
+        }
+        let mut result = self.clone();
+        result.max_rows = result.max_rows.min(rows);
+        result.max_bytes = result.max_bytes.min(bytes);
+        result.budgeted = true;
+        result.timings = Some(Arc::new(Mutex::new(ReadTimings::default())));
+        Ok(result)
+    }
+    pub(super) fn read_timings(&self) -> Result<ReadTimings> {
+        self.timings
+            .as_ref()
+            .map(|timings| {
+                timings
+                    .lock()
+                    .map(|t| t.clone())
+                    .map_err(|_| Error::Unavailable)
+            })
+            .unwrap_or_else(|| Ok(ReadTimings::default()))
+    }
+    fn limit_error(&self) -> Error {
+        if self.budgeted {
+            Error::BudgetExceeded
+        } else {
+            Error::Unavailable
+        }
+    }
     pub fn new(config: ClickHouseConfig) -> Result<Self> {
         let url = Url::parse(&config.url).map_err(|_| Error::Invalid)?;
         if !matches!(url.scheme(), "http" | "https")
@@ -82,6 +127,8 @@ impl ClickHouse {
             password: zeroize::Zeroizing::new(config.password),
             max_bytes: config.max_bytes,
             max_rows: config.max_rows,
+            budgeted: false,
+            timings: None,
         })
     }
     async fn request(&self, sql: String, params: &[(&str, String)]) -> Result<String> {
@@ -94,7 +141,7 @@ impl ClickHouse {
         params: &[(&str, String)],
     ) -> Result<String> {
         if sql.len() > self.max_bytes {
-            return Err(Error::Unavailable);
+            return Err(self.limit_error());
         }
         let mut url = self.url.clone();
         {
@@ -110,7 +157,20 @@ impl ClickHouse {
             .basic_auth(&self.user, Some(self.password.as_str()))
             .body(sql);
         request = request.header("Content-Type", "text/plain; charset=utf-8");
+        let sent = Instant::now();
         let mut response = request.send().await.map_err(|_| Error::Unknown)?;
+        let headers_elapsed = sent.elapsed();
+        let server = response
+            .headers()
+            .get("x-clickhouse-summary")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .and_then(|value| {
+                value["elapsed_ns"]
+                    .as_str()
+                    .and_then(|n| n.parse::<u64>().ok())
+            });
+        let reading = Instant::now();
         if !response.status().is_success() {
             return Err(Error::Unavailable);
         }
@@ -118,7 +178,7 @@ impl ClickHouse {
             .content_length()
             .is_some_and(|n| n > self.max_bytes as u64)
         {
-            return Err(Error::Unavailable);
+            return Err(self.limit_error());
         }
         let mut bytes = vec![];
         while let Some(chunk) = response.chunk().await.map_err(|_| Error::Unknown)? {
@@ -127,9 +187,26 @@ impl ClickHouse {
                 .checked_add(chunk.len())
                 .is_none_or(|n| n > self.max_bytes)
             {
-                return Err(Error::Unavailable);
+                return Err(self.limit_error());
             }
             bytes.extend_from_slice(&chunk);
+        }
+        if let Some(timings) = &self.timings {
+            let mut timing = timings.lock().map_err(|_| Error::Unavailable)?;
+            timing.headers += headers_elapsed;
+            timing.body += reading.elapsed();
+            timing.requests = timing
+                .requests
+                .checked_add(1)
+                .ok_or(Error::BudgetExceeded)?;
+            timing.bytes = timing
+                .bytes
+                .checked_add(bytes.len())
+                .ok_or(Error::BudgetExceeded)?;
+            if let Some(server) = server {
+                timing.server += Duration::from_nanos(server);
+                timing.server_samples += 1;
+            }
         }
         String::from_utf8(bytes).map_err(|_| Error::Unprovable)
     }
@@ -145,13 +222,16 @@ impl ClickHouse {
         let raw = self
             .request_in(database, format!("{sql} FORMAT JSONEachRow"), params)
             .await?;
-        let rows = raw
-            .lines()
-            .filter(|s| !s.is_empty())
-            .map(decode)
-            .collect::<Result<Vec<_>>>()?;
-        if rows.len() > self.max_rows {
-            return Err(Error::Unavailable);
+        let decoding = Instant::now();
+        let mut rows = Vec::new();
+        for line in raw.lines().filter(|s| !s.is_empty()) {
+            if rows.len() >= self.max_rows {
+                return Err(self.limit_error());
+            }
+            rows.push(decode(line)?);
+        }
+        if let Some(timings) = &self.timings {
+            timings.lock().map_err(|_| Error::Unavailable)?.decode += decoding.elapsed();
         }
         Ok(rows)
     }

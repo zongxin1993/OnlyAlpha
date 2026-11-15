@@ -54,3 +54,10 @@ mod job_contract_tests;
 pub mod job_contract;
 
 pub mod factor_build;
+pub mod job_input;
+
+#[cfg(test)]
+#[path = "../tests/job_input_tests.rs"]
+mod job_input_tests;
+
+pub(crate) mod calculation_build;

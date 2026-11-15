@@ -31,3 +31,9 @@ Criterion为每case至少10个原始样本；表中使用Criterion的median估�
 ## 限制
 
 仅覆盖上面列出的入口。错误/恢复/复杂度曲线按覆盖矩阵解释；未测功能不能宣称覆盖。无新 CI 性能门槛；p95 的解释受样本数限制。
+
+## 有限输入行情轴
+
+`cargo bench --frozen --offline -p onlyalpha-market-data --bench workload -- finite_input` 增加 `finite_input.axis/16`、`/128`、`/740`。使用既有 replay 的真实闭合 Bar，计时前逐行确认连续结束轴；测量逐行检查，解析、输入分配和 Axis 构造在计时外。不包含来源核验、排序、摘要、数据库或经济执行，不能当作完整回测吞吐量。
+
+固定 dev Linux aarch64、Rust 1.99.1、release，2026-11-15 实测：16／128／740 行轴校验中位数分别为 278.461 ns／2.245 µs／12.848 µs，每档 Criterion 10 个样本、200 ms 预热、约 1 秒采样。只衡量已有 typed Bar 的轴校验，不能用它表示完整交易吞吐。程序峰值 RSS 25028 KiB 包含基准初始化。冻结源码摘要 `fb7ee613caacf34b66886ddbc791512a41e16f7c2fe74b75eb70680aaaa948e8`，基准可执行文件 SHA256 `749b70e28addae5328764a43c7424739a8a589d2d32a4b9b887a36569a50ee97`；原始样本见任务产物 `test-results/strategy-research-framework-stage4-performance/onlyalpha-market-data-samples.log`。

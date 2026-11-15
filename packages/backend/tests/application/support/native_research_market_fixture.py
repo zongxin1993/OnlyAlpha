@@ -188,6 +188,7 @@ def strategy_preparation_case(
     first_bar_start: datetime | None = None,
     manual_only: bool = False,
     fresh_runtime: bool = True,
+    builtins_only: bool = False,
 ) -> dict[str, Any]:
     from uuid import uuid4
 
@@ -233,25 +234,26 @@ def strategy_preparation_case(
         assert "error" not in environment, (environment, result.stderr)
         generation = environment["manifest"]["runtime_generation_fingerprint"]
         assert environment["snapshot"]["active_for_new_work"] == generation
-    saved = author(
-        market_probe,
-        vector["draft"]["factor_id"],
-        "save",
-        op="factor-authoring",
-        factor_id=vector["draft"]["factor_id"],
-        draft=vector["draft"],
-        expected=None,
-    )
-    assert "error" not in saved, saved
-    published = author(
-        market_probe,
-        vector["draft"]["factor_id"],
-        "publish",
-        op="factor-authoring",
-        factor_id=vector["draft"]["factor_id"],
-        expected=saved["result"]["draft_fingerprint"],
-    )
-    assert published["result"]["revision"] == vector["revision"]
+    if not builtins_only:
+        saved = author(
+            market_probe,
+            vector["draft"]["factor_id"],
+            "save",
+            op="factor-authoring",
+            factor_id=vector["draft"]["factor_id"],
+            draft=vector["draft"],
+            expected=None,
+        )
+        assert "error" not in saved, saved
+        published = author(
+            market_probe,
+            vector["draft"]["factor_id"],
+            "publish",
+            op="factor-authoring",
+            factor_id=vector["draft"]["factor_id"],
+            expected=saved["result"]["draft_fingerprint"],
+        )
+        assert published["result"]["revision"] == vector["revision"]
 
     # Controlled market inputs enter through existing WAL/seal/catalog owners.
     # They are technical inputs, never claimed as real Binance observations.
@@ -357,6 +359,21 @@ def strategy_preparation_case(
             ],
         }
     )
+    if builtins_only:
+        # A separate real authored public-operator strategy. Existing private
+        # factor fixtures and their expectations retain their original path.
+        instances[-1] = {
+            "instance_key": "momentum",
+            "type_reference": {
+                "kind": "INDICATOR",
+                "type_id": "onlyalpha.operator.rolling_mean",
+                "semantic_version": versions["onlyalpha.operator.rolling_mean"],
+            },
+            "parameters": {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}},
+            "published_outputs": ["value"],
+            "primary_output": "value",
+            "input_bindings": [{"input_name": "value", "source": "bar.close"}],
+        }
     seed_strategy = json.loads((ROOT / "examples/private-assets/strategy/simple_momentum/strategy.json").read_text())[
         "strategy"
     ]["definition"]
@@ -367,6 +384,8 @@ def strategy_preparation_case(
             "revision_fingerprint": vector["revision"]["revision_fingerprint"],
         }
     ]
+    if builtins_only:
+        seed_strategy["factor_revision_dependencies"] = []
     seed_strategy["signals"]["entry"]["operator"] = ">="
     seed_strategy["signals"]["entry"]["right"]["value"]["value"] = "0.001"
     seed_strategy["universe"] = {"kind": "SINGLE_INSTRUMENT", "instruments": [scope["instrument_id"]]}

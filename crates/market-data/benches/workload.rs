@@ -58,6 +58,32 @@ fn bench(c: &mut Criterion) {
         });
     }
     g.finish();
+    let mut axis_group = c.benchmark_group("finite_input.axis");
+    let first: i64 = OnlyTimestamp::from_datetime(*bars[0].bar_end())
+        .unix_nanos()
+        .try_into()
+        .unwrap();
+    for count in [16_usize, 128, 740] {
+        let axis = onlyalpha_market_data::finite_input::Axis::new(
+            first,
+            first + count as i64 * 60_000_000_000,
+            60_000_000_000,
+            count,
+        )
+        .unwrap();
+        for (index, bar) in bars[..count].iter().enumerate() {
+            axis.check(index, bar).unwrap();
+        }
+        axis_group.throughput(Throughput::Elements(count as u64));
+        axis_group.bench_function(BenchmarkId::from_parameter(count), |b| {
+            b.iter(|| {
+                for (index, bar) in bars[..count].iter().enumerate() {
+                    axis.check(index, black_box(bar)).unwrap();
+                }
+            })
+        });
+    }
+    axis_group.finish();
 }
 criterion_group! {name=benches;config=Criterion::default().sample_size(10).warm_up_time(Duration::from_millis(200)).measurement_time(Duration::from_secs(1));targets=bench}
 criterion_main!(benches);

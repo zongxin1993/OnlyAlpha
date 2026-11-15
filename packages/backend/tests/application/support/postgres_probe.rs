@@ -836,24 +836,21 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
   if request["op"]=="runtime-environment" {
    let started=std::time::Instant::now();
    let progress=|phase:&str|eprintln!("[runtime-environment] phase={phase} elapsed_ms={}",started.elapsed().as_millis());
-   use onlyalpha_backend::{application::research_factor,workers::research_environment,persistence::research_runtime::Registry};
+   use onlyalpha_backend::{workers::research_environment,persistence::research_runtime::Registry};
    use onlyalpha_calculation_bridge::ChartInstallation;
    use std::path::Path;
    progress("pg_drain_begin");
    drop(client);driver.await??;
    progress("pg_drain_done");
    let result=(||->Result<Value,Box<dyn StdError>> {
-    progress("factor_compile_begin");
-    let factor=research_factor::compile(&request["factor"]["candidate"],&request["factor"]["draft"],&request["factor"]["revision"])?;
-    progress("factor_compile_done");
     let root=Path::new(request["release_root"].as_str().ok_or("release root")?);
     progress("installation_verify_begin");
     let installation=ChartInstallation::open(&root.join("algorithms"),request["algorithm_artifact"].as_str().ok_or("algorithm")?)?;
     progress("installation_verify_done");
     progress("prepare_begin");
     let prepared=match request["preparation_kind"].as_str() {
-      Some("STRATEGY")=>research_environment::prepare_strategy(&installation,root,&factor,&request["factor"]["revision"],"0.11.1")?,
-      None|Some("FACTOR")=>research_environment::prepare(&installation,root,&factor,&request["factor"]["revision"],"0.11.1")?,
+      Some("STRATEGY")=>research_environment::prepare_strategy(&installation,root,"0.11.1")?,
+      None|Some("FACTOR")=>research_environment::prepare(&installation,root,"0.11.1")?,
       _=>return Err("unsupported controlled preparation kind".into()),
     };
     progress("prepare_done");
@@ -862,7 +859,7 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
     let mut registry=if request["fresh"]==true {Registry::initialize_fresh(runtime)?} else {Registry::open_existing(runtime)?};
     progress("registry_open_done");
     progress("publication_begin");
-    prepared.publish(&mut registry,request["factor"]["revision"]["source_text"].as_str().ok_or("source")?.as_bytes(),"technical-fixture",request["at"].as_str().ok_or("at")?.parse()?)?;
+    prepared.publish(&mut registry,"technical-fixture",request["at"].as_str().ok_or("at")?.parse()?)?;
     progress("publication_done");
     if let Some(work)=request["bind_work"].as_str() {
       let generation=prepared.manifest()["runtime_generation_fingerprint"].as_str().ok_or("generation")?;

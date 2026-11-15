@@ -175,21 +175,6 @@ impl Registry {
         self.held.private_factor(&id)?;
         self.held.verify()
     }
-    pub(crate) fn retain_abi_vectors(&mut self, vectors: &Value, expected: &Value) -> Result<()> {
-        self.held.verify()?;
-        let id = hash(vectors).map_err(|_| INVALID)?;
-        if expected.as_str() != Some(id.as_str()) {
-            return Err(INVALID);
-        }
-        let directory = crate::security::immutable_json::Directory::open(&self.held.root_path)?;
-        super::publication::put_file(
-            &directory,
-            &["artifacts", "private-factor-equivalence", &id[..2]],
-            &format!("{id}.json"),
-            vectors,
-        )?;
-        self.held.verify()
-    }
     pub(crate) fn retain_installed_proof(&mut self, manifest: &Value, proof: &Value) -> Result<()> {
         self.held.verify()?;
         let proof_id = super::digest(proof, "installed_proof_fingerprint")?;

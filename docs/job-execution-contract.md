@@ -69,6 +69,14 @@ ContractError 分开表达 Invalid、MissingEvidence、Unavailable、Mismatch、
 
 ## 分阶段接口和权限约束
 
+第四阶段输入实现位于 [`application::job_input`](../packages/backend/src/application/job_input.rs)。`market.source_revision` 使用既有 Revision fingerprint，读取 `market-data-revision:<fingerprint>`；`seals` 使用既有 `seal:` 后的摘要；`segments` 使用每个完整 `[segment_id, content_hash]` 引用的 canonical fingerprint；`versions` 使用原 data_version 字符串的 canonical fingerprint，不要求外部版本字符串本身是摘要。`bar_semantic` 使用原语义记录摘要，`axis` 使用有序 `[instrument_id, bar_start_ns, bar_end_ns, ts_event_ns, revision]` 行列的 canonical fingerprint。完整原值仍由所属 Revision／Seal／segment 证明，不用这些摘要推断权限。
+
+`MemoryBudget` 同时限制行数、传输／保留的逻辑字节及声明分配量；加载前检查计数、整数运算和向量槽位，再从 owning reader 读取精确不可变程序／证书／参数的声明字节数，按受限 IR 的解码与绑定副本预留工作区（编码字节的 64 倍），不对每个小因子机械预留存储最大值。该查询只计费、不产生 READY；正文仍需独立完整核验。物理读取使用更小的每次上限，不修改共享 Host 配置；加载中继续计费，超限不 spill。该预算不是操作系统 RSS 限额，RSS 单独实测。正式 Run／Attempt 与完成发布不在输入模块内创建；其后续接线仍须真实 owner 证明。
+
+受控图证明由 `application::calculation_build` 在明确的构建准备中写入 PostgreSQL `calculation_build_proof`，精确绑定图／参数、实现／工件、Source 构建语义和固定合成语料；六类案例及逐节点覆盖完整保留。实际作业携带原证明引用，`restore_strategy_inputs` 和恢复缺证只拒绝，不构建、不选择最新证明。Formal Run 和手工策略验证的 owning 读取事务核对该原始不可变事实；逐节点 Witness 使用相同完整正文派生。合成语料不是实际行情事实，不能替代 ClickHouse 切片验证或 Source 权限。
+
+同一精确构建键在明确的 Read Committed 自有事务内通过 PostgreSQL 非等待事务锁隔离在途构建，已忙时结构化拒绝，只有正向 join 后才原子持久化证明。事务锁的生命周期参考 [PostgreSQL 18 锁文档](https://www.postgresql.org/docs/18/explicit-locking.html#ADVISORY-LOCKS)；平台行为不替代 OnlyAlpha 的正文校验与事实归属。历史工件保留原严格验证，新作业没有旧受控执行回退。
+
 以下是实现者必须遵守的接口约定。第二阶段提供仓储 publish／observe／read 原语；read 直接由 PublicationRepository 实现，不另加空壳 ResultReader。其他接口按后续阶段落实，没有返回伪成功或 todo 的生产 stub。
 
 | 所属模块／接口 | 输入和输出 | 必需的真实检查 |
@@ -94,7 +102,7 @@ AttemptClaim 继续由现有认领模块私有构造，不新增可由客户端�
 | workers/trading_program、strategy::Executor、backtest::next_open | 同一信号程序；账户访问仅在信号后的交易环节 | 三、五 |
 | backtest_service／backtest_worker、RunLoop、Runtime::create/open | 精确输入＋内存会话；新Attempt冻结重算 | 四至六 |
 | research_evidence::strategy、backtest_evidence::store、backtest_result | PostgreSQL全成员和唯一发布；GET只读结果 | 二、六 |
-| strategy_validation、frozen_strategy、qualification、strategy_promotion | 读取真实构建与输入验证／正式发布关系；保留各自Authority | 三、六 |
+| strategy_validation、frozen_strategy、qualification、strategy_promotion | 读取真实构建与输入验证／正式发布关系；保留各自Authority；其中受控构建证明的直接消费者在第四阶段迁移 | 三、四、六 |
 | runtime::SqliteStore、broker_source_store、perpetual_sources、virtual broker/source_host | 有限内存／持续PG事实适配；退役文件业务journal | 五、七、八 |
 | native host/startup测试、benches、镜像、依赖门禁 | 消费新接口并移除旧Source文件假设 | 八、九 |
 | Product／Agent API、Web与生成类型 | 沿正式入口暴露实际构建／作业状态，不添加特供绕过入口 | 三、六、九 |

@@ -558,6 +558,13 @@ pub(crate) async fn load_in_transaction(
     let spec = crate::application::research_run::NativeSpecification::from_record(
         &serde_json::from_str(&payload).map_err(db)?,
     )?;
+    if matches!(
+        spec,
+        crate::application::research_run::NativeSpecification::Strategy(_)
+    ) && let Some(proof) = auth["prepared_inputs"].get("build_certification")
+    {
+        crate::application::calculation_build::verify_fact(tx, proof).await?;
+    }
     // The immutable member set was verified above, including its Admission V2 hash.
     // Carry its exact original leaves into the read composition, not a copied Group claim.
     let command = CommandId::new(text(&auth, "command_id")?).map_err(db)?;

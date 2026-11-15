@@ -5,7 +5,6 @@ use crate::{
         backtest_preparation::{BacktestOrigin, BacktestPrepareInput},
         command::CommandId,
         research_dataset::NativeMaterializationPlan,
-        research_factor,
         research_run_execution::Control,
         strategy_validation::ResolvedValidation,
     },
@@ -58,26 +57,16 @@ pub async fn run_phase(
             &release.join("algorithms"),
             text(&request, "algorithm_artifact")?,
         )?;
-        let vector = &request["factor"];
-        let factor =
-            research_factor::compile(&vector["candidate"], &vector["draft"], &vector["revision"])?;
         // This exact currently executing ELF is sealed in release/bin. The
         // installed SDK can register Target types; no Target node is built.
         let prepared = research_environment::prepare_strategy(
             &installation,
             release,
-            &factor,
-            &vector["revision"],
             env!("CARGO_PKG_VERSION"),
         )?;
         let generation = text(prepared.manifest(), "runtime_generation_fingerprint")?.to_owned();
         let mut registry = Registry::initialize_fresh(runtime_root)?;
-        prepared.publish(
-            &mut registry,
-            text(&vector["revision"], "source_text")?.as_bytes(),
-            "technical-fixture",
-            at,
-        )?;
+        prepared.publish(&mut registry, "technical-fixture", at)?;
         registry.activate(
             &CommandId::new(text(&request, "activation_command_id")?)?,
             &generation,
@@ -90,7 +79,27 @@ pub async fn run_phase(
         );
         return Ok(());
     }
-    assert!(matches!(phase, "produce" | "bound-without-environment"));
+    if phase == "proof-read" {
+        let path = Path::new(text(&request, "proof_file")?);
+        if path.metadata()?.len() > 8 * 1024 * 1024 {
+            return Err("test proof oracle too large".into());
+        }
+        let proof: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+        let start = std::time::Instant::now();
+        let result =
+            crate::persistence::strategy_research::Composer::new(session.client_mut().await?)
+                .verify_calculation_build(&proof)
+                .await;
+        out(match result {
+            Ok(()) => json!({"verified":true,"elapsed_us":start.elapsed().as_micros()}),
+            Err(error) => json!({"error":error}),
+        });
+        return Ok(());
+    }
+    assert!(matches!(
+        phase,
+        "produce" | "bound-without-environment" | "proof-build"
+    ));
     let command = CommandId::new(text(&request, "preparation_command_id")?)?;
     let future = CommandId::new(text(&request, "backtest_command_id")?)?;
     let namespace =
@@ -253,6 +262,36 @@ pub async fn run_phase(
             .iter()
             .all(|c| c["type_reference"]["kind"] != "TARGET")
     );
+    let build = resolved
+        .prepare_calculation_build(
+            session.client_mut().await?,
+            &materialized,
+            installation.clone(),
+            &control,
+        )
+        .await;
+    let resolved = match build {
+        Ok(value) => value,
+        Err(error) if phase == "proof-build" => {
+            out(
+                json!({"error":error.code(),"state":"RUNNING","pre_accept_observation_checks":true}),
+            );
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if phase == "proof-build" {
+        let proof = resolved.record()["build_certification"].clone();
+        let peak = std::fs::read_to_string("/proc/self/status")?
+            .lines()
+            .find(|line| line.starts_with("VmHWM:"))
+            .ok_or("VmHWM missing")?
+            .to_owned();
+        out(
+            json!({"state":"RUNNING","pre_accept_observation_checks":true,"proof":proof,"process_peak":peak}),
+        );
+        return Ok(());
+    }
     let joined = tokio::task::spawn_blocking(move || {
         resolved.observe(
             installation,

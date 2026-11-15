@@ -29,6 +29,7 @@ pub use state::{
     CalculationSnapshot, CalculationState, InputPosition, StateOutcome, normalize_result_outputs,
 };
 
+pub mod finite_input;
 pub mod product;
 
 #[cfg(test)]

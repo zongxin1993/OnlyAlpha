@@ -157,18 +157,14 @@ impl Host {
                 .map_err(|_| "RESEARCH_PREPARATION_UNAVAILABLE")?;
             (strategy, revision)
         };
-        let bindings = explicit_factor_bindings(&strategy, &revision)?;
-        let compiled = crate::application::research_factor::compile_revision(&revision, &bindings)?;
+        explicit_factor_bindings(&strategy, &revision)?;
         let background = config.clone();
-        let factor_revision = revision.clone();
         // Reuse the installed SDK's full Strategy library/archive contract. The
         // available Target type library creates no Manual Target node or Research work.
         let prepared = crate::workers::backtest_profile::spawn_blocking(move || {
             research_environment::prepare_strategy(
                 &installation,
                 &background.release_root,
-                &compiled,
-                &factor_revision,
                 &background.native_version,
             )
         })
@@ -198,11 +194,6 @@ impl Host {
         let future = input.backtest_command_id.clone();
         let work = operation.request.reserved_run_id();
         let actual = generation.clone();
-        let source = revision["source_text"]
-            .as_str()
-            .ok_or(ENV_INVALID)?
-            .as_bytes()
-            .to_vec();
         let at = now().map_err(|error| error.code())?;
         let binding = {
             let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
@@ -252,7 +243,7 @@ impl Host {
                     {
                         return Err("GENERATION_ACTIVATION_CONFLICT".into());
                     }
-                    prepared.publish(&mut registry, &source, &actor, at)?;
+                    prepared.publish(&mut registry, &actor, at)?;
                     if prior.is_some()
                         || expected.as_deref() != Some(&actual)
                         || registry.snapshot()["active_for_new_work"] != actual

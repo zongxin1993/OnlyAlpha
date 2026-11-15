@@ -958,7 +958,11 @@ def test_selected_owner_and_relation_mutations_fail_closed(
             c.execute(
                 "UPDATE market_data_revision SET scope=jsonb_set(scope,'{end_ns}',to_jsonb((scope->>'end_ns')::bigint+60000000000))"
             )
-    assert "error" in probe(market_probe, database, "read", id=rid)
+    rejected = probe(market_probe, database, "read", id=rid)
+    if case == "missing-proof":
+        assert rejected == {"error": "MARKET_DATA_EVIDENCE_MISSING"}
+    else:
+        assert "error" in rejected
     scope = _scope_payload(segment)
     range_result = probe(market_probe, database, "range", scope=scope, intervals=[[scope["start_ns"], scope["end_ns"]]])
     assert "error" in range_result
@@ -1163,7 +1167,7 @@ def test_operation_cumulative_budget_fails_before_dispatch_and_does_not_certify_
         assert result == {"error": "MARKET_DATA_RECOVERY_STOPPED"}
     request: dict[str, Any] = dict(root=str(tmp_path), ids=[a["segment_id"], b["segment_id"]], scope=_scope_payload(a))
     assert probe(market_probe, database, "drain", max_bytes=budget, **request) == {
-        "error": "MARKET_DATA_STORE_UNAVAILABLE"
+        "error": "MARKET_DATA_READ_BUDGET_EXCEEDED"
     }
     with psycopg.connect(postgres_dsn) as c:
         assert c.execute("SELECT count(*) FROM market_recovery_event").fetchone() == (0,)
@@ -1172,7 +1176,7 @@ def test_operation_cumulative_budget_fails_before_dispatch_and_does_not_certify_
     result = probe(market_probe, database, "drain", **request)
     assert result["revision"] is not None
     assert probe(market_probe, database, "read", id=result["revision"]["revision_id"], max_bytes=budget) == {
-        "error": "MARKET_DATA_STORE_UNAVAILABLE"
+        "error": "MARKET_DATA_READ_BUDGET_EXCEEDED"
     }
 
 
@@ -1233,7 +1237,7 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
         "error": "MARKET_DATA_EVIDENCE_UNPROVABLE"
     }
     assert probe(market_probe, database, "compose", scope=scope, refs=references, max_bytes=2000) == {
-        "error": "MARKET_DATA_STORE_UNAVAILABLE"
+        "error": "MARKET_DATA_READ_BUDGET_EXCEEDED"
     }
     foreign_wal, foreign = retained(tmp_path / "foreign", "TRADE", index=10, segment_id="foreign")
     drain(market_probe, database, foreign_wal, foreign)
@@ -1248,7 +1252,7 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
         )
         c.execute("DELETE FROM market_segment_physical_proof WHERE segment_id=%s", (old["segment_id"],))
     assert probe(market_probe, database, "compose", scope=scope, refs=references) == {
-        "error": "MARKET_DATA_EVIDENCE_UNPROVABLE"
+        "error": "MARKET_DATA_EVIDENCE_MISSING"
     }
     with psycopg.connect(postgres_dsn) as c:
         assert c.execute("SELECT count(*) FROM market_data_revision").fetchone() == count
@@ -2504,3 +2508,23 @@ def test_runtime_evidence_reads_original_released_generation_without_execution_o
         stream.write(bytes([last[0] ^ 1]))
     retained_elf.chmod(0o500)
     assert "error" in call("runtime-evidence-read"), "retained physical bytes are mandatory even after release"
+
+
+def test_multiple_segments_cumulative_fact_rows_exhaust_exact_budget_without_publication(
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
+) -> None:
+    references = []
+    segments = []
+    for name, indices in (("first", (0, 1)), ("second", (2, 3))):
+        wal, segment = retained(tmp_path / name, "BAR", segment_id=name, updates=[{"index": i} for i in indices])
+        assert "error" not in drain(market_probe, database, wal, segment)
+        references.append([segment["segment_id"], segment["content_hash"]])
+        segments.append(segment)
+    scope = _scope_payload({**segments[0], "end_ns": segments[-1]["end_ns"]})
+    with psycopg.connect(postgres_dsn) as connection:
+        before = connection.execute("SELECT count(*) FROM market_data_revision").fetchone()
+    assert probe(market_probe, database, "compose", scope=scope, refs=sorted(references), storage_limit=2) == {
+        "error": "MARKET_DATA_READ_BUDGET_EXCEEDED"
+    }
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM market_data_revision").fetchone() == before

@@ -191,7 +191,7 @@ impl StrategyEvaluation {
             return Err(invalid().into());
         }
         phase("dataset-axis");
-        let bars = verified.dataset().bars()?;
+        let bars = crate::application::job_input::ordered_bars(verified.dataset())?;
         let window = &spec["input_window"];
         let ns = |key: &str| -> Result<u64> { text(&window[key])?.parse().map_err(mapped) };
         let start = ns("dataset_event_start_ns")?;
@@ -210,19 +210,15 @@ impl StrategyEvaluation {
         {
             return Err(invalid().into());
         }
+        let axis = onlyalpha_market_data::finite_input::Axis::new(
+            start.try_into().map_err(mapped)?,
+            end.try_into().map_err(mapped)?,
+            stride.try_into().map_err(mapped)?,
+            bars.len(),
+        )
+        .map_err(mapped)?;
         for (index, bar) in bars.iter().enumerate() {
-            if event(bar)?
-                != start
-                    .checked_add(
-                        (index as u64)
-                            .checked_mul(stride)
-                            .ok_or_else(|| invalid())?,
-                    )
-                    .ok_or_else(|| invalid())?
-                || event(bar)? >= end
-            {
-                return Err(invalid().into());
-            }
+            axis.check(index, bar).map_err(mapped)?;
         }
         phase("graph-values");
         let graph =
@@ -306,7 +302,6 @@ pub(crate) fn observe_graph(
         return Err(INVALID.into());
     }
     let columns = rows(&spec["input_window"]["dataset_columns"])?;
-    let window = &spec["input_window"];
     let binding = rows(&spec["implementation_bindings"])?
         .iter()
         .map(|b| Ok((text(&b["node_fingerprint"])?.to_owned(), b.clone())))
@@ -324,6 +319,50 @@ pub(crate) fn observe_graph(
         definition: definition.clone(),
         recipe: recipe.clone(),
     };
+    let proof = &prepared["build_certification"];
+    let expected =
+        crate::application::calculation_build::context(prepared, spec, definition, recipe)?;
+    crate::application::calculation_build::verify(proof, &expected)?;
+    let mut actual =
+        runner.run_case(bars, true, text(&prepared["dataset_snapshot_fingerprint"])?)?;
+    actual["graph_cases"] = proof["graph_cases"].clone();
+    actual["node_profiles"] = proof["node_profiles"].clone();
+    actual["build_certification"] = crate::application::calculation_build::reference(proof);
+    runtime.verify()?;
+    installation.verify().map_err(|_| UNAVAILABLE)?;
+    control.verify_joined()?;
+    Ok(actual)
+}
+/// Only explicit build preparation runs the controlled corpus. No Target is loaded.
+pub(crate) fn certify_graph(
+    inputs: crate::application::calculation_build::Inputs,
+) -> std::result::Result<Value, PreparationError> {
+    let expected = crate::application::calculation_build::context(
+        &inputs.prepared,
+        &inputs.specification,
+        &inputs.definition,
+        &inputs.recipe,
+    )?;
+    let prepared = crate::application::calculation_build::signal_preparation(&inputs.prepared)?;
+    let graph = Graph::from_record(&inputs.specification["decision"]["decision_graph"], WORK)
+        .map_err(mapped)?;
+    let bindings = rows(&inputs.specification["implementation_bindings"])?
+        .iter()
+        .map(|b| Ok((text(&b["node_fingerprint"])?.to_owned(), b.clone())))
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let runner = Runner {
+        runtime: inputs.runtime.clone(),
+        prepared: &prepared,
+        spec: &inputs.specification,
+        graph: &graph,
+        targets: None,
+        bindings,
+        installation: inputs.installation.clone(),
+        control: &inputs.control,
+        columns: rows(&expected["window"]["dataset_columns"])?.clone(),
+        definition: inputs.definition.clone(),
+        recipe: inputs.recipe.clone(),
+    };
     let q = graph
         .ordered_nodes()
         .filter_map(|d| {
@@ -333,11 +372,10 @@ pub(crate) fn observe_graph(
         })
         .min()
         .ok_or(UNAVAILABLE)?;
-
-    let controlled = controlled_cases(&bars[0], window, &q)?;
-
-    let profiles = profile_inputs(graph, &q)?;
-    let mut work = bars.len();
+    let seed = OnlyBar::from_record(&expected["seed"]).map_err(mapped)?;
+    let controlled = controlled_cases(&seed, &expected["window"], &q)?;
+    let profiles = profile_inputs(&graph, &q)?;
+    let mut work = 0usize;
     for (_, case) in &controlled {
         work = work.checked_add(case.len()).ok_or(UNAVAILABLE)?;
     }
@@ -351,27 +389,27 @@ pub(crate) fn observe_graph(
     if work > 8192 {
         return Err(UNAVAILABLE.into());
     }
-
-    let mut actual =
-        runner.run_case(bars, true, text(&prepared["dataset_snapshot_fingerprint"])?)?;
-
-    let mut graph_cases = Vec::new();
-    for (case_id, case) in controlled {
-        control.check()?;
-        let input = runner.input_rows(&case)?;
-        let mut observation = runner.run_case(&case, false, &hash(&input)?)?;
-        observation["case_id"] = json!(case_id);
-        observation["rows"] = input;
-        graph_cases.push(observation);
+    inputs.control.check()?;
+    inputs.runtime.verify()?;
+    inputs.installation.verify().map_err(|_| UNAVAILABLE)?;
+    eprintln!("[calculation-build] phase=controlled-cases-begin");
+    let mut cases = Vec::new();
+    for (name, bars) in controlled {
+        inputs.control.check()?;
+        let input = runner.input_rows(&bars)?;
+        let mut case = runner.run_case(&bars, false, &hash(&input)?)?;
+        case["case_id"] = json!(name);
+        case["rows"] = input;
+        cases.push(case);
     }
-
-    let node_profiles = runner.node_profiles(profiles)?;
-    actual["graph_cases"] = json!(graph_cases);
-    actual["node_profiles"] = json!(node_profiles);
-    runtime.verify()?;
-    installation.verify().map_err(|_| UNAVAILABLE)?;
-    control.verify_joined()?;
-    Ok(actual)
+    let profiles = runner.node_profiles(profiles)?;
+    inputs.runtime.verify()?;
+    inputs.installation.verify().map_err(|_| UNAVAILABLE)?;
+    inputs.control.verify_joined()?;
+    let mut proof = json!({"schema_version":1,"contract":"ONLYALPHA_CALCULATION_BUILD_PROOF_V1","build_key":hash(&expected)?,"context":expected,"graph_cases":cases,"node_profiles":profiles});
+    proof["proof_fingerprint"] = json!(hash(&proof)?);
+    eprintln!("[calculation-build] phase=controlled-cases-joined");
+    Ok(proof)
 }
 /// The canonical SourceRevision identity is unchanged; this helper grants nothing.
 pub(crate) fn source_revision(
@@ -1392,6 +1430,46 @@ mod controlled_domain_tests {
         ))
         .unwrap();
         Graph::from_record(&json!({"schema_version":1,"nodes":fixture["nodes"].as_array().unwrap().iter().map(|node|json!({"alias":null,"definition":node["definition"]})).collect::<Vec<_>>()}),WORK).unwrap()
+    }
+
+    #[test]
+    fn build_context_is_independent_of_target_and_job_window_but_binds_actual_artifacts() {
+        let graph = graph();
+        let definition = json!({"instruments":["BTCUSDT.BINANCE"],"bar_semantic":{"schema_version":3,"formation":{"schema_version":1,"kind":"FIXED_DURATION","window_minutes":1,"stride_minutes":1,"alignment":"UTC"},"price_type":"LAST","adjustment_policy":"RAW"},"time_range":{"start":"2025-01-01T00:00:00Z"}});
+        let mut prepared = json!({"execution_binding":{"executor_artifact_sha256":"a".repeat(64)},"algorithm_resolution_request":{"sources":[],"instances":[],"target_artifact":null},"algorithm_resolution":{"nodes":[],"target_artifact_sha256":null,"target_resources_fingerprint":null}});
+        let spec = json!({"decision":{"decision_graph":graph.to_record(),"signal_semantics":{}},"implementation_bindings":[]});
+        let original = crate::application::calculation_build::context(
+            &prepared,
+            &spec,
+            &definition,
+            &json!({}),
+        )
+        .unwrap();
+        prepared["algorithm_resolution_request"]["instances"] =
+            json!([{"type_reference":{"kind":"TARGET"}}]);
+        prepared["algorithm_resolution_request"]["target_artifact"] =
+            json!({"sha256":"b".repeat(64)});
+        prepared["algorithm_resolution"]["nodes"] = json!([{"definition":{"kind":"TARGET"}}]);
+        prepared["algorithm_resolution"]["target_artifact_sha256"] = json!("b".repeat(64));
+        prepared["algorithm_resolution"]["target_resources_fingerprint"] = json!("c".repeat(64));
+        let mut later = definition.clone();
+        later["time_range"]["start"] = json!("2026-01-01T00:00:00Z");
+        assert_eq!(
+            crate::application::calculation_build::context(&prepared, &spec, &later, &json!({}))
+                .unwrap(),
+            original
+        );
+        prepared["execution_binding"]["executor_artifact_sha256"] = json!("d".repeat(64));
+        assert_ne!(
+            crate::application::calculation_build::context(
+                &prepared,
+                &spec,
+                &definition,
+                &json!({})
+            )
+            .unwrap(),
+            original
+        );
     }
 
     #[test]

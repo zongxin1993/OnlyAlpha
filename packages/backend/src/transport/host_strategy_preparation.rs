@@ -379,22 +379,19 @@ impl Host {
             .await
             .map_err(|_| "PRODUCT_AUTHORITY_UNAVAILABLE")?;
         let mut composer = Composer::new(client);
-        let (resolved, context) = composer
-            .resolve_retained(&original["composition"], runtime, &installation)
-            .await?;
-        if context.record() != ResearchContext::new(o.request.strategy()?.context.clone())?.record()
-        {
-            return Err(INVALID.into());
-        }
-        let (prepared, specification) = PreparedInputs::prepare_strategy(
+        let (prepared, specification, context) = PreparedInputs::restore_strategy_inputs(
             &mut composer,
-            resolved,
-            &context,
+            original,
+            runtime,
             &installation,
             &datasets,
             &materialized,
         )
         .await?;
+        if context.record() != ResearchContext::new(o.request.strategy()?.context.clone())?.record()
+        {
+            return Err(INVALID.into());
+        }
         if prepared.record() != original
             || specification.record()
                 != &o.outputs["ready"]["prepared_study"]["request"]["specification"]

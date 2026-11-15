@@ -1176,22 +1176,25 @@ async fn rows(
     let count = tx.query_one(&preflight, params).await?;
     let n: i64 = count.try_get(0).map_err(|_| Error::Unprovable)?;
     let size: i64 = count.try_get(1).map_err(|_| Error::Unprovable)?;
-    if n < 0 || n > limit as i64 || size < 0 || size > bytes as i64 {
-        return Err(Error::Unavailable);
+    if n < 0 || size < 0 {
+        return Err(Error::Unprovable);
+    }
+    if n > limit as i64 || size > bytes as i64 {
+        return Err(Error::BudgetExceeded);
     }
     let query = format!("{sql} LIMIT {}", limit + 1);
     let result = tx.query(&query, params).await?;
     if result.len() != n as usize {
         return Err(Error::Unavailable);
     }
-    let mut used = 0;
+    let mut used = 0_usize;
     result
         .iter()
         .map(|r| {
             let raw: String = r.try_get(0).map_err(|_| Error::Unprovable)?;
-            used += raw.len();
+            used = used.checked_add(raw.len()).ok_or(Error::BudgetExceeded)?;
             if used > bytes {
-                return Err(Error::Unavailable);
+                return Err(Error::BudgetExceeded);
             }
             decode(&raw)
         })
@@ -1346,7 +1349,7 @@ async fn load_segment(
     let segment = Segment::from_record(
         &get(tx, "market_ingest_segment", "segment_id", id, bytes)
             .await?
-            .ok_or(Error::Unprovable)?,
+            .ok_or(Error::MissingEvidence)?,
     )?;
     let source = get(
         tx,
@@ -1356,7 +1359,7 @@ async fn load_segment(
         bytes,
     )
     .await?
-    .ok_or(Error::Unprovable)?;
+    .ok_or(Error::MissingEvidence)?;
     if source["source_id"] != segment.record["source_id"]
         || source["schema_version"] != 1
         || ["provider", "venue", "market"]
@@ -1374,12 +1377,12 @@ async fn load_segment(
             bytes,
         )
         .await?
-        .ok_or(Error::Unprovable)?,
+        .ok_or(Error::MissingEvidence)?,
         &segment,
     )?;
     let committed=rows(tx,"SELECT to_jsonb(t)::text FROM market_segment_state_event t WHERE segment_id=$1 AND state IN ('COMMITTED','DURABLE_SEGMENT_COMMITTED')",&[&id],2,bytes).await?;
     if committed.is_empty() {
-        return Err(Error::Unprovable);
+        return Err(Error::MissingEvidence);
     }
     for event in committed {
         if event["segment_id"] != id || event["detail"]["content_hash"] != segment.content_hash() {
@@ -1389,7 +1392,7 @@ async fn load_segment(
     }
     let p = get(tx, "market_segment_physical_proof", "segment_id", id, bytes)
         .await?
-        .ok_or(Error::Unprovable)?;
+        .ok_or(Error::MissingEvidence)?;
     let proof = PhysicalProof {
         record: p["proof"].clone(),
     };
@@ -1402,7 +1405,7 @@ async fn load_segment(
 async fn load_manifest(tx: &Transaction<'_>, id: &str, bytes: usize) -> Result<Manifest> {
     let row = get(tx, "market_coverage_manifest", "manifest_id", id, bytes)
         .await?
-        .ok_or(Error::Unprovable)?;
+        .ok_or(Error::MissingEvidence)?;
     let refs = load_refs(
         tx,
         "market_coverage_manifest_segment",
@@ -1412,6 +1415,9 @@ async fn load_manifest(tx: &Transaction<'_>, id: &str, bytes: usize) -> Result<M
         bytes,
     )
     .await?;
+    if refs.is_empty() {
+        return Err(Error::MissingEvidence);
+    }
     let v = json!({"manifest_id":id,"fingerprint":row["manifest_fingerprint"],"scope":row["scope"],"segment_refs":refs,"coverage_status":row["coverage_status"],"proof":row["proof"],"issues":row["issues"],"gaps":row["gaps"]});
     let result = Manifest::read(v)?;
     if row["complete"] != (result.status() == CoverageStatus::Complete) {
@@ -1430,7 +1436,7 @@ async fn load_revision_body(
         .ok_or(Error::NotFound)?;
     let seal = get(tx, "market_revision_seal", "revision_id", id, bytes)
         .await?
-        .ok_or(Error::Unprovable)?;
+        .ok_or(Error::MissingEvidence)?;
     let manifest = load_manifest(tx, text(&row["manifest_id"])?, bytes).await?;
     let refs = load_refs(
         tx,
@@ -1441,12 +1447,15 @@ async fn load_revision_body(
         bytes,
     )
     .await?;
+    if refs.is_empty() {
+        return Err(Error::MissingEvidence);
+    }
     let revision = json!({"revision_id":id,"fingerprint":row["revision_fingerprint"],"scope":row["scope"],"manifest_id":row["manifest_id"],"segment_refs":refs,"normalizers":row["normalizers"],"parent_revision_id":row["parent_revision_id"],"creation_reason":row["creation_reason"]});
     utc(text(&row["created_at"])?)?;
     if let Some(parent) = optional_text(&row["parent_revision_id"])? {
         let p = get(tx, "market_data_revision", "revision_id", parent, bytes)
             .await?
-            .ok_or(Error::Unprovable)?;
+            .ok_or(Error::MissingEvidence)?;
         if p["scope"] != row["scope"] || parent == id {
             return Err(Error::Unprovable);
         }

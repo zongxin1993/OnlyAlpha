@@ -1,4 +1,6 @@
 //! Guarded technical DB probe. It is never a business API or a Shipping UI.
+#[path = "job_input_probe.rs"]
+mod job_input_probe;
 #[path = "research_execution_probe.rs"]
 mod research_execution_probe;
 #[path = "strategy_evidence_probe.rs"]
@@ -88,9 +90,16 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         max_bytes: 32 * 1024 * 1024,
         max_rows: 10_000,
     })?;
-    ch.assert_server().await?;
-    let mut store = Storage::new(catalog, &ch, 10_000)?;
+    if op != "job-input" {
+        ch.assert_server().await?;
+    }
+    let mut store = Storage::new(
+        catalog,
+        &ch,
+        v["storage_limit"].as_u64().unwrap_or(10_000).try_into()?,
+    )?;
     let result = match op {
+        "job-input" => job_input_probe::run(&mut store, v).await?,
         "intent" => {
             let scope = Scope::from_record(&v["scope"])?;
             store
@@ -857,7 +866,7 @@ fn fixture_reference(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
             json!({"bars":materialized.verified().dataset().bars()?.iter().map(OnlyDomainModel::to_record).collect::<Vec<_>>(),"rows":materialized.verified().dataset().rows(),"lineage":materialized.lineage()}),
         );
     }
-    if action == "dataset-reference" {
+    if matches!(action, "dataset-reference" | "dataset-reference-from-wal") {
         let scope = Scope::from_record(&v["scope"])?;
         let context = scope.to_record();
         let construction = OnlyConstructionIdentity::from_record(&context["bar_construction"])?;
@@ -867,12 +876,27 @@ fn fixture_reference(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
             v["revision"]["fingerprint"],
             v["seal"]["seal_id"]
         ]]);
-        let dataset = Dataset::from_bars(
-            &v["definition"],
-            v["bars"].as_array().ok_or("bars")?,
-            &fixture_fp(&binding)?,
-            8192,
-        )?;
+        let mut retained_bars = Vec::new();
+        if action == "dataset-reference-from-wal" {
+            let wal = Wal::new(Path::new(text(v, "expected_wal_root")?), 32 * 1024 * 1024)?;
+            for record in wal.read_sealed(text(v, "expected_segment")?)? {
+                for fact in record["canonical_facts"]
+                    .as_array()
+                    .ok_or("expected canonical facts")?
+                {
+                    if fact["data_kind"] != "BAR" {
+                        return Err("expected Bar fixture".into());
+                    }
+                    retained_bars.push(fact["canonical_payload"]["payload"]["value"].clone());
+                }
+            }
+        }
+        let bars = if action == "dataset-reference-from-wal" {
+            &retained_bars
+        } else {
+            v["bars"].as_array().ok_or("bars")?
+        };
+        let dataset = Dataset::from_bars(&v["definition"], bars, &fixture_fp(&binding)?, 8192)?;
         let mut definition = dataset.definition().clone();
         definition["bar_semantic"] = fixture_projection(&definition["bar_semantic"]);
         let instrument = text(&context, "instrument_id")?
@@ -883,7 +907,7 @@ fn fixture_reference(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         )?;
         let lineage = json!({"dataset_snapshot_fingerprint":dataset.snapshot_fingerprint(),"market_data_revision_bindings":[{"source_id":context["source_id"],"instrument_id":context["instrument_id"],"data_kind":"BAR","revision_id":v["revision"]["revision_id"],"revision_fingerprint":v["revision"]["fingerprint"]}],"materializer_id":"onlyalpha.sealed-market-data","materializer_version":"1","request_fingerprint":request});
         return Ok(
-            json!({"snapshot":dataset.snapshot_fingerprint(),"rows":dataset.rows(),"materialization":format!("dataset-materialization:{}",fixture_fp(&lineage)?),"request":request}),
+            json!({"snapshot":dataset.snapshot_fingerprint(),"content":dataset.content_fingerprint(),"rows":dataset.rows(),"materialization":format!("dataset-materialization:{}",fixture_fp(&lineage)?),"request":request}),
         );
     }
     if action == "wrong-trade-row" {

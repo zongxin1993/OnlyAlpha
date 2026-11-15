@@ -18,6 +18,8 @@
 
 PipelineProgram / SourceProgram / ClusterProgram 定义配置；MarketDataPipeline<C,D>::process 接收 PipelineInput，返回 PreparedMarketData；CalculationPort 和 PreparationConsumer 连接计算与消费者。state / delivery 暴露状态与交付契约，construction 重导出行情构造库。
 
+[`finite_input::Axis`](src/finite_input.rs) 统一有限闭合 Bar 输入的半开区间、计数和逐行连续轴检查，供 Research 与回测共享；该值不证明来源、内容或权限。
+
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
 
 ```rust

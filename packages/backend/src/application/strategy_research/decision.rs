@@ -530,7 +530,12 @@ pub(crate) fn canonical_input_window<'a>(
     if bar_ns == 0 || !start.is_multiple_of(bar_ns) || !end.is_multiple_of(bar_ns) || start >= end {
         return Err(INVALID);
     }
-    let mut histories: BTreeMap<String, u64> = BTreeMap::new();
+    let requirements = onlyalpha_calculation::finite_input::requirements(graph, 8192).map_err(
+        |error| match error {
+            onlyalpha_calculation::product::Error::Invalid => INVALID,
+            onlyalpha_calculation::product::Error::Unavailable => UNAVAILABLE,
+        },
+    )?;
     let mut columns = BTreeSet::new();
     let mut source = |value: &str| -> Result<()> {
         let key = value.strip_prefix("bar.").ok_or(INVALID)?;
@@ -540,31 +545,13 @@ pub(crate) fn canonical_input_window<'a>(
         columns.insert(key.to_owned());
         Ok(())
     };
-    for definition in graph.ordered_nodes() {
-        let d = definition.to_record();
-        let mut upstream = 0;
-        for binding in d["input_bindings"].as_object().ok_or(INVALID)?.values() {
-            if let Some(parent) = binding["node_fingerprint"].as_str() {
-                upstream = upstream.max(*histories.get(parent).ok_or(INVALID)?);
-            } else {
-                source(binding["source"].as_str().ok_or(INVALID)?)?;
-            }
-        }
-        let own = d["warmup"]["minimum_observations"]
-            .as_u64()
-            .filter(|n| *n > 0)
-            .ok_or(INVALID)?
-            - 1;
-        let history = upstream
-            .checked_add(own)
-            .filter(|n| *n < 8192)
-            .ok_or(UNAVAILABLE)?;
-        histories.insert(definition.fingerprint(), history);
+    for value in requirements.sources() {
+        source(value)?;
     }
     for value in target_sources {
         source(value)?;
     }
-    let history = histories.values().copied().max().ok_or(INVALID)?;
+    let history = requirements.history();
     let count = (end - start) / bar_ns;
     let total = count
         .checked_add(history)

@@ -27,6 +27,60 @@ impl PreparedInputs {
         datasets: &Store,
         materialized: &MaterializedDataset,
     ) -> std::result::Result<(Self, RunSpecification), PreparationError> {
+        Self::prepare_strategy_exact(
+            composer,
+            resolved,
+            context,
+            installation,
+            datasets,
+            materialized,
+            true,
+        )
+        .await
+    }
+    /// Common owning read for an existing READY snapshot or original Run. It
+    /// re-anchors every original component and cannot create a missing proof.
+    pub async fn restore_strategy_inputs(
+        composer: &mut Composer<'_>,
+        original: &Value,
+        runtime: crate::persistence::research_runtime::RuntimeInputHold,
+        installation: &ChartInstallation,
+        datasets: &Store,
+        materialized: &MaterializedDataset,
+    ) -> std::result::Result<(Self, RunSpecification, Context), PreparationError> {
+        if materialized.lineage() != &original["dataset_materialization"] {
+            return Err(INVALID.into());
+        }
+        composer
+            .verify_calculation_build(&original["build_certification"])
+            .await?;
+        let (resolved, context) = composer
+            .resolve_retained(&original["composition"], runtime, installation)
+            .await?;
+        let (prepared, specification) = Self::prepare_strategy_exact(
+            composer,
+            resolved,
+            &context,
+            installation,
+            datasets,
+            materialized,
+            false,
+        )
+        .await?;
+        if prepared.record() != original {
+            return Err(INVALID.into());
+        }
+        Ok((prepared, specification, context))
+    }
+    async fn prepare_strategy_exact(
+        composer: &mut Composer<'_>,
+        resolved: ResolvedCalculations,
+        context: &Context,
+        installation: &ChartInstallation,
+        datasets: &Store,
+        materialized: &MaterializedDataset,
+        allow_build: bool,
+    ) -> std::result::Result<(Self, RunSpecification), PreparationError> {
         let (mut runtime, resolution, request) = resolved.into_preparation();
         if resolution["composition"]["research_context_fingerprint"] != context.fingerprint()?
             || resolution["runtime_generation_fingerprint"]
@@ -198,13 +252,33 @@ impl PreparedInputs {
             .verify()
             .map_err(|_| "RESEARCH_ALGORITHM_UNAVAILABLE")?;
         runtime.verify()?;
-        let record = json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_RESEARCH_PREPARED_INPUTS_V1",
+        let mut record = json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_RESEARCH_PREPARED_INPUTS_V1",
             "composition":resolution["composition"],"runtime_generation_fingerprint":runtime.manifest()["runtime_generation_fingerprint"],
             "runtime_work_binding":runtime.binding(),"execution_binding":execution,"input_window":window,
             "dataset_snapshot_fingerprint":dataset.snapshot_fingerprint(),"dataset_materialization":retained.lineage(),
             "dataset_construction_fingerprint":dataset.construction_fingerprint(),"run_specification_fingerprint":specification.fingerprint()?,
             "algorithm_resolution_request":request,"algorithm_resolution":observed,
             "native_implementations":native_used.into_values().collect::<Vec<_>>()});
+        record["build_certification"] = composer
+            .prepare_calculation_build(
+                crate::application::calculation_build::Inputs {
+                    runtime: runtime.clone(),
+                    prepared: record.clone(),
+                    specification: specification.record().clone(),
+                    definition: dataset_definition.clone(),
+                    recipe: provenance[0]["source_metadata"]["construction_recipe"].clone(),
+                    installation: Arc::new(
+                        ChartInstallation::open(
+                            installation.root(),
+                            installation.artifact_fingerprint(),
+                        )
+                        .map_err(|_| "RESEARCH_ALGORITHM_UNAVAILABLE")?,
+                    ),
+                    control: crate::application::research_run_execution::Control::default(),
+                },
+                allow_build,
+            )
+            .await?;
         Ok((
             Self {
                 runtime,
@@ -281,13 +355,10 @@ pub async fn restore_strategy(
     if materialized.lineage() != &run.prepared_inputs["dataset_materialization"] {
         return Err(INVALID.into());
     }
-    let (resolved, context) = composer
-        .resolve_retained(&run.prepared_inputs["composition"], runtime, installation)
-        .await?;
-    let (restored, actual) = PreparedInputs::prepare_strategy(
+    let (restored, actual, _) = PreparedInputs::restore_strategy_inputs(
         composer,
-        resolved,
-        &context,
+        &run.prepared_inputs,
+        runtime,
         installation,
         datasets,
         &materialized,

@@ -65,6 +65,22 @@ pub(crate) fn required(definition: &Value) -> Result<(Vec<String>, String)> {
     )?;
     Ok((names, fingerprint))
 }
+/// The Witness derives the same exact typed rows, now from the original owning
+/// build proof. A copied reference without its matching complete corpus is rejected.
+pub(crate) fn derive_certified(
+    graph: &Graph,
+    bindings: &Value,
+    observation: &Value,
+    proof: &Value,
+) -> Result<Vec<Value>> {
+    if observation["build_certification"] != crate::application::calculation_build::reference(proof)
+        || observation["node_profiles"] != proof["node_profiles"]
+        || observation["graph_cases"] != proof["graph_cases"]
+    {
+        return Err(INVALID);
+    }
+    derive(graph, bindings, proof)
+}
 pub(crate) fn derive(graph: &Graph, bindings: &Value, observation: &Value) -> Result<Vec<Value>> {
     let profiles = array(&observation["node_profiles"])?;
     let mut index = BTreeMap::new();

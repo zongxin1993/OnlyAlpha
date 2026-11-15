@@ -511,6 +511,16 @@ def test_strategy_composition_reanchors_exact_revision_and_retains_public_contex
     executable = runtime / "native-executor"
     assert hashlib.sha256(executable.read_bytes()).hexdigest() == selected["executor_sha256"]
     generation = selected["generation"]
+    proof_paths = list((runtime / "runtime-generation-installed-proof" / generation).glob("*.json"))
+    assert len(proof_paths) == 1
+    proof = json.loads(proof_paths[0].read_text())
+    observation = proof["algorithm_observation"]
+    assert observation["contract"] == "ONLYALPHA_INSTALLED_CALCULATION_ENVIRONMENT_V1"
+    assert (
+        not {"source_artifact", "equivalence_evidence", "certification_vectors", "source_projection_fingerprint"}
+        & observation.keys()
+    )
+    assert all(p["manifest"]["source"]["kind"] == "DISTRIBUTION" for p in proof["catalog"]["providers"])
     strategy_id = "private.strategy.s" + uuid4().hex
     value = draft(strategy_id)
     calculation = value["definition"]["calculations"][0]

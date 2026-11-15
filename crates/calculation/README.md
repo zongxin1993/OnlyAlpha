@@ -16,6 +16,8 @@
 
 ## 公开接口
 
+[`finite_input::requirements`](src/finite_input.rs) 计算图的累计预热长度和外部输入引用，不处理行情时间轴、权限、Target 未来窗口，也不执行受控案例。
+
 TypeReference / TypeDefinition / Definition 和 Graph 构造可指纹化定义；Registry 注册解析 Provider。ExecutionBinding、ExecutionCursor、CalculationState 通过 prepare / commit / capture / restore 管理执行位置及输出；ReadinessPlan 评估明确要求。product 模块读取当前产品计算记录。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。

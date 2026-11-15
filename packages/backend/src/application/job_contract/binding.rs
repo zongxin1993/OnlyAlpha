@@ -58,7 +58,7 @@ struct Scope {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MarketSliceBinding {
+pub struct MarketSliceBinding {
     dataset_snapshot: String,
     source_revision: String,
     bar_semantic: String,
@@ -75,6 +75,9 @@ struct MarketSliceBinding {
     content: String,
 }
 impl MarketSliceBinding {
+    pub fn record(&self) -> Value {
+        serde_json::to_value(self).expect("serializable market binding")
+    }
     fn validate(&mut self) -> Result<()> {
         for value in [
             &self.dataset_snapshot,
@@ -182,6 +185,22 @@ impl FrozenJobBinding {
     }
     pub fn run_id(&self) -> &str {
         &self.record.scope.run_id
+    }
+    pub fn namespace(&self) -> &str {
+        &self.record.scope.namespace
+    }
+    pub fn owner(&self) -> &str {
+        &self.record.scope.owner
+    }
+    pub fn market(&self) -> &MarketSliceBinding {
+        &self.record.market
+    }
+    pub fn factor_bindings(&self) -> impl Iterator<Item = FactorExecutionBinding> + '_ {
+        self.record
+            .factor_bindings
+            .iter()
+            .cloned()
+            .map(FactorExecutionBinding)
     }
     pub fn result_plan(&self) -> ResultPlan {
         ResultPlan(self.record.result_plan.clone())

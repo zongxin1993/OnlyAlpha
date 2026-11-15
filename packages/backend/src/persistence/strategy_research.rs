@@ -32,6 +32,28 @@ impl<'a> Composer<'a> {
     pub fn new(client: &'a mut Client) -> Self {
         Self { client }
     }
+    /// Authenticate an original immutable build fact before any retained READY
+    /// inputs are resolved. This read cannot construct or repair the fact.
+    pub(crate) async fn verify_calculation_build(&mut self, proof: &Value) -> Result<()> {
+        let tx = self
+            .client
+            .build_transaction()
+            .read_only(true)
+            .start()
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+        bounds(&tx).await.map_err(|_| UNAVAILABLE)?;
+        crate::application::calculation_build::verify_fact(&tx, proof).await?;
+        tx.commit().await.map_err(|_| UNAVAILABLE)?;
+        Ok(())
+    }
+    pub(crate) async fn prepare_calculation_build(
+        &mut self,
+        inputs: crate::application::calculation_build::Inputs,
+        allow_build: bool,
+    ) -> std::result::Result<Value, crate::application::research_admission::PreparationError> {
+        crate::application::calculation_build::prepare(self.client, inputs, allow_build).await
+    }
     /// Mathematical resolution retains exact original work, not a new Run grant.
     pub async fn resolve(
         &mut self,

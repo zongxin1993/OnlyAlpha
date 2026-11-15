@@ -11,6 +11,27 @@ fn sample() -> Value {
     rows()[0]["record"].clone()
 }
 #[test]
+fn finite_input_requirements_compose_history_without_market_or_target_policy() {
+    let row = rows()
+        .into_iter()
+        .find(|row| row["case"] == "graph-basic")
+        .unwrap();
+    let graph = Graph::from_record(&row["input"], WORK).unwrap();
+    let required = onlyalpha_calculation::finite_input::requirements(&graph, 3).unwrap();
+    assert_eq!(required.history(), 2);
+    assert_eq!(
+        required
+            .sources()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        vec!["bars"]
+    );
+    assert!(onlyalpha_calculation::finite_input::requirements(&graph, 2).is_err());
+    let empty = Graph::from_record(&json!({"schema_version":1,"nodes":[]}), WORK).unwrap();
+    assert!(onlyalpha_calculation::finite_input::requirements(&empty, 3).is_err());
+}
+#[test]
 fn actual_product_serializer_vectors_preserve_original_identity_and_public_values() {
     for row in rows() {
         if row["case"].as_str().unwrap().starts_with("graph-") {

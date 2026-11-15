@@ -139,6 +139,62 @@ impl NativeMaterializationPlan {
             max_rows,
         })
     }
+    /// Derive the same Dataset identity in memory from an owning physical proof.
+    pub(crate) fn dataset(&self, input: &SealedInput) -> Result<Dataset> {
+        self.dataset_profiled(input).map(|(dataset, _)| dataset)
+    }
+    pub(crate) fn dataset_profiled(
+        &self,
+        input: &SealedInput,
+    ) -> Result<(Dataset, DatasetTimings)> {
+        if input.revision().id() != self.revision
+            || input.revision().revision()["scope"] != self.scope.to_record()
+        {
+            return Err("DATASET_MARKET_DATA_SCOPE_MISMATCH");
+        }
+        let revision = input.revision().revision();
+        let seal = input.revision().seal();
+        let scope = &revision["scope"];
+        let definition = &self.definition;
+        let construction = &self.construction;
+        let record = construction.to_record();
+        let max_rows = self.max_rows;
+        let bindings = json!([[
+            scope["instrument_id"],
+            construction.fingerprint(),
+            revision["fingerprint"],
+            seal["seal_id"]
+        ]]);
+        let construction_fingerprint = fp(&bindings)?;
+        if input.facts().len() > self.max_rows {
+            return Err("DATASET_READ_BUDGET_EXCEEDED");
+        }
+        let bars = input
+            .facts()
+            .iter()
+            .map(|fact| {
+                if fact["source_id"] != scope["source_id"]
+                    || fact["instrument_id"] != scope["instrument_id"]
+                    || fact["data_kind"] != "BAR"
+                    || fact["canonical_payload"]["payload"]["kind"] != "BAR"
+                {
+                    return Err(INVALID);
+                }
+                Ok(fact["canonical_payload"]["payload"]["value"].clone())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let (dataset, timing) =
+            Dataset::from_bars_profiled(definition, &bars, &construction_fingerprint, max_rows)?;
+        let bar_ns = number(&record["plan"]["target_semantic"]["formation"]["stride_minutes"])?
+            .checked_mul(60_000_000_000)
+            .ok_or(INVALID)?;
+        let expected_count = (i128::from(self.scope.end_ns()) - i128::from(self.scope.start_ns()))
+            / i128::from(bar_ns);
+        if usize::try_from(expected_count).ok() != Some(dataset.rows.len()) {
+            return Err("DATASET_MARKET_DATA_SCOPE_MISMATCH");
+        }
+        Ok((dataset, timing))
+    }
     pub async fn materialize(
         &self,
         source: &mut Storage<'_>,
@@ -158,46 +214,11 @@ fn materialize_native(
     store: &Store,
     created_at: &str,
 ) -> Result<MaterializedDataset> {
-    if input.revision().id() != plan.revision {
-        return Err("DATASET_MARKET_DATA_SCOPE_MISMATCH");
-    }
+    let dataset = plan.dataset(input)?;
     let revision = input.revision().revision();
-    let seal = input.revision().seal();
     let scope = &revision["scope"];
-    let definition = &plan.definition;
     let construction = &plan.construction;
     let record = construction.to_record();
-    let max_rows = plan.max_rows;
-    let bindings = json!([[
-        scope["instrument_id"],
-        construction.fingerprint(),
-        revision["fingerprint"],
-        seal["seal_id"]
-    ]]);
-    let construction_fingerprint = fp(&bindings)?;
-    let bars = input
-        .facts()
-        .iter()
-        .map(|fact| {
-            if fact["source_id"] != scope["source_id"]
-                || fact["instrument_id"] != scope["instrument_id"]
-                || fact["data_kind"] != "BAR"
-                || fact["canonical_payload"]["payload"]["kind"] != "BAR"
-            {
-                return Err(INVALID);
-            }
-            Ok(fact["canonical_payload"]["payload"]["value"].clone())
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let dataset = Dataset::from_bars(definition, &bars, &construction_fingerprint, max_rows)?;
-    let bar_ns = number(&record["plan"]["target_semantic"]["formation"]["stride_minutes"])?
-        .checked_mul(60_000_000_000)
-        .ok_or(INVALID)?;
-    let expected_count =
-        (i128::from(plan.scope.end_ns()) - i128::from(plan.scope.start_ns())) / i128::from(bar_ns);
-    if usize::try_from(expected_count).ok() != Some(dataset.rows.len()) {
-        return Err("DATASET_MARKET_DATA_SCOPE_MISMATCH");
-    }
     let request = request_fingerprint(&dataset.definition, scope, &construction.fingerprint())?;
     let semantic = json!({"dataset_snapshot_fingerprint":dataset.snapshot,"market_data_revision_bindings":[{"source_id":scope["source_id"],"instrument_id":scope["instrument_id"],"data_kind":"BAR","revision_id":revision["revision_id"],"revision_fingerprint":revision["fingerprint"]}],"materializer_id":"onlyalpha.sealed-market-data","materializer_version":"1","request_fingerprint":request});
     let mut lineage = semantic.clone();

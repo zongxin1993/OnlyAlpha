@@ -915,8 +915,6 @@ impl Host {
             let background = config.clone();
             let operation = o.clone();
             let generation = tokio::task::spawn_blocking(move || {
-                let (factor, revision) =
-                    crate::persistence::research_preparation::algorithm_inputs(&operation)?;
                 let selected = release(&background)?;
                 let installation = ChartInstallation::open(
                     &background.algorithms_root,
@@ -927,16 +925,12 @@ impl Host {
                     research_environment::prepare_strategy(
                         &installation,
                         &background.release_root,
-                        &factor,
-                        &revision,
                         &background.native_version,
                     )
                 } else {
                     research_environment::prepare(
                         &installation,
                         &background.release_root,
-                        &factor,
-                        &revision,
                         &background.native_version,
                     )
                 }
@@ -956,7 +950,6 @@ impl Host {
             let work = research_submission::run_id(&future);
             let at = now().map_err(|e| e.code())?;
             let generation_for_publication = generation_id.clone();
-            let publication_for_install = publication.clone();
             let (activation, binding, activation_disposition) = {
                 let mut observed_writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
                 let observed_writer_wait =
@@ -1000,12 +993,7 @@ impl Host {
                         {
                             return Err("GENERATION_ACTIVATION_CONFLICT".into());
                         }
-                        generation.publish(
-                            &mut registry,
-                            prepared_source(&publication_for_install)?,
-                            &actor,
-                            at,
-                        )?;
+                        generation.publish(&mut registry, &actor, at)?;
                         let (activation, disposition) = if prior.is_some() {
                             // Exact command replay stays original even if a later command changed current.
                             (
@@ -1278,12 +1266,6 @@ impl Host {
         }
         Ok(())
     }
-}
-fn prepared_source(publication: &Value) -> Result<&[u8]> {
-    publication["result"]["revision"]["source_text"]
-        .as_str()
-        .map(str::as_bytes)
-        .ok_or_else(|| INVALID.into())
 }
 
 fn installed_proof(

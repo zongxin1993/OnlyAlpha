@@ -89,6 +89,26 @@ async fn actual_build_once_exact_parameter_certificates_and_reload_have_no_sourc
         .unwrap();
     let ap = a.program_fingerprint().to_owned();
     let ac = a.certificate_fingerprint().to_owned();
+    let frozen = onlyalpha_backend::application::job_contract::FactorExecutionBinding::from_record(
+        &json!({"revision":revision,"program":ap,"certificate":ac,
+            "parameters":a.program().parameters().fingerprint(),"numeric_policy":"DECIMAL28_HALF_EVEN_Q12_V1"})
+    ).unwrap();
+    let exact = owner.resolve_frozen_binding(&frozen).await.unwrap();
+    assert_eq!(exact.program_fingerprint(), ap);
+    assert_eq!(exact.certificate_fingerprint(), ac);
+    for key in ["revision", "program", "parameters", "certificate"] {
+        let mut changed = frozen.record();
+        changed[key] = json!("0".repeat(64));
+        let changed =
+            onlyalpha_backend::application::job_contract::FactorExecutionBinding::from_record(
+                &changed,
+            )
+            .unwrap();
+        assert!(
+            owner.resolve_frozen_binding(&changed).await.is_err(),
+            "{key}"
+        );
+    }
     assert!(matches!(
         owner
             .resolve_ready_binding(&id, &revision, &json!({"period":3}))

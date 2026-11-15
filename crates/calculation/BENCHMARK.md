@@ -65,3 +65,9 @@ decode 包含有界 JSON 解析及完整类型／资源校验；bind 包含精�
 | four_instances | 256 | 4096 | 24.984 | 6099.5 | 163,947 |
 
 独立基准进程 peak RSS 为 14352 KiB（约 14.0 MiB）。这是单因子合成输入的模块结果，不代表完整交易执行、Research 准备或 Web 链路。当前 batch 入口复用同一 event step，未宣称 SIMD／列式优化。
+
+## 有限输入计算需求
+
+`cargo bench --frozen --offline -p onlyalpha-calculation --bench workload -- finite_input` 增加 `finite_input.requirements/two_nodes`。复用既有 `graph-basic` 两节点链，计时前验证累计预热为 2；图解析在计时外，依赖遍历、输入引用收集和检查加法在计时内。该项测量数学前处理元数据，不执行因子，也不读取行情、Target 或账户。
+
+固定 dev Linux aarch64、Rust 1.99.1、release，2026-11-15 两节点依赖准备中位数 10.965 µs，Criterion 10 个样本、200 ms 预热、约 1 秒采样。进程峰值 RSS 15588 KiB 包含其他基准初始化，不能当作本函数独占分配。冻结源码摘要 `fb7ee613caacf34b66886ddbc791512a41e16f7c2fe74b75eb70680aaaa948e8`，基准可执行文件 SHA256 `150eac7ce1ebef3229c53fbd339e77b876b45529824f6063c51b0fb5f8af6b38`；原始样本见任务产物 `test-results/strategy-research-framework-stage4-performance/onlyalpha-calculation-samples.log`。

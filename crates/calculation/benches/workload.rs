@@ -43,8 +43,31 @@ fn bench(c: &mut Criterion) {
     }
     g.finish();
 }
-criterion_group! {name=benches;config=Criterion::default().sample_size(10).warm_up_time(Duration::from_millis(200)).measurement_time(Duration::from_secs(1));targets=bench,program_bench}
+criterion_group! {name=benches;config=Criterion::default().sample_size(10).warm_up_time(Duration::from_millis(200)).measurement_time(Duration::from_secs(1));targets=bench,program_bench,input_requirements_bench}
 criterion_main!(benches);
+
+fn input_requirements_bench(c: &mut Criterion) {
+    let row = include_str!("../../../test-data/calculation/product-readers-v1.jsonl")
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .find(|row| row["case"] == "graph-basic")
+        .unwrap();
+    let graph =
+        onlyalpha_calculation::product::Graph::from_record(&row["input"], 1024 * 1024).unwrap();
+    assert_eq!(
+        onlyalpha_calculation::finite_input::requirements(&graph, 8192)
+            .unwrap()
+            .history(),
+        2
+    );
+    c.bench_function("finite_input.requirements/two_nodes", |b| {
+        b.iter(|| {
+            black_box(
+                onlyalpha_calculation::finite_input::requirements(black_box(&graph), 8192).unwrap(),
+            )
+        })
+    });
+}
 
 fn program_bench(c: &mut Criterion) {
     use onlyalpha_calculation::program::{

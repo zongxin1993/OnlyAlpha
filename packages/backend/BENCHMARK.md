@@ -82,3 +82,41 @@ VmHWM 是 Linux 后端测试进程高水位，不含 PG 服务和编译子进程
 四组共用构建程序 `8b3a32132f43ed55bd537d7166a4bdec9372e35628f3cd4b9fc9ea0e43df9063`，四份证书分别绑定参数；读取不重新解析源码。period=2 为真实隔离冷构建，其余只认证新参数。最终 SDK 复测后端测试进程 VmHWM 为 78848 KiB；该次未单独采集子进程 max RSS。
 
 前端纯函数另测公开动量示例，20 个样本每次实际调用一次 ast.parse；源码 SHA256 `10172a747caa5a4839d56b4374a519ee560ea00f92250926177d9b1013d68410`，该输入和编译函数在最终导入空行调整中未变。中位 AST 解析 20.000 µs，其余校验／降级 31.396 µs，总计 50.979 µs；进程 peak RSS 29044 KiB。各分量中位数不能直接相加；该输入与 PG rolling_mean 场景不同，不用两者相减推断进程开销。
+
+## 共用有限作业输入
+
+固定 dev 的 `tests/application/test_job_input_postgres_clickhouse.py` 使用真实 PostgreSQL／ClickHouse owner，规模 1／128／740 行，warmup 0、sample 等于 source rows；每档通过真实编写 owner 发布一个 close 因子，由实际隔离编译器和原生认证 owner 构建一次，再按冻结证书进行 10 次重复加载。不用假 READY 或合成证书，不写行情副本或过程文件。
+
+`JOB_INPUT_PROFILE` 记录当前 release 探针的实际 SHA256、输入快照／绑定／因子引用、每次加载耗时和 `/proc/self/status` VmHWM。首个 loader 为进程内冷调用，随后为热调用；ClickHouse 存储已被准备／封存读取，全部标记 storage warm，没有清 OS 缓存。`setup_us` 单列连接、SDK 和构建 reader 初始化，不能混入逐 Bar 吞吐。
+
+`total_us` 是 loader 整体墙钟。`source_us` 包含 PG 元数据与原物理完整性证明；其内 `headers_us`、`body_us`、`decode_us` 分别为 HTTP 响应头等待、正文读取及 JSONEachRow 解码。ClickHouse 的 `server_us` 只采用实际响应头，并附 `server_samples`，与 HTTP 时间重叠，不相加。流式正文读取也可能包含服务端生产时间，不能当成独占网络耗时。
+
+`dataset_prepare_us` 内分规范化、排序、内容／快照摘要和向量槽位预留；`allocation_ns` 只测向量预留，字符串／节点分配仍在各所属阶段中。`axis_us` 包含还原 typed Bar 与连续轴校验，`identity_us` 核对全部冻结引用，`program_preflight_us` 单列精确构建内容的声明规模计费，`programs_us` 读取并绑定精确 READY 程序；`budget_meter_us` 与 `final_guard_us` 分别记录加载后预算计费和最终权限／命名空间核对。组件中位数不保证可加。VmHWM 包含测试调用方保留样本和 JSON 输出，不是某个向量独占内存，也不包含数据库服务进程。
+
+2026-11-15 固定 dev Linux aarch64、Rust 1.99.1、release 初测（冻结摘要 `fb7ee613caacf34b66886ddbc791512a41e16f7c2fe74b75eb70680aaaa948e8`，探针 SHA256 `2032a579257fd1bdec13f19ed0826098ddbf21ab21e2d06810bdbae30ef6a338`）：
+
+| source/sample 行数 | 首次 loader ms | 后 9 次中位总耗时 ms | source ms | Dataset 准备 ms | 轴还原/校验 ms | 精确程序加载 ms | 进程 VmHWM KiB |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 68.917 | 31.821 | 27.417 | 0.201 | 0.052 | 2.240 | 72572 |
+| 128 | 99.407 | 86.519 | 72.088 | 4.200 | 4.235 | 2.876 | 72704 |
+| 740 | 427.223 | 372.832 | 302.710 | 24.277 | 27.435 | 3.284 | 176344 |
+
+上述 total 的逐样本扣除全部非重叠阶段后，剩余中位数分别 7／9／12 µs；source 内还有 PG 元数据、物理证明和归属核对，不能只用 HTTP 分量解释它。740 行的 HTTP 头等待／正文／解码中位数为 30.151／2.872／35.266 ms，规范化／排序／摘要为 15.082／0.291／5.397 ms，程序声明规模预检为 1.767 ms。准备链路主要耗时在 source owner 读取和完整性证明，不据此推断完整交易执行吞吐。原始 30 个样本、冻结绑定、程序／证书摘要与存储实际响应指标位于任务产物 `test-results/strategy-research-framework-stage4-suite-r3.log`；这是分类修复前的初测，不能代替后续修复版本的功能验证。
+
+同日分类修复后的复测采用相同方法，冻结摘要 `38136cccb0e84c2083ce86634ffb61be93af37b01780d5289ac20f3ef3a3ad55`，探针 SHA256 `4623c9cf8ac4b874c6736d5f73755adf44b7d11b43072f92a97a0fb070b5f8f3`，原始 30 个样本见 `test-results/strategy-research-framework-stage4-final-checks-r1.log`：
+
+| source/sample 行数 | 首次 loader ms | 后 9 次中位总耗时 ms | source ms | Dataset 准备 ms | 轴还原/校验 ms | 精确程序加载 ms | 进程 VmHWM KiB |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 63.085 | 41.942 | 36.665 | 0.227 | 0.059 | 2.705 | 72584 |
+| 128 | 109.211 | 88.928 | 73.601 | 4.143 | 4.311 | 2.941 | 72576 |
+| 740 | 526.564 | 420.338 | 320.078 | 25.086 | 29.635 | 3.259 | 176552 |
+
+复测逐样本闭合后的剩余中位数为 10／8／12 µs；740 行 HTTP 头等待／正文／解码中位数为 32.608／9.117／35.183 ms，规范化／排序／摘要为 15.839／0.367／5.433 ms。各列独立取中位数，不相加解释总中位数，也不将两轮环境波动归因于某一项代码修改。上述冻结投影保留两份既有用户改动，实际构建输入以冻结清单为准。
+
+## 精确图构建证明
+
+`tests/application/test_calculation_build_postgres.py` 通过实际手工策略准备 owner、真实 PostgreSQL／ClickHouse 和已安装原生算子构建公共算子信号图。首次明确的构建准备执行六类图案例和逐节点 profile，第二个独立准备复用原证明；`proof-read` 调用与 READY／Run 读取共用的原事实验证方法，不构建。场景不伪造 READY、Run 或证书，也不放宽既有 Research 统计规格只接受 FACTOR 的规则；正式 Research 新因子派单整链属于后续接线验证，不能用本场景代替。
+
+`CALCULATION_BUILD_PROFILE` 单列实际受控图行数、逐节点输入行数、证明编码字节数、构建／复用 owner 微秒耗时、原事实读取微秒耗时和父进程 VmHWM；上下文行情是 740 行、预热 20 行、样本 720 行。构建计时包括 Runtime／工件核验、PG 锁和提交；复用计时包括完整证明读取和校验。这里只报告该模块耗时，不能将固定合成语料当作行情执行吞吐。父进程峰值包含 JSON／证明和测试调用方保留值，不含隔离算法子进程与数据库，也不是操作系统内存限制。
+
+2026-11-15 固定 dev、Linux aarch64／Rust 1.99.1／release 单轮记录：受控图 252 行、逐节点输入 1864 行、证明正文 477948 字节；首次构建 6433.832 ms，重复准备读取并核验 247.256 ms，原事实只读核验 59.131 ms。首次／重复准备父进程 VmHWM 分别 265872／248144 KiB。两次分别观测受控执行开始／回收 1／1 和 0／0；这些是执行次数，不是由耗时推断的缓存命中。原始日志为 `test-results/strategy-research-framework-stage4-build-proof-checks-r3.log`，完整证明和构建身份随受控场景保留；单轮结果不估计 p95 或加速比。缺证测试直接覆盖共用仓储门禁，不代表已执行 Host READY 确认整链。

@@ -14,7 +14,7 @@ use model::*;
 pub use model::{
     CoverageStatus, Manifest, PhysicalProof, Scope, SealedInput, SealedRevision, Segment,
 };
-pub use physical::{ClickHouse, ClickHouseConfig, PhysicalState};
+pub use physical::{ClickHouse, ClickHouseConfig, PhysicalState, ReadTimings};
 pub(crate) use recovery::VerifiedHistoryInput;
 pub use recovery::{DrainBoundary, DrainOutcome, RevisionPublication, Storage, VerifiedRange};
 use serde_json::{Value, json};
@@ -36,6 +36,8 @@ pub enum Error {
     Busy,
     Stopped,
     NotFound,
+    MissingEvidence,
+    BudgetExceeded,
 }
 impl Error {
     pub fn code(self) -> &'static str {
@@ -48,6 +50,8 @@ impl Error {
             Self::Busy => "MARKET_DATA_EXECUTION_ACTIVE",
             Self::Stopped => "MARKET_DATA_RECOVERY_STOPPED",
             Self::NotFound => "SEALED_REVISION_NOT_FOUND",
+            Self::MissingEvidence => "MARKET_DATA_EVIDENCE_MISSING",
+            Self::BudgetExceeded => "MARKET_DATA_READ_BUDGET_EXCEEDED",
         }
     }
 }
@@ -139,9 +143,9 @@ fn exact_keys(v: &Value, keys: &[&str]) -> Result<()> {
 fn charge(used: &mut usize, value: &Value, limit: usize) -> Result<()> {
     *used = used
         .checked_add(value.to_string().len())
-        .ok_or(Error::Unavailable)?;
+        .ok_or(Error::BudgetExceeded)?;
     if *used > limit {
-        return Err(Error::Unavailable);
+        return Err(Error::BudgetExceeded);
     }
     Ok(())
 }
@@ -154,4 +158,22 @@ fn charge_revision(used: &mut usize, revision: &SealedRevision, limit: usize) ->
         charge(used, value, limit)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    #[test]
+    fn confirmed_charge_exhaustion_is_a_budget_error_not_store_unavailability() {
+        let mut used = 0;
+        assert_eq!(
+            charge(&mut used, &json!("payload"), 1),
+            Err(Error::BudgetExceeded)
+        );
+        let mut overflowing = usize::MAX;
+        assert_eq!(
+            charge(&mut overflowing, &json!("payload"), usize::MAX),
+            Err(Error::BudgetExceeded)
+        );
+    }
 }
