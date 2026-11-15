@@ -24,7 +24,7 @@ def draft(factor_id: str) -> dict[str, object]:
         "semantic_version": "1",
         "source_text": "def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n",
         "factor_api_version": 1,
-        "factor_api_contract_fingerprint": "3265e2397f581705b67c1372483b6629671b68af71f69575c7bd602816d63be9",
+        "factor_api_contract_fingerprint": "18235355e46a704c55b115242e50999cf7d583ab72e100b5b12bdde4ddd14ccd",
         "input_contract": {"close": {"type": "DECIMAL"}},
         "parameter_contract": {},
         "output_contract": {"value": {"type": "DECIMAL"}},
@@ -254,7 +254,7 @@ def test_publish_replay_rechecks_the_owning_revision_not_only_its_outcome_copy(
     pin = accepted["result"]["revision"]["revision_fingerprint"]
     with psycopg.connect(database) as db:
         trigger = db.execute(
-            "SELECT tgname FROM pg_trigger WHERE tgrelid='private_factor_revision'::regclass AND NOT tgisinternal"
+            "SELECT tgname FROM pg_trigger WHERE tgrelid='private_factor_revision'::regclass AND tgfoid='public.private_asset_revision_immutable()'::regprocedure AND NOT tgisinternal"
         ).fetchone()[0]
         original = db.execute(
             "SELECT payload FROM private_factor_revision WHERE revision_fingerprint=%s", (pin,)

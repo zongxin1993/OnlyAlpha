@@ -4,15 +4,30 @@
     "category": "momentum",
     "economic_rationale": "Recent relative price strength can persist over the next observation.",
     "input_contract": {
-      "close": {"type": "DECIMAL"},
-      "previous_close": {"type": "DECIMAL"}
+      "close": {
+        "type": "DECIMAL"
+      }
     },
     "output_contract": {
-      "value": {"semantic_type": "FACTOR_VALUE", "type": "DECIMAL"}
+      "value": {
+        "semantic_type": "FACTOR_VALUE",
+        "type": "DECIMAL",
+        "nullable": true
+      }
     },
-    "parameter_contract": {},
-    "semantic_version": "1",
-    "tags": ["momentum", "reference"]
+    "parameter_contract": {
+      "period": {
+        "type": "INTEGER",
+        "default": 1,
+        "minimum": 1,
+        "maximum": 100000
+      }
+    },
+    "semantic_version": "2",
+    "tags": [
+      "momentum",
+      "reference"
+    ]
   },
   "asset_kind": "FACTOR",
   "dependencies": [],

@@ -3,7 +3,7 @@ use super::{Error, Result, fp, hash, revision};
 use serde_json::{Value, json};
 /// Frozen API V1 identity; shared SDK conformance checks bind this exact value.
 pub const API_FINGERPRINT: &str =
-    "3265e2397f581705b67c1372483b6629671b68af71f69575c7bd602816d63be9";
+    "18235355e46a704c55b115242e50999cf7d583ab72e100b5b12bdde4ddd14ccd";
 #[derive(Clone, Debug)]
 pub struct Draft(Value);
 impl Draft {

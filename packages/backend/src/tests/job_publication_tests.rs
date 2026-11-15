@@ -16,8 +16,8 @@ const TEST_LOGIN: &str = "onlyalpha_job_storage_test_login";
 const OWNER: &str = "human:publication-test";
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static INITIALIZED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
-struct Connection {
-    client: Client,
+pub(super) struct Connection {
+    pub(super) client: Client,
     driver: tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>,
     runtime: bool,
 }
@@ -27,7 +27,7 @@ impl Drop for Connection {
     }
 }
 impl Connection {
-    async fn runtime(&mut self) {
+    pub(super) async fn runtime(&mut self) {
         if !self.runtime {
             *self = connected(true).await;
         }
@@ -57,7 +57,7 @@ async fn connected(runtime: bool) -> Connection {
         runtime,
     }
 }
-async fn database() -> Connection {
+pub(super) async fn database() -> Connection {
     INITIALIZED.get_or_init(||async {
   let mut c=connect().await;
   // Explicit controlled-test namespace preparation, never a business DB reset.

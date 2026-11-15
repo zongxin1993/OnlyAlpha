@@ -74,6 +74,7 @@ fn configuration(user_data: PathBuf) -> Result<Configuration, &'static str> {
         algorithm_artifact: algorithm_artifact()?,
         trust: PathBuf::from(required("ONLYALPHA_NATIVE_SOURCE_TRUST")?),
         postgres_dsn: required("ONLYALPHA_POSTGRES_DSN")?,
+        factor_build_postgres_dsn: required("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN")?,
         postgres_peer: required("ONLYALPHA_NATIVE_POSTGRES_PEER")?
             .parse()
             .map_err(|_| "DEV_POSTGRES_TRANSPORT_DENIED")?,

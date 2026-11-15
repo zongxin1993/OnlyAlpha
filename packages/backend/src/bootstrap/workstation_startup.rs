@@ -41,6 +41,7 @@ pub struct Configuration {
     pub algorithm_artifact: String,
     pub trust: PathBuf,
     pub postgres_dsn: String,
+    pub factor_build_postgres_dsn: String,
     pub postgres_peer: SocketAddr,
     pub postgres_user: String,
     pub postgres_database: String,
@@ -111,6 +112,7 @@ impl Drop for PendingRead {
 }
 pub(crate) struct Database {
     postgres_dsn: zeroize::Zeroizing<String>,
+    factor_build_postgres_dsn: zeroize::Zeroizing<String>,
     postgres_peer: SocketAddr,
     postgres_user: String,
     postgres_database: String,
@@ -120,6 +122,9 @@ impl Database {
     fn from(config: &Configuration) -> Self {
         Self {
             postgres_dsn: zeroize::Zeroizing::new(config.postgres_dsn.clone()),
+            factor_build_postgres_dsn: zeroize::Zeroizing::new(
+                config.factor_build_postgres_dsn.clone(),
+            ),
             postgres_peer: config.postgres_peer,
             postgres_user: config.postgres_user.clone(),
             postgres_database: config.postgres_database.clone(),
@@ -206,6 +211,37 @@ impl ResearchConnection {
     }
 }
 impl Database {
+    pub(crate) async fn factor_build_connection(
+        &self,
+    ) -> Result<(Client, JoinHandle<Result<(), tokio_postgres::Error>>), Failure> {
+        let pg: Config = self
+            .factor_build_postgres_dsn
+            .as_str()
+            .parse()
+            .map_err(|_| Failure::unavailable("FACTOR_BUILD_CONFIGURATION_INVALID"))?;
+        let profile = Self {
+            postgres_dsn: self.factor_build_postgres_dsn.clone(),
+            factor_build_postgres_dsn: self.factor_build_postgres_dsn.clone(),
+            postgres_peer: self.postgres_peer,
+            postgres_user: pg
+                .get_user()
+                .ok_or(Failure::unavailable("FACTOR_BUILD_CONFIGURATION_INVALID"))?
+                .into(),
+            postgres_database: self.postgres_database.clone(),
+            transport: self.transport.clone(),
+        };
+        let mut owned = connect(&profile, false).await?;
+        Ok((
+            owned
+                .client
+                .take()
+                .ok_or(Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"))?,
+            owned
+                .driver
+                .take()
+                .ok_or(Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"))?,
+        ))
+    }
     pub(crate) async fn research_connection(
         &self,
         namespace: &crate::bootstrap::deployment::SemanticStoreId,
@@ -331,7 +367,8 @@ impl Drop for Running {
             .ready
             .store(false, std::sync::atomic::Ordering::Release);
         self.host.chart_gate.close();
-        if !self.host.research_drained.load(Ordering::Acquire)
+        if !self.host.factor_build_drained.load(Ordering::Acquire)
+            || !self.host.research_drained.load(Ordering::Acquire)
             || !self.host.backtest_drained.load(Ordering::Acquire)
         {
             self.host.stop_research_admission();
@@ -609,6 +646,9 @@ impl Running {
             backtest: Mutex::new(None),
             backtest_wake: OnceLock::new(),
             backtest_drained: AtomicBool::new(true),
+            factor_build: Mutex::new(None),
+            factor_build_wake: OnceLock::new(),
+            factor_build_drained: AtomicBool::new(true),
             research: Mutex::new(None),
             research_wake: OnceLock::new(),
             research_drained: AtomicBool::new(true),
@@ -671,6 +711,25 @@ impl Running {
             if !running.host.writer_active() {
                 return Err(Failure::unavailable("PRODUCT_AUTHORITY_DRIVER_LOST"));
             }
+            let (client, driver) = running.host.database.factor_build_connection().await?;
+            let factor = crate::workers::factor_build::Service::start(
+                client,
+                driver,
+                running.host.inputs.namespace().clone(),
+                Arc::new(algorithm_installation),
+            )
+            .await
+            .map_err(Failure::unavailable)?;
+            running
+                .host
+                .factor_build_wake
+                .set(factor.wake())
+                .map_err(|_| Failure::unavailable("FACTOR_BUILD_WAKE_INVALID"))?;
+            running
+                .host
+                .factor_build_drained
+                .store(false, Ordering::Release);
+            *running.host.factor_build.lock().await = Some(factor);
             let writer_pid = {
                 let mut held = running.host.writer.lock().await;
                 held.as_mut()
@@ -774,15 +833,31 @@ impl Running {
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) -> Result<(), Failure> {
         let mut writer_live = self.host.writer_live.clone();
+        let mut factor_status = self
+            .host
+            .factor_build
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(Failure::unavailable("FACTOR_BUILD_SERVICE_UNAVAILABLE"))?
+            .subscribe();
         let mut failure = loop {
             if *shutdown.borrow() {
                 break None;
+            }
+            if matches!(
+                *factor_status.borrow(),
+                crate::workers::factor_build::Status::Unavailable
+                    | crate::workers::factor_build::Status::Stopped
+            ) {
+                break Some(Failure::unavailable("FACTOR_BUILD_SERVICE_UNAVAILABLE"));
             }
             if !self.host.writer_active() {
                 break Some(Failure::unavailable("PRODUCT_AUTHORITY_DRIVER_LOST"));
             }
             tokio::select! {
              _=shutdown.changed()=>break None,
+             _=factor_status.changed()=>{if matches!(*factor_status.borrow(),crate::workers::factor_build::Status::Unavailable|crate::workers::factor_build::Status::Stopped){break Some(Failure::unavailable("FACTOR_BUILD_SERVICE_UNAVAILABLE"));}},
              expired=self.host.app.expire_temporary()=>{if expired.is_err(){break Some(Failure::unavailable("TEMPORARY_CACHE_LIFECYCLE_FAILED"));}},
              _=writer_live.changed()=>break Some(Failure::unavailable("PRODUCT_AUTHORITY_DRIVER_LOST")),
              _=self.reader_driver.as_mut().expect("retained read driver")=>{self.reader_driver.take();break Some(Failure::unavailable("PRODUCT_READ_DRIVER_LOST"));},
@@ -804,6 +879,19 @@ impl Running {
         self.host.ready.store(false, Ordering::Release);
         self.host.chart_gate.close();
         self.host.stop_research_admission();
+        {
+            let mut original = self.host.factor_build.lock().await;
+            if let Some(service) = original.as_mut()
+                && let Err(code) = service.drain().await
+            {
+                self.host.retain_research_owner();
+                return Err(Failure::unavailable(code));
+            }
+            original.take();
+            self.host
+                .factor_build_drained
+                .store(true, Ordering::Release);
+        }
         {
             let mut original = self.host.research.lock().await;
             if let Some(service) = original.as_mut()

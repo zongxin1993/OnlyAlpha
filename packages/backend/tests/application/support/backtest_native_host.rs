@@ -54,6 +54,7 @@ pub(super) async fn serve() -> Result<(), Box<dyn Error>> {
         postgres_user: pg.get_user().ok_or("postgres user")?.into(),
         postgres_database: pg.get_dbname().ok_or("postgres database")?.into(),
         postgres_dsn: dsn,
+        factor_build_postgres_dsn: std::env::var("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN")?,
         clickhouse: ClickHouseConfig {
             url: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_URL")?,
             database: database.into(),

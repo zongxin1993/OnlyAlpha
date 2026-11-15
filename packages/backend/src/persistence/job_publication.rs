@@ -16,13 +16,13 @@ use sha2::{Digest, Sha256};
 use tokio_postgres::{Client, Transaction};
 type Result<T> = std::result::Result<T, PublicationError>;
 const CONTENT_LIMIT: usize = 128 * 1024 * 1024;
-pub(super) fn digest(raw: &[u8]) -> String {
+pub(crate) fn digest(raw: &[u8]) -> String {
     Sha256::digest(raw)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
 }
-pub(super) fn encode(v: &Value, limit: usize) -> Result<String> {
+pub(crate) fn encode(v: &Value, limit: usize) -> Result<String> {
     let raw = v.to_string();
     if raw.len() > limit {
         return Err(PublicationError::BudgetExceeded);
@@ -42,7 +42,7 @@ fn document(raw: &str, limit: usize) -> Result<Value> {
     }
     Ok(value)
 }
-pub(super) fn db(e: tokio_postgres::Error) -> PublicationError {
+pub(crate) fn db(e: tokio_postgres::Error) -> PublicationError {
     match e.code() {
         Some(c) if *c == tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE => {
             PublicationError::Denied
@@ -58,7 +58,7 @@ pub(super) fn db(e: tokio_postgres::Error) -> PublicationError {
         None => PublicationError::Unavailable,
     }
 }
-pub(super) fn deployment_error(e: deployment::Error) -> PublicationError {
+pub(crate) fn deployment_error(e: deployment::Error) -> PublicationError {
     match e {
         deployment::Error::Unavailable => PublicationError::Unavailable,
         deployment::Error::Missing | deployment::Error::BindingMissing => {
@@ -86,7 +86,7 @@ fn attempt_table(k: JobKind) -> &'static str {
         JobKind::Backtest => "backtest_run_attempt",
     }
 }
-pub(super) async fn role(client: &Client, allowed: &[&str]) -> Result<String> {
+pub(crate) async fn role(client: &Client, allowed: &[&str]) -> Result<String> {
     let identity=client.query_one("SELECT current_user::text, s.rolcanlogin AND NOT(s.rolsuper OR s.rolcreatedb OR s.rolcreaterole OR s.rolreplication OR s.rolbypassrls), NOT(g.rolcanlogin OR g.rolsuper OR g.rolcreatedb OR g.rolcreaterole OR g.rolreplication OR g.rolbypassrls OR g.rolinherit) FROM pg_catalog.pg_roles s CROSS JOIN pg_catalog.pg_roles g WHERE s.rolname=session_user AND g.rolname=current_user",&[]).await.map_err(db)?;
     let current: String = identity.get(0);
     if !allowed.contains(&current.as_str())
@@ -125,12 +125,12 @@ impl<'a> PublicationRepository<'a> {
         })
     }
 }
-pub(super) async fn bounded(tx: &Transaction<'_>) -> Result<()> {
+pub(crate) async fn bounded(tx: &Transaction<'_>) -> Result<()> {
     crate::persistence::postgres::bounds(tx)
         .await
         .map_err(|_| PublicationError::Unavailable)
 }
-pub(super) async fn durable(tx: &Transaction<'_>) -> Result<()> {
+pub(crate) async fn durable(tx: &Transaction<'_>) -> Result<()> {
     bounded(tx).await?;
     let settings=tx.query_one("SELECT pg_catalog.current_setting('fsync')='on',pg_catalog.current_setting('full_page_writes')='on',pg_catalog.current_setting('synchronous_commit')",&[]).await.map_err(db)?;
     if !settings.get::<_, bool>(0) || !settings.get::<_, bool>(1) {
@@ -144,7 +144,7 @@ pub(super) async fn durable(tx: &Transaction<'_>) -> Result<()> {
     }
     Ok(())
 }
-async fn commit(tx: Transaction<'_>) -> Result<()> {
+pub(crate) async fn commit(tx: Transaction<'_>) -> Result<()> {
     tx.commit().await.map_err(|e| {
         if e.code().is_some() {
             db(e)

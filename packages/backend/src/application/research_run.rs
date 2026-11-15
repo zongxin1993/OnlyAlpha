@@ -603,7 +603,7 @@ mod native_specification_tests {
     #[test]
     fn factor4_record_and_identity_remain_exact() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../tests/application/fixtures/research_factor.json"
+            "../../tests/application/fixtures/factor_program_source.json"
         ))
         .unwrap();
         let spec=Specification{schema_version:4,kind:"TIME_SERIES_FACTOR_RESEARCH".into(),candidate:json!({"hypothesis":fixture["candidate"]["hypothesis"],"expression":fixture["candidate"]["expression"]}),draft:fixture["draft"].clone(),revision:fixture["revision"].clone(),study:serde_json::from_value(json!({"schema_version":1,"bar_ns":60000000000u64,"horizon_bars":5,"samples":[{"role":"DEVELOPMENT","start_ns":1200000000000u64,"end_ns":2400000000000u64},{"role":"OUT_OF_SAMPLE","start_ns":2400000000000u64,"end_ns":3600000000000u64}],"protected_start_ns":6000000000000u64,"protected_end_ns":7200000000000u64,"expected_block_length":20,"replicates":400,"confidence_bps":9500,"seed":"a".repeat(64)})).unwrap(),dataset_snapshot_fingerprint:"b".repeat(64),runtime_generation_fingerprint:"c".repeat(64),catalog_generation_fingerprint:"d".repeat(64),authoring_generation_fingerprint:None,algorithm_artifact_fingerprint:"e".repeat(64),execution_binding:json!({"protocol":"onlyalpha.research.executor/1","executor_version":"0.11.1","executor_manifest_fingerprint":"e".repeat(64),"executor_artifact_sha256":"f".repeat(64),"core_execution_fingerprint":"a".repeat(64)})};

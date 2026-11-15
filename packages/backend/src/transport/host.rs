@@ -52,6 +52,9 @@ pub struct Host {
     pub(crate) database: crate::bootstrap::workstation_startup::Database,
     pub(crate) writer: Arc<Mutex<Option<AuthoritySession>>>,
     pub(crate) writer_live: tokio::sync::watch::Receiver<bool>,
+    pub(crate) factor_build: Mutex<Option<crate::workers::factor_build::Service>>,
+    pub(crate) factor_build_wake: OnceLock<crate::workers::factor_build::Wake>,
+    pub(crate) factor_build_drained: AtomicBool,
     pub(crate) research: Mutex<Option<crate::workers::research_service::Service>>,
     pub(crate) backtest: Mutex<Option<crate::workers::backtest_worker::Service>>,
     pub(crate) backtest_wake: OnceLock<crate::workers::backtest_worker::Wake>,
@@ -237,6 +240,9 @@ impl Host {
             .map(|service| service.status())
     }
     pub(crate) fn stop_research_admission(&self) {
+        if let Some(wake) = self.factor_build_wake.get() {
+            wake.stop();
+        }
         if let Some(wake) = self.backtest_wake.get() {
             wake.stop();
         }

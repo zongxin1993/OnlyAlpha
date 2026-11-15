@@ -57,3 +57,28 @@ Criterion为每case至少10个原始样本；表中使用Criterion的median估�
 small 的进程累计 VmHWM 为 4,324 kB，large 最高 23,440 kB（/proc 原值）。这是同进程累计峰值，不是单次分配量，未测 PostgreSQL 后端峰值。正文为含大量重复 x 填充的 canonical JSON，压缩性很高；声明行数是测试描述符，不是真实交易事实数。不能据此推断真实订单／曲线的存储吞吐、完整回测 bars/s、旧链路加速比或 Web 超时已解决。
 
 冻结验证投影保留主工作区两份无关用户改动（market_product/day.rs、transport/host_day.rs），不纳入本任务提交；所有本阶段修改文件与待提交内容逐文件核对一致。完整实际构建输入以原始清单为准，不把 Git HEAD 当作二进制身份。没有新增依赖、吞吐门槛或拆分正式发布事务。
+
+## 因子构建与精确认证
+
+固定开发环境运行 `cargo test --release --frozen --offline -p onlyalpha-backend --test application_job_publication factor_build_tests::factor_build_performance_matrix -- --ignored --exact --nocapture --test-threads=1`。明确使用 `_test` 数据库，测试前准备真实 schema 和普通登录角色；schema／安装 SDK／owner 创建不在下列作业计时内，不能据此声称整个启动耗时。
+
+默认 period=2 冷构建包括真实隔离进程握手、单次 AST 解析／降级、native 类型检查、精确认证和数据库提交；period=3／64／256 复用同一程序，只认证新组合。request 单列请求读写；read/decode/bind 单列 owning READY 读取、全部内容检查、JSON decode 和参数绑定。每组保留程序、参数证书、实际解析计数；READY 来源于真实 owner，不接受测试 JSON 充当证书。所有组必须同程序、不同参数证书。
+
+VmHWM 是 Linux 后端测试进程高水位，不含 PG 服务和编译子进程，不是增量内存。独立 supervisor 的子进程 max RSS 另列，包括测试执行期间所派生进程的最大值；排除 cargo 编译阶段。单轮样本不作尾延迟／复杂度证明。本矩阵与旧 Source／SQLite 链路和正式 Web 回测不具有相同输入、职责或结果，不能算优化加速比。
+
+源码解析与校验／降级可另运行 `python3 scripts/benchmark_factor_compiler.py --samples 20 --output <新JSON路径>`：使用实际安装的同一编译函数和公开示例，观测 `ast.parse` 的实际调用／耗时，分别记录 AST 解析与其余校验／降级的原始样本和中位数。它是已加载模块的函数基准，未执行 OS 隔离；真实隔离进程开销由 PG 冷构建项覆盖。不能把这个观测脚本或其输出作为 READY 认证。
+
+### 2026-11-15 构建与认证测量
+
+固定 Linux aarch64／Rust 1.99.1／release；最终 SDK 复测冻结摘要 `3c617d6a74a0dadbb556797e5d7b24931c4ec0f5b9b5f62f1237e4ca650aaecf`。原始结果 `test-results/strategy-research-framework-stage3-perf-final/build-final-sdk.log`，任务工作树副本同 calculation 基准；程序／证书／二进制摘要均保留。单轮数据，不能作 p95。
+
+| period | 请求 ms | 构建／认证／提交 ms | 完整读取／decode／bind ms | AST 次数 |
+| ---: | ---: | ---: | ---: | ---: |
+| 2 | 3.736 | 851.005 | 1.448 | 1 |
+| 3 | 3.149 | 4.617 | 1.373 | 0 |
+| 64 | 3.357 | 7.103 | 1.187 | 0 |
+| 256 | 3.336 | 29.285 | 1.275 | 0 |
+
+四组共用构建程序 `8b3a32132f43ed55bd537d7166a4bdec9372e35628f3cd4b9fc9ea0e43df9063`，四份证书分别绑定参数；读取不重新解析源码。period=2 为真实隔离冷构建，其余只认证新参数。最终 SDK 复测后端测试进程 VmHWM 为 78848 KiB；该次未单独采集子进程 max RSS。
+
+前端纯函数另测公开动量示例，20 个样本每次实际调用一次 ast.parse；源码 SHA256 `10172a747caa5a4839d56b4374a519ee560ea00f92250926177d9b1013d68410`，该输入和编译函数在最终导入空行调整中未变。中位 AST 解析 20.000 µs，其余校验／降级 31.396 µs，总计 50.979 µs；进程 peak RSS 29044 KiB。各分量中位数不能直接相加；该输入与 PG rolling_mean 场景不同，不用两者相减推断进程开销。

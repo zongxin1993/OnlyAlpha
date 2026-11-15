@@ -156,6 +156,14 @@ impl<'a> FactorBuildRepository<'a> {
         if !self.writable {
             return Err(PublicationError::Denied);
         }
+        let tx = self.client.transaction().await.map_err(db)?;
+        Self::put_in_transaction(&tx, publication).await?;
+        super::job_publication::commit(tx).await
+    }
+    pub(crate) async fn put_in_transaction(
+        tx: &tokio_postgres::Transaction<'_>,
+        publication: &BuildPublication,
+    ) -> Result<()> {
         let p = program(
             publication.program.payload.clone(),
             publication.program.fingerprint.clone(),
@@ -176,13 +184,8 @@ impl<'a> FactorBuildRepository<'a> {
         let params = v["parameters_fingerprint"]
             .as_str()
             .ok_or(PublicationError::Integrity)?;
-        let tx = self.client.transaction().await.map_err(db)?;
-        durable(&tx).await?;
-        tx.execute("INSERT INTO public.factor_built_program(program_fingerprint,source_sha256,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",&[&p.fingerprint,&p.source,&p.payload]).await.map_err(db)?;
-        let row=tx.query_one("SELECT source_sha256,payload FROM public.factor_built_program WHERE program_fingerprint=$1",&[&p.fingerprint]).await.map_err(db)?;
-        if row.get::<_, String>(0) != p.source || row.get::<_, String>(1) != p.payload {
-            return Err(PublicationError::Conflict);
-        }
+        durable(tx).await?;
+        Self::insert_program(tx, &p).await?;
         tx.execute("INSERT INTO public.factor_parameter_certificate(certificate_fingerprint,revision_fingerprint,program_fingerprint,source_sha256,parameters_fingerprint,parameters_payload,payload) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",&[&c.fingerprint,&revision,&p.fingerprint,&p.source,&params,&c.parameters,&c.payload]).await.map_err(db)?;
         let row=tx.query_one("SELECT payload,parameters_payload FROM public.factor_parameter_certificate WHERE certificate_fingerprint=$1",&[&c.fingerprint]).await.map_err(db)?;
         if row.get::<_, String>(0) != c.payload || row.get::<_, String>(1) != c.parameters {
@@ -191,13 +194,55 @@ impl<'a> FactorBuildRepository<'a> {
         tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE")
             .await
             .map_err(db)?;
-        tx.commit().await.map_err(|e| {
-            if e.code().is_some() {
-                db(e)
-            } else {
-                PublicationError::OutcomeUnknown
-            }
+        Ok(())
+    }
+    async fn insert_program(tx: &tokio_postgres::Transaction<'_>, p: &StoredProgram) -> Result<()> {
+        tx.execute("INSERT INTO public.factor_built_program(program_fingerprint,source_sha256,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",&[&p.fingerprint,&p.source,&p.payload]).await.map_err(db)?;
+        let row=tx.query_one("SELECT source_sha256,payload FROM public.factor_built_program WHERE program_fingerprint=$1",&[&p.fingerprint]).await.map_err(db)?;
+        if row.get::<_, String>(0) != p.source || row.get::<_, String>(1) != p.payload {
+            return Err(PublicationError::Conflict);
+        }
+        Ok(())
+    }
+    pub(crate) async fn put_program_in_transaction(
+        tx: &tokio_postgres::Transaction<'_>,
+        proof: &crate::application::factor_build::BuiltFactorProgram,
+    ) -> Result<()> {
+        let value = proof.record();
+        let raw = encode(value, 8 * 1024 * 1024)?;
+        let source = value["source_sha256"]
+            .as_str()
+            .ok_or(PublicationError::Integrity)?;
+        let p = program(raw.clone(), digest(raw.as_bytes()), source.into())?;
+        Self::insert_program(tx, &p).await
+    }
+    pub(crate) fn from_certified(
+        proof: &crate::application::factor_build::CertifiedBuild,
+    ) -> Result<BuildPublication> {
+        let (p, c, params) = proof.records();
+        let payload = encode(p, 8 * 1024 * 1024)?;
+        let source = p["source_sha256"]
+            .as_str()
+            .ok_or(PublicationError::Integrity)?
+            .to_owned();
+        let p = program(payload.clone(), digest(payload.as_bytes()), source)?;
+        let raw = encode(c, 8 * 1024 * 1024)?;
+        let c = certificate(raw.clone(), digest(raw.as_bytes()), encode(params, 262144)?)?;
+        Ok(BuildPublication {
+            program: p,
+            certificate: c,
         })
+    }
+
+    pub(crate) fn verify_program(raw: String, fp: String, source: String) -> Result<StoredProgram> {
+        program(raw, fp, source)
+    }
+    pub(crate) fn verify_certificate(
+        raw: String,
+        fp: String,
+        parameters: String,
+    ) -> Result<StoredCertificate> {
+        certificate(raw, fp, parameters)
     }
     pub async fn read_program(&mut self, fp: &str) -> Result<StoredProgram> {
         let tx = self

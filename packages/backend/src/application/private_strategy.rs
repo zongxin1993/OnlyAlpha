@@ -556,7 +556,7 @@ mod tests {
     #[test]
     fn strategy_draft_derivation_uses_exact_compiled_factor_dependencies_and_periods() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../tests/application/fixtures/research_factor.json"
+            "../../tests/application/fixtures/factor_program_source.json"
         ))
         .unwrap();
         let compiled = crate::application::research_factor::compile(

@@ -202,7 +202,10 @@ WORKER_DEPENDENCIES = {
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
 }
 
-CALCULATION_DEPENDENCIES = {name: DOMAIN_DEPENDENCIES[name] for name in ("bigdecimal", "sha2", "serde_json")}
+CALCULATION_DEPENDENCIES = {
+    **{name: DOMAIN_DEPENDENCIES[name] for name in ("bigdecimal", "sha2", "serde_json")},
+    "onlyalpha-operators": {"path": "../operators"},
+}
 
 
 EVENT_DEPENDENCIES = {**CLOCK_DEPENDENCIES, "serde_json": DOMAIN_DEPENDENCIES["serde_json"]}
@@ -1568,7 +1571,7 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../../tests/application/fixtures/research_dataset.json": "packages/backend/tests/application/fixtures/research_dataset.json",
     },
     "packages/backend/src/application/manual_backtest_context/tests.rs": {
-        "../../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
+        "../../../tests/application/fixtures/factor_program_source.json": "packages/backend/tests/application/fixtures/factor_program_source.json",
     },
     "packages/backend/src/persistence/strategy_validation/tests.rs": {
         "../../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
@@ -1582,7 +1585,7 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../tests/application/fixtures/strategy_calculations.json": "packages/backend/tests/application/fixtures/strategy_calculations.json",
     },
     "packages/backend/src/transport/host_backtest_environment.rs": {
-        "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
+        "../../tests/application/fixtures/factor_program_source.json": "packages/backend/tests/application/fixtures/factor_program_source.json",
     },
     "crates/backtest/src/tests/support/execution.rs": {
         "../../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
@@ -1609,7 +1612,7 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
     },
     "packages/backend/src/application/private_strategy.rs": {
-        "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
+        "../../tests/application/fixtures/factor_program_source.json": "packages/backend/tests/application/fixtures/factor_program_source.json",
         "../../../../examples/private-assets/strategy/simple_momentum/strategy.json": "examples/private-assets/strategy/simple_momentum/strategy.json",
         "../../../../test-data/strategy/product-sources-v1.jsonl": "test-data/strategy/product-sources-v1.jsonl",
     },
@@ -1620,17 +1623,27 @@ _INFRASTRUCTURE_RESOURCES = {
         "../../tests/application/fixtures/research_novelty.json": "packages/backend/tests/application/fixtures/research_novelty.json",
     },
     "packages/backend/src/application/research_run.rs": {
-        "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
+        "../../tests/application/fixtures/factor_program_source.json": "packages/backend/tests/application/fixtures/factor_program_source.json",
         "../../tests/application/fixtures/research_novelty.json": "packages/backend/tests/application/fixtures/research_novelty.json",
     },
     "packages/backend/src/persistence/research_preparation.rs": {
-        "../../tests/application/fixtures/research_factor.json": "packages/backend/tests/application/fixtures/research_factor.json",
+        "../../tests/application/fixtures/factor_program_source.json": "packages/backend/tests/application/fixtures/factor_program_source.json",
     },
     "packages/backend/src/application/market_product/temporary_tests.rs": {
         "../../../../../test-data/domain/instrument-records-v2.jsonl": "test-data/domain/instrument-records-v2.jsonl",
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    "packages/backend/src/application/factor_build/certification.rs": {
+        "../../tests/factor_build_contract_tests.rs": "packages/backend/src/tests/factor_build_contract_tests.rs",
+    },
+    "packages/backend/src/application/factor_build.rs": {
+        "factor_build/certification.rs": "packages/backend/src/application/factor_build/certification.rs",
+    },
+    "crates/calculation/src/lib.rs": {
+        "tests/program_tests.rs": "crates/calculation/src/tests/program_tests.rs",
+        "tests/program_execution_tests.rs": "crates/calculation/src/tests/program_execution_tests.rs",
+    },
     "packages/backend/src/tests/job_publication_tests.rs": {
         "support/job_publication_proxy.rs": "packages/backend/src/tests/support/job_publication_proxy.rs",
     },
@@ -1820,6 +1833,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
 }
 _CARGO_VERSION_SOURCES = {
+    "packages/backend/src/application/factor_build.rs",
     "plugs/onlyalpha-broker-binance/src/lib.rs",
     "plugs/onlyalpha-broker-virtual/src/lib.rs",
     "plugs/onlyalpha-data-source-tushare/src/source.rs",

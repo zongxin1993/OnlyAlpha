@@ -1,7 +1,7 @@
 use super::*;
 fn reference() -> Value {
     serde_json::from_str(include_str!(
-        "../../../tests/application/fixtures/research_factor.json"
+        "../../../tests/application/fixtures/factor_program_source.json"
     ))
     .unwrap()
 }

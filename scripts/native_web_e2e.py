@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.database_guard import assert_test_database
 from scripts.dev_verification import source_inputs
+from scripts.factor_build_database import prepare as prepare_factor_build_database
 from scripts.native_workstation_build import build
 from scripts.runtime_artifacts import product_versions, verify_artifacts
 
@@ -1042,6 +1043,7 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         ONLYALPHA_NATIVE_ALGORITHM_ARTIFACT=artifact,
         ONLYALPHA_NATIVE_SOURCE_TRUST=str(source_trust),
         ONLYALPHA_POSTGRES_DSN=make_conninfo(dsn, sslmode="disable"),
+        ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN=prepare_factor_build_database(dsn, test=True),
         ONLYALPHA_NATIVE_POSTGRES_PEER=f"{socket.gethostbyname('postgres')}:5432",
         ONLYALPHA_NATIVE_POSTGRES_USER=pg_user,
         ONLYALPHA_NATIVE_POSTGRES_DATABASE=pg_database,

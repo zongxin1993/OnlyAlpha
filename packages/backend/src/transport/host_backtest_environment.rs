@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn dependencies_follow_actual_saved_bindings_and_never_alias_period_inference() {
         let value: Value = serde_json::from_str(include_str!(
-            "../../tests/application/fixtures/research_factor.json"
+            "../../tests/application/fixtures/factor_program_source.json"
         ))
         .unwrap();
         let definition =

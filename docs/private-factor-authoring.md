@@ -5,7 +5,7 @@ immutable Revisions. The backend owns authoring Commands; Web submits intent and
 
 ## 新构建边界（ADR 0151）
 
-[有限作业契约](job-execution-contract.md)定义新框架的版本、构建程序和精确参数认证；本节取代下文对稳定旧Python执行接口及“发布不触发任何构建”的承诺。第一阶段仅提供契约模型，第三阶段才替换编写／执行接口，不宣称已上线。草稿保存仍不执行；不可变版本创建后独立建立构建／默认参数认证任务，资产已保存不等于程序或所有参数已READY。
+[有限作业契约](job-execution-contract.md)定义新框架的版本、构建程序和精确参数认证；本节取代下文对稳定旧Python执行接口及“发布不触发任何构建”的承诺。当前编写／执行边界已由 typed 程序与独立构建认证实现；完整产品准备／作业接线见[因子程序说明](factor-program.md)，不据模块交付宣称整条产品链路可用。草稿保存仍不执行；不可变版本创建后独立建立构建／默认参数认证任务，资产已保存不等于程序或所有参数已READY。
 
 受限Python只作编写与AST构建前端，降为Rust拥有的typed程序；不执行用户字节码、不允许任意while／可变容器／隐藏IO，不逐行解析源码。声明式窗口调用复用原生数学语义。源码／接口／构建器／数值规范／原语实现决定构建身份；解析后的精确参数和对应证书决定认证绑定。新参数不重新解析相同通用程序。
 
@@ -47,7 +47,7 @@ The ordinary editor separates name/usage from version annotations; renaming does
 Revision. Backend returns history as exact `{display_version, revision}` entries only after verifying the complete chain;
 ordinals start at 1, stay attached to their exact Revision and are independent of `semantic_version`, filtering and rename.
 Revision/source/API identities retain their existing canonical contracts. API V1's frozen fingerprint is
-`3265e2397f581705b67c1372483b6629671b68af71f69575c7bd602816d63be9`; the Python algorithm SDK remains its semantic owner and
+`18235355e46a704c55b115242e50999cf7d583ab72e100b5b12bdde4ddd14ccd`; the Python algorithm SDK remains its semantic owner and
 conformance must prove this exact binding. Mutable Draft identity is the canonical fingerprint of
 `{"contract":"ONLYALPHA_PRIVATE_FACTOR_DRAFT_V1","draft":DRAFT}`. It is a concurrency token, never a Revision or runtime identity.
 
@@ -256,3 +256,9 @@ The pure authoring model remains inside backend's Private Asset Application modu
 Commands. The current Python `calculate(api, inputs, parameters)` SDK remains implemented until phase three; its execution API will evolve directly to the typed-program build boundary above, without compatibility shims. Old Python business/reference consumers may
 retire only after their actual callers and assertions migrate; source stored in a Factor is user content, not Python backend
 business code eligible for deletion. Research, Strategy authoring, Registry admission and execution remain separate capabilities.
+
+## 一次构建与精确参数认证
+
+受限 Python 编写接口现在生成有界 typed program，数值统一 Rust Decimal28／HALF_EVEN／q12。版本冻结后自动请求默认参数构建；独立后台 owner 使用 sealed SDK 隔离解析一次源码，实际数学与参数认证在 Rust 完成。新参数组合复用程序，只追加精确证书。加载与逐 Bar 执行不解析 AST，不隐式认证。
+
+完整限制、身份、状态、错误、恢复、产品接线阶段见[因子程序说明](factor-program.md)。公开[动量示例](../examples/private-assets/factor/simple_momentum/asset.json)使用 `delay(close, period)` 表达前收盘价；warmup／除零缺值属于输出契约，不能补零伪造可用结果。

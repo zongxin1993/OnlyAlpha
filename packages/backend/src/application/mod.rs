@@ -52,3 +52,5 @@ pub(crate) mod manual_backtest_context;
 mod job_contract_tests;
 
 pub mod job_contract;
+
+pub mod factor_build;

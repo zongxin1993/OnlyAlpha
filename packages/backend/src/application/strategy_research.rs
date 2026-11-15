@@ -624,14 +624,14 @@ mod tests {
         use crate::application::private_assets::authoring::{
             API_FINGERPRINT, Draft as FactorDraft,
         };
-        let factor=FactorDraft::new(json!({"schema_version":1,"factor_id":"private.factor.simple_momentum","semantic_version":"1","base_revision_fingerprint":null,"source_text":"def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n","factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":{"close":{"type":"DECIMAL"},"previous_close":{"type":"DECIMAL"}},"parameter_contract":{},"output_contract":{"value":{"type":"DECIMAL"}},"description":"Technical metadata fixture","economic_rationale":"Contract only","category":"price","tags":[]})).unwrap().revision().unwrap();
+        let factor=FactorDraft::new(json!({"schema_version":1,"factor_id":"private.factor.simple_momentum","semantic_version":"2","base_revision_fingerprint":null,"source_text":"def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n","factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":{"close":{"type":"DECIMAL"}},"parameter_contract":{"period":{"type":"INTEGER","default":1}},"output_contract":{"value":{"type":"DECIMAL"}},"description":"Technical metadata fixture","economic_rationale":"Contract only","category":"price","tags":[]})).unwrap().revision().unwrap();
         let mut d = strategy();
         d["factor_revision_dependencies"][0]["revision_fingerprint"] =
             factor["revision_fingerprint"].clone();
-        let revision=crate::application::private_strategy::Draft::new(json!({"schema_version":1,"strategy_id":"private.strategy.composition","semantic_version":"1","base_revision_fingerprint":null,"definition":d,"description":"Contract fixture","tags":[]})).unwrap().revision().unwrap();
+        let revision=crate::application::private_strategy::Draft::new(json!({"schema_version":1,"strategy_id":"private.strategy.composition","semantic_version":"2","base_revision_fingerprint":null,"definition":d,"description":"Contract fixture","tags":[]})).unwrap().revision().unwrap();
         let context = Context::new(context()).unwrap();
         // Only value-level metadata. No READY/executable/equivalence claim is made.
-        let manifest = json!({"catalog_generation_fingerprint":"a".repeat(64),"private_factor_bindings":[{"provider_snapshot_fingerprint":"b".repeat(64),"runtime_artifact_fingerprint":"c".repeat(64),"entry":{"factor_id":factor["factor_id"],"revision_fingerprint":factor["revision_fingerprint"],"semantic_version":factor["semantic_version"],"source_sha256":factor["source_sha256"],"factor_api_version":factor["factor_api_version"],"factor_api_contract_fingerprint":factor["factor_api_contract_fingerprint"],"research_implementation_fingerprint":"d".repeat(64)}}],"implementations":[{"kind":"FACTOR","type_id":factor["factor_id"],"semantic_version":"1","backend":"RESEARCH","implementation_fingerprint":"d".repeat(64)},{"kind":"TARGET","type_id":"onlyalpha.target.forward_return","semantic_version":"1","backend":"RESEARCH","implementation_fingerprint":"e".repeat(64)}]});
+        let manifest = json!({"catalog_generation_fingerprint":"a".repeat(64),"private_factor_bindings":[{"provider_snapshot_fingerprint":"b".repeat(64),"runtime_artifact_fingerprint":"c".repeat(64),"entry":{"factor_id":factor["factor_id"],"revision_fingerprint":factor["revision_fingerprint"],"semantic_version":factor["semantic_version"],"source_sha256":factor["source_sha256"],"factor_api_version":factor["factor_api_version"],"factor_api_contract_fingerprint":factor["factor_api_contract_fingerprint"],"research_implementation_fingerprint":"d".repeat(64)}}],"implementations":[{"kind":"FACTOR","type_id":factor["factor_id"],"semantic_version":"2","backend":"RESEARCH","implementation_fingerprint":"d".repeat(64)},{"kind":"TARGET","type_id":"onlyalpha.target.forward_return","semantic_version":"1","backend":"RESEARCH","implementation_fingerprint":"e".repeat(64)}]});
         let factors =
             std::collections::BTreeMap::from([("private.factor.simple_momentum".into(), factor)]);
         (revision, context, manifest, factors)
@@ -704,7 +704,11 @@ mod tests {
         changed["implementations"][1]["backend"] = json!("TRADING");
         assert!(Composition::derive(&revision, &context, &changed, &factors).is_err());
         let mut changed = manifest;
-        changed["implementations"][0]["semantic_version"] = json!("2");
+        changed["implementations"][0]["semantic_version"] = json!("3");
+        assert_ne!(
+            changed["implementations"][0]["semantic_version"],
+            factors["private.factor.simple_momentum"]["semantic_version"]
+        );
         assert!(Composition::derive(&revision, &context, &changed, &factors).is_err());
     }
     #[test]

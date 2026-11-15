@@ -8,7 +8,7 @@ const inventory = {
     schema_version: 1,
     factor_api_version: 1,
     factor_api_contract_fingerprint:
-        "3265e2397f581705b67c1372483b6629671b68af71f69575c7bd602816d63be9",
+        "18235355e46a704c55b115242e50999cf7d583ab72e100b5b12bdde4ddd14ccd",
     entries: []
 };
 beforeEach(() => {

@@ -30,3 +30,14 @@ pub use state::{
 };
 
 pub mod product;
+
+#[cfg(test)]
+#[path = "tests/program_tests.rs"]
+mod program_tests;
+
+pub mod program;
+mod program_execution;
+
+#[cfg(test)]
+#[path = "tests/program_execution_tests.rs"]
+mod program_execution_tests;

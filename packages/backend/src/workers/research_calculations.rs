@@ -839,6 +839,18 @@ impl ResearchProcess {
             json!({"schema_version":1,"contract":"ONLYALPHA_CALCULATION_NODE_PROFILE_OBSERVATION_V1","nodes":result}),
         )
     }
+    /// A dedicated compiler operation, never Research certification-on-load.
+    pub fn compile_factor(&mut self, request: Value, deadline: Duration) -> Result<Value> {
+        self.begin(deadline)?;
+        if self.session.is_some()
+            || request["contract"] != "ONLYALPHA_FACTOR_PROGRAM_COMPILE_V1"
+            || request.to_string().len() > WORK
+        {
+            return Err(WorkerError::Invalid);
+        }
+        self.worker
+            .prepare_research(request, self.remaining(deadline)?)
+    }
     pub fn prepare_research(&mut self, mut request: Value, deadline: Duration) -> Result<Value> {
         self.begin(deadline)?;
         if self.session.is_some()

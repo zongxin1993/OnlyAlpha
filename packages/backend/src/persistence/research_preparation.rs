@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn preparation_checks_actual_warmup_window_and_block_budget_before_effects() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../tests/application/fixtures/research_factor.json"
+            "../../tests/application/fixtures/factor_program_source.json"
         ))
         .unwrap();
         let confirmed = json!({"snapshot":{"preview":{"draft":fixture["draft"],"hypothesis":fixture["candidate"]["hypothesis"],"expression":fixture["candidate"]["expression"]}}});

@@ -20,3 +20,5 @@ pub(crate) mod backtest_worker;
 pub mod research_calculations;
 
 pub(crate) mod backtest_profile;
+
+pub mod factor_build;
