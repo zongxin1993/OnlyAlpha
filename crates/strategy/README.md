@@ -16,6 +16,10 @@
 
 ## 公开接口
 
+[`SignalExecution`、`ResearchRun`、`CompletedResearch`](src/finite.rs)复用原 `Executor` 及 `Program`。共同信号输入只含行情、因子和显式参数；仓位、资金、风控与成交不进入信号计算。Research 的有限输入与 Backtest 的逐事件输入调用相同 `process`，保留交易过滤前的 eligibility／entry／exit 和完整图类型输出。
+
+有限 Research 构造时由实际 Executor 核对初始 chain、节点、receipt 和 producer frontier，拒绝预热或恢复过的执行器。Research 过程按行数和编码预算有界，失败或输入未耗尽时拒绝完成；最终一次调用原 Executor 的 capture barrier，核对实际节点状态。`CompletedResearch` 仅证明信号／图数学完成，不能代替 Target、统计、报告、任务回收或 PG 发布的完成证明。各次作业的窗口状态独立，过程丢失后重新执行。
+
 Revision / Scope / Program 绑定图、策略和执行上下文；NodePort / NodeRequest 定义节点执行边界。Executor::new / process 接收程序与行情并返回 Outcome；capture_checkpoint / restored_candidate / restore_checkpoint 处理恢复；SourceRevision::from_json 读取公开源记录和身份。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
@@ -48,7 +52,3 @@ cargo doc -p onlyalpha-strategy --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。
-
-### 新框架的接口边界
-
-[有限作业契约](../../docs/job-execution-contract.md)规定本库后续与因子构建、共同信号、typed会话或完成owner的接口关系。第一阶段不改变本库运行接口；不把设计目标当作当前已实现能力。后端冻结身份不反向进入纯库依赖，数据库／权限接线留在Backend。

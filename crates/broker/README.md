@@ -34,6 +34,10 @@ pub use ports::*;
 pub use protocol::*;
 ```
 
+[`MemoryBroker`](src/finite.rs) 专用于 BACKTEST 的独占内存协议。它复用同一命令／事实／应用确认状态机，接收 `FiniteRuntimeReader`，不公开内部 `RuntimeReader` 或 Journal。`finish` 只在协议就绪、观察队列清空且没有未知／未决派发时返回私有 `CompletedMemoryBroker`，保留实际完整协议记录。该内存结果不能充当持久化提交回执或 SIM／LIVE 派单许可。
+
+[`SourceTimeline`](src/source.rs) 从实际接受的来源步骤维护经济钟、第一条封口和首次观察索引。Funding 继续通过原 `SourceHistory` 的完整性规则；索引和摘要均不是数据源权限或正式发布证明。
+
 ## 状态与生命周期
 
 CommandState 表达命令状态；日志端口是可信持久化边界。未知提交结果保留原命令继续查询及对账，不能盲目重发；摘要仅证明完整性，不授予权限。

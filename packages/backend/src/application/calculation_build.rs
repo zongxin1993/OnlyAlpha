@@ -15,8 +15,17 @@ const UNAVAILABLE: &str = "CALCULATION_BUILD_PROOF_UNAVAILABLE";
 const LIMIT: usize = 8 * 1024 * 1024;
 const CONTRACT: &str = "ONLYALPHA_CALCULATION_BUILD_PROOF_V1";
 type Result<T> = std::result::Result<T, &'static str>;
+#[track_caller]
+fn mismatch() -> &'static str {
+    eprintln!(
+        "[calculation-build] invalid line={}",
+        std::panic::Location::caller().line()
+    );
+    INVALID
+}
+#[track_caller]
 fn array(value: &Value) -> Result<&Vec<Value>> {
-    value.as_array().ok_or(INVALID)
+    value.as_array().ok_or_else(mismatch)
 }
 fn canonical(value: &Value) -> Result<String> {
     let raw = onlyalpha_metadata_json::canonical_json(&value.to_string(), LIMIT * 8)
@@ -30,6 +39,10 @@ fn canonical(value: &Value) -> Result<String> {
 /// parameters, Source artifacts and installed implementation records remain.
 pub(crate) fn signal_preparation(prepared: &Value) -> Result<Value> {
     let mut value = json!({"algorithm_resolution_request":prepared["algorithm_resolution_request"],"algorithm_resolution":prepared["algorithm_resolution"]});
+    if value["algorithm_resolution"]["contract"] == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1" {
+        value["algorithm_resolution_request"]["target_resolution_request"] = Value::Null;
+        value["algorithm_resolution"]["target_resolution"] = Value::Null;
+    }
     let request = &mut value["algorithm_resolution_request"];
     let instances = array(&request["instances"])?
         .iter()
@@ -56,40 +69,40 @@ pub(crate) fn context(
     recipe: &Value,
 ) -> Result<Value> {
     let graph =
-        Graph::from_record(&spec["decision"]["decision_graph"], LIMIT).map_err(|_| INVALID)?;
+        Graph::from_record(&spec["decision"]["decision_graph"], LIMIT).map_err(|_| mismatch())?;
     let requirements =
-        onlyalpha_calculation::finite_input::requirements(&graph, 8192).map_err(|_| INVALID)?;
+        onlyalpha_calculation::finite_input::requirements(&graph, 8192).map_err(|_| mismatch())?;
     let columns = requirements
         .sources()
         .iter()
         .map(|s| {
             s.strip_prefix("bar.")
                 .filter(|s| ["open", "high", "low", "close", "volume"].contains(s))
-                .ok_or(INVALID)
+                .ok_or_else(mismatch)
         })
         .collect::<Result<Vec<_>>>()?;
     let stride = definition["bar_semantic"]["formation"]["stride_minutes"]
         .as_u64()
         .and_then(|n| n.checked_mul(60_000_000_000))
         .filter(|n| *n > 0)
-        .ok_or(INVALID)?;
+        .ok_or_else(mismatch)?;
     if definition["instruments"].as_array().map(Vec::len) != Some(1) {
-        return Err(INVALID);
+        return Err(mismatch());
     }
     let end = OnlyTimestamp::from_unix_nanos(stride.into())
         .to_datetime_exact()
-        .map_err(|_| INVALID)?
+        .map_err(|_| mismatch())?
         .to_string();
     let instrument = definition["instruments"][0]
         .as_str()
-        .ok_or(INVALID)?
+        .ok_or_else(mismatch)?
         .parse::<onlyalpha_domain::identifiers::OnlyInstrumentId>()
-        .map_err(|_| INVALID)?;
+        .map_err(|_| mismatch())?;
     let seed = json!({"schema_version":1,"bar_type":{"schema_version":2,"instrument_id":instrument.to_record(),"semantic":definition["bar_semantic"]},
         "open":{"schema_version":1,"value":"100","precision":18},"high":{"schema_version":1,"value":"100","precision":18},"low":{"schema_version":1,"value":"100","precision":18},"close":{"schema_version":1,"value":"100","precision":18},"volume":{"schema_version":1,"value":"2","precision":18},"quote_volume":null,"turnover":null,"trade_count":null,"open_interest":null,
         "bar_start":"1970-01-01T00:00:00Z","bar_end":end,"ts_event":end,"ts_init":end,"is_closed":true,"revision":0,"adjustment_type":definition["bar_semantic"]["adjustment_policy"],"trading_day":"1970-01-01","session_type":"CONTINUOUS"});
     let seed = OnlyBar::from_record(&seed)
-        .map_err(|_| INVALID)?
+        .map_err(|_| mismatch())?
         .to_record();
     let signal = signal_preparation(prepared)?;
     Ok(
@@ -116,7 +129,7 @@ pub(crate) fn verify(proof: &Value, expected: &Value) -> Result<()> {
     )?;
     let mut body = proof.clone();
     body.as_object_mut()
-        .ok_or(INVALID)?
+        .ok_or_else(mismatch)?
         .remove("proof_fingerprint");
     if proof["schema_version"] != 1
         || proof["contract"] != CONTRACT
@@ -124,22 +137,22 @@ pub(crate) fn verify(proof: &Value, expected: &Value) -> Result<()> {
         || proof["build_key"] != hash(expected)?
         || proof["proof_fingerprint"] != hash(&body)?
     {
-        return Err(INVALID);
+        return Err(mismatch());
     }
-    let graph =
-        Graph::from_record(&expected["decision"]["decision_graph"], LIMIT).map_err(|_| INVALID)?;
-    let seed = OnlyBar::from_record(&expected["seed"]).map_err(|_| INVALID)?;
+    let graph = Graph::from_record(&expected["decision"]["decision_graph"], LIMIT)
+        .map_err(|_| mismatch())?;
+    let seed = OnlyBar::from_record(&expected["seed"]).map_err(|_| mismatch())?;
     let (cases, profiles) =
         super::strategy_research::planned_graph_validation(&graph, &[seed], &expected["window"])?;
     if array(&proof["graph_cases"])?.len() != cases.len()
         || array(&proof["node_profiles"])?.len() != profiles.len()
     {
-        return Err(INVALID);
+        return Err(mismatch());
     }
     for (actual, (name, inputs)) in array(&proof["graph_cases"])?.iter().zip(cases) {
         if actual["case_id"] != name || actual["rows"] != inputs || !actual["restoration"].is_null()
         {
-            return Err(INVALID);
+            return Err(mismatch());
         }
         crate::persistence::strategy_validation::verify_controlled_case(
             &graph,
@@ -151,7 +164,7 @@ pub(crate) fn verify(proof: &Value, expected: &Value) -> Result<()> {
     for planned in profiles {
         let node =
             onlyalpha_calculation::product::Definition::from_record(&planned["definition"], LIMIT)
-                .map_err(|_| INVALID)?;
+                .map_err(|_| mismatch())?;
         let observed = array(&proof["node_profiles"])?
             .iter()
             .filter(|p| p["node_fingerprint"] == node.fingerprint())
@@ -159,14 +172,14 @@ pub(crate) fn verify(proof: &Value, expected: &Value) -> Result<()> {
         if observed.len() != 1
             || array(&observed[0]["cases"])?.len() != array(&planned["cases"])?.len()
         {
-            return Err(INVALID);
+            return Err(mismatch());
         }
         for (actual, planned) in array(&observed[0]["cases"])?
             .iter()
             .zip(array(&planned["cases"])?)
         {
             if actual["case_id"] != planned["case_id"] || actual["inputs"] != planned["inputs"] {
-                return Err(INVALID);
+                return Err(mismatch());
             }
         }
     }
@@ -175,7 +188,7 @@ pub(crate) fn verify(proof: &Value, expected: &Value) -> Result<()> {
         &expected["implementation_bindings"],
         proof,
     )
-    .map_err(|_| INVALID)?;
+    .map_err(|_| mismatch())?;
     Ok(())
 }
 pub(crate) fn verify_reference(
@@ -191,7 +204,7 @@ pub(crate) fn verify_reference(
         || observation["graph_cases"] != proof["graph_cases"]
         || observation["node_profiles"] != proof["node_profiles"]
     {
-        return Err(INVALID);
+        return Err(mismatch());
     }
     Ok(())
 }
@@ -199,6 +212,7 @@ pub(crate) fn reference(proof: &Value) -> Value {
     json!({"build_key":proof["build_key"],"proof_fingerprint":proof["proof_fingerprint"]})
 }
 pub(crate) struct Inputs {
+    pub programs: Vec<crate::application::factor_build::ReadyFactorBinding>,
     pub runtime: Arc<RuntimeInputHold>,
     pub prepared: Value,
     pub specification: Value,
@@ -216,9 +230,9 @@ async fn read(tx: &Transaction<'_>, key: &str, expected: &Value) -> Result<Optio
         return Err(UNAVAILABLE);
     }
     let raw: String = row.get::<_, Option<String>>(1).ok_or(UNAVAILABLE)?;
-    let mut proof: Value = serde_json::from_str(&raw).map_err(|_| INVALID)?;
+    let mut proof: Value = serde_json::from_str(&raw).map_err(|_| mismatch())?;
     if canonical(&proof)? != raw || proof.get("proof_fingerprint").is_some() {
-        return Err(INVALID);
+        return Err(mismatch());
     }
     proof["proof_fingerprint"] = json!(row.get::<_, String>(2));
     verify(&proof, expected)?;
@@ -231,10 +245,10 @@ pub(crate) async fn verify_fact(tx: &Transaction<'_>, proof: &Value) -> Result<(
     let key = proof["build_key"]
         .as_str()
         .filter(|s| crate::is_sha256_hex(s))
-        .ok_or(INVALID)?;
+        .ok_or_else(mismatch)?;
     let actual = read(tx, key, &proof["context"]).await?.ok_or(MISSING)?;
     if actual != *proof {
-        return Err(INVALID);
+        return Err(mismatch());
     }
     Ok(())
 }
@@ -281,7 +295,7 @@ pub(crate) async fn prepare(
     tx.batch_execute("SET LOCAL synchronous_commit=on")
         .await
         .map_err(|_| UNAVAILABLE)?;
-    let lock = i64::from_str_radix(&key[..15], 16).map_err(|_| INVALID)?;
+    let lock = i64::from_str_radix(&key[..15], 16).map_err(|_| mismatch())?;
     if !tx
         .query_one("SELECT pg_catalog.pg_try_advisory_xact_lock($1)", &[&lock])
         .await
@@ -301,6 +315,8 @@ pub(crate) async fn prepare(
         );
         return Ok(proof);
     }
+    let inputs_native = inputs.prepared["algorithm_resolution"]["contract"]
+        == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1";
     let guarded = inputs.control.clone();
     let runtime = inputs.runtime.clone();
     let installation = inputs.installation.clone();
@@ -308,16 +324,20 @@ pub(crate) async fn prepare(
         tokio::task::spawn_blocking(move || super::strategy_research::certify_graph(inputs))
             .await
             .map_err(|_| guarded.uncertain("CALCULATION_BUILD_PROOF_OUTCOME_UNKNOWN"))??;
-    guarded.verify_joined()?;
+    if inputs_native {
+        guarded.check()?;
+    } else {
+        guarded.verify_joined()?;
+    }
     runtime.verify()?;
     installation.verify().map_err(|_| UNAVAILABLE)?;
     verify(&built, &expected)?;
     let mut body = built.clone();
     body.as_object_mut()
-        .ok_or(INVALID)?
+        .ok_or_else(mismatch)?
         .remove("proof_fingerprint");
     let raw = canonical(&body)?;
-    let fingerprint = built["proof_fingerprint"].as_str().ok_or(INVALID)?;
+    let fingerprint = built["proof_fingerprint"].as_str().ok_or_else(mismatch)?;
     tx.execute("INSERT INTO public.calculation_build_proof(build_key,proof_fingerprint,payload) VALUES($1,$2,$3)",&[&key,&fingerprint,&raw]).await.map_err(|_| UNAVAILABLE)?;
     tx.commit()
         .await

@@ -62,3 +62,20 @@ Criterion为每case至少10个原始样本；表中使用Criterion的median估�
 原始报告在主工作区 `test-results/backtest-observability/reference-runtime-off-02/runtime/retained/`、`reference-runtime-detail-02/runtime/retained/`，配对检查为 `runtime-observation-overhead-02.json`。本表仅为当前工作量、环境及顺序下的观测开销，不推断真实 Web 的磁盘开销或代码优化收益。旧01数据保留，但不作为当前ID实现的开销结果。
 
 用于后续比较的补证报告位于主工作区 `test-results/backtest-observability/storage-verified/` 对应参考目录；只从原 identity 的 mountinfo 和本轮原始命令路径导出 storage v1，保留原 report/identity SHA、命令日志与迁移记录，未改原样本、结果或构建身份。Runtime 配对结果为该目录下 `runtime-observation-overhead-02.json`。其余缺少可证明存储条件的历史报告只作原测量展示，拒绝用于同条件比较。
+
+## 内存会话口径
+
+`cargo bench -p onlyalpha-runtime --bench recovery -- memory.runtime` 分别量化实际 Session 创建、准入成功、成交 apply、最终对账／结果整理，并比较完整买卖流程在 observability Off／Detail 下的开销。计时外建立前置状态，各观测模式先断言完整经济结果相同；日志关闭收据必须完整且没有丢弃或 I/O 错误。这里的吞吐是经济输入／秒，不能冒充回测 K 线／秒。逐 Bar 的整体执行样本及输入规模增长见 [Backtest 基准](../backtest/BENCHMARK.md)。
+
+2026-11-15 固定 onlyalpha-dev、Linux aarch64、Rust 1.99.1、release，冻结源码 `b34f9f2b5663634be469cd43048e448e35774a16a129c906079a2733a9ed98a2`，工件 SHA256 `e7b9d6952eb12ffd1ded1a9668cb542735c8caac3b665a6021f3bed924f09a66`。Criterion 各 10 个样本，原日志与独立进程监控保留在主工作区 `test-results/strategy-research-framework-stage5-performance-final/`。
+
+| 场景 | 中心估计 | 95% 区间 |
+|---|---:|---:|
+| 创建 Session | 75.675 µs | 75.314–76.200 µs |
+| 准入成功 | 1.6692 ms | 1.6269–1.7173 ms |
+| 成交 apply | 1.0070 ms | 0.99831–1.0121 ms |
+| 最终对账与整理 | 4.8107 ms | 4.1952–5.4387 ms |
+| 完整流程 Off | 13.450 ms | 13.266–13.729 ms |
+| 完整流程 Detail | 14.023 ms | 13.950–14.155 ms |
+
+完整流程是同一八步实际经济输入，Off／Detail 结果一致；中心估计开销约 4.26%，少量样本存在异常值，不承诺固定比例。单独基准进程最大 RSS 为 23892 KiB，排除编译及未选中的旧 SQLite 场景初始化，仍包含 Criterion、样本准备、结果与观测器，不能当作单个 Session 内存。之前未带 `--bench` 的运行只证明测试模式 smoke 成功，不是计时样本。

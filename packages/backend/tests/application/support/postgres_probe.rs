@@ -753,6 +753,14 @@ pub fn main() -> Result<(), Box<dyn StdError>> {
 }
 
 pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
+    // The Host starts this same ELF as a private worker with an empty environment.
+    // Dispatch before database, runtime or ordinary probe input initialization.
+    if std::env::args_os().skip(1).eq(["--native-chart-worker"]) {
+        if onlyalpha_backend::application::chart::run_native_worker().is_err() {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;

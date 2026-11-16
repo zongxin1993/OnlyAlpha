@@ -81,6 +81,27 @@ impl<C: NodePort> Executor<C> {
             last_init: None,
         })
     }
+    /// Finite recomputation accepts only the actual empty execution frontier.
+    /// Captures the producer once so a fresh wrapper cannot hide a used port.
+    pub fn require_genesis(&mut self) -> StrategyResult<()> {
+        if self.failed
+            || self.processed != 0
+            || self.chain != initial_chain(&self.program)
+            || self.last_init.is_some()
+            || !self.requests.is_empty()
+            || !self.commitments.is_empty()
+            || !self.accepted.is_empty()
+            || self.states.iter().any(|(scope, state)| {
+                self.program.bindings.get(scope).is_none_or(|binding| {
+                    state.capture() != CalculationState::new(binding.clone()).capture()
+                })
+            })
+        {
+            return Err(StrategyError("STRATEGY_FINITE_GENESIS_REQUIRED"));
+        }
+        self.capture_checkpoint()?;
+        Ok(())
+    }
     pub fn program(&self) -> &Program {
         &self.program
     }

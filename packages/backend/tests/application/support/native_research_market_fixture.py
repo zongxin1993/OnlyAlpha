@@ -127,11 +127,11 @@ def _strategy_probe_diagnostics(stderr: str | bytes | None) -> None:
 
     if isinstance(stderr, bytes):
         stderr = stderr.decode("utf-8", errors="replace")
-    # Only bounded static phase/line labels from the existing source diagnostics.
+    # Only bounded phase/line labels, payload sizes/digests and elapsed microseconds.
     # Never dump the request, stdout, environment, arbitrary child errors or IDs.
     for line in (stderr or "").splitlines()[-256:]:
         if re.fullmatch(
-            r"\[strategy-(?:evaluation|evidence)\] (?:phase=[a-z][a-z0-9-]{0,63}|invalid line=[0-9]{1,10}|input-pin=[a-z][a-z0-9-]{0,63})",
+            r"\[(?:strategy-(?:evaluation|evidence)|calculation-build)\] (?:phase=[a-z][a-z0-9-]{0,63}|invalid line=[0-9]{1,10}|input-pin=[a-z][a-z0-9-]{0,63}|payload=(?:prepared-inputs|build-certification|algorithm-resolution|composition|specification|study|request) bytes=[0-9]{1,10} sha256=[0-9a-f]{64}|submission_us=[0-9]{1,20})",
             line,
         ):
             print(line, file=sys.stderr, flush=True)
@@ -153,12 +153,12 @@ def probe(
             env=env,
         )
     except subprocess.TimeoutExpired as error:
-        if op in {"strategy-evidence-phase", "strategy-worker-phase"}:
+        if op in {"strategy-evidence-phase", "strategy-worker-phase", "dataset-strategy-prepare"}:
             _strategy_probe_diagnostics(error.stderr)
         raise
     assert result.returncode == 0, result.stderr
     parsed = cast(dict[str, Any], json.loads(result.stdout))
-    if op == "strategy-evidence-phase" and "error" in parsed:
+    if op == "dataset-strategy-prepare" or (op == "strategy-evidence-phase" and "error" in parsed):
         # Preserve the exact returned error/old assertions and the same safe
         # phase surface for both ordinary errors and outer-harness timeouts.
         _strategy_probe_diagnostics(result.stderr)
@@ -189,6 +189,7 @@ def strategy_preparation_case(
     manual_only: bool = False,
     fresh_runtime: bool = True,
     builtins_only: bool = False,
+    coherent_backtest: bool = False,
 ) -> dict[str, Any]:
     from uuid import uuid4
 
@@ -270,7 +271,9 @@ def strategy_preparation_case(
         executable,
         database,
         "retained-source-prerequisite",
+        fixture_capture_id=str(uuid4()),
         fixture_profile=profile,
+        coherent_backtest=coherent_backtest,
         user_data=str(tmp_path / "source-inputs"),
         selected_backend=str(executable),
         selected_backend_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),

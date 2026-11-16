@@ -67,30 +67,23 @@ impl FeeFold {
         if input["op"] != "FILL" {
             return Ok(());
         }
-        let mut native_input;
-        let input = if input["payload"]["schema_version"] == 2
-            && input["payload"]["broker"].is_object()
-        {
+        // Only native broker fills need their original fee-assessment owner.
+        // Ordinary fills remain completely described by the validated header.
+        let (row, duplicate) = if uses_native_fee_assessment(input) {
+            let meta = &record.prepared().value()["projections"][5]["result"]["perpetual"];
             let id = text(&input["payload"]["broker"]["id"])?;
-            let row = &record.prepared().value()["projections"][5]["result"]["perpetual"]["broker_facts"]
-                [id];
-            if row["broker"] != input["payload"]["broker"] {
-                return Err(err("RECONCILIATION_BROKER_SOURCE"));
-            }
-            if record.prepared().value()["projections"][5]["result"]["perpetual"]["last_disposition"]
-                == "DUPLICATE"
-            {
-                return Ok(());
-            }
-            native_input = input.clone();
-            native_input["assessment"] = row["fee_assessment"].clone();
-            native_input["payload"]["trade"] =
-                input["payload"]["broker"]["record"]["payload"]["fill"]["trade_id"]["value"]
-                    .clone();
-            &native_input
+            (
+                &meta["broker_facts"][id],
+                meta["last_disposition"] == "DUPLICATE",
+            )
         } else {
-            input
+            (&Value::Null, false)
         };
+        let canonical = canonical_fee_input(input, row, duplicate)?;
+        let Some(input) = canonical.as_ref() else {
+            return Ok(());
+        };
+        let input = input.as_ref();
         if let Some(cached) = &self.cached {
             if cached.inputs.get(self.matched) == Some(input) {
                 self.matched += 1;
@@ -314,8 +307,36 @@ impl Components {
     }
 }
 
+fn uses_native_fee_assessment(input: &Value) -> bool {
+    input["op"] == "FILL"
+        && input["payload"]["schema_version"] == 2
+        && input["payload"]["broker"].is_object()
+}
 // Reuse the owning Fee reducer: cumulative targets are not incremental Trade fees.
-fn record_fee_input(
+// Share the exact native fee assessment selection across retained and finite
+// owners. The source row is an actual accepted economic owner projection.
+pub(crate) fn canonical_fee_input<'a>(
+    input: &'a Value,
+    row: &Value,
+    duplicate: bool,
+) -> Result<Option<std::borrow::Cow<'a, Value>>, Error> {
+    if uses_native_fee_assessment(input) {
+        if row["broker"] != input["payload"]["broker"] {
+            return Err(err("RECONCILIATION_BROKER_SOURCE"));
+        }
+        if duplicate {
+            return Ok(None);
+        }
+        let mut native = input.clone();
+        native["assessment"] = row["fee_assessment"].clone();
+        native["payload"]["trade"] =
+            input["payload"]["broker"]["record"]["payload"]["fill"]["trade_id"]["value"].clone();
+        Ok(Some(std::borrow::Cow::Owned(native)))
+    } else {
+        Ok(Some(std::borrow::Cow::Borrowed(input)))
+    }
+}
+pub(crate) fn record_fee_input(
     input: &Value,
     owner: &mut onlyalpha_fee::Manager,
     expected: &mut BTreeMap<String, Value>,
@@ -376,7 +397,7 @@ fn fee_entry(payload: &Value) -> Result<Value, Error> {
 }
 
 // Private comparison: raw snapshots never constitute a public proof-authoring API.
-fn compare(
+pub(crate) fn compare(
     config: &Value,
     account: &Value,
     ledger: &Value,

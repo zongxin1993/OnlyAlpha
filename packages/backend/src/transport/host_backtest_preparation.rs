@@ -1017,7 +1017,7 @@ impl Host {
         }
         let ready = json!({"algorithm_resolution":original["algorithm_resolution"]});
         crate::persistence::backtest_evidence::verify_implementation_bindings(
-            proof.source_revision(),
+            proof,
             &ready,
             runtime.manifest(),
             &installed,
@@ -1234,7 +1234,7 @@ impl Host {
                 || native["execution_capabilities"].as_array().is_none_or(|rows|rows.iter().filter(|r|**r==json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"})).count()!=1) {return Err("BACKTEST_EXECUTOR_UNAVAILABLE".into());}
             if ready["algorithm_resolution"]!=prior["algorithm_resolution"] || ready["algorithm_resolution_request"]!=prior["algorithm_resolution_request"]
                 || ready["algorithm_resolution"]["algorithm_artifact"]!=installation.artifact_fingerprint() {return Err(INVALID.into());}
-            crate::persistence::backtest_evidence::verify_implementation_bindings(admission.source_revision(),ready,runtime.manifest(),&installed)?;
+            crate::persistence::backtest_evidence::verify_implementation_bindings(&admission,ready,runtime.manifest(),&installed)?;
             let datasets=Datasets::open(&config.research_root.join("datasets"),8192,8*1024*1024)?;
             let materialized=MaterializedDataset::load(&datasets,text(ready,"dataset_materialization_id")?)?;
             let prepared=build_prepared_next_open(admission.source_revision(),&materialized,retained_rules(&original)?,generation)?;

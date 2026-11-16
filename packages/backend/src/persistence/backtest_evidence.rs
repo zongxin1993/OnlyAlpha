@@ -1,6 +1,6 @@
 //! Owning seals for immutable native Backtest evidence, never caller DTO grants.
 mod context;
-pub(crate) use context::implementations as verify_implementation_bindings;
+pub(crate) use context::admitted_implementations as verify_implementation_bindings;
 pub(crate) use context::{BacktestReadContext, read_context};
 mod physical;
 mod store;

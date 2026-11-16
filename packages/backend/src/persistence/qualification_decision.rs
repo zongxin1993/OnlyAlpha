@@ -16,6 +16,31 @@ const INVALID: &str = "QUALIFICATION_DECISION_CORRUPT";
 const UNAVAILABLE: &str = "QUALIFICATION_DECISION_UNAVAILABLE";
 const WORK: usize = 64 * 1024 * 1024;
 
+// Pure extraction from an already authenticated owning record. These helpers
+// neither verify a PG proof nor manufacture a qualification/execution grant.
+fn decision_record(value: &Value) -> Result<&Value> {
+    if value["schema_version"] != 1
+        || !value["decision_graph"].is_object()
+        || !value["signal_semantics"].is_object()
+        || !value["decision_graph_fingerprint"]
+            .as_str()
+            .is_some_and(crate::is_sha256_hex)
+    {
+        return Err(INVALID);
+    }
+    Ok(value)
+}
+fn research_decision(prepared: &Value) -> Result<&Value> {
+    decision_record(&prepared["build_certification"]["context"]["decision"])
+}
+pub(super) fn manual_decision(prepared: &Value) -> Result<&Value> {
+    let decision = decision_record(&prepared["decision"])?;
+    if prepared.get("build_certification").is_some() && research_decision(prepared)? != decision {
+        return Err(INVALID);
+    }
+    Ok(decision)
+}
+
 /// Closed owning evidence set; no copied JSON can implement an approval source.
 #[derive(Clone)]
 pub(crate) enum Evidence {
@@ -288,6 +313,15 @@ pub struct VerifiedDecision {
     evidence: Evidence,
 }
 impl VerifiedDecision {
+    /// Original mathematical decision selected by the closed evidence owner.
+    /// Research and manual validation retain deliberately different wire shapes.
+    pub(crate) fn validated_decision(&self) -> Result<&Value> {
+        self.verify_cut()?;
+        match &self.evidence {
+            Evidence::Research(v) => research_decision(v.validated_calculations()?),
+            Evidence::Manual(v) => manual_decision(v.validated_calculations()?),
+        }
+    }
     pub(crate) fn validated_calculations(&self) -> Result<&Value> {
         self.verify_cut()?;
         match &self.evidence {
@@ -356,6 +390,10 @@ impl VerifiedDecision {
         Ok(namespace)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/qualification_decision_inputs.rs"]
+mod decision_input_tests;
 
 #[cfg(test)]
 mod tests {

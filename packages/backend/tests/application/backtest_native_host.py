@@ -214,6 +214,14 @@ def owner_scenario(
         )
         (output / ("owner-" + phase + ".log")).write_text(result.stdout + result.stderr)
         assert result.returncode == (86 if phase == "crash-after-publication" else 0), result.stdout + result.stderr
+        if phase == "memory-completion":
+            timings = [
+                json.loads(line.removeprefix("FINITE_BACKTEST_CANDIDATE "))
+                for line in result.stdout.splitlines()
+                if line.startswith("FINITE_BACKTEST_CANDIDATE ")
+            ]
+            assert len(timings) == 1, result.stdout
+            print({"finite_backtest_candidate": timings[0]}, flush=True)
         pids = re.findall(r"BACKTEST_OWNER_PID ([0-9]+)", result.stdout)
         assert len(pids) == 1, result.stdout + result.stderr
         wait_no_advisory_locks(dsn, int(pids[0]))
@@ -254,6 +262,7 @@ def exercise_native_backtest_host(
             executable,
             database,
             "retained-source-prerequisite",
+            fixture_capture_id=str(uuid4()),
             fixture_profile="BTC_SPOT_NEXT_OPEN_2025_V1",
             user_data=str(data),
             selected_backend=str(executable),

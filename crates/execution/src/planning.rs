@@ -84,7 +84,7 @@ impl AdmissionPreview {
 }
 
 impl Components {
-    fn validate_planning_input(&self, input: &Value) -> Result<u64, Error> {
+    pub(crate) fn validate_planning_input(&self, input: &Value) -> Result<u64, Error> {
         row(
             input,
             &[
@@ -147,6 +147,10 @@ impl Components {
         Ok(n)
     }
     pub fn prepare<S: crate::Store>(&self, store: &S, input: &Value) -> Result<Prepared, Error> {
+        self.require_original_evidence(input)?;
+        self.prepare_input(store, input)
+    }
+    pub(crate) fn require_original_evidence(&self, input: &Value) -> Result<(), Error> {
         if self.config["schema_version"] == 3
             && matches!(
                 input["op"].as_str(),
@@ -155,7 +159,7 @@ impl Components {
         {
             return Err(err("EXECUTION_ORIGINAL_EVIDENCE_REQUIRED"));
         }
-        self.prepare_input(store, input)
+        Ok(())
     }
     pub(crate) fn prepare_input<S: crate::Store>(
         &self,
@@ -216,7 +220,7 @@ impl Components {
         body["projections"] = Value::Array(projections);
         Prepared::new_with_typed_after(body, candidate)
     }
-    fn apply_operation(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn apply_operation(&mut self, input: &Value) -> Result<(), Error> {
         if self.config["schema_version"] == 3 {
             return self.perpetual_operation(input);
         }
@@ -562,15 +566,27 @@ impl Components {
                 quantity_precision,
             ))?;
         }
-        Arc::make_mut(&mut self.meta)["settlement_authority"] = settlement_owner.checkpoint();
-        self.economic_source("markets", &p["market"])?;
+        let market_source = id(&p["market"]["source_ref"])?;
+        if self.meta["markets"].get(market_source).is_some() {
+            return Err(err("EXECUTION_ECONOMIC_SOURCE_ALIAS"));
+        }
+        // Only the first activation needs a prospective Ledger owner; an active
+        // Ledger is read directly. No Account/Position/Order/history fork.
+        let mut activated = None;
         if boundary(self.ledger.snapshot(cluster))?["status"] == "CREATED" {
-            self.ledger_apply(&self.ledger_command(
+            let mut ledger = self.ledger.as_ref().clone();
+            if boundary(ledger.apply(&self.ledger_command(
                 input,
                 "ACTIVATE",
                 json!({"schema_version":1}),
                 0,
-            ))?;
+            )))?
+            .status
+                != onlyalpha_strategy_ledger::Status::Applied
+            {
+                return Err(err("EXECUTION_LEDGER_NOT_APPLIED"));
+            }
+            activated = Some(ledger);
         }
         let risk_cash = if self.config["schema_version"] == 3 {
             nonnegative(&p["collateral"]["instruction"]["amount"])?
@@ -587,7 +603,12 @@ impl Components {
         let envelope = |family: &str, data: Value| json!({"schema_version":1,"family":family,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"generation":input["generation"],"cluster":cluster,"instrument":inst,"revision":input["revision"],"source_ref":format!("{}-{family}",input["input_id"].as_str().expect("validated")),"version":n,"as_of_sequence":n,"source_digest":hash(&data),"data":data});
         // These owners contain only this composition's holds. Gross cash is BEFORE those same-owner holds.
         let account = self.account.snapshot();
-        let ledger = boundary(self.ledger.snapshot(cluster))?;
+        let ledger = boundary(
+            activated
+                .as_ref()
+                .unwrap_or(self.ledger.as_ref())
+                .snapshot(cluster),
+        )?;
         let (aq, cq) = if buy {
             ("0".to_owned(), "0".to_owned())
         } else {
@@ -616,17 +637,58 @@ impl Components {
             "cash"
         };
         let views = json!({"schema_version":1,"account":envelope("ACCOUNT",json!({"schema_version":1,"status":account["status"],"cash":account[cash_field]})),"ledger":envelope("LEDGER",json!({"schema_version":1,"status":ledger["status"],"cash":ledger[cash_field]})),"position":envelope("POSITION",json!({"schema_version":1,"account_available":aq,"allocation_available":cq,"position_side":"LONG","position_mode":"NETTING"})),"market":envelope("MARKET",json!({"schema_version":1,"request_digest":hash(&req),"verdict":"ACCEPT","code":"OK"}))});
-        let decision = self
-            .risk_apply(&self.risk_command(
-                input,
-                "EVALUATE",
-                json!({"schema_version":1,"request":req,"views":views}),
-                1,
-            ))?
+        let mut risk = self.risk.as_ref().clone();
+        let evaluated = boundary(risk.apply(&self.risk_command(
+            input,
+            "EVALUATE",
+            json!({"schema_version":1,"request":req,"views":views}),
+            1,
+        )))?;
+        if evaluated.status != onlyalpha_risk::Status::Applied {
+            return Err(err("EXECUTION_RISK_NOT_APPLIED"));
+        }
+        let decision = evaluated
+            .decision
             .ok_or_else(|| err("EXECUTION_RISK_DECISION"))?;
         if decision["outcome"] != "ACCEPT" {
             return Err(err("EXECUTION_RISK_DENIED"));
         }
+        let reserve = json!({"schema_version":1,"reservation":order,"order":order,"amount":money(&(&cash_requirement+&fee),self.precision)?});
+        if buy
+            && let Err(error) = self.account.check_new_reservation_capacity(&self.command(
+                input,
+                "RESERVE",
+                reserve.clone(),
+                2,
+            ))
+        {
+            if error.0 != "ACCOUNT_JOURNAL_BOUND" {
+                return Err(Error(error.0));
+            }
+            // Preserve the old failure order: a malformed proposed Order/fee
+            // contract is an error even when Account has no admission capacity.
+            let mut order_owner = self.order.as_ref().clone();
+            let created=boundary(order_owner.apply(&json!({"schema_version":1,"op":"CREATE","cluster_id":cluster,"account_id":input["account"],"request":r,"cause":super::perpetual::cause(input),"at":input["time"]})))?;
+            if created.result != onlyalpha_order::ApplyResult::Applied
+                || created.snapshot.as_ref().map(|s| s.order_id().value()) != Some(order)
+            {
+                return Err(err("EXECUTION_ORDER_IDENTITY"));
+            }
+            let mut fee = self.order_local(input, "FEE", order);
+            fee["contract"] = p["fee_contract"].clone();
+            fee["contract"]["schema_version"] = json!(1);
+            if boundary(order_owner.apply(&fee))?.result != onlyalpha_order::ApplyResult::Applied {
+                return Err(err("EXECUTION_ORDER_NOT_APPLIED"));
+            }
+            return Err(err("EXECUTION_ACCOUNT_CAPACITY_DENIED"));
+        }
+        // Both ordinary rejections are settled before any owning mutation.
+        Arc::make_mut(&mut self.meta)["settlement_authority"] = settlement_owner.checkpoint();
+        self.economic_source("markets", &p["market"])?;
+        if let Some(ledger) = activated {
+            self.ledger = Arc::new(ledger);
+        }
+        self.risk = Arc::new(risk);
         let created=self.order_apply(&json!({"schema_version":1,"op":"CREATE","cluster_id":cluster,"account_id":input["account"],"request":r,"cause":super::perpetual::cause(input),"at":input["time"]}))?;
         if created["order_id"]["value"] != order {
             return Err(err("EXECUTION_ORDER_IDENTITY"));
@@ -635,18 +697,13 @@ impl Components {
         fc["contract"] = p["fee_contract"].clone();
         fc["contract"]["schema_version"] = json!(1);
         self.order_apply(&fc)?;
-        let reserve = json!({"schema_version":1,"reservation":order,"order":order,"amount":money(&(&cash_requirement+&fee),self.precision)?});
+
         if buy {
             // Only this actual new-risk RESERVE can produce the distinct
             // Execution rejection. Source/restore/codec errors retain their codes.
-            self.account_apply(&self.command(input, "RESERVE", reserve.clone(), 2))
-                .map_err(|error| {
-                    if error.0 == "ACCOUNT_JOURNAL_BOUND" {
-                        err("EXECUTION_ACCOUNT_CAPACITY_DENIED")
-                    } else {
-                        error
-                    }
-                })?;
+            // A capacity error after the exact preflight is unexpected and
+            // poisons unpublished work; it is never a normal rollback result.
+            self.account_apply(&self.command(input, "RESERVE", reserve.clone(), 2))?;
             self.ledger_apply(&self.ledger_command(input, "RESERVE", reserve, 2))?;
         } else {
             self.position_apply(&self.command(input,"RESERVE",json!({"schema_version":1,"instrument":inst,"cluster":cluster,"order":order,"quantity":quantity.to_plain_string()}),2))?;

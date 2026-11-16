@@ -86,12 +86,16 @@ def test_actual_graph_build_is_once_and_missing_original_fact_never_rebuilds(
     assert fixture["read_proof"](proof)["verified"] is True
     original_row = json.loads(original[0])
     original_body = json.loads(original_row["payload"])
-    for mutation in ("artifact", "missing-case", "implementation"):
+    for mutation in ("artifact", "missing-case", "implementation", "decision-graph", "signal-semantics"):
         body = json.loads(json.dumps(original_body))
         if mutation == "artifact":
             body["context"]["execution_binding"]["executor_artifact_sha256"] = "0" * 64
         elif mutation == "missing-case":
             body["graph_cases"].pop()
+        elif mutation == "decision-graph":
+            body["context"]["decision"]["decision_graph_fingerprint"] = "0" * 64
+        elif mutation == "signal-semantics":
+            body["context"]["decision"]["signal_semantics"]["missing_decision"] = "TRUE"
         else:
             body["node_profiles"][0]["research_implementation_fingerprint"] = "0" * 64
         with psycopg.connect(postgres_dsn) as conn:

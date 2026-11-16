@@ -10,8 +10,12 @@ mod replay;
 pub use references::{ReplayCompletion, ReplayEntryRef};
 mod readonly;
 pub use readonly::VerifiedReplaySnapshot;
+mod session;
 mod store;
 mod transcript;
+pub use session::{
+    AppliedEvent, CompletedSession, RunBinding, RunConfiguration, Session, TradingInput,
+};
 // 单一 support 挂载点：与 execution 集成目标共享同一实现，重复挂载由 crate 根吸收。
 // support 按父作用域契约读取这两个参考向量，与既有集成目标根作用域写法一致。
 #[cfg(test)]

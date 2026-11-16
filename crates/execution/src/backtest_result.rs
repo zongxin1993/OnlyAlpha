@@ -50,6 +50,13 @@ fn timestamp(v: &Value) -> Result<OnlyTimestamp, Error> {
 fn diagnostic(code: &str, details: Value) -> Value {
     json!({"severity":"ERROR","code":code,"details":details})
 }
+pub(crate) struct TranscriptParts {
+    pub source: Value,
+    pub reconciliation: Value,
+    pub runtime_performance: Value,
+    pub facts: Vec<Value>,
+    pub trades: Vec<Value>,
+}
 impl Components {
     /// Caller declares the immutable input pin, exact artifact, config and complete ordered
     /// transaction-input hashes. Only the admitted Runtime driver can bind these to a Dataset
@@ -160,6 +167,36 @@ impl Components {
             return Err(err("RESULT_SOURCE_CHANGED"));
         }
         let runtime_performance = performance["performance"].clone();
+        self.assemble_transcript(
+            manifest,
+            outcome,
+            TranscriptParts {
+                source,
+                reconciliation,
+                runtime_performance,
+                facts,
+                trades,
+            },
+        )
+    }
+    pub(crate) fn assemble_transcript(
+        &self,
+        manifest: &Value,
+        outcome: &Value,
+        parts: TranscriptParts,
+    ) -> Result<TranscriptDraft, Error> {
+        let TranscriptParts {
+            source,
+            reconciliation,
+            runtime_performance,
+            facts,
+            trades,
+        } = parts;
+        let requested = text(&outcome["status"])?;
+        let expected = manifest["inputs"]
+            .as_array()
+            .ok_or_else(|| err("RESULT_MANIFEST_INPUTS"))?;
+        let complete = facts.len() == expected.len();
         let account = self.account.snapshot();
         let position = self.position.state();
         let ledger = self.ledger.state();

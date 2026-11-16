@@ -121,6 +121,7 @@ pub struct InputTimings {
 pub struct PreparedJobInput {
     binding: String,
     source_evidence: Value,
+    construction_recipe: Value,
     dataset: Dataset,
     bars: Vec<OnlyBar>,
     factors: Vec<ReadyFactorBinding>,
@@ -132,6 +133,9 @@ impl PreparedJobInput {
     }
     pub fn source_evidence(&self) -> &Value {
         &self.source_evidence
+    }
+    pub(crate) fn construction_recipe(&self) -> &Value {
+        &self.construction_recipe
     }
     pub fn dataset(&self) -> &Dataset {
         &self.dataset
@@ -426,6 +430,7 @@ impl<'a, 's, 'f> JobInputLoader<'a, 's, 'f> {
         Ok(PreparedJobInput {
             binding: binding.fingerprint().to_owned(),
             source_evidence,
+            construction_recipe: plan["resolved_recipe"].clone(),
             dataset,
             bars,
             factors,

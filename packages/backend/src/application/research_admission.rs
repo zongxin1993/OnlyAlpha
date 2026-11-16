@@ -81,12 +81,16 @@ pub struct PreparedInputs {
     runtime: Arc<RuntimeInputHold>,
     record: Value,
     authoring_generation: Option<PreparedAuthoringGeneration>,
+    programs: Vec<crate::application::factor_build::ReadyFactorBinding>,
 }
 struct PreparedAuthoringGeneration {
     provider: Value,
     fingerprint: String,
 }
 impl PreparedInputs {
+    pub(crate) fn programs(&self) -> &[crate::application::factor_build::ReadyFactorBinding] {
+        &self.programs
+    }
     pub(crate) fn runtime_hold(&self) -> Arc<RuntimeInputHold> {
         self.runtime.clone()
     }
@@ -333,6 +337,7 @@ pub fn prepare(
     Ok(PreparedInputs {
         runtime,
         record,
+        programs: Vec::new(),
         authoring_generation: Some(PreparedAuthoringGeneration {
             provider,
             fingerprint,

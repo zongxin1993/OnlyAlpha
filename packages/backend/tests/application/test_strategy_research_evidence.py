@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from psycopg.conninfo import make_conninfo
 
 from packages.backend.tests.application.support.native_research_market_fixture import (
     ROOT,
@@ -835,6 +836,7 @@ def verify_public_science_rejects_rebound_facts(root: Path, report: dict[str, An
         "qualification-product",
         "backtest-native",
         "backtest-owner:full-interval-evidence",
+        "backtest-owner:memory-completion",
         "backtest-owner:pause-cancel",
         "backtest-owner:queued-cancel",
         "backtest-owner:shutdown-resume",
@@ -854,6 +856,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
     tmp_path: Path,
     mode: str,
     request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
@@ -862,6 +865,37 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         market_probe = native_environment_case["executable"]
         strategy_evidence_owner_binary = native_environment_case["executable"]
 
+    if mode == "backtest-native" or mode.startswith("backtest-owner:"):
+        from scripts.factor_build_database import prepare
+
+        # Match the existing contained-development transport contract and the
+        # native Web harness: NoTls is permitted only with explicit Disable.
+        postgres_dsn = make_conninfo(postgres_dsn, sslmode="disable")
+        monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", postgres_dsn)
+        monkeypatch.setenv("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN", prepare(postgres_dsn, test=True))
+    memory_completion = mode == "backtest-owner:memory-completion"
+    if memory_completion:
+        from copy import deepcopy
+
+        from packages.backend.tests.application.test_finite_job_completion import prepare_runtime_login
+
+        native_environment_case = deepcopy(native_environment_case)
+        reference = subprocess.run(
+            [str(market_probe)],
+            input=json.dumps(
+                {
+                    "op": "factor-reference",
+                    "candidate": native_environment_case["vector"]["candidate"],
+                    "factor_id": "private.factor.stage5_backtest_" + uuid4().hex,
+                }
+            ),
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=20,
+        )
+        native_environment_case["vector"] = json.loads(reference.stdout)
+        prepare_runtime_login(postgres_dsn)
     command = str(uuid4())
     digest = bytearray(
         hashlib.sha256(b"ONLYALPHA_NOVELTY_GATED_RESEARCH_RUN_ID_V4\x1f" + command.encode()).digest()[:16]
@@ -891,6 +925,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         runtime_root=semantic / "runtime" if mode == "backtest-native" or mode.startswith("backtest-owner:") else None,
         first_bar_start=datetime(2025, 1, 2, 11, 39, tzinfo=UTC),
         fresh_runtime=mode != "backtest-native" and not mode.startswith("backtest-owner:"),
+        coherent_backtest=mode == "backtest-native" or mode.startswith("backtest-owner:"),
     )
     expected_first = int(datetime(2025, 1, 2, 11, 40, tzinfo=UTC).timestamp()) * 1_000_000_000
     assert case["axis_ns"] == [expected_first + minute * 60_000_000_000 for minute in range(740)]
@@ -909,6 +944,22 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         strategy_evaluation=False,
         strategy_evidence=True,
     )
+    if memory_completion:
+        built = probe(
+            executable,
+            database,
+            "strategy-evidence-phase",
+            **arguments,
+            evidence_phase="memory-build",
+            build_instances=[
+                {
+                    "factor_id": case["vector"]["revision"]["factor_id"],
+                    "revision": case["vector"]["revision"]["revision_fingerprint"],
+                    "parameters": {"literal_1": "1"},
+                }
+            ],
+        )
+        assert "error" not in built, built
     submitted = probe(executable, database, "dataset-strategy-prepare", **arguments)
     assert "error" not in submitted, submitted
     assert submitted["run_id"] == run_id

@@ -16,6 +16,10 @@
 
 ## 公开接口
 
+[`BacktestRun`、`MemoryRunSpec`、`CompletedBacktest`](src/memory.rs)提供有限内存执行入口。`new` 核对行情、程序、配置、样本窗口和输入身份，只接受原 Strategy owner 已核对的 genesis Executor；`step` 先 OPEN 执行上一根信号，再处理闭合 BAR，共用原 `NativeReplay` 的准入、费用、成交与结算。`cancel` 后和输入未耗尽时不能 `finish`。成功收尾包含实际事件 drain、信号 owner 最终核对、Account／Ledger 对账、完整经济结果、逐 sample 收盘曲线及同数量买入持有费用报价；字段私有的 `CompletedBacktest` 保留完整 `ExecutionBinding`：实际配置、时间边界、日历、resolver 绑定与初始信号状态；`RunBinding::with_execution_fingerprint` 声明的摘要必须与实际内容完全相同。它不是 PG 发布回执。Backend 仍须证明原冻结绑定、全部结果计划、实际任务退出和发布权限。新路径不创建文件或逐 Bar 全组件 checkpoint，过程丢失后从冻结输入重算。`retained_counts`、`retained_payload_bytes` 只供技术观测，后者不等于分配器内存或 RSS。
+
+`NextOpenPolicy::analytical_entry_quote` 必须由原市场／费用 owner 返回同数量的分析报价，结果标明 `ANALYTICAL_ESTIMATE`，不证明真实场所接受。当前内存驱动复用现有现金、单商品、下一 OPEN 整笔成交模型；永续原始凭据不能通过普通 Session 输入绕过。旧文件运行入口尚由现有消费者使用，不能将其描述为已经退役。
+
 Inputs / Source / MarketInput 校验输入及其身份；RunSpec、Participants、NextOpenPolicy 配置运行；RunLoop::create / open / step / run 执行或恢复；TerminalSnapshot::read 读取校验后的终态。Trading 适配 Strategy 节点，validate_configuration 只验证配置。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
@@ -64,7 +68,3 @@ cargo doc -p onlyalpha-backtest --no-deps
 仅量化纯复算开销和观察进程 RSS，不将技术输入解释为可提交意图，也不代替正式 Web 验收。
 
 性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。
-
-### 新框架的接口边界
-
-[有限作业契约](../../docs/job-execution-contract.md)规定本库后续与因子构建、共同信号、typed会话或完成owner的接口关系。第一阶段不改变本库运行接口；不把设计目标当作当前已实现能力。后端冻结身份不反向进入纯库依赖，数据库／权限接线留在Backend。

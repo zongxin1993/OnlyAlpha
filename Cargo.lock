@@ -1604,6 +1604,7 @@ version = "0.11.1"
 dependencies = [
  "base64 0.23.1",
  "flate2",
+ "onlyalpha-calculation",
  "onlyalpha-calculation-bridge",
  "onlyalpha-clock",
  "onlyalpha-domain",
@@ -1667,8 +1668,8 @@ name = "onlyalpha-calculation"
 version = "0.11.1"
 dependencies = [
  "bigdecimal",
- "onlyalpha-operators",
  "criterion",
+ "onlyalpha-operators",
  "serde_json",
  "sha2",
 ]

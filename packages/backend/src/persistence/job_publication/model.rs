@@ -119,6 +119,74 @@ pub struct CompletedJobCandidate {
     pub(super) manifest: String,
     pub(super) fingerprint: String,
     pub(super) ended_at: SystemTime,
+    pub(super) owner: Option<std::sync::Arc<crate::application::finite_job::JoinedCut>>,
+}
+
+pub(super) fn owner_error(
+    error: crate::application::research_admission::PreparationError,
+) -> PublicationError {
+    if error.code().contains("UNKNOWN") {
+        PublicationError::OutcomeUnknown
+    } else if error.code().contains("CANCEL") {
+        PublicationError::Conflict
+    } else if error.code().contains("MISMATCH") {
+        PublicationError::Mismatch
+    } else {
+        PublicationError::Unavailable
+    }
+}
+
+impl CompletedJobCandidate {
+    pub(crate) fn from_joined(
+        joined: crate::application::finite_job::JoinedFiniteJob,
+    ) -> Result<Self> {
+        let (binding, values, owner) = joined.into_parts().map_err(owner_error)?;
+        let mut members = Vec::new();
+        let mut bytes = 0usize;
+        for (descriptor, body) in values {
+            let descriptor_raw = encode(
+                &serde_json::to_value(&descriptor).map_err(|_| PublicationError::Integrity)?,
+                8192,
+            )?;
+            let content = encode(&body, CONTENT_LIMIT)?;
+            bytes = bytes
+                .checked_add(content.len())
+                .filter(|n| *n <= CONTENT_LIMIT)
+                .ok_or(PublicationError::BudgetExceeded)?;
+            members.push(PreparedMember {
+                descriptor,
+                descriptor_raw,
+                content_fingerprint: digest(content.as_bytes()),
+                content,
+            });
+        }
+        let manifest = super::reader::manifest(&binding, &members)?;
+        let fingerprint = digest(manifest.as_bytes());
+        owner.verify().map_err(owner_error)?;
+        Ok(Self {
+            binding,
+            members,
+            manifest,
+            fingerprint,
+            ended_at: SystemTime::now(),
+            owner: Some(owner),
+        })
+    }
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+    pub fn binding(&self) -> &FrozenJobBinding {
+        &self.binding
+    }
+    pub fn member_count(&self) -> usize {
+        self.members.len()
+    }
+    pub fn content(&self, key: &str) -> Option<&str> {
+        self.members
+            .iter()
+            .find(|m| m.descriptor.key() == key)
+            .map(|m| m.content.as_str())
+    }
 }
 #[derive(Clone, Debug)]
 pub struct PublishedJobResult {

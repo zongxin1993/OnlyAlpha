@@ -275,11 +275,12 @@ impl Work {
                 installation,
             });
             error.hold = Some(hold.clone());
+            let decision = context.validated_decision()?;
             let source = context.source_revision().to_record();
             if resolution["algorithm_resolution"] != ready["algorithm_resolution"]
                 || request != ready["algorithm_resolution_request"]
-                || resolution["decision"]["decision_graph"] != source["decision_graph"]
-                || resolution["decision"]["signal_semantics"] != source["signal_semantics"]
+                || decision["decision_graph"] != source["decision_graph"]
+                || decision["signal_semantics"] != source["signal_semantics"]
                 || context.prepared().record() != run.resolution()["preparation"]
                 || context.prepared().record() != ready["preparation"]
                 || context.prepared().inputs().record() != ready["input_sources"]
@@ -737,4 +738,64 @@ pub(crate) fn test_child_states(joined: &JoinedBacktest) -> Vec<ProcessState> {
 #[cfg(test)]
 pub(crate) fn test_paused_trace(paused: &PausedBacktest) -> Value {
     paused.trace.clone()
+}
+
+/// The finite-memory producer borrows only this actual admitted/restored cut.
+/// No parsed preparation or completed DTO can manufacture it.
+pub(crate) struct FiniteBacktestCut(Work);
+impl FiniteBacktestCut {
+    pub(crate) async fn load(
+        client: &mut tokio_postgres::Client,
+        run: &VerifiedRun,
+        research: &std::path::Path,
+        runtime: &std::path::Path,
+        algorithms: &std::path::Path,
+        version: &str,
+    ) -> std::result::Result<Self, Error> {
+        let context = crate::persistence::backtest_evidence::read_context(
+            client,
+            run.namespace(),
+            research,
+            runtime,
+            run.run_id(),
+            Some(run.owner()),
+        )
+        .await
+        .map_err(Error::bare)?;
+        let configuration = Configuration {
+            backtest_root: std::path::PathBuf::new(),
+            research_root: research.into(),
+            runtime_root: runtime.into(),
+            algorithms_root: algorithms.into(),
+            native_version: version.into(),
+        };
+        let original = context.original_operation().clone();
+        Ok(Self(Work::restore(
+            context,
+            run,
+            &original,
+            &configuration,
+        )?))
+    }
+    pub(crate) fn verify(&self) -> Result<()> {
+        self.0.hold.verify()
+    }
+    pub(crate) fn run(&self) -> &VerifiedRun {
+        self.0.hold.context.run()
+    }
+    pub(crate) fn source(&self) -> &onlyalpha_strategy::SourceRevision {
+        self.0.hold.context.source_revision()
+    }
+    pub(crate) fn prepared(&self) -> &crate::workers::backtest::PreparedNextOpen {
+        self.0.hold.context.prepared()
+    }
+    pub(crate) fn materialization(&self) -> &Value {
+        self.0.hold.context.materialization()
+    }
+    pub(crate) fn calculations(&self) -> Result<&Value> {
+        self.0.hold.context.validated_calculations()
+    }
+    pub(crate) fn installation(&self) -> &ChartInstallation {
+        &self.0.hold.installation
+    }
 }

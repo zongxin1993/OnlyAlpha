@@ -71,6 +71,9 @@ impl BacktestReadContext {
     pub(crate) fn prepared(&self) -> &PreparedNextOpen {
         &self.owners.prepared
     }
+    pub(crate) fn materialization(&self) -> &Value {
+        self.owners.dataset.lineage()
+    }
     pub(crate) fn source_revision(&self) -> &onlyalpha_strategy::SourceRevision {
         self.owners.history.source_revision()
     }
@@ -81,6 +84,17 @@ impl BacktestReadContext {
         match &self.owners.validation {
             Some(validation) => Ok(&validation.record()["prepared_inputs"]),
             None => self.owners.history.validated_calculations(),
+        }
+    }
+    /// A current manual occurrence takes precedence over historical promotion
+    /// evidence. An invalid current proof never falls back to another occurrence.
+    pub(crate) fn validated_decision(&self) -> Result<&Value> {
+        self.verify_cut()?;
+        match &self.owners.validation {
+            Some(validation) => super::super::qualification_decision::manual_decision(
+                &validation.record()["prepared_inputs"],
+            ),
+            None => self.owners.history.validated_decision(),
         }
     }
     pub(super) fn installed_proof(&self) -> &Value {
@@ -343,12 +357,8 @@ pub(crate) async fn read_context(
     {
         return Err(INVALID);
     }
-    implementations(
-        history.source_revision(),
-        ready,
-        held.manifest(),
-        &installed,
-    )?;
+    history.verify_cut()?;
+    implementation_records(history.source_revision(),ready,held.manifest(),&installed,Some(history.validated_calculations()?))?;
     let value = Arc::new(BacktestReadContext {
         run,
         operation,
@@ -380,11 +390,29 @@ pub(crate) async fn read_context(
     trace.finish(if context.is_ok() { "ok" } else { "failed" }, 1, 0);
     context
 }
-pub(crate) fn implementations(
+/// The admitted owner has already authenticated the exact PG graph/certificates.
+/// A Source DTO or caller-provided implementation list cannot enter this wrapper.
+pub(crate) fn admitted_implementations(
+    admission: &crate::persistence::strategy_promotion::VerifiedBacktestAdmission,
+    ready: &Value,
+    runtime: &Value,
+    installed: &Value,
+) -> Result<()> {
+    admission.verify_cut()?;
+    implementation_records(
+        admission.source_revision(),
+        ready,
+        runtime,
+        installed,
+        Some(admission.validated_calculations()?),
+    )
+}
+fn implementation_records(
     source: &onlyalpha_strategy::SourceRevision,
     ready: &Value,
     runtime: &Value,
     installed: &Value,
+    certified: Option<&Value>,
 ) -> Result<()> {
     let mut bodies = BTreeMap::new();
     for node in ready["algorithm_resolution"]["nodes"]
@@ -401,6 +429,15 @@ pub(crate) fn implementations(
     {
         insert(&mut bodies, body)?;
     }
+    let certified_factors = match certified {
+        Some(original) => crate::application::factor_build::retained_factor_manifest_values(
+            original,
+            text(&installed["native_descriptor"]["image"], "artifact")?,
+            text(installed, "algorithm_artifact")?,
+        )
+        .map_err(|_| INVALID)?,
+        None => BTreeMap::new(),
+    };
     let allowed = runtime["implementations"].as_array().ok_or(INVALID)?;
     for binding in source.to_record()["implementation_bindings"]
         .as_array()
@@ -411,11 +448,11 @@ pub(crate) fn implementations(
             ("trading_implementation_fingerprint", "TRADING"),
         ] {
             let body = bodies.get(text(binding, field)?).ok_or(INVALID)?;
-            if body["backend_kind"] != backend
-                || !allowed.contains(
-                    &crate::application::research_admission::implementation_projection(body)?,
-                )
-            {
+            let projection =
+                crate::application::research_admission::implementation_projection(body)?;
+            let factor = body["calculation_type_reference"]["kind"] == "FACTOR"
+                && certified_factors.get(text(binding, field)?) == Some(body);
+            if body["backend_kind"] != backend || (!factor && !allowed.contains(&projection)) {
                 return Err(INVALID);
             }
         }

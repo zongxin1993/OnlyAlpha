@@ -1,5 +1,7 @@
 //! Finite native Backtest orchestration. This library grants no Product or LIVE authority.
 mod inputs;
+mod memory;
+pub use memory::{BacktestRun, CompletedBacktest, ExecutionBinding, MemoryRunSpec};
 mod native_read;
 mod next_open;
 mod run;

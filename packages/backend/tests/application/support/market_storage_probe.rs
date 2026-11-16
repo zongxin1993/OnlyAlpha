@@ -493,16 +493,22 @@ async fn retained_source_prerequisite(
         }
         _ => return Err("unknown controlled input profile".into()),
     };
-    let next_open = v["fixture_profile"] == "BTC_SPOT_NEXT_OPEN_2025_V1";
-    let research = matches!(
-        v["fixture_profile"].as_str(),
-        Some(
-            "STRATEGY_RESEARCH_EVIDENCE_V1"
-                | "MANUAL_BACKTEST_VALIDATION_V1"
-                | "STRATEGY_PREPARATION_EVALUATION_V1"
-                | "STRATEGY_PREPARATION_V1"
-        )
-    );
+    let coherent_backtest = match v.get("coherent_backtest") {
+        None | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) if v["fixture_profile"] == "STRATEGY_RESEARCH_EVIDENCE_V1" => true,
+        _ => return Err("invalid coherent market fixture profile".into()),
+    };
+    let next_open = v["fixture_profile"] == "BTC_SPOT_NEXT_OPEN_2025_V1" || coherent_backtest;
+    let research = !coherent_backtest
+        && matches!(
+            v["fixture_profile"].as_str(),
+            Some(
+                "STRATEGY_RESEARCH_EVIDENCE_V1"
+                    | "MANUAL_BACKTEST_VALIDATION_V1"
+                    | "STRATEGY_PREPARATION_EVALUATION_V1"
+                    | "STRATEGY_PREPARATION_V1"
+            )
+        );
     fn sha(bytes: &[u8]) -> String {
         Sha256::digest(bytes)
             .iter()
@@ -655,18 +661,31 @@ async fn retained_source_prerequisite(
     let rows = (0..row_count)
         .map(|i| {
             let start = start_ms + i * stride_ms;
+            // One absolute-time market definition for the joint scenario.
+            // The original NextOpen trading window and its economic triggers stay exact.
+            let bar_index = if coherent_backtest {
+                (start - 1_735_861_200_000) / stride_ms
+            } else {
+                i
+            };
             let price = 10000 + (i / 13) * 3 + (i * 7) % 11;
             let close = price + i % 5 - 2;
             let volume = 10 + i % 9;
             let (price, close, volume) = if next_open {
                 (
-                    match i {
+                    match bar_index {
+                        ..=-1 => 100000,
                         0..=20 => 100000,
                         21 => 100100,
                         22 => 99800,
                         _ => 99700,
                     },
-                    match i {
+                    match bar_index {
+                        ..=-1 => match i {
+                            20 => 101202,
+                            21 => 100899,
+                            _ => 101000,
+                        },
                         0..=19 => 100000,
                         20 => 100200,
                         21 => 99900,
@@ -717,7 +736,7 @@ async fn retained_source_prerequisite(
                 volume.to_string(),
                 start + stride_ms - 1,
                 (price * volume).to_string(),
-                100 + i % 17,
+                100 + bar_index.rem_euclid(17),
                 "0",
                 "0",
                 "0"
@@ -726,11 +745,28 @@ async fn retained_source_prerequisite(
         .collect::<Vec<_>>();
     let raw = serde_json::to_vec(&rows)?;
     let raw_sha = sha(&raw);
+    let occurrence = text(v, "fixture_capture_id")?;
+    if occurrence.len() > 48
+        || !occurrence
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    {
+        return Err("invalid controlled capture occurrence".into());
+    }
     let capture = format!(
-        "native:{}:controlled-retained",
+        "native:{}:{occurrence}",
         resolved.implementation_fingerprint()
     );
-    let segment_id = "controlled-retained-source";
+    // An occurrence owns ordinal zero. Changed bytes retain this identity and
+    // must be rejected by the original immutable segment comparison.
+    let segment_id = format!(
+        "controlled-source-{}-0000000000000000",
+        fp(&json!([
+            "ONLYALPHA_CONTROLLED_SOURCE_SEGMENT_V1",
+            occurrence
+        ]))?
+    );
+    let segment_id = segment_id.as_str();
     let raw_id = format!(
         "raw-event:{}",
         fp(

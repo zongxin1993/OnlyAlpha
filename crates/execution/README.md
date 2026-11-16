@@ -16,6 +16,10 @@
 
 ## 公开接口
 
+[`WorkingState`、`WorkingStep`、`CompletedWorkingState`](src/working.rs)提供未发布的常驻经济 owner。它调用原 `apply_operation`，保留订单、准入、费用、资金、仓位及结算判断；ADMIT 的两类正常业务拒绝由实际 Risk／Account 的只读预检查确定，再推进独占 owner；不复制整套 Components，其他异常使对象失效。它不返回 Prepared／Store Ready 或外部提交许可。普通 schema3 原始经济事实仍要求原始凭据，不能因使用内存而接受未证明的 MARK／FUNDING／成交。
+
+`finish` 核对实际输入前缀、费用重放及 Account／Ledger 对账，复用完整 transcript 组装，返回字段私有的结束对象；不证明市场输入耗尽、子进程回收或正式结果已发布。收尾可以生成一次完整状态，逐步推进不生成全组件历史投影。
+
 [`ProjectionData::evaluate_funding`](src/projection_data.rs) 按输入的市场切片、来源步和逐笔应用原文计算 FundingDraft，保留首次闭合的原步。草稿仅公开规范数据。通用 Store 的新提交、已有行恢复、投影安装和 Ready 查询在遇到该操作时要求原 Run 的具体写者。新 ADMIT 要晚于本 Run 已结算的经济边界。`FILL` 将完整 Broker 原文摘要、经济时间和金额决定字段交给 Position，两个经济投影核对同一笔已应用成交。
 
 配置 3 还核对原编译正文的完整通用经济投影：产品/标的、LINEAR、账户模式、结算币、乘数、保证金曲线和完整 Funding schedule，不能保留原策略身份却替换经济参数。Funding 的当前成交 lineage 与经济边界数量分开证明；恢复在旧输入对应的真实连续交易前缀重新签发，不使用最终仓位替代旧前缀。

@@ -36,6 +36,31 @@ impl std::fmt::Display for BuildError {
     }
 }
 impl std::error::Error for BuildError {}
+/// Preserve the owning reader's knowledge state at preparation boundaries.
+pub(crate) fn preparation_error(
+    error: BuildError,
+) -> crate::application::research_admission::PreparationError {
+    use crate::application::research_admission::PreparationError;
+    use PublicationError as P;
+    let code = match error {
+        BuildError::NotReady | BuildError::Storage(P::MissingEvidence) => {
+            "PRIVATE_STRATEGY_PROGRAM_NOT_READY"
+        }
+        BuildError::Unknown | BuildError::Storage(P::OutcomeUnknown) => {
+            return PreparationError::unknown("PRIVATE_STRATEGY_PROGRAM_OUTCOME_UNKNOWN", None);
+        }
+        BuildError::Storage(P::Unavailable) => "PRIVATE_STRATEGY_PROGRAM_UNAVAILABLE",
+        BuildError::Storage(P::Denied) => "PRIVATE_STRATEGY_PROGRAM_DENIED",
+        BuildError::Storage(P::BudgetExceeded) => "PRIVATE_STRATEGY_PROGRAM_BUDGET_EXCEEDED",
+        BuildError::Storage(P::OwnershipLost) => "PRIVATE_STRATEGY_PROGRAM_OWNERSHIP_LOST",
+        BuildError::Storage(P::Conflict) => "PRIVATE_STRATEGY_PROGRAM_CONFLICT",
+        BuildError::Storage(P::Mismatch) => "PRIVATE_STRATEGY_PROGRAM_MISMATCH",
+        BuildError::Storage(P::Integrity) | BuildError::Invalid | BuildError::Failed(_) => {
+            "PRIVATE_STRATEGY_PROGRAM_INVALID"
+        }
+    };
+    code.into()
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildStatus {
     Building,
@@ -48,24 +73,79 @@ pub struct BuildReport {
     pub status: BuildStatus,
     pub source_parse_count: Option<u64>,
 }
+#[derive(Clone)]
 pub struct ReadyFactorBinding {
+    verified: VerifiedFactorProgram,
+}
+#[derive(Clone)]
+struct VerifiedFactorProgram {
     program: BoundProgram,
     program_fingerprint: String,
     certificate_fingerprint: String,
     revision: String,
+    metadata: Value,
+    interface: String,
+    source_sha: String,
+    factor_id: String,
+}
+impl VerifiedFactorProgram {
+    fn bind_metadata(&mut self, metadata: &Value) -> Result<()> {
+        crate::application::private_assets::authoring::validate_revision(metadata)
+            .map_err(|_| BuildError::Storage(PublicationError::Integrity))?;
+        if metadata["revision_fingerprint"] != self.revision
+            || metadata["factor_id"] != self.factor_id
+            || metadata["source_sha256"] != self.source_sha
+            || metadata["source_text"]
+                .as_str()
+                .is_none_or(|t| digest(t.as_bytes()) != self.source_sha)
+            || fp(
+                &json!({"api":metadata["factor_api_contract_fingerprint"],"inputs":metadata["input_contract"],"parameters":metadata["parameter_contract"],"outputs":metadata["output_contract"]}),
+            )? != self.interface
+        {
+            return Err(BuildError::Storage(PublicationError::Mismatch));
+        }
+        certification::signature(metadata, self.program.program())?;
+        self.metadata = metadata.clone();
+        Ok(())
+    }
+
+    fn calculation(
+        &self,
+        image: &str,
+        bindings: &Value,
+    ) -> Result<onlyalpha_calculation_bridge::ProgramCalculation> {
+        onlyalpha_calculation_bridge::ProgramCalculation::resolve(
+            &self.metadata,
+            Arc::new(self.program.clone()),
+            &self.program_fingerprint,
+            image,
+            bindings,
+        )
+        .map_err(calc)
+    }
 }
 impl ReadyFactorBinding {
+    pub(crate) fn metadata(&self) -> &Value {
+        &self.verified.metadata
+    }
+    pub(crate) fn calculation(
+        &self,
+        image: &str,
+        bindings: &Value,
+    ) -> Result<onlyalpha_calculation_bridge::ProgramCalculation> {
+        self.verified.calculation(image, bindings)
+    }
     pub fn program(&self) -> &BoundProgram {
-        &self.program
+        &self.verified.program
     }
     pub fn program_fingerprint(&self) -> &str {
-        &self.program_fingerprint
+        &self.verified.program_fingerprint
     }
     pub fn certificate_fingerprint(&self) -> &str {
-        &self.certificate_fingerprint
+        &self.verified.certificate_fingerprint
     }
     pub fn revision_fingerprint(&self) -> &str {
-        &self.revision
+        &self.verified.revision
     }
 }
 /// No Deserialize, public constructor, raw-ready flag or arbitrary certificate setter.
@@ -293,42 +373,13 @@ impl<'a> FactorBuildService<'a> {
             .await
             .map_err(db)?;
         bounded(&tx).await?;
-        let rows=tx.query("SELECT DISTINCT p.program_fingerprint,p.payload,r.source_sha256 FROM public.factor_parameter_certificate c JOIN public.factor_built_program p ON p.program_fingerprint=c.program_fingerprint JOIN public.private_factor_revision r ON r.revision_fingerprint=c.revision_fingerprint WHERE c.revision_fingerprint=$1 AND r.factor_id=$2 AND p.payload::jsonb->>'builder_artifact'=$3 AND p.payload::jsonb->>'primitive_artifact'=$4 AND c.payload::jsonb->>'certifier_artifact'=$4 AND c.payload::jsonb->>'case_suite_fingerprint'=$5 LIMIT 2",&[&revision,&factor_id,&self.installation.artifact_fingerprint(),&self.native,&self.suite]).await.map_err(db)?;
-        if rows.len() > 1 {
-            return Err(BuildError::Storage(PublicationError::Integrity));
-        }
-        let row = rows.first().ok_or(BuildError::NotReady)?;
-        let pf: String = row.get(0);
-        let stored = FactorBuildRepository::verify_program(row.get(1), pf.clone(), row.get(2))?;
-        let p: Value = serde_json::from_str(stored.payload()).map_err(calc)?;
-        if p["program_format"] != "TYPED_FACTOR_PROGRAM_V1" {
-            return Err(BuildError::Storage(PublicationError::Integrity));
-        }
-        let program = Program::decode(encode(&p["body"], 1024 * 1024)?.as_bytes()).map_err(calc)?;
-        let resolved = program.resolve_parameters(parameters).map_err(calc)?;
-        let params = encode(resolved.record(), 262144)?;
-        let params_fp = digest(params.as_bytes());
-        let rows=tx.query("SELECT certificate_fingerprint,payload,parameters_payload FROM public.factor_parameter_certificate WHERE revision_fingerprint=$1 AND program_fingerprint=$2 AND parameters_fingerprint=$3 AND payload::jsonb->>'certifier_artifact'=$4 AND payload::jsonb->>'case_suite_fingerprint'=$5 LIMIT 2",&[&revision,&pf,&params_fp,&self.native,&self.suite]).await.map_err(db)?;
-        if rows.len() > 1 {
-            return Err(BuildError::Storage(PublicationError::Integrity));
-        }
-        let row = rows.first().ok_or(BuildError::NotReady)?;
-        let cf: String = row.get(0);
-        let stored = FactorBuildRepository::verify_certificate(row.get(1), cf.clone(), row.get(2))?;
-        let c: Value = serde_json::from_str(stored.payload()).map_err(calc)?;
-        if stored.parameters() != params
-            || c["revision_fingerprint"] != revision
-            || c["program_fingerprint"] != pf
-            || !certification::valid_evidence(&c["evidence"], &self.context)
-        {
-            return Err(BuildError::Storage(PublicationError::Integrity));
-        }
-        let ready = ReadyFactorBinding {
-            program: program.bind(&resolved).map_err(calc)?,
-            program_fingerprint: pf,
-            certificate_fingerprint: cf,
-            revision: revision.into(),
+        let environment = ReadEnvironment {
+            builder: self.installation.artifact_fingerprint().to_owned(),
+            native: self.native.clone(),
+            suite: self.suite.clone(),
+            context: self.context.clone(),
         };
+        let ready = read_ready(&tx, &environment, factor_id, revision, parameters).await?;
         commit(tx).await?;
         Ok(ready)
     }
@@ -543,4 +594,425 @@ async fn build(
         certificate: cert,
         parameters: resolved.record().clone(),
     })
+}
+
+/// Issuer selection is private data derived from actual installed/loaded artifacts.
+/// It cannot be populated from a Source JSON claim or caller-supplied hashes.
+pub(crate) struct ReadEnvironment {
+    builder: String,
+    native: String,
+    suite: String,
+    context: String,
+}
+impl ReadEnvironment {
+    pub(crate) fn selected(installation: &ChartInstallation) -> Result<Self> {
+        installation.verify().map_err(worker)?;
+        let native =
+            crate::workers::algorithm::describe_research_runtime(env!("CARGO_PKG_VERSION"))
+                .map_err(worker)?["artifact"]
+                .as_str()
+                .ok_or(BuildError::Invalid)?
+                .to_owned();
+        let suite = fp(&certification::policy())?;
+        let context = fp(
+            &json!({"builder":installation.artifact_fingerprint(),"native":native,"api":crate::application::private_assets::authoring::API_FINGERPRINT,"suite":suite}),
+        )?;
+        Ok(Self {
+            builder: installation.artifact_fingerprint().to_owned(),
+            native,
+            suite,
+            context,
+        })
+    }
+}
+/// Resolve every private instance separately. Two instances of one revision
+/// with different parameters must retain two precise certificates.
+pub(crate) async fn read_instances(
+    tx: &Transaction<'_>,
+    environment: &ReadEnvironment,
+    strategy: &Value,
+    factors: &std::collections::BTreeMap<String, Value>,
+) -> Result<std::collections::BTreeMap<String, ReadyFactorBinding>> {
+    let definition =
+        crate::application::private_strategy::Definition::from_record(&strategy["definition"])
+            .map_err(calc)?
+            .to_record();
+    let mut result = std::collections::BTreeMap::new();
+    for instance in definition["calculations"]
+        .as_array()
+        .ok_or(BuildError::Invalid)?
+    {
+        let reference = &instance["type_reference"];
+        if reference["kind"] != "FACTOR" {
+            continue;
+        }
+        let factor_id = reference["type_id"].as_str().ok_or(BuildError::Invalid)?;
+        let factor = factors.get(factor_id).ok_or(BuildError::Invalid)?;
+        if factor["semantic_version"] != reference["semantic_version"] {
+            return Err(BuildError::Storage(PublicationError::Mismatch));
+        }
+        let parameters = instance["parameters"]
+            .as_object()
+            .ok_or(BuildError::Invalid)?
+            .iter()
+            .map(|(key, value)| {
+                if value["kind"] != "FIXED" {
+                    return Err(BuildError::Invalid);
+                }
+                Ok((key.clone(), value["value"]["value"].clone()))
+            })
+            .collect::<Result<serde_json::Map<_, _>>>()?;
+        let mut ready = read_ready(
+            tx,
+            environment,
+            factor_id,
+            factor["revision_fingerprint"]
+                .as_str()
+                .ok_or(BuildError::Invalid)?,
+            &Value::Object(parameters),
+        )
+        .await?;
+        ready.verified.bind_metadata(factor)?;
+        let key = instance["instance_key"]
+            .as_str()
+            .ok_or(BuildError::Invalid)?;
+        if result.insert(key.to_owned(), ready).is_some() {
+            return Err(BuildError::Invalid);
+        }
+    }
+    Ok(result)
+}
+/// Same owning reader for the public service and the existing admitted
+/// preparation owner. This core performs SELECT only in the caller's actual
+/// transaction; PG access privileges and the outer owner remain in force.
+pub(crate) async fn read_ready(
+    tx: &Transaction<'_>,
+    environment: &ReadEnvironment,
+    factor_id: &str,
+    revision: &str,
+    parameters: &Value,
+) -> Result<ReadyFactorBinding> {
+    Ok(ReadyFactorBinding {
+        verified: read_program(tx, environment, factor_id, revision, parameters).await?,
+    })
+}
+async fn read_program(
+    tx: &Transaction<'_>,
+    environment: &ReadEnvironment,
+    factor_id: &str,
+    revision: &str,
+    parameters: &Value,
+) -> Result<VerifiedFactorProgram> {
+    let rows=tx.query("SELECT DISTINCT p.program_fingerprint,p.payload,r.source_sha256 FROM public.factor_parameter_certificate c JOIN public.factor_built_program p ON p.program_fingerprint=c.program_fingerprint JOIN public.private_factor_revision r ON r.revision_fingerprint=c.revision_fingerprint WHERE c.revision_fingerprint=$1 AND r.factor_id=$2 AND p.payload::jsonb->>'builder_artifact'=$3 AND p.payload::jsonb->>'primitive_artifact'=$4 AND c.payload::jsonb->>'certifier_artifact'=$4 AND c.payload::jsonb->>'case_suite_fingerprint'=$5 LIMIT 2",&[&revision,&factor_id,&environment.builder,&environment.native,&environment.suite]).await.map_err(db)?;
+    if rows.len() > 1 {
+        return Err(BuildError::Storage(PublicationError::Integrity));
+    }
+    let row = rows.first().ok_or(BuildError::NotReady)?;
+    let pf: String = row.get(0);
+    let source_sha: String = row.get(2);
+    let stored = FactorBuildRepository::verify_program(row.get(1), pf.clone(), source_sha.clone())?;
+    let p: Value = serde_json::from_str(stored.payload()).map_err(calc)?;
+    if p["program_format"] != "TYPED_FACTOR_PROGRAM_V1" || p["numeric_policy"] != NUMERIC_POLICY {
+        return Err(BuildError::Storage(PublicationError::Integrity));
+    }
+    let program = Program::decode(encode(&p["body"], 1024 * 1024)?.as_bytes()).map_err(calc)?;
+    let resolved = program.resolve_parameters(parameters).map_err(calc)?;
+    let params = encode(resolved.record(), 262144)?;
+    let params_fp = digest(params.as_bytes());
+    let rows=tx.query("SELECT certificate_fingerprint,payload,parameters_payload FROM public.factor_parameter_certificate WHERE revision_fingerprint=$1 AND program_fingerprint=$2 AND parameters_fingerprint=$3 AND payload::jsonb->>'certifier_artifact'=$4 AND payload::jsonb->>'case_suite_fingerprint'=$5 LIMIT 2",&[&revision,&pf,&params_fp,&environment.native,&environment.suite]).await.map_err(db)?;
+    if rows.len() > 1 {
+        return Err(BuildError::Storage(PublicationError::Integrity));
+    }
+    let row = rows.first().ok_or(BuildError::NotReady)?;
+    let cf: String = row.get(0);
+    let stored = FactorBuildRepository::verify_certificate(row.get(1), cf.clone(), row.get(2))?;
+    let c: Value = serde_json::from_str(stored.payload()).map_err(calc)?;
+    if stored.parameters() != params
+        || c["revision_fingerprint"] != revision
+        || c["program_fingerprint"] != pf
+        || !certification::valid_evidence(&c["evidence"], &environment.context)
+    {
+        return Err(BuildError::Storage(PublicationError::Integrity));
+    }
+    let ready = VerifiedFactorProgram {
+        program: program.bind(&resolved).map_err(calc)?,
+        program_fingerprint: pf,
+        certificate_fingerprint: cf,
+        revision: revision.into(),
+        metadata: Value::Null,
+        interface: p["interface_fingerprint"]
+            .as_str()
+            .filter(|v| crate::is_sha256_hex(v))
+            .ok_or(BuildError::Invalid)?
+            .into(),
+        source_sha,
+        factor_id: factor_id.into(),
+    };
+
+    Ok(ready)
+}
+
+/// Reconstruct original mathematical observations under the immutable PG graph
+/// proof. No current image selection and no execution READY token is returned.
+pub(crate) async fn verify_retained_resolution(
+    tx: &Transaction<'_>,
+    prepared: &Value,
+    revision: &Value,
+    factors: &std::collections::BTreeMap<String, Value>,
+) -> Result<()> {
+    let proof = &prepared["build_certification"];
+    crate::application::calculation_build::verify_fact(tx, proof)
+        .await
+        .map_err(|e| {
+            BuildError::Storage(if e.ends_with("UNAVAILABLE") {
+                PublicationError::Unavailable
+            } else if e.ends_with("MISSING") {
+                PublicationError::MissingEvidence
+            } else {
+                PublicationError::Integrity
+            })
+        })?;
+    let signal =
+        crate::application::calculation_build::signal_preparation(prepared).map_err(calc)?;
+    let context = &proof["context"];
+    if context["execution_binding"] != prepared["execution_binding"]
+        || context["algorithm_resolution_request_fingerprint"]
+            != fp(&signal["algorithm_resolution_request"])?
+        || context["algorithm_resolution_fingerprint"] != fp(&signal["algorithm_resolution"])?
+    {
+        return Err(BuildError::Storage(PublicationError::Mismatch));
+    }
+    let observed = &prepared["algorithm_resolution"];
+    let request = &prepared["algorithm_resolution_request"];
+    crate::application::private_strategy::exact(
+        observed,
+        &[
+            "schema_version",
+            "contract",
+            "nodes",
+            "native_execution",
+            "target_resolution",
+            "algorithm_artifact",
+        ],
+    )
+    .map_err(calc)?;
+    crate::application::private_strategy::exact(
+        request,
+        &[
+            "schema_version",
+            "contract",
+            "instances",
+            "program_bindings",
+            "target_resolution_request",
+        ],
+    )
+    .map_err(calc)?;
+    crate::application::private_strategy::exact(
+        &observed["native_execution"],
+        &["artifact", "program_bindings"],
+    )
+    .map_err(calc)?;
+    if observed["schema_version"] != 1
+        || request["schema_version"] != 1
+        || observed["contract"] != "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1"
+        || request["contract"] != observed["contract"]
+        || request["program_bindings"] != observed["native_execution"]["program_bindings"]
+    {
+        return Err(BuildError::Storage(PublicationError::Mismatch));
+    }
+    let image = prepared["execution_binding"]["executor_artifact_sha256"]
+        .as_str()
+        .ok_or(BuildError::Invalid)?;
+    let builder = observed["algorithm_artifact"]
+        .as_str()
+        .ok_or(BuildError::Invalid)?;
+    if observed["native_execution"]["artifact"] != image
+        || !crate::is_sha256_hex(image)
+        || !crate::is_sha256_hex(builder)
+    {
+        return Err(BuildError::Storage(PublicationError::Mismatch));
+    }
+    let definition =
+        crate::application::private_strategy::Definition::from_record(&revision["definition"])
+            .map_err(calc)?
+            .to_record();
+    let instances = definition["calculations"]
+        .as_array()
+        .ok_or(BuildError::Invalid)?;
+    let pins = request["program_bindings"]
+        .as_array()
+        .ok_or(BuildError::Invalid)?;
+    let mut verified = std::collections::BTreeMap::new();
+    for instance in instances
+        .iter()
+        .filter(|i| i["type_reference"]["kind"] == "FACTOR")
+    {
+        let key = instance["instance_key"]
+            .as_str()
+            .ok_or(BuildError::Invalid)?;
+        let found = pins
+            .iter()
+            .filter(|p| p["instance_key"] == key)
+            .collect::<Vec<_>>();
+        if found.len() != 1 {
+            return Err(BuildError::Storage(PublicationError::Mismatch));
+        }
+        let pin = found[0];
+        crate::application::private_strategy::exact(
+            pin,
+            &[
+                "instance_key",
+                "revision",
+                "program",
+                "parameters",
+                "certificate",
+            ],
+        )
+        .map_err(calc)?;
+        let id = instance["type_reference"]["type_id"]
+            .as_str()
+            .ok_or(BuildError::Invalid)?;
+        let factor = factors.get(id).ok_or(BuildError::Invalid)?;
+        if pin["revision"] != factor["revision_fingerprint"] {
+            return Err(BuildError::Storage(PublicationError::Mismatch));
+        }
+        let certificate = pin["certificate"].as_str().ok_or(BuildError::Invalid)?;
+        let row=tx.query_opt("SELECT payload,parameters_payload FROM public.factor_parameter_certificate WHERE certificate_fingerprint=$1",&[&certificate]).await.map_err(db)?.ok_or(BuildError::Storage(PublicationError::MissingEvidence))?;
+        let original =
+            FactorBuildRepository::verify_certificate(row.get(0), certificate.into(), row.get(1))?;
+        let c: Value = serde_json::from_str(original.payload()).map_err(calc)?;
+        if c["revision_fingerprint"] != pin["revision"]
+            || c["program_fingerprint"] != pin["program"]
+            || c["parameters_fingerprint"] != pin["parameters"]
+            || c["certifier_artifact"] != image
+        {
+            return Err(BuildError::Storage(PublicationError::Mismatch));
+        }
+        let suite = c["case_suite_fingerprint"]
+            .as_str()
+            .filter(|s| crate::is_sha256_hex(s))
+            .ok_or(BuildError::Invalid)?;
+        let environment = ReadEnvironment {
+            builder: builder.into(),
+            native: image.into(),
+            suite: suite.into(),
+            context: fp(
+                &json!({"builder":builder,"native":image,"api":factor["factor_api_contract_fingerprint"],"suite":suite}),
+            )?,
+        };
+        let params = instance["parameters"]
+            .as_object()
+            .ok_or(BuildError::Invalid)?
+            .iter()
+            .map(|(k, v)| (k.clone(), v["value"]["value"].clone()))
+            .collect::<serde_json::Map<_, _>>();
+        let mut p = read_program(
+            tx,
+            &environment,
+            id,
+            pin["revision"].as_str().ok_or(BuildError::Invalid)?,
+            &Value::Object(params),
+        )
+        .await?;
+        p.bind_metadata(factor)?;
+        if p.metadata != *factor
+            || p.program_fingerprint != pin["program"]
+            || p.certificate_fingerprint != certificate
+            || p.program.parameters().fingerprint() != pin["parameters"]
+        {
+            return Err(BuildError::Storage(PublicationError::Mismatch));
+        }
+        if verified.insert(key.to_owned(), p).is_some() {
+            return Err(BuildError::Invalid);
+        }
+    }
+    if verified.len() != pins.len() {
+        return Err(BuildError::Storage(PublicationError::Mismatch));
+    }
+    let (nodes,actual_pins)=crate::application::strategy_research::native_program_instances(instances,image,|key,bindings|{
+        let p=verified.get(key).ok_or("PRIVATE_STRATEGY_RETAINED_PROGRAM_MISMATCH")?;
+        let c=p.calculation(image,bindings).map_err(preparation_error)?;
+        Ok((c,json!({"instance_key":key,"revision":p.revision,"program":p.program_fingerprint,"parameters":p.program.parameters().fingerprint(),"certificate":p.certificate_fingerprint})))
+    }).map_err(|_|BuildError::Storage(PublicationError::Mismatch))?;
+    let actual = observed["nodes"]
+        .as_array()
+        .ok_or(BuildError::Invalid)?
+        .iter()
+        .filter(|n| n["definition"]["kind"] != "TARGET")
+        .cloned()
+        .collect::<Vec<_>>();
+    if actual != nodes || json!(actual_pins) != request["program_bindings"] {
+        return Err(BuildError::Storage(PublicationError::Mismatch));
+    }
+    Ok(())
+}
+
+/// Index original mathematical manifest values only. Callers must already own
+/// the verified original Run/history and its PG proof; this returns no READY,
+/// execution permission or portable certification.
+pub(crate) fn retained_factor_manifest_values(
+    original: &Value,
+    image: &str,
+    algorithm: &str,
+) -> std::result::Result<std::collections::BTreeMap<String, Value>, &'static str> {
+    const INVALID: &str = "PRIVATE_STRATEGY_RETAINED_IMPLEMENTATION_MISMATCH";
+    let resolution = &original["algorithm_resolution"];
+    let mut values = std::collections::BTreeMap::new();
+    if resolution["contract"] != "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1" {
+        if resolution.get("native_execution").is_some()
+            || resolution
+                .get("contract")
+                .is_some_and(|v| v != "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1")
+        {
+            return Err(INVALID);
+        }
+        return Ok(values);
+    }
+    if resolution["native_execution"]["artifact"] != image
+        || resolution["algorithm_artifact"] != algorithm
+    {
+        return Err(INVALID);
+    }
+    for node in resolution["nodes"]
+        .as_array()
+        .ok_or(INVALID)?
+        .iter()
+        .filter(|n| n["definition"]["kind"] == "FACTOR")
+    {
+        let definition = onlyalpha_calculation::product::Definition::from_record(
+            &node["definition"],
+            8 * 1024 * 1024,
+        )
+        .map_err(|_| INVALID)?;
+        if node["definition_fingerprint"] != definition.fingerprint() {
+            return Err(INVALID);
+        }
+        let mut roles = std::collections::BTreeSet::new();
+        for body in node["implementations"].as_array().ok_or(INVALID)? {
+            crate::application::research_admission::implementation_projection(body)?;
+            let role = body["backend_kind"].as_str().ok_or(INVALID)?;
+            if !roles.insert(role)
+                || body["resources"]
+                    != json!([{"relative_path":"bin/onlyalpha-backend","byte_sha256":image}])
+                || ["kind", "type_id", "semantic_version"]
+                    .iter()
+                    .any(|k| body["calculation_type_reference"][*k] != node["definition"][*k])
+            {
+                return Err(INVALID);
+            }
+            let key = body["implementation_fingerprint"]
+                .as_str()
+                .ok_or(INVALID)?
+                .to_owned();
+            if let Some(previous) = values.insert(key, body.clone())
+                && previous != *body
+            {
+                return Err(INVALID);
+            }
+        }
+        if roles != std::collections::BTreeSet::from(["RESEARCH", "TRADING"]) {
+            return Err(INVALID);
+        }
+    }
+    Ok(values)
 }

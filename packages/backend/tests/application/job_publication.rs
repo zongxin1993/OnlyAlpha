@@ -1,24 +1,27 @@
-//! Compile the exact production modules in a test artifact to keep private
-//! fixture construction out of the shipped library and out of ordinary --lib tests.
-pub use onlyalpha_backend::{bootstrap, workers};
-pub mod application {
-    pub use crate::factor_service_subject as factor_build;
-    pub use onlyalpha_backend::application::*;
+//! Compile the exact production owner graph in a separate test artifact. Private
+//! publication/build fixtures remain absent from the shipped library API.
+#[path = "../../src/application/mod.rs"]
+pub mod application;
+#[path = "../../src/bootstrap/mod.rs"]
+pub mod bootstrap;
+#[path = "../../src/persistence/mod.rs"]
+pub mod persistence;
+#[path = "../../src/security/mod.rs"]
+pub mod security;
+#[path = "../../src/transport/mod.rs"]
+pub mod transport;
+#[path = "../../src/workers/mod.rs"]
+pub mod workers;
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
-pub mod persistence {
-    pub use crate::factor_subject as factor_build;
-    pub use crate::job_publication;
-    pub use onlyalpha_backend::persistence::*;
-}
-#[path = "../../src/application/factor_build.rs"]
-pub mod factor_service_subject;
-#[path = "../../src/persistence/job_publication.rs"]
-pub mod job_publication;
 use job_publication as subject;
-#[path = "../../src/persistence/factor_build.rs"]
-pub mod factor_subject;
-#[path = "../../src/tests/job_publication_tests.rs"]
-mod tests;
-
+pub use persistence::factor_build as factor_subject;
+pub use persistence::job_publication;
 #[path = "../../src/tests/factor_build_tests.rs"]
 mod factor_build_tests;
+#[path = "../../src/tests/job_publication_tests.rs"]
+mod tests;

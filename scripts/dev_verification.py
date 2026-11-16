@@ -471,8 +471,22 @@ CONTROLLED_BACKTEST_FIXTURE_COMMAND = [
 ]
 
 
+CONTROLLED_FINITE_BACKTEST_FIXTURE_COMMAND = [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-s",
+    "packages/backend/tests/application/test_strategy_research_evidence.py::test_actual_strategy_science_producer_report_historical_reader_and_freeze[backtest-owner:memory-completion]",
+]
+
+
+def controlled_backtest_fixture_command(command: list[str]) -> bool:
+    return command == CONTROLLED_BACKTEST_FIXTURE_COMMAND or command == CONTROLLED_FINITE_BACKTEST_FIXTURE_COMMAND
+
+
 def controlled_https_command(command: list[str]) -> bool:
-    return command == CONTROLLED_BACKTEST_FIXTURE_COMMAND or (
+    return controlled_backtest_fixture_command(command) or (
         command[:3] == ["python", "-m", "scripts.native_web_e2e"]
         and command.count("--controlled-source-https") == 1
         and command.count("--retained-market-input") == 1
@@ -778,7 +792,7 @@ def run_inside(
     required_git_revisions = command_git_revisions(command)
     if (
         controlled_source_https
-        != ("--controlled-source-https" in command or command == CONTROLLED_BACKTEST_FIXTURE_COMMAND)
+        != ("--controlled-source-https" in command or controlled_backtest_fixture_command(command))
         or controlled_source_https
         and (web or os.geteuid() != 10001 or not controlled_https_command(command))
     ):
@@ -956,7 +970,7 @@ def run_host(
         raise ValueError("DEV_BROWSER_CACHE_REUSE_REFUSED")
     if (
         controlled_source_https
-        != ("--controlled-source-https" in command or command == CONTROLLED_BACKTEST_FIXTURE_COMMAND)
+        != ("--controlled-source-https" in command or controlled_backtest_fixture_command(command))
         or controlled_source_https
         and (mode != "run" or web or rebuild or not controlled_https_command(command))
     ):

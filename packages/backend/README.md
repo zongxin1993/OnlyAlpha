@@ -18,9 +18,17 @@
 
 [`workers::research_environment::prepare_strategy`](src/workers/research_environment.rs) 仅核验实际安装的 Core、原生算子和 Target 库，不接收因子源码、不认证私有因子。后者由 `FactorBuildService` 独立构建认证，`resolve_frozen_binding` 只读核对精确证书，不能隐式构建或换用最新版本。
 
+[`Composer`](src/persistence/strategy_research.rs) 与 [`ResolvedCalculations`](src/application/strategy_research/resolution.rs) 从 PostgreSQL 的精确 READY 程序、每实例参数证书和资产元数据准备原生信号图，不依赖 Runtime 私有因子注册。原生信号和隔离 Target 进程分别记录执行归属。历史授权／验证读取按原 PostgreSQL 构建事实及原工件身份重推节点，不取得当前执行资格。Research Evidence 与 Backtest 原读取器仅从已核验的原 Run／历史 cut 索引私有因子完整实现正文；内置节点继续核对 Runtime inventory，索引本身不授予执行资格。缺证、数据库不可用、UNKNOWN 和确定不匹配分别返回。
+
 Command、Run、Attempt及恢复各有唯一owner；新框架值／事实关系见[有限作业契约](../../docs/job-execution-contract.md)。不能用值解析、hash或日志代替真实执行与正式发布。当前实现状态与目标架构分别说明。
 
 [`application::calculation_build`](src/application/calculation_build.rs) 将精确图的受控证明作为独立构建事实保存在 PostgreSQL；构建绑定固定参数、实际实现与工件，以及固定合成语料，不绑定作业时间或 Target。`PreparedInputs::prepare_strategy` 执行明确的构建准备，`restore_strategy_inputs`／恢复仅加载原证明，缺证不修复。Research 实际观测与手工策略验证引用同一证明；正式读取重新核对 PostgreSQL 原事实、六类案例和逐节点 Witness，证明本身不授予 Run、Freeze 或交易权限。实际行情正文仍归 ClickHouse，合成认证语料不冒充行情事实。
+
+[`application::finite_job`](src/application/finite_job.rs) 提供有限执行 owner：`start_research` 重新核对原 Run、PostgreSQL 构建／组合事实和实际输入；`prepare_backtest` 保留原准入与工件 cut，`PreparedBacktestJob::start` 校验冻结绑定后启动内存交易。内部创建并等待实际执行任务，Research 的 Target 子进程还须正向回收，才能生成私有字段的 `CompletedJobCandidate`。候选保留完整成员、正文轴／计数、原始信号、完整经济结果及实际因果关联，不能用任意 JoinHandle、完成布尔值或 JSON 构造。
+
+`PreparedBacktestJob::factor_bindings` 仅导出原证明中的精确输入描述，用于规划冻结输入；`JobInputLoader` 仍须独立读取 PostgreSQL 核验 READY。重复实例按 revision／参数组合保留证书关联，不能用因子 ID 合并不同参数。候选错误保留 UNKNOWN 的原 Control／回收句柄，并区分取消、预算和内容不匹配。有限 Research 的计算列与统计输入来自实际 native batch 完成对象；共用纯策略的 event 信号参考单独记录 TRADING 来源，两者不互相重标。
+
+`member_schema`、`fact_axis_rule`、`plan_members` 和两类 execution_values 是纯值规划接口，不授予执行或发布权限。行情轴沿既有五列身份；执行事实按实际 sequence／family／正文摘要重算轴，分区为逻辑键排序后的连续均衡切片。计算／信号／统计成员保存实际类型输出和 NULL，报告引用实际成员，因果根引用全部其他成员，避免摘要自引用。未发布候选不是正式完成事实；第五阶段不连接正式 worker／API／ResultReader 或新终态事务，Run／Attempt 的发布与取消竞争由后续阶段接通。
 
 ## 使用与验证
 

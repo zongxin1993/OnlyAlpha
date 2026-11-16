@@ -489,6 +489,7 @@ def test_retained_source_fixture_prepares_only_declared_market_inputs(
         market_probe,
         database,
         "retained-source-prerequisite",
+        fixture_capture_id=str(uuid.uuid4()),
         user_data=str(tmp_path / "user-data"),
         selected_backend=str(native),
         selected_backend_sha256=hashlib.sha256(native.read_bytes()).hexdigest(),

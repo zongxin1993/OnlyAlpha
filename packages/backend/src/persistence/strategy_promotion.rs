@@ -1380,6 +1380,10 @@ pub(crate) struct VerifiedBacktestHistory {
     max_work: usize,
 }
 impl VerifiedBacktestHistory {
+    pub(crate) fn validated_decision(&self) -> Result<&Value> {
+        self.verify_cut()?;
+        self.decision.validated_decision()
+    }
     pub(crate) fn source_revision(&self) -> &SourceRevision {
         &self.source
     }

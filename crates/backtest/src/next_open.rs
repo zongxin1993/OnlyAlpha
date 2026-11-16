@@ -14,6 +14,12 @@ use serde_json::{Value, json};
 /// Implementations must derive their outputs from these explicit inputs and immutable binding.
 pub trait NextOpenPolicy {
     fn binding(&self) -> Value;
+    fn analytical_entry_quote(
+        &self,
+        price: &OnlyPrice,
+        quantity: &OnlyQuantity,
+        context: &Value,
+    ) -> Result<Value, Error>;
     fn admission(
         &self,
         order: &Value,
@@ -35,7 +41,6 @@ pub(crate) trait NativeExecution {
     fn configuration(&self) -> &Value;
     fn state(&self) -> Result<Value, Error>;
     fn position_order_view(&self) -> Result<Value, Error>;
-    fn checkpoint(&self) -> Result<Value, Error>;
     fn sequence(&self) -> usize;
     fn order(&self, cluster: &str, order: &str) -> Result<Value, Error>;
     fn fee_order_preview(&self, cluster: &str, request: &Value, at: u64) -> Result<Value, Error>;
@@ -50,9 +55,6 @@ impl NativeExecution for Candidate {
     }
     fn position_order_view(&self) -> Result<Value, Error> {
         self.position_order_view()
-    }
-    fn checkpoint(&self) -> Result<Value, Error> {
-        self.checkpoint()
     }
     fn sequence(&self) -> usize {
         self.records().len()
@@ -204,6 +206,76 @@ impl NativeReplay {
         let mut value = self.binding.clone();
         value["execution_model"] = self.execution_model();
         value
+    }
+    pub(crate) fn analytical_baseline(
+        &self,
+        first: &MarketInput,
+        last: &MarketInput,
+    ) -> Result<Value, Error> {
+        use onlyalpha_domain::{
+            numeric::{only_quantize, only_subtract},
+            value::{OnlyCurrency, OnlyMoney},
+        };
+        let opening = first.opening();
+        let exact = boundary(only_multiply(opening.price().value(), &self.buy_multiplier))?;
+        let price = boundary(OnlyPrice::new(
+            exact.clone(),
+            u8::try_from(exact.fractional_precision().max(0)).map_err(|_| err("BASELINE_PRICE"))?,
+        ))?;
+        let cause = hash(
+            &json!({"kind":"ANALYTICAL_ESTIMATE","input":first.identity(),"policy":self.binding}),
+        );
+        let context = context(
+            &cause,
+            opening.event_ns(),
+            &first.bar().to_record()["trading_day"],
+        )?;
+        let quote = self
+            .resolver
+            .analytical_entry_quote(&price, &self.quantity, &context)?;
+        if quote["schema_version"] != 1
+            || quote["kind"] != "ANALYTICAL_ESTIMATE"
+            || quote["reference_policy"] != "MODEL_NEXT_OPEN"
+            || quote["venue_acceptance_proven"] != false
+            || quote["policy_fingerprint"] != hash(&self.binding)
+            || quote["execution_price"] != price.to_record()
+            || quote["quantity"] != self.quantity.to_record()
+            || quote["context"] != context
+        {
+            return Err(err("BASELINE_QUOTE"));
+        }
+        let currency = boundary(OnlyCurrency::from_record(&self.configuration["currency"]))?;
+        let money = |v: &Value| -> Result<OnlyDecimal, Error> {
+            let value = boundary(OnlyMoney::from_record(v))?;
+            if value.to_record() != *v || value.currency() != &currency {
+                return Err(err("BASELINE_CURRENCY"));
+            }
+            Ok(value.amount().clone())
+        };
+        let initial = decimal(&self.configuration["initial_cash"])?;
+        let gross = money(&quote["gross_notional"])?;
+        let charges = money(&quote["charges"])?;
+        let rebates = money(&quote["rebates"])?;
+        let cash = boundary(only_add(
+            &boundary(only_subtract(
+                &boundary(only_subtract(&initial, &gross))?,
+                &charges,
+            ))?,
+            &rebates,
+        ))?;
+        let marked = boundary(only_multiply(
+            last.bar().close().value(),
+            self.quantity.value(),
+        ))?;
+        let quantum: OnlyDecimal = boundary(format!("1e-{}", currency.precision()).parse())?;
+        let equity = boundary(only_add(
+            &cash,
+            &boundary(only_quantize(&marked, &quantum))?,
+        ))?;
+        let equity = boundary(OnlyMoney::new(equity, currency))?.to_record()["amount"].clone();
+        Ok(
+            json!({"kind":"ANALYTICAL_ESTIMATE","entry_at_ns":opening.event_ns().to_string(),"valuation_at_ns":last.event_ns().to_string(),"entry_price":price.to_record(),"quantity":self.quantity.to_record(),"entry_fee_quote":quote,"initial_equity":self.configuration["initial_cash"],"final_equity":equity}),
+        )
     }
     pub(crate) fn capture(&self) -> Value {
         json!({"schema_version":2,"binding":hash(&json!([self.binding,self.policy_settings])),"execution_model":self.execution_model(),"pending":self.pending,"last":self.last,"finished":self.finished})

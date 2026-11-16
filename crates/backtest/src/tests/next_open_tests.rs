@@ -46,6 +46,14 @@ fn settings() -> Value {
 }
 struct Denied;
 impl NextOpenPolicy for Denied {
+    fn analytical_entry_quote(
+        &self,
+        _: &OnlyPrice,
+        _: &OnlyQuantity,
+        _: &Value,
+    ) -> Result<Value, crate::Error> {
+        Err(crate::Error("CONTROLLED_MODEL_REJECTION".into()))
+    }
     fn binding(&self) -> Value {
         json!({"schema_version":1,"kind":"UNIT_MODEL_POLICY","configuration":crate::hash(&configuration()),"reference_policy":"MODEL_NEXT_OPEN"})
     }
@@ -157,6 +165,19 @@ impl ProofPolicy {
     }
 }
 impl NextOpenPolicy for ProofPolicy {
+    fn analytical_entry_quote(
+        &self,
+        price: &OnlyPrice,
+        quantity: &OnlyQuantity,
+        context: &Value,
+    ) -> Result<Value, crate::Error> {
+        let currency =
+            onlyalpha_domain::value::OnlyCurrency::from_record(&self.cfg["currency"]).unwrap();
+        Ok(
+            json!({"schema_version":1,"kind":"ANALYTICAL_ESTIMATE","reference_policy":"MODEL_NEXT_OPEN","venue_acceptance_proven":false,"policy_fingerprint":crate::hash(&self.binding()),"execution_price":price.to_record(),"quantity":quantity.to_record(),"context":context,"gross_notional":self.money(price,quantity),"charges":onlyalpha_domain::value::OnlyMoney::new("1.00".parse().unwrap(),currency.clone()).unwrap().to_record(),"rebates":onlyalpha_domain::value::OnlyMoney::new("0.00".parse().unwrap(),currency).unwrap().to_record()}),
+        )
+    }
+
     fn binding(&self) -> Value {
         json!({"schema_version":1,"kind":"UNIT_CANONICAL_INPUTS_MODEL","configuration":crate::hash(&self.cfg),"reference_policy":"MODEL_NEXT_OPEN"})
     }
@@ -643,9 +664,6 @@ fn native_book_uses_one_complete_owner_view_without_per_order_source_queries() {
         fn position_order_view(&self) -> Result<Value, crate::Error> {
             self.views.set(self.views.get() + 1);
             self.inner.position_order_view()
-        }
-        fn checkpoint(&self) -> Result<Value, crate::Error> {
-            self.inner.checkpoint()
         }
         fn sequence(&self) -> usize {
             self.inner.records().len()

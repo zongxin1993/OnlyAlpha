@@ -51,7 +51,7 @@ async fn source_default(c: &tokio_postgres::Client, default: i64) -> (String, St
 }
 async fn source_named(c: &tokio_postgres::Client, default: i64, id: &str) -> (String, String) {
     let id = id.to_owned();
-    let d=Draft::new(json!({"schema_version":1,"factor_id":id,"base_revision_fingerprint":null,"semantic_version":"1","source_text":"def calculate(api, inputs, parameters):\n    return {\"value\": api.rolling_mean(inputs[\"close\"], parameters[\"period\"])}\n","factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":{"close":{"type":"DECIMAL"}},"parameter_contract":{"period":{"type":"INTEGER","default":default,"required":false}},"output_contract":{"value":{"type":"DECIMAL"}},"description":"storage integration","economic_rationale":"controlled example","category":"price","tags":["test"]})).unwrap();
+    let d=Draft::new(json!({"schema_version":1,"factor_id":id,"base_revision_fingerprint":null,"semantic_version":"1","source_text":"def calculate(api, inputs, parameters):\n    return {\"value\": api.rolling_mean(inputs[\"close\"], parameters[\"period\"])}\n","factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":{"close":{"type":"DECIMAL"}},"parameter_contract":{"period":{"type":"INTEGER","default":default,"required":false}},"output_contract":{"value":{"type":"DECIMAL","nullable":true}},"description":"storage integration","economic_rationale":"controlled example","category":"price","tags":["test"]})).unwrap();
     let r = d.revision().unwrap();
     let rev = r["revision_fingerprint"].as_str().unwrap().to_owned();
     c.execute("INSERT INTO private_factor_asset(factor_id,schema_version) VALUES($1,1) ON CONFLICT DO NOTHING",&[&id]).await.unwrap();
@@ -257,6 +257,20 @@ async fn background_owner_builds_the_durable_default_request_and_drains() {
         read.resolve_ready_binding(&id, &revision, &json!({}))
             .await
             .is_ok()
+    );
+    drop(read);
+    let denied = other
+        .client
+        .query(
+            "SELECT source_text FROM public.private_factor_revision LIMIT 1",
+            &[],
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        denied.code(),
+        Some(&tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE),
+        "a program reader must not need authoring source-text privileges"
     );
 }
 

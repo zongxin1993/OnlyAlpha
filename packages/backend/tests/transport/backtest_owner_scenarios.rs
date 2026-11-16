@@ -204,7 +204,19 @@ pub async fn run_owner_scenario(
         source: &session,
         selection: &selection,
     };
-    if scenario == "windows" {
+    if scenario == "memory-completion" {
+        let mut reader = host.reader.lock().await;
+        producer::memory_completion(
+            reader.as_mut().unwrap(),
+            &run,
+            &original,
+            &configuration,
+            &session,
+            &selection,
+            &host.clickhouse,
+        )
+        .await;
+    } else if scenario == "windows" {
         let fresh = host
             .preparation_query(fresh.unwrap(), human.subject_id().unwrap())
             .await

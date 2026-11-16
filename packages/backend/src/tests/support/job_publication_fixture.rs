@@ -128,6 +128,7 @@ pub fn fixture(
     }
     members.sort_by(|a, b| a.descriptor.key().cmp(b.descriptor.key()));
     let mut candidate = CompletedJobCandidate {
+        owner: None,
         binding: binding.clone(),
         members,
         manifest: String::new(),

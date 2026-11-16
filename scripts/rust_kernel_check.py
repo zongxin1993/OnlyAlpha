@@ -262,6 +262,7 @@ BACKTEST_DRIVER_DEPENDENCIES = {
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
 }
 BACKTEST_DRIVER_TEST_DEPENDENCIES = {
+    "onlyalpha-calculation": {"path": "../calculation"},
     "rusqlite": {"version": "=0.40.2", "default-features": False, "features": ["bundled"]},
     "flate2": {"default-features": False, "features": ["rust_backend"], "version": "=1.1.10"},
     "base64": {"default-features": False, "features": ["std"], "version": "=0.23.1"},
@@ -389,6 +390,7 @@ CRYPTO_MARKET_DEPENDENCIES = {
 
 
 BACKEND_DEPENDENCIES = {
+    "onlyalpha-runtime": {"path": "../../crates/runtime"},
     "onlyalpha-observability": {"path": "../../crates/observability"},
     "tracing": {"version": "=0.1.44", "default-features": False, "features": ["std"]},
     "onlyalpha-account": {"path": "../../crates/account"},
@@ -450,7 +452,6 @@ BACKEND_LINUX_DEPENDENCIES = {
 BACKEND_TEST_DEPENDENCIES = {
     "tracing-subscriber": {"version": "=0.3.23", "default-features": False, "features": ["registry", "std"]},
     "onlyalpha-clock": {"path": "../../crates/clock"},
-    "onlyalpha-runtime": {"path": "../../crates/runtime"},
     "hyper": {"default-features": False, "features": ["http1", "client"], "version": "=1.12.0"},
     "tokio": {"default-features": False, "features": ["test-util"], "version": "=1.54.1"},
 }
@@ -957,7 +958,7 @@ BENCHMARK_SOURCE_INPUTS = {
     },
     "crates/backtest/benches/retained.rs": {
         "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
-        "modules": [],
+        "modules": ["../../calculation-bridge/tests/support/memory_signal.rs", "../tests/support/memory_run.rs"],
     },
     "crates/broker/benches/workload.rs": {
         "fixtures": ['"../../../test-data/backtest-benchmarks/large.json"'],
@@ -1475,6 +1476,9 @@ def validate_calculation_sources(root: Path) -> None:
 # also materialized in isolated builds and covered by source_inputs hashing.
 
 _INFRASTRUCTURE_RESOURCES = {
+    "crates/calculation-bridge/tests/support/memory_signal.rs": {
+        "../../../../test-data/strategy/decisions-v2.jsonl": "test-data/strategy/decisions-v2.jsonl",
+    },
     "crates/execution/src/lib.rs": {
         "../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
         "../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
@@ -1637,6 +1641,12 @@ _INFRASTRUCTURE_RESOURCES = {
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    "crates/execution/src/working.rs": {
+        "tests/working_state_tests.rs": "crates/execution/src/tests/working_state_tests.rs",
+    },
+    "crates/calculation-bridge/tests/memory_signal.rs": {
+        "support/memory_signal.rs": "crates/calculation-bridge/tests/support/memory_signal.rs",
+    },
     "packages/backend/src/application/factor_build/certification.rs": {
         "../../tests/factor_build_contract_tests.rs": "packages/backend/src/tests/factor_build_contract_tests.rs",
     },
@@ -1744,6 +1754,15 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
         "equivalence.rs": "packages/backend/src/persistence/research_evidence/equivalence.rs",
         "physical.rs": "packages/backend/src/persistence/research_evidence/physical.rs",
     },
+    "packages/backend/src/application/finite_job.rs": {
+        "../tests/finite_job_tests.rs": "packages/backend/src/tests/finite_job_tests.rs",
+    },
+    "packages/backend/src/persistence/qualification_decision.rs": {
+        "../tests/qualification_decision_inputs.rs": "packages/backend/src/tests/qualification_decision_inputs.rs",
+    },
+    "packages/backend/src/application/strategy_research/native_signal.rs": {
+        "../../tests/native_signal_tests.rs": "packages/backend/src/tests/native_signal_tests.rs",
+    },
     "packages/backend/src/application/mod.rs": {
         "../tests/job_contract_tests.rs": "packages/backend/src/tests/job_contract_tests.rs",
         "../tests/job_input_tests.rs": "packages/backend/src/tests/job_input_tests.rs",
@@ -1837,6 +1856,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
 }
 _CARGO_VERSION_SOURCES = {
+    "packages/backend/src/application/finite_job/owners.rs",
     "packages/backend/src/application/factor_build.rs",
     "plugs/onlyalpha-broker-binance/src/lib.rs",
     "plugs/onlyalpha-broker-virtual/src/lib.rs",

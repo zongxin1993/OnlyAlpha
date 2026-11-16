@@ -32,6 +32,11 @@ pub(crate) fn encode(v: &Value, limit: usize) -> Result<String> {
         onlyalpha_metadata_json::Error::Invalid => PublicationError::Integrity,
     })
 }
+/// Content references use exactly the canonical payload format and budget of
+/// the publication owner. This pure digest grants no completion or publication.
+pub(crate) fn content_fingerprint(value: &Value) -> Result<String> {
+    Ok(digest(encode(value, CONTENT_LIMIT)?.as_bytes()))
+}
 fn document(raw: &str, limit: usize) -> Result<Value> {
     if raw.len() > limit {
         return Err(PublicationError::BudgetExceeded);

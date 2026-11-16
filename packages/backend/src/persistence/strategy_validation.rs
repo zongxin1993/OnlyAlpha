@@ -76,6 +76,8 @@ fn verify_case(
     if case["axis"] != json!(axis) || !rows(&case["target_outputs"])?.is_empty() {
         return Err(INVALID);
     }
+    let starts = onlyalpha_calculation::finite_input::node_execution_starts(graph, 8192)
+        .map_err(|_| INVALID)?;
     let mut outputs = Vec::new();
     for (key, implementation) in [
         ("research_outputs", "research_implementation_fingerprint"),
@@ -118,13 +120,21 @@ fn verify_case(
                 if values.len() != axis.len() {
                     return Err(INVALID);
                 }
-                for value in values {
+                for (position, value) in values.iter().enumerate() {
                     if normalize_scalar(value, WORK).map_err(|_| INVALID)? != *value
                         || normalize_result_outputs(&json!({(name):value})).map_err(|_| INVALID)?
                             [name]
                             != *value
                     {
                         return Err(INVALID);
+                    }
+                    if u64::try_from(position).map_err(|_| INVALID)?
+                        < *starts.get(&id).ok_or(INVALID)?
+                    {
+                        if value != &json!({"type":"NULL","value":null}) {
+                            return Err(INVALID);
+                        }
+                        continue;
                     }
                     if value["type"] == "NULL" {
                         if port["nullable"] != true {
@@ -324,7 +334,8 @@ pub(crate) fn verify_observation(
     }
     equivalence::derive(&graph, bindings, observation)
 }
-fn verify_resolution(
+async fn verify_resolution(
+    tx: &Transaction<'_>,
     prepared: &Value,
     archive: &Value,
     factors: &BTreeMap<String, Value>,
@@ -332,6 +343,48 @@ fn verify_resolution(
 ) -> Result<()> {
     let request = &prepared["algorithm_resolution_request"];
     let observed = &prepared["algorithm_resolution"];
+    if observed["contract"] == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1" {
+        if prepared["execution_binding"] != archive["execution_binding"]
+            || observed["algorithm_artifact"] != archive["installed_proof"]["algorithm_artifact"]
+            || observed["native_execution"]["artifact"]
+                != archive["execution_binding"]["executor_artifact_sha256"]
+            || !observed["target_resolution"].is_null()
+            || !request["target_resolution_request"].is_null()
+            || request["instances"] != definition.to_record()["calculations"]
+        {
+            return Err(INVALID);
+        }
+        crate::application::factor_build::verify_retained_resolution(
+            tx,
+            prepared,
+            &prepared["strategy_revision"],
+            factors,
+        )
+        .await
+        .map_err(|e| match e {
+            crate::application::factor_build::BuildError::Storage(
+                crate::persistence::job_publication::PublicationError::Unavailable,
+            ) => UNAVAILABLE,
+            _ => INVALID,
+        })?;
+        let d = definition.to_record();
+        let dataset = json!({"instruments":d["universe"]["instruments"],"bar_semantic":d["market_input"]["bar_semantic"]});
+        let expected = crate::application::calculation_build::context(
+            prepared,
+            prepared,
+            &dataset,
+            &d["market_input"]["construction_requirement"]["recipe"],
+        )?;
+        crate::application::calculation_build::verify(&prepared["build_certification"], &expected)?;
+        let native = &archive["installed_proof"]["native_descriptor"]["implementations"];
+        let mut seen = BTreeSet::new();
+        for n in rows(&prepared["native_implementations"])? {
+            if !rows(native)?.contains(n) || !seen.insert(text(&n["implementation_fingerprint"])?) {
+                return Err(INVALID);
+            }
+        }
+        return Ok(());
+    }
     exact(
         observed,
         &[
@@ -823,7 +876,7 @@ impl Store {
         {
             return Err(INVALID);
         }
-        verify_resolution(prepared, &archive, &factors, &definition)?;
+        verify_resolution(tx, prepared, &archive, &factors, &definition).await?;
         if validation::implementation_bindings(
             decision.graph(),
             &prepared["algorithm_resolution"],

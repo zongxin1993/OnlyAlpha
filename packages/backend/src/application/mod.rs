@@ -61,3 +61,4 @@ pub mod job_input;
 mod job_input_tests;
 
 pub(crate) mod calculation_build;
+pub mod finite_job;

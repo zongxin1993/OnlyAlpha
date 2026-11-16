@@ -178,17 +178,15 @@ pub(super) fn certify(source: &Value, program: &BoundProgram, context: &str) -> 
     };
     let batch = evaluate_batch(program, &inputs).map_err(calc)?;
     check()?;
-    for (i, row) in batch.iter().enumerate() {
-        if i + 1 >= history {
-            for (k, v) in row {
-                let spec = &source["output_contract"][k];
-                let nullable = spec["nullable"]
-                    .as_bool()
-                    .or_else(|| spec["missing"].as_bool())
-                    .unwrap_or(false);
-                if !nullable && matches!(v, ProgramValue::Missing) {
-                    return Err(BuildError::Failed("FACTOR_OUTPUT_CONTRACT"));
-                }
+    for row in &batch {
+        for (k, v) in row {
+            let spec = &source["output_contract"][k];
+            let nullable = spec["nullable"]
+                .as_bool()
+                .or_else(|| spec["missing"].as_bool())
+                .unwrap_or(false);
+            if !nullable && matches!(v, ProgramValue::Missing) {
+                return Err(BuildError::Failed("FACTOR_OUTPUT_CONTRACT"));
             }
         }
     }

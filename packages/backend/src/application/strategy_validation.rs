@@ -250,6 +250,20 @@ pub(crate) fn implementation_bindings(
         } else {
             &observed_strategy_node(nodes, &d, &node.fingerprint())?["implementations"]
         };
+        let projected;
+        let allowed = if d["kind"] == "FACTOR"
+            && resolution["contract"] == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1"
+        {
+            projected = actual
+                .as_array()
+                .ok_or(INVALID)?
+                .iter()
+                .map(crate::application::research_admission::implementation_projection)
+                .collect::<Result<Vec<_>>>()?;
+            &projected
+        } else {
+            allowed
+        };
         let selected =
             select_strategy_implementations(actual, &d, &["RESEARCH", "TRADING"], allowed)?;
         bindings.insert(node.fingerprint(),json!({"node_fingerprint":node.fingerprint(),"research_implementation_fingerprint":selected[0]["implementation_fingerprint"],"trading_implementation_fingerprint":selected[1]["implementation_fingerprint"]}));
@@ -267,6 +281,7 @@ pub(crate) struct ResolvedValidation {
     runtime: Arc<RuntimeInputHold>,
     record: Value,
     files: Vec<Witness>,
+    programs: Vec<crate::application::factor_build::ReadyFactorBinding>,
     source: SourceRevision,
 }
 impl ResolvedValidation {
@@ -308,6 +323,17 @@ impl ResolvedValidation {
             .await
             .map_err(|e| e.code())?;
         let (revision, factors) = authoring(&tx, &origin).await?;
+        let environment =
+            crate::application::factor_build::ReadEnvironment::selected(&installation)
+                .map_err(|_| UNAVAILABLE)?;
+        let programs = crate::application::factor_build::read_instances(
+            &tx,
+            &environment,
+            &revision,
+            &factors,
+        )
+        .await
+        .map_err(crate::application::factor_build::preparation_error)?;
         let installed = installation.clone();
         let worker_control = control.clone();
         let worker_revision = revision.clone();
@@ -319,11 +345,13 @@ impl ResolvedValidation {
                 &worker_revision,
                 &worker_factors,
                 &worker_control,
+                programs,
             )
         })
         .await
         .map_err(|_| control.uncertain("STRATEGY_VALIDATION_PRODUCER_OUTCOME_UNKNOWN"))??;
-        let (mut runtime, resolution, request) = resolved.into_preparation();
+        let (mut runtime, resolution, request, programs) = resolved.into_preparation();
+        let programs = programs.into_values().collect::<Vec<_>>();
         let definition = Definition::from_record(&revision["definition"])?;
         let graph = decision(&definition, &resolution["algorithm_resolution"])?;
         if graph.record() != resolution["decision"]
@@ -376,10 +404,11 @@ impl ResolvedValidation {
             file.verify()?;
         }
         runtime.verify()?;
-        control.verify_joined()?;
+        control.check()?;
         tx.commit().await.map_err(|_| UNAVAILABLE)?;
         Ok(Self {
             origin,
+            programs,
             runtime,
             record,
             files,
@@ -399,6 +428,7 @@ impl ResolvedValidation {
             crate::application::calculation_build::prepare(
                 client,
                 crate::application::calculation_build::Inputs {
+                    programs: self.programs.clone(),
                     runtime: self.runtime.clone(),
                     prepared: self.record.clone(),
                     specification: self.record.clone(),
@@ -432,7 +462,7 @@ impl ResolvedValidation {
         datasets: &Datasets,
         materialized: &MaterializedDataset,
     ) -> std::result::Result<JoinedValidation, PreparationError> {
-        control.verify_joined()?;
+        control.check()?;
         self.runtime.verify()?;
         for file in &self.files {
             file.verify()?;
@@ -480,6 +510,7 @@ impl ResolvedValidation {
         let mut observation = observe_graph(
             self.runtime.clone(),
             GraphObservationInputs {
+                programs: &self.programs,
                 prepared: &self.record,
                 spec: &self.record,
                 graph: &graph,
@@ -497,7 +528,7 @@ impl ResolvedValidation {
             &observation,
             materialized,
         )?;
-        control.verify_joined()?;
+        control.check()?;
         self.runtime.verify()?;
         for file in &self.files {
             file.verify()?;

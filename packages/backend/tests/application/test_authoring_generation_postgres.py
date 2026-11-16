@@ -113,6 +113,7 @@ def test_authoring_generation_claim_and_original_run_recovery(
     try:
         retained = market(
             "retained-source-prerequisite",
+            fixture_capture_id=str(uuid4()),
             user_data=str(user),
             selected_backend=str(actual),
             selected_backend_sha256=hashlib.sha256(actual.read_bytes()).hexdigest(),

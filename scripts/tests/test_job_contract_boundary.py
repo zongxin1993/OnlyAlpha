@@ -10,6 +10,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class JobContractBoundary(unittest.TestCase):
+    def test_original_decision_test_edge_is_exactly_registered(self):
+        target = ROOT / "packages/backend/src/persistence/qualification_decision.rs"
+        text, modules = _without_declared_infrastructure_inputs(ROOT, target)
+        self.assertIn(ROOT / "packages/backend/src/tests/qualification_decision_inputs.rs", modules)
+        self.assertNotIn("../tests/qualification_decision_inputs.rs", text)
+        validate_infrastructure_sources(ROOT)
+
     def test_job_contract_test_edge_is_registered_and_source_is_admitted(self):
         target = ROOT / "packages/backend/src/application/mod.rs"
         text, modules = _without_declared_infrastructure_inputs(ROOT, target)
@@ -22,6 +29,14 @@ class JobContractBoundary(unittest.TestCase):
         cases = [
             ("packages/backend/src/application/mod.rs", '#[path="../tests/undeclared_job.rs"] mod hidden;'),
             ("packages/backend/src/application/job_contract.rs", 'include_str!("undeclared-job-input.json");'),
+            (
+                "packages/backend/src/persistence/qualification_decision.rs",
+                '#[path="../tests/undeclared_decision.rs"] mod hidden;',
+            ),
+            (
+                "packages/backend/src/tests/qualification_decision_inputs.rs",
+                'include_str!("undeclared-decision-input.json");',
+            ),
         ]
         for name, injected in cases:
             with self.subTest(name=name):

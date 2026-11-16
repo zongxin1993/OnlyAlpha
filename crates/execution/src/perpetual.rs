@@ -386,6 +386,38 @@ impl Components {
         broker: &onlyalpha_broker::Broker,
         source: Option<&onlyalpha_broker::source::SourceHistory>,
     ) -> Result<crate::Prepared, Error> {
+        let origin = self.original_origin(input, cut, broker, source, |intent| {
+            let mut found = false;
+            for n in 1..=store.head()? {
+                let rec = store
+                    .get(n)?
+                    .ok_or_else(|| err("EXECUTION_PREFIX_MISSING"))?;
+                let prepared = rec.prepared();
+                if intent["transaction"] != prepared.id() {
+                    continue;
+                }
+                let admission = prepared.input();
+                let command = &intent["command"];
+                found = rec.ready()
+                    && admission["op"] == "ADMIT"
+                    && admission["payload"]["request"] == command["request"]
+                    && command["order"] == input["payload"]["order"]
+                    && admission["payload"]["order"] == input["payload"]["order"]
+                    && intent["payload_hash"] == prepared.record()["payload_hash"];
+                break;
+            }
+            Ok(found)
+        })?;
+        self.prepare_with_origin(store, input, origin)
+    }
+    pub(crate) fn original_origin(
+        &self,
+        input: &Value,
+        cut: &crate::MarketSourceCut,
+        broker: &onlyalpha_broker::Broker,
+        source: Option<&onlyalpha_broker::source::SourceHistory>,
+        mut admission: impl FnMut(&Value) -> Result<bool, Error>,
+    ) -> Result<Value, Error> {
         let t = &self.config["perpetual"];
         if self.config["schema_version"] != 3 || t["source_cut_sha256"] != cut.fingerprint() {
             return Err(err("EXECUTION_SOURCE_CUT"));
@@ -440,33 +472,19 @@ impl Components {
                 }
                 let intent = original.intent().record();
                 origin = json!({"observation":original.source(),"ready_intent":intent});
-                let mut found = false;
-                for n in 1..=store.head()? {
-                    let rec = store
-                        .get(n)?
-                        .ok_or_else(|| err("EXECUTION_PREFIX_MISSING"))?;
-                    let prepared = rec.prepared();
-                    if intent["transaction"] != prepared.id() {
-                        continue;
-                    }
-                    let admission = prepared.input();
-                    let command = &intent["command"];
-                    found = rec.ready()
-                        && admission["op"] == "ADMIT"
-                        && admission["payload"]["request"] == command["request"]
-                        && command["scope"] == fact.scope().record()
-                        && command["order"] == p["order"]
-                        && admission["payload"]["order"] == p["order"]
-                        && intent["payload_hash"] == prepared.record()["payload_hash"];
-                    break;
+                if intent["command"]["scope"] != fact.scope().record()
+                    || intent["command"]["order"] != input["payload"]["order"]
+                {
+                    return Err(err("EXECUTION_BROKER_ORIGINAL_COMMAND"));
                 }
+                let found = admission(&intent)?;
                 if !found {
                     return Err(err("EXECUTION_BROKER_ORIGINAL_COMMAND"));
                 }
             }
             _ => (),
         }
-        self.prepare_with_origin(store, input, origin)
+        Ok(origin)
     }
     pub(crate) fn funding_cut(&self) -> Result<crate::MarketSourceCut, Error> {
         let t = &self.config["perpetual"];

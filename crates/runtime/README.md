@@ -18,6 +18,12 @@
 
 ## 公开接口
 
+[`RunConfiguration`、`RunBinding`、`TradingInput`、`Session`、`AppliedEvent`、`CompletedSession`](src/session.rs)提供有限作业的内存边界。配置使用真实 Components 校验，绑定只含 Kernel 执行所需的内容身份，不授予数据权限或外部派发资格。`Session::apply` 持有当前 typed owner，按输入身份核对重复和冲突；事件须按序 `acknowledge`，未 drain、失败、未满足经济结束条件均不能 `finish`。普通资金／风控拒绝保留未变化的经济状态；其他异常使会话失效。
+
+只保存紧凑输入、事件和幂等索引，限制单输入 64 KiB、事实总编码 128 MiB、最多一百万条事实；该上限不包含分配器开销，RSS 须另测。结束时一次性生成 Account／Ledger 时间线、对账和完整经济结果；不把每步的完整 checkpoint 保存为历史。`CompletedSession` 只证明本会话结束，行情耗尽由 Backtest 证明，Backend 另加作业与发布条件。内存丢失后不能宣称可断点续算。原文件持久化接口在迁移消费者完成前仍保留。
+
+`memory.admission` 和 `memory.apply` 复用 observability 的显式订阅器；诊断字段不进入业务身份、检查点或结果。
+
 [`BoundBrokerJournal`](src/broker_source_store.rs) 读取配置 3 原 Run 的 broker.sqlite3，按序读取来源步和该步的原事实子行。Broker 协议沿用原 record 和 32 MiB 总观察预算，来源步、逐事实原文和准入时刻分别保存。Runtime 以原 market-source-cut.json、原来源/协议库和 runtime.sqlite3 重建并核对每个 Prepared，具体撮合在绑定场所宿主重放。新代际使用 BoundBrokerJournal::dispatch，并在同目录真实 Runtime 的 Ready 前缀上取得原命令资格。
 
 新 Broker RuntimeReader 的派发资格和订单读回都读取本 Run 原 Ready ADMIT 的范围和规范请求。SUBMIT 要求请求完全一致；CANCEL 查询要求正确的本地订单及 client，并返回原 SUBMIT 请求对应的 OrderView。返回 scope 来自原 Run，不回显未证明的来件。order_view 只读不授予取消派发资格，ready_intent 的操作限制保持。
@@ -64,7 +70,3 @@ cargo doc -p onlyalpha-runtime --no-deps
 `Runtime::backtest_result` 和 `VerifiedReplaySnapshot::backtest_result` 核验原 SQL 与六组投影后返回 [RunBacktestResult](src/transcript.rs)。`record()` 和 `encode()` 提供已有 BACKTEST_RESULT@1 记录和规范字节。
 
 性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。
-
-### 新框架的接口边界
-
-[有限作业契约](../../docs/job-execution-contract.md)规定本库后续与因子构建、共同信号、typed会话或完成owner的接口关系。第一阶段不改变本库运行接口；不把设计目标当作当前已实现能力。后端冻结身份不反向进入纯库依赖，数据库／权限接线留在Backend。

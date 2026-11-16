@@ -10,6 +10,12 @@ fn scope(b: &FrozenJobBinding, namespace: &SemanticStoreId, owner: &str) -> Resu
     Ok(())
 }
 fn candidate(c: &CompletedJobCandidate) -> Result<()> {
+    if let Some(owner) = &c.owner {
+        owner.verify().map_err(model::owner_error)?;
+    } else {
+        #[cfg(not(test))]
+        return Err(PublicationError::MissingEvidence);
+    }
     let mut bytes = 0usize;
     if c.members
         .windows(2)

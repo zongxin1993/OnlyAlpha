@@ -857,6 +857,7 @@ def seed_retained_market_input(
         "op": "market-storage",
         "request": {
             "op": "retained-source-prerequisite",
+            "fixture_capture_id": str(uuid.uuid4()),
             "user_data": str(data),
             "selected_backend": str(native),
             "selected_backend_sha256": expected,

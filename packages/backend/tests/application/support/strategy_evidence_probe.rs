@@ -1,4 +1,6 @@
 //! Actual Strategy evidence technical path. No fixture creates an execution/read seal.
+#[path = "finite_job_probe.rs"]
+mod finite_job_probe;
 use onlyalpha_backend::{
     application::{
         command::CommandId,
@@ -20,6 +22,7 @@ use onlyalpha_backend::{
 };
 use onlyalpha_calculation_bridge::ChartInstallation;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
@@ -101,7 +104,35 @@ pub async fn submit(
     .into_parts();
     assert!(actionable);
     let fingerprint = study.fingerprint()?;
-    let run = strategy::submit(
+    let study_record = study.record()?;
+    for (label, value) in [
+        ("prepared-inputs", inputs.record()),
+        (
+            "build-certification",
+            &inputs.record()["build_certification"],
+        ),
+        (
+            "algorithm-resolution",
+            &inputs.record()["algorithm_resolution"],
+        ),
+        ("composition", &inputs.record()["composition"]),
+        ("specification", spec.record()),
+        ("study", &study_record),
+        ("request", &study_record["request"]),
+    ] {
+        let raw = value.to_string();
+        let digest: String = Sha256::digest(raw.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        eprintln!(
+            "[strategy-evidence] payload={label} bytes={} sha256={digest}",
+            raw.len()
+        );
+    }
+    eprintln!("[strategy-evidence] phase=submission-start");
+    let submission_started = std::time::Instant::now();
+    let submitted = strategy::submit(
         session,
         &novelty,
         &context,
@@ -110,7 +141,12 @@ pub async fn submit(
         datasets,
         text(v, "at")?.parse()?,
     )
-    .await?;
+    .await;
+    eprintln!(
+        "[strategy-evidence] submission_us={}",
+        submission_started.elapsed().as_micros()
+    );
+    let run = submitted?;
     assert!(store(v)?.load_verified(&run)?.is_none());
     assert!(
         store(v)?.read_verified_strategy(&run).is_err(),
@@ -123,6 +159,9 @@ pub async fn submit(
     )
 }
 pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
+    if v["evidence_phase"] == "memory-build" {
+        return finite_job_probe::build(session, v).await;
+    }
     let pid: i32 = session
         .client_mut()
         .await?
@@ -135,6 +174,9 @@ pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
         Some("local-developer"),
     )
     .await?;
+    if v["evidence_phase"] == "memory" {
+        return finite_job_probe::research(session, v, run).await;
+    }
     let evidence = store(v)?;
     if v["evidence_phase"] == "completion-read" {
         return Ok(

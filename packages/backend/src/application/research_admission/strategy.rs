@@ -81,7 +81,8 @@ impl PreparedInputs {
         materialized: &MaterializedDataset,
         allow_build: bool,
     ) -> std::result::Result<(Self, RunSpecification), PreparationError> {
-        let (mut runtime, resolution, request) = resolved.into_preparation();
+        let (mut runtime, resolution, request, programs) = resolved.into_preparation();
+        let programs = programs.into_values().collect::<Vec<_>>();
         if resolution["composition"]["research_context_fingerprint"] != context.fingerprint()?
             || resolution["runtime_generation_fingerprint"]
                 != runtime.manifest()["runtime_generation_fingerprint"]
@@ -194,6 +195,15 @@ impl PreparedInputs {
             let d = node.to_record();
             let manifests = if d["kind"] == "PREDICATE" {
                 select(&native, &d, &["RESEARCH", "TRADING"], allowed)?
+            } else if d["kind"] == "FACTOR" {
+                let actual = &observed_node(nodes, &d, &node.fingerprint())?["implementations"];
+                let projected = actual
+                    .as_array()
+                    .ok_or(INVALID)?
+                    .iter()
+                    .map(implementation_projection)
+                    .collect::<Result<Vec<_>>>()?;
+                select(actual, &d, &["RESEARCH", "TRADING"], &projected)?
             } else {
                 select(
                     &observed_node(nodes, &d, &node.fingerprint())?["implementations"],
@@ -262,6 +272,7 @@ impl PreparedInputs {
         record["build_certification"] = composer
             .prepare_calculation_build(
                 crate::application::calculation_build::Inputs {
+                    programs: programs.clone(),
                     runtime: runtime.clone(),
                     prepared: record.clone(),
                     specification: specification.record().clone(),
@@ -284,6 +295,7 @@ impl PreparedInputs {
                 runtime,
                 record,
                 authoring_generation: None,
+                programs,
             },
             specification,
         ))

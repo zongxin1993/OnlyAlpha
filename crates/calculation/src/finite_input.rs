@@ -18,8 +18,23 @@ impl Requirements {
 /// Compose each node's own warmup with its longest upstream path. The exclusive
 /// limit is caller-controlled; no Source reads or synthetic execution occur.
 pub fn requirements(graph: &Graph, history_limit: u64) -> Result<Requirements, Error> {
+    dependency_layout(graph, history_limit).map(|(requirements, _)| requirements)
+}
+/// Number of observations blocked by upstream warmup before each fresh node's
+/// first invocation. This is distinct from its own executed warmup or nullability.
+pub fn node_execution_starts(
+    graph: &Graph,
+    history_limit: u64,
+) -> Result<BTreeMap<String, u64>, Error> {
+    dependency_layout(graph, history_limit).map(|(_, starts)| starts)
+}
+fn dependency_layout(
+    graph: &Graph,
+    history_limit: u64,
+) -> Result<(Requirements, BTreeMap<String, u64>), Error> {
     let mut histories = BTreeMap::new();
     let mut sources = BTreeSet::new();
+    let mut starts = BTreeMap::new();
     for definition in graph.ordered_nodes() {
         let record = definition.to_record();
         let mut upstream = 0_u64;
@@ -39,14 +54,18 @@ pub fn requirements(graph: &Graph, history_limit: u64) -> Result<Requirements, E
             .filter(|n| *n > 0)
             .ok_or(Error::Invalid)?
             - 1;
+        starts.insert(definition.fingerprint(), upstream);
         let history = upstream
             .checked_add(own)
             .filter(|n| *n < history_limit)
             .ok_or(Error::Unavailable)?;
         histories.insert(definition.fingerprint(), history);
     }
-    Ok(Requirements {
-        history: histories.values().copied().max().ok_or(Error::Invalid)?,
-        sources,
-    })
+    Ok((
+        Requirements {
+            history: histories.values().copied().max().ok_or(Error::Invalid)?,
+            sources,
+        },
+        starts,
+    ))
 }

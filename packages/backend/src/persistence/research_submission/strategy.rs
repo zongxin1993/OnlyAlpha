@@ -724,25 +724,26 @@ async fn trial_prefix(
 /// Re-derive source/graph/scientific value closure from original immutable DB
 /// revisions. Reading historical authorization never needs current Runtime files.
 async fn verify_origin(tx: &Transaction<'_>, p: &Value, spec: &RunSpecification) -> Result<Value> {
-    fields(
-        p,
-        &[
-            "schema_version",
-            "contract",
-            "composition",
-            "runtime_generation_fingerprint",
-            "runtime_work_binding",
-            "execution_binding",
-            "input_window",
-            "dataset_snapshot_fingerprint",
-            "dataset_materialization",
-            "dataset_construction_fingerprint",
-            "run_specification_fingerprint",
-            "algorithm_resolution_request",
-            "algorithm_resolution",
-            "native_implementations",
-        ],
-    )?;
+    let mut expected_fields = vec![
+        "schema_version",
+        "contract",
+        "composition",
+        "runtime_generation_fingerprint",
+        "runtime_work_binding",
+        "execution_binding",
+        "input_window",
+        "dataset_snapshot_fingerprint",
+        "dataset_materialization",
+        "dataset_construction_fingerprint",
+        "run_specification_fingerprint",
+        "algorithm_resolution_request",
+        "algorithm_resolution",
+        "native_implementations",
+    ];
+    if p.get("build_certification").is_some() {
+        expected_fields.push("build_certification");
+    }
+    fields(p, &expected_fields)?;
     let s = spec.record();
     let composition = &p["composition"];
     let pin = text(composition, "composition_fingerprint")?;
@@ -802,18 +803,7 @@ async fn verify_origin(tx: &Transaction<'_>, p: &Value, spec: &RunSpecification)
         }
     }
     let request = &p["algorithm_resolution_request"];
-    fields(
-        request,
-        &[
-            "schema_version",
-            "contract",
-            "sources",
-            "instances",
-            "core_artifact",
-            "operator_artifact",
-            "target_artifact",
-        ],
-    )?;
+    let observed = &p["algorithm_resolution"];
     let mut instances = source["calculations"].as_array().ok_or(CORRUPT)?.clone();
     instances.extend(
         context.record()["targets"]
@@ -822,45 +812,136 @@ async fn verify_origin(tx: &Transaction<'_>, p: &Value, spec: &RunSpecification)
             .iter()
             .cloned(),
     );
-    let mut sources = Vec::new();
-    for factor in factors.values() {
-        let mut projection = serde_json::Map::new();
-        for key in [
-            "factor_id",
-            "semantic_version",
-            "revision_fingerprint",
-            "source_text",
-            "source_sha256",
-            "factor_api_version",
-            "factor_api_contract_fingerprint",
-            "input_contract",
-            "parameter_contract",
-            "output_contract",
-        ] {
-            projection.insert(key.into(), factor[key].clone());
-        }
-        sources.push(Value::Object(projection));
-    }
-    let observed = &p["algorithm_resolution"];
-    if request["schema_version"] != 1
-        || request["contract"] != "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1"
-        || request["sources"] != json!(sources)
-        || request["instances"] != json!(instances)
-        || observed["contract"] != request["contract"]
-        || observed["schema_version"] != 1
-        || observed["algorithm_artifact"] != s["algorithm_artifact_fingerprint"]
-        || observed["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
-    {
-        return Err(CORRUPT);
-    }
-    for name in ["core", "operator", "target"] {
-        if request[format!("{name}_artifact")]["sha256"]
-            != observed[format!("{name}_artifact_sha256")]
-            || !observed[format!("{name}_resources_fingerprint")]
-                .as_str()
-                .is_some_and(crate::is_sha256_hex)
+    let composite = observed["contract"] == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1";
+    if composite {
+        crate::application::factor_build::verify_retained_resolution(tx, p, &revision, &factors)
+            .await
+            .map_err(|e| match e {
+                crate::application::factor_build::BuildError::Storage(
+                    crate::persistence::job_publication::PublicationError::Unavailable,
+                ) => UNAVAILABLE,
+                _ => CORRUPT,
+            })?;
+        if request["instances"] != json!(instances)
+            || observed["algorithm_artifact"] != s["algorithm_artifact_fingerprint"]
         {
             return Err(CORRUPT);
+        }
+        let target_request = &request["target_resolution_request"];
+        let target = &observed["target_resolution"];
+        fields(
+            target_request,
+            &[
+                "schema_version",
+                "contract",
+                "sources",
+                "instances",
+                "core_artifact",
+                "operator_artifact",
+                "target_artifact",
+            ],
+        )?;
+        fields(
+            target,
+            &[
+                "schema_version",
+                "contract",
+                "nodes",
+                "source_artifacts",
+                "core_artifact_sha256",
+                "core_resources_fingerprint",
+                "algorithm_artifact",
+                "operator_artifact_sha256",
+                "operator_resources_fingerprint",
+                "target_artifact_sha256",
+                "target_resources_fingerprint",
+                "isolation",
+            ],
+        )?;
+        if target_request["schema_version"] != 1
+            || target_request["contract"] != "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1"
+            || target_request["sources"] != json!([])
+            || target_request["instances"] != context.record()["targets"]
+            || target["schema_version"] != 1
+            || target["contract"] != target_request["contract"]
+            || target["algorithm_artifact"] != observed["algorithm_artifact"]
+            || target["source_artifacts"] != json!([])
+            || target["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
+        {
+            return Err(CORRUPT);
+        }
+        for name in ["core", "operator", "target"] {
+            if target_request[format!("{name}_artifact")]["sha256"]
+                != target[format!("{name}_artifact_sha256")]
+                || !target[format!("{name}_resources_fingerprint")]
+                    .as_str()
+                    .is_some_and(crate::is_sha256_hex)
+            {
+                return Err(CORRUPT);
+            }
+        }
+        let target_nodes = observed["nodes"]
+            .as_array()
+            .ok_or(CORRUPT)?
+            .iter()
+            .filter(|n| n["definition"]["kind"] == "TARGET")
+            .cloned()
+            .collect::<Vec<_>>();
+        if json!(target_nodes) != target["nodes"] {
+            return Err(CORRUPT);
+        }
+    } else {
+        fields(
+            request,
+            &[
+                "schema_version",
+                "contract",
+                "sources",
+                "instances",
+                "core_artifact",
+                "operator_artifact",
+                "target_artifact",
+            ],
+        )?;
+        let mut sources = Vec::new();
+        for factor in factors.values() {
+            let mut projection = serde_json::Map::new();
+            for key in [
+                "factor_id",
+                "semantic_version",
+                "revision_fingerprint",
+                "source_text",
+                "source_sha256",
+                "factor_api_version",
+                "factor_api_contract_fingerprint",
+                "input_contract",
+                "parameter_contract",
+                "output_contract",
+            ] {
+                projection.insert(key.into(), factor[key].clone());
+            }
+            sources.push(Value::Object(projection));
+        }
+        if request["schema_version"] != 1
+            || request["contract"] != "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1"
+            || request["sources"] != json!(sources)
+            || request["instances"] != json!(instances)
+            || observed["contract"] != request["contract"]
+            || observed["schema_version"] != 1
+            || observed["algorithm_artifact"] != s["algorithm_artifact_fingerprint"]
+            || observed["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
+        {
+            return Err(CORRUPT);
+        }
+        for name in ["core", "operator", "target"] {
+            if request[format!("{name}_artifact")]["sha256"]
+                != observed[format!("{name}_artifact_sha256")]
+                || !observed[format!("{name}_resources_fingerprint")]
+                    .as_str()
+                    .is_some_and(crate::is_sha256_hex)
+            {
+                return Err(CORRUPT);
+            }
         }
     }
     let nodes = observed["nodes"].as_array().ok_or(CORRUPT)?;
@@ -991,6 +1072,16 @@ async fn verify_origin(tx: &Transaction<'_>, p: &Value, spec: &RunSpecification)
     }
     if json!(used.into_values().collect::<Vec<_>>()) != p["native_implementations"] {
         return Err(CORRUPT);
+    }
+    if composite {
+        let dataset = json!({"instruments":source["universe"]["instruments"],"bar_semantic":source["market_input"]["bar_semantic"]});
+        let expected = crate::application::calculation_build::context(
+            p,
+            s,
+            &dataset,
+            &source["market_input"]["construction_requirement"]["recipe"],
+        )?;
+        crate::application::calculation_build::verify(&p["build_certification"], &expected)?;
     }
     Ok(revision)
 }

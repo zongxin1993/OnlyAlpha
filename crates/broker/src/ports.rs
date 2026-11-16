@@ -143,6 +143,15 @@ pub trait TradingPort {
 
     fn capabilities(&self) -> Capabilities;
     fn dispatch(&mut self, command: &BrokerCommand) -> Result<DispatchResult, Error>;
+    /// Read-only observation of the actual appended dispatch, never permission
+    /// manufactured by an adapter. Existing external ports retain their behavior.
+    fn dispatch_observed(
+        &mut self,
+        command: &BrokerCommand,
+        _original: &DispatchObservation,
+    ) -> Result<DispatchResult, Error> {
+        self.dispatch(command)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capabilities(BTreeSet<String>);
@@ -361,4 +370,46 @@ impl Discovery {
 /// never prove absence.
 pub trait DiscoveryPort {
     fn discover(&mut self, command: &BrokerCommand) -> Result<Discovery, Error>;
+}
+
+/// The owning protocol creates this only after its actual DISPATCHED append.
+pub struct DispatchObservation {
+    pub(crate) command: BrokerCommand,
+    pub(crate) record: crate::Record,
+    pub(crate) admitted_at: Option<Value>,
+}
+impl DispatchObservation {
+    pub fn command(&self) -> &BrokerCommand {
+        &self.command
+    }
+    pub fn record(&self) -> Value {
+        self.record.record()
+    }
+    pub fn admitted_at(&self) -> Option<&Value> {
+        self.admitted_at.as_ref()
+    }
+}
+/// Finite BACKTEST calculation input. It cannot be supplied as RuntimeReader
+/// and is never returned as a durable Ready token to an external caller.
+#[derive(Clone)]
+pub struct SimulationIntent(pub(crate) ReadyIntent);
+impl SimulationIntent {
+    pub fn new(
+        command: BrokerCommand,
+        transaction: String,
+        payload: String,
+        at: &Value,
+    ) -> Result<Self, Error> {
+        if command.scope().record()["runtime_kind"] != "BACKTEST" {
+            return Err(err("FINITE_BACKTEST_REQUIRED"));
+        }
+        Ok(Self(
+            ReadyIntent::new(command, transaction, payload)?.at_admission(at)?,
+        ))
+    }
+}
+pub trait FiniteRuntimeReader {
+    fn simulation_intent(&self, command: &BrokerCommand) -> Result<SimulationIntent, Error>;
+    fn simulation_receipt(&self, fact: &Fact) -> Result<Option<ApplicationReceipt>, Error>;
+    fn simulation_order(&self, command: &BrokerCommand) -> Result<Option<OrderView>, Error>;
 }

@@ -93,6 +93,7 @@ def test_native_executable_input_admission_retains_exact_runtime_and_sealed_data
             binary,
             database,
             "retained-source-prerequisite",
+            fixture_capture_id=str(uuid4()),
             fixture_profile="RESEARCH_INPUT_ADMISSION_V1",
             user_data=str(tmp_path / "user-data"),
             selected_backend=str(binary),

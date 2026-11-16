@@ -202,9 +202,11 @@ impl Manager {
         command["payload"] = effect.replay_input();
         self.apply_inner(&command)
     }
-    pub(crate) fn apply_inner(&mut self, input: &Value) -> Result<Outcome, Error> {
-        #[cfg(test)]
-        crate::recovery::ACCOUNT_COMMAND_REPLAYS.with(|count| count.set(count.get() + 1));
+    // Shared exact parser/normalizer for actual apply and a prospective budget read.
+    fn checked_command(
+        &self,
+        input: &Value,
+    ) -> Result<(Value, String, num_bigint::BigInt, String), Error> {
         if input.to_string().len()
             > if input["op"] == "VALUATION" {
                 32 * 1024 * 1024
@@ -243,6 +245,37 @@ impl Manager {
         }
         let mut command = input.clone();
         command["payload"] = normalize_payload(op, &r["payload"], self.precision)?;
+        Ok((command, cid, t, op.to_owned()))
+    }
+    fn require_admission_capacity(&self, command: &Value) -> Result<(), Error> {
+        if self.state.journal.len() >= MAX_COMMANDS
+            || self
+                .state
+                .journal
+                .iter()
+                .map(|v| v.to_string().len())
+                .sum::<usize>()
+                + command.to_string().len()
+                > 4 * 1024 * 1024
+        {
+            return Err(err("ACCOUNT_JOURNAL_BOUND"));
+        }
+        Ok(())
+    }
+    /// Capacity observation for a new RESERVE, not admission or commit permission.
+    /// Uses the same command checks, normalization and journal limit as apply.
+    pub fn check_new_reservation_capacity(&self, input: &Value) -> Result<(), Error> {
+        let (command, cid, _, op) = self.checked_command(input)?;
+        if op != "RESERVE" || self.state.receipts.contains_key(&cid) {
+            return Err(err("ACCOUNT_NEW_RESERVATION_REQUIRED"));
+        }
+        self.require_admission_capacity(&command)
+    }
+    pub(crate) fn apply_inner(&mut self, input: &Value) -> Result<Outcome, Error> {
+        #[cfg(test)]
+        crate::recovery::ACCOUNT_COMMAND_REPLAYS.with(|count| count.set(count.get() + 1));
+        let (command, cid, t, operation) = self.checked_command(input)?;
+        let op = operation.as_str();
         let encoded = serde_json::to_vec(&command)?;
         let h = digest(&encoded);
         if let Some(old) = self.state.receipts.get(&cid) {
@@ -254,18 +287,8 @@ impl Manager {
         }
         let admission = matches!(op, "RESERVE" | "CASH_CHANGE")
             || (op == "MARGIN" && command["payload"]["command"]["action"] == "RESERVE");
-        if admission
-            && (self.state.journal.len() >= MAX_COMMANDS
-                || self
-                    .state
-                    .journal
-                    .iter()
-                    .map(|v| v.to_string().len())
-                    .sum::<usize>()
-                    + command.to_string().len()
-                    > 4 * 1024 * 1024)
-        {
-            return Err(err("ACCOUNT_JOURNAL_BOUND"));
+        if admission {
+            self.require_admission_capacity(&command)?;
         }
         let p = &command["payload"];
         let aliases: Vec<String> = match op {

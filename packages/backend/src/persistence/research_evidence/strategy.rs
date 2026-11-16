@@ -871,6 +871,15 @@ fn retained_runtime(
     {
         return Err(INVALID);
     }
+    // The opaque original Run's loader verified the exact PG programs,
+    // parameters, certificates and reconstructed manifests. Runtime owns the
+    // generic image, not a per-private-factor registration.
+    let factor_values = crate::application::factor_build::retained_factor_manifest_values(
+        &run.prepared_inputs,
+        text(&proof["native_descriptor"]["image"], "artifact")?,
+        text(&proof, "algorithm_artifact")?,
+    )
+    .map_err(|_| INVALID)?;
     let allowed = rows(&held.manifest()["implementations"])?;
     let native = rows(&proof["native_descriptor"]["implementations"])?;
     for (_, graph) in spec.calculation_graphs() {
@@ -884,7 +893,10 @@ fn retained_runtime(
             };
             for backend in backends {
                 let body = implementation(prepared, &definition, &id, backend)?;
-                if !allowed.contains(&implementation_projection(body)?) {
+                let factor = definition["kind"] == "FACTOR"
+                    && factor_values.get(text(body, "implementation_fingerprint")?) == Some(body);
+                if !factor && !allowed.contains(&implementation_projection(body)?) {
+                    eprintln!("[strategy-evidence] invalid line={}", line!());
                     return Err(INVALID);
                 }
                 if definition["kind"] == "PREDICATE"

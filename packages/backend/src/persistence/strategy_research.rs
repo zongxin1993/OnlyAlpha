@@ -32,6 +32,30 @@ impl<'a> Composer<'a> {
     pub fn new(client: &'a mut Client) -> Self {
         Self { client }
     }
+    pub(crate) async fn verify_finite_run(
+        &mut self,
+        run: &crate::application::research_run::VerifiedRun,
+        binding: &crate::application::job_contract::FrozenJobBinding,
+    ) -> Result<()> {
+        let namespace = crate::bootstrap::deployment::SemanticStoreId::new(binding.namespace())
+            .map_err(|_| INVALID)?;
+        crate::bootstrap::deployment::verify_binding(self.client, &namespace)
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+        let original = crate::persistence::research_submission::load(
+            self.client,
+            run.run_id(),
+            Some(binding.owner()),
+        )
+        .await?;
+        if original.specification_fingerprint() != run.specification_fingerprint()
+            || original.admission_resolution_fingerprint() != run.admission_resolution_fingerprint()
+            || original.prepared_inputs != run.prepared_inputs
+        {
+            return Err(CORRUPT);
+        }
+        Ok(())
+    }
     /// Authenticate an original immutable build fact before any retained READY
     /// inputs are resolved. This read cannot construct or repair the fact.
     pub(crate) async fn verify_calculation_build(&mut self, proof: &Value) -> Result<()> {
@@ -54,6 +78,33 @@ impl<'a> Composer<'a> {
     ) -> std::result::Result<Value, crate::application::research_admission::PreparationError> {
         crate::application::calculation_build::prepare(self.client, inputs, allow_build).await
     }
+    async fn ready_programs(
+        &mut self,
+        strategy: &Value,
+        factors: &BTreeMap<String, Value>,
+        installation: &onlyalpha_calculation_bridge::ChartInstallation,
+    ) -> std::result::Result<
+        BTreeMap<String, crate::application::factor_build::ReadyFactorBinding>,
+        crate::application::research_admission::PreparationError,
+    > {
+        let environment = crate::application::factor_build::ReadEnvironment::selected(installation)
+            .map_err(|_| "PRIVATE_STRATEGY_PROGRAM_ENVIRONMENT_UNAVAILABLE")?;
+        let tx = self
+            .client
+            .build_transaction()
+            .read_only(true)
+            .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
+            .start()
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+        bounds(&tx).await.map_err(|_| UNAVAILABLE)?;
+        let programs =
+            crate::application::factor_build::read_instances(&tx, &environment, strategy, factors)
+                .await
+                .map_err(crate::application::factor_build::preparation_error)?;
+        tx.commit().await.map_err(|_| UNAVAILABLE)?;
+        Ok(programs)
+    }
     /// Mathematical resolution retains exact original work, not a new Run grant.
     pub async fn resolve(
         &mut self,
@@ -69,6 +120,9 @@ impl<'a> Composer<'a> {
         let (composition, strategy, factors) = self
             .compose_inputs(id, revision, context, &mut runtime)
             .await?;
+        let programs = self
+            .ready_programs(&strategy, &factors, installation)
+            .await?;
         ResolvedCalculations::resolve(
             runtime,
             installation,
@@ -76,6 +130,7 @@ impl<'a> Composer<'a> {
             context,
             &factors,
             &composition,
+            programs,
         )
     }
     /// Re-anchor every immutable input through its owner in one consistent DB
@@ -117,6 +172,9 @@ impl<'a> Composer<'a> {
         runtime.verify_artifacts()?;
         let (composition, strategy, factors, context) =
             self.retained_inputs(composition, &runtime).await?;
+        let programs = self
+            .ready_programs(&strategy, &factors, installation)
+            .await?;
         let resolved = ResolvedCalculations::resolve(
             runtime,
             installation,
@@ -124,6 +182,7 @@ impl<'a> Composer<'a> {
             &context,
             &factors,
             &composition,
+            programs,
         )?;
         Ok((resolved, context))
     }
