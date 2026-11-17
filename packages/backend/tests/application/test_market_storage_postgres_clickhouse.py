@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 import base64
-import functools
 import hashlib
 import json
 import os
-import platform
 import re
 import shutil
 import socket
 import struct
 import subprocess
 import threading
-import tomllib
 import urllib.parse
 import urllib.request
 import uuid
@@ -28,6 +25,8 @@ from typing import Any, cast
 
 import psycopg
 import pytest
+
+from packages.backend.tests.application.support.native_probe import build_native_probe as _build_market_probe
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
 
 from packages.backend.tests.application.support.native_research_market_fixture import (
@@ -47,37 +46,6 @@ AT = datetime(2026, 10, 22, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[4]
 
 
-@functools.cache
-def _build_market_probe(*, release: bool = False) -> Path:
-    # A formal frozen-source process can prepare this producer before pytest's
-    # scenario budget, then reuse that same build. Never reuse a persisted binary.
-    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
-
-    target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
-    output = ROOT / "test-results/rust-kernel/target"
-    env = compiler_environment(os.environ, output)
-    env["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
-    prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
-    subprocess.run(
-        [
-            "cargo",
-            "build",
-            "--frozen",
-            "--offline",
-            *(["--release"] if release else []),
-            "--target",
-            target,
-            "-j1",
-            "-p",
-            "onlyalpha-backend",
-            "--example",
-            "command-postgres-probe",
-        ],
-        cwd=ROOT,
-        env=env,
-        check=True,
-    )
-    return output / target / ("release" if release else "debug") / "examples/command-postgres-probe"
 
 
 @pytest.fixture(scope="session")

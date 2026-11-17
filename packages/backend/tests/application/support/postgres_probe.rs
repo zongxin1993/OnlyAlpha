@@ -761,9 +761,23 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
         }
         return Ok(());
     }
+    let probe_started = std::time::Instant::now();
+    let preparation_diagnostics = std::env::var_os("ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS")
+        .as_deref()
+        == Some(std::ffi::OsStr::new("1"));
+    let startup_progress = |phase: &str| {
+        if preparation_diagnostics {
+            eprintln!(
+                "[probe-startup] phase={phase} elapsed_us={}",
+                probe_started.elapsed().as_micros()
+            );
+        }
+    };
+    startup_progress("process_entry");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    startup_progress("tokio_ready");
     runtime.block_on(async {
   if std::env::args().skip(1).collect::<Vec<_>>()==["--read-native-backtest-terminal"] {
     onlyalpha_backend::workers::backtest_terminal::run_stdio()?;return Ok(());
@@ -787,15 +801,20 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
   if !config.get_dbname().is_some_and(|name|name.ends_with("_test")) { return Err("test database required".into()); }
   // The probe uses the one local canonical test DB. Production TLS is node-owned.
   config.connect_timeout(Duration::from_secs(5)).ssl_mode(tokio_postgres::config::SslMode::Disable).options("-c timezone=UTC -c statement_timeout=5000ms -c lock_timeout=2000ms");
+  startup_progress("pg_connect_begin");
   let (mut client,connection)=config.connect(tokio_postgres::NoTls).await?;
+  startup_progress("pg_connect_done");
   let driver=tokio::spawn(connection);
   if std::env::args().any(|arg|arg=="--pid-barrier") {let pid:i32=client.query_one("SELECT pg_backend_pid()",&[]).await?.get(0);println!("{}",json!({"ready":true,"backend_pid":pid}));io::stdout().flush()?;}
   else if std::env::args().any(|arg|arg=="--barrier") {println!("{}",json!({"ready":true}));io::stdout().flush()?;}
+  startup_progress("request_read_begin");
   let raw = if let Some(raw) = input { raw } else {
     let mut raw=String::new();io::stdin().take((8*1024*1024+4097) as u64).read_to_string(&mut raw)?; raw
   };
   if raw.len()>8*1024*1024+4096 {return Err("probe frame bound".into())}
+  startup_progress("request_read_done");
   let request:Value=serde_json::from_str(&raw)?;
+  startup_progress("request_decoded");
   // Factor Draft tests carry the 256 KiB Product input plus the probe envelope.
   // The Calculation ABI uses its explicit 8 MiB frame plus a bounded envelope.
   // All other probe operations retain their existing 128 KiB frame guard.
@@ -842,7 +861,7 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
    println!("{}",match result {Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})});return Ok(());
   }
   if request["op"]=="runtime-environment" {
-   let started=std::time::Instant::now();
+   let started=probe_started;
    let progress=|phase:&str|eprintln!("[runtime-environment] phase={phase} elapsed_ms={}",started.elapsed().as_millis());
    use onlyalpha_backend::{workers::research_environment,persistence::research_runtime::Registry};
    use onlyalpha_calculation_bridge::ChartInstallation;
@@ -850,7 +869,17 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
    progress("pg_drain_begin");
    drop(client);driver.await??;
    progress("pg_drain_done");
-   let result=(||->Result<Value,Box<dyn StdError>> {
+   let diagnostics=if preparation_diagnostics {
+       progress("diagnostics_start");
+       match onlyalpha_observability::Session::new(
+           onlyalpha_observability::Config::new(onlyalpha_observability::Mode::Detail,format!("runtime-preparation-probe-{}",std::process::id()),128),
+           std::io::stderr(),
+       ) {
+           Ok(session)=>Some(session),
+           Err(_)=>{progress("diagnostics_unavailable");None}
+       }
+   } else {None};
+   let evaluate=||->Result<Value,Box<dyn StdError>> {
     let root=Path::new(request["release_root"].as_str().ok_or("release root")?);
     progress("installation_verify_begin");
     let installation=ChartInstallation::open(&root.join("algorithms"),request["algorithm_artifact"].as_str().ok_or("algorithm")?)?;
@@ -881,7 +910,12 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
       progress("work_binding_done");
     }
     Ok(json!({"manifest":prepared.manifest(),"proof":prepared.proof(),"snapshot":registry.snapshot()}))
-   })();
+   };
+   let result=if let Some(session)=&diagnostics {
+       progress("diagnostics_ready");
+       tracing::dispatcher::with_default(session.dispatch(),evaluate)
+   } else {evaluate()};
+   if let Some(session)=diagnostics {eprintln!("{}",session.close().record());}
    progress(if result.is_ok(){"request_done"}else{"request_error"});
    println!("{}",match result {Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})});return Ok(());
   }

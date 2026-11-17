@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import struct
 import subprocess
 from pathlib import Path
@@ -36,6 +37,23 @@ def invoke(executable: Path, payload: bytes, *extra: str) -> subprocess.Complete
         [str(executable), "--native-chart-worker", *extra],
         input=payload, capture_output=True, env={}, cwd="/", timeout=10,
     )
+
+
+def test_diagnostic_startup_markers_do_not_change_native_descriptor(native_release_probe: Path) -> None:
+    results=[]
+    for enabled in (False,True):
+        env=dict(os.environ)
+        env.pop("ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS",None)
+        if enabled: env["ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS"]="1"
+        result=subprocess.run([str(native_release_probe),"--describe-research-runtime"],env=env,
+                              capture_output=True,timeout=30,check=True)
+        results.append(json.loads(result.stdout))
+        if enabled:
+            assert b"[probe-startup] phase=process_entry elapsed_us=" in result.stderr
+            assert b"[probe-startup] phase=tokio_ready elapsed_us=" in result.stderr
+        else:
+            assert b"[probe-startup]" not in result.stderr
+    assert results[0]==results[1]
 
 
 def test_probe_catalog_binds_actual_elf_and_joins_on_eof(executable: Path) -> None:

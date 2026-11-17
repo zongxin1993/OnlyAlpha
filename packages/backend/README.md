@@ -41,3 +41,5 @@ Command、Run、Attempt及恢复各有唯一owner；新框架值／事实关系�
 后端启动必须显式配置 `ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN`。它与主连接指向相同数据库／传输环境，使用只属于 `onlyalpha_factor_builder` 的普通 LOGIN；不能传迁移管理员再 SET ROLE。迁移完成后，由操作者在固定开发环境显式运行 `python -m scripts.factor_build_database` 建立已确认归属的开发 builder 登录角色。脚本不修改业务数据，不在普通后端启动时自动执行，不覆盖未知角色或轮换已有密码。正式环境由部署方提供独立凭据。测试 fixture 仅在 `_test` 数据库准备自己的角色。
 
 不可变版本创建的默认请求由 PG 触发器记录，现有后端进程自动消费；唤醒和 watch 状态只是提示，READY 必须由 owning reader 完整读取 PG 构建／精确参数证书获得。后台构建的数据库连接、隔离子进程和关闭 join 由 owner 持有；源码编译器不接触数据库凭据。
+
+Runtime 准备的安装复核、发布工件读取、native 清单、子进程创建／握手／准备／回收和结束复核使用既有 `onlyalpha-observability` 阶段事件。受控探针可通过 `ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS=1` 显式选择局部诊断会话，入口计时覆盖 Tokio、建连和请求解析；事件只写诊断 stderr，不进入正式结果、身份或发布记录，原校验与超时不变。

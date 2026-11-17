@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import json
 import os
-import platform
 import re
 import shutil
 import subprocess
-import tomllib
+import sys
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -20,6 +19,9 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+
+from packages.backend.tests.application.support.native_probe import build_native_probe as _build_market_probe
+from packages.backend.tests.application.support.native_probe import runtime_diagnostic_lines
 
 from packages.backend.tests.application.test_runtime_installation_postgres import (
     native_environment_case as native_environment_case,
@@ -60,9 +62,11 @@ class MarketStorageInputs:
 
 @contextmanager
 def market_database(postgres_dsn: str) -> Iterator[MarketStorageInputs]:
+    started=time.monotonic_ns()
     backend = native_executable(release=True)
     result = migrate(backend, postgres_dsn, DEFAULT_MIGRATION_ROOT)
     assert result.returncode == 0, result.stderr
+    print(f"[research-fixture] phase=database-ready elapsed_us={(time.monotonic_ns()-started)//1000}",file=sys.stderr,flush=True)
     name = "onlyalpha_test_native_market_storage_" + uuid4().hex
     config = ClickHouseConfiguration(
         os.environ["ONLYALPHA_TEST_CLICKHOUSE_URL"],
@@ -71,6 +75,7 @@ def market_database(postgres_dsn: str) -> Iterator[MarketStorageInputs]:
         os.environ["ONLYALPHA_TEST_CLICKHOUSE_PASSWORD"],
     )
     clickhouse_namespace(backend, name, initialize=True)
+    print(f"[research-fixture] phase=market-ready elapsed_us={(time.monotonic_ns()-started)//1000}",file=sys.stderr,flush=True)
     try:
         yield MarketStorageInputs(config)
     finally:
@@ -82,38 +87,6 @@ def database(postgres_dsn: str) -> Iterator[MarketStorageInputs]:
     with market_database(postgres_dsn) as inputs:
         yield inputs
 
-
-@functools.cache
-def _build_market_probe(*, release: bool = False) -> Path:
-    # A formal frozen-source process can prepare this producer before pytest's
-    # scenario budget, then reuse that same build. Never reuse a persisted binary.
-    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
-
-    target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
-    output = ROOT / "test-results/rust-kernel/target"
-    env = compiler_environment(os.environ, output)
-    env["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
-    prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
-    subprocess.run(
-        [
-            "cargo",
-            "build",
-            "--frozen",
-            "--offline",
-            *(["--release"] if release else []),
-            "--target",
-            target,
-            "-j1",
-            "-p",
-            "onlyalpha-backend",
-            "--example",
-            "command-postgres-probe",
-        ],
-        cwd=ROOT,
-        env=env,
-        check=True,
-    )
-    return output / target / ("release" if release else "debug") / "examples/command-postgres-probe"
 
 
 @pytest.fixture(scope="session")
@@ -202,6 +175,8 @@ def strategy_preparation_case(
     runtime = runtime_root if runtime_root is not None else tmp_path / "use_test_strategy_runtime"
     generation = None
     if not manual_only:
+        started=time.monotonic_ns()
+        print("[research-fixture] phase=runtime-start elapsed_us=0",file=sys.stderr,flush=True)
         try:
             result = subprocess.run(
                 [str(executable)],
@@ -227,10 +202,13 @@ def strategy_preparation_case(
         except subprocess.TimeoutExpired as error:
             # Preserve the original deadline and expose only the probe's bounded
             # phase markers; the request and deployment environment are not logged.
-            for line in (error.stderr or b"").decode("utf-8", errors="replace").splitlines():
-                if line.startswith("[runtime-environment] phase="):
-                    print(line, flush=True)
+            for line in runtime_diagnostic_lines(error.stderr):
+                print(line,file=sys.stderr,flush=True)
             raise
+        print(f"[research-fixture] phase=runtime-ready elapsed_us={(time.monotonic_ns()-started)//1000}",file=sys.stderr,flush=True)
+        if os.environ.get("ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS")=="1":
+            for line in runtime_diagnostic_lines(result.stderr):
+                print(line,file=sys.stderr,flush=True)
         environment = json.loads(result.stdout)
         assert "error" not in environment, (environment, result.stderr)
         generation = environment["manifest"]["runtime_generation_fingerprint"]

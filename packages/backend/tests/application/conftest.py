@@ -2,52 +2,16 @@
 
 from __future__ import annotations
 
-import functools
-import os
-import platform
-import subprocess
-import tomllib
 from pathlib import Path
 
 import pytest
+
+from packages.backend.tests.application.support.native_probe import build_native_probe
 
 from packages.backend.tests.postgres_fixtures import postgres_dsn
 
 __all__ = ["postgres_dsn"]
 
-
-@functools.cache
-def build_native_probe(release: bool = False) -> Path:
-    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
-
-    root = Path(__file__).resolve().parents[4]
-    target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
-    output = root / "test-results/rust-kernel/target"
-    environment = compiler_environment(os.environ, output)
-    environment["RUSTUP_TOOLCHAIN"] = tomllib.loads((root / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
-    prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(environment["CARGO_HOME"]))
-    command = [
-        "cargo",
-        "build",
-        "--frozen",
-        "--offline",
-        "--target",
-        target,
-        "-j1",
-        "-p",
-        "onlyalpha-backend",
-        "--example",
-        "command-postgres-probe",
-    ]
-    if release:
-        command.append("--release")
-    subprocess.run(
-        command,
-        cwd=root,
-        env=environment,
-        check=True,
-    )
-    return output / target / ("release" if release else "debug") / "examples/command-postgres-probe"
 
 
 @pytest.fixture(scope="session")

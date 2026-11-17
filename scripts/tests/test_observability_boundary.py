@@ -10,6 +10,20 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ObservabilityBoundary(unittest.TestCase):
+    def test_runtime_diagnostic_test_edge_is_exact_and_neighbor_remains_rejected(self):
+        from scripts.rust_kernel_check import _without_declared_infrastructure_inputs
+
+        target=ROOT/"packages/backend/src/workers/research_environment.rs"
+        text,modules=_without_declared_infrastructure_inputs(ROOT,target)
+        self.assertIn(ROOT/"packages/backend/src/tests/research_environment_diagnostics_tests.rs",modules)
+        self.assertNotIn("../tests/research_environment_diagnostics_tests.rs",text)
+        original=Path.read_text
+        def read(path,*args,**kwargs):
+            value=original(path,*args,**kwargs)
+            return value+'\n#[path="../tests/undeclared_runtime.rs"] mod hidden;' if path==target else value
+        with patch.object(Path,"read_text",read),self.assertRaisesRegex(ValueError,"RUST_MODULE_BOUNDARY_INVALID"):
+            validate_infrastructure_sources(ROOT)
+
     def test_approved_infrastructure_library_is_admitted(self):
         validate_workspace(ROOT)
         validate_infrastructure_sources(ROOT)

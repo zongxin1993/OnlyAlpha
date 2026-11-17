@@ -1641,6 +1641,9 @@ _INFRASTRUCTURE_RESOURCES = {
     },
 }
 _INFRASTRUCTURE_SOURCE_MODULES = {
+    "packages/backend/src/workers/research_environment.rs": {
+        "../tests/research_environment_diagnostics_tests.rs": "packages/backend/src/tests/research_environment_diagnostics_tests.rs",
+    },
     "crates/execution/src/working.rs": {
         "tests/working_state_tests.rs": "crates/execution/src/tests/working_state_tests.rs",
     },
