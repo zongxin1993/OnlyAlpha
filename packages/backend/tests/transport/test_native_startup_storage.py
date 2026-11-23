@@ -24,7 +24,6 @@ def files(root: Path, namespace: str = NAMESPACE) -> Path:
     data = root / "data"
     for path in [
         "research/artifacts",
-        "backtest/evidence",
         "research/datasets",
         "research/dataset-economic-bindings",
         "secrets",

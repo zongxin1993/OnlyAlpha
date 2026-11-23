@@ -16,7 +16,13 @@
 
 ## 公开接口
 
-Revision / Scope / Program 绑定图、策略和执行上下文；NodePort / NodeRequest 定义节点执行边界。Executor::new / process 接收程序与行情并返回 Outcome；capture_checkpoint / restored_candidate / restore_checkpoint 处理恢复；SourceRevision::from_json 读取公开源记录和身份。
+[`SignalExecution`、`ResearchRun`、`CompletedResearch`](src/finite.rs)复用原 `Executor` 及 `Program`。共同信号输入只含行情、因子和显式参数；仓位、资金、风控与成交不进入信号计算。Research 的有限输入与 Backtest 的逐事件输入调用相同 `process`，保留交易过滤前的 eligibility／entry／exit 和完整图类型输出。
+
+有限 Research 构造时由实际 Executor 核对初始 chain、节点、receipt 和 producer frontier，拒绝预热或恢复过的执行器。Research 过程按行数和编码预算有界，失败或输入未耗尽时拒绝完成；最终一次调用原 Executor 的 capture barrier，核对实际节点状态。`CompletedResearch` 仅证明信号／图数学完成，不能代替 Target、统计、报告、任务回收或 PG 发布的完成证明。各次作业的窗口状态独立，过程丢失后重新执行。
+
+Revision / Scope / Program 绑定图、策略和执行上下文。`Program::from_record` 重建并逐项校验保存的程序记录及节点绑定。`SignalExecution::receipts` 按最近成功输入的 trace 顺序返回原始 Calculation 回执，BLOCKED 节点对应 `null`。`Program::verify_finite_completion` 校验同一次有限执行的有序冻结行情、决策、回执和 schema 2 结束检查点之间的关联。调用方需从原执行和不可变发布中确认这些证据的来源及身份。
+
+NodePort / NodeRequest 定义节点执行边界。Executor::new / process 接收程序与行情并返回 Outcome。capture_checkpoint / restored_candidate / restore_checkpoint 处理恢复。[`SourceRevision::from_json`](src/source.rs) 读取公开源记录和身份。`SourceRevision::from_json_with_work` 同时返回源记录字节数与图解析工作量的较大值，供调用方从累计预算中扣除。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
 
@@ -46,3 +52,5 @@ cargo doc -p onlyalpha-strategy --no-deps
 集成测试位于 [`tests/`](tests/)，独立单元测试统一集中在 `src/tests/`，仍由原业务模块挂载并保留私有访问；内联测试可保留。 无外部服务依赖的库验证可在宿主机运行并记录平台；数据库或运行中应用验证使用固定 `onlyalpha-dev` 环境。
 
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

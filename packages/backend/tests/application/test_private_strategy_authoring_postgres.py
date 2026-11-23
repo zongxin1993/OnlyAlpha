@@ -149,7 +149,7 @@ def factor_revision(probe: Path) -> dict[str, Any]:
         "semantic_version": "1",
         "source_text": "def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n",
         "factor_api_version": 1,
-        "factor_api_contract_fingerprint": "3265e2397f581705b67c1372483b6629671b68af71f69575c7bd602816d63be9",
+        "factor_api_contract_fingerprint": "18235355e46a704c55b115242e50999cf7d583ab72e100b5b12bdde4ddd14ccd",
         "input_contract": {"close": {"type": "DECIMAL"}},
         "parameter_contract": {},
         "output_contract": {"value": {"type": "DECIMAL"}},
@@ -511,6 +511,16 @@ def test_strategy_composition_reanchors_exact_revision_and_retains_public_contex
     executable = runtime / "native-executor"
     assert hashlib.sha256(executable.read_bytes()).hexdigest() == selected["executor_sha256"]
     generation = selected["generation"]
+    proof_paths = list((runtime / "runtime-generation-installed-proof" / generation).glob("*.json"))
+    assert len(proof_paths) == 1
+    proof = json.loads(proof_paths[0].read_text())
+    observation = proof["algorithm_observation"]
+    assert observation["contract"] == "ONLYALPHA_INSTALLED_CALCULATION_ENVIRONMENT_V1"
+    assert (
+        not {"source_artifact", "equivalence_evidence", "certification_vectors", "source_projection_fingerprint"}
+        & observation.keys()
+    )
+    assert all(p["manifest"]["source"]["kind"] == "DISTRIBUTION" for p in proof["catalog"]["providers"])
     strategy_id = "private.strategy.s" + uuid4().hex
     value = draft(strategy_id)
     calculation = value["definition"]["calculations"][0]

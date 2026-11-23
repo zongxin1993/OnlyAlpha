@@ -18,6 +18,8 @@
 
 PipelineProgram / SourceProgram / ClusterProgram 定义配置；MarketDataPipeline<C,D>::process 接收 PipelineInput，返回 PreparedMarketData；CalculationPort 和 PreparationConsumer 连接计算与消费者。state / delivery 暴露状态与交付契约，construction 重导出行情构造库。
 
+[`finite_input::Axis`](src/finite_input.rs) 统一有限闭合 Bar 输入的半开区间、计数和逐行连续轴检查，供 Research 与回测共享；该值不证明来源、内容或权限。
+
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
 
 ```rust
@@ -48,3 +50,5 @@ cargo doc -p onlyalpha-market-data --no-deps
 集成测试位于 [`tests/`](tests/)，独立单元测试统一集中在 `src/tests/`，仍由原业务模块挂载并保留私有访问；内联测试可保留。 无外部服务依赖的库验证可在宿主机运行并记录平台；数据库或运行中应用验证使用固定 `onlyalpha-dev` 环境。
 
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

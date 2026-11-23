@@ -274,6 +274,16 @@ pub(crate) struct Ledger {
     pub entries: Vec<Value>,
     pub fee_entries: Vec<Value>,
 }
+pub fn equity_return(equity: &D, base: &D) -> Result<Option<String>, Error> {
+    for value in [equity, base] {
+        let (coefficient, scale) = value.as_bigint_and_exponent();
+        if coefficient.to_string().len() > 1024 || !(-512..=512).contains(&scale) {
+            return Err(err("LEDGER_ARITHMETIC_BOUND"));
+        }
+    }
+    Ok(Ledger::ratio(equity - base, base))
+}
+
 impl Ledger {
     pub fn new(initial: D, p: u8) -> Self {
         Self {

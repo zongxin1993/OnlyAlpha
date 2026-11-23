@@ -1,6 +1,11 @@
-use crate::{Manager, model::*};
+use crate::{
+    Manager,
+    manager::{command_aliases, command_semantic, position_trade_record},
+    model::*,
+};
 use serde_json::{Map, Value, json};
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
@@ -125,6 +130,22 @@ fn original_command_matches(
             }
         }))
 }
+fn expand_command<'a>(
+    version: u8,
+    checkpoint: &'a Value,
+    encoded: &'a Value,
+) -> Result<Cow<'a, Value>, Error> {
+    if version != 5 || encoded["op"] != "VALUATION" {
+        return Ok(Cow::Borrowed(encoded));
+    }
+    let payload = &encoded["payload"];
+    let reference = text(&payload["position_ref"])?;
+    Ok(Cow::Owned(with_payload(
+        encoded,
+        json!({"schema_version":1,"intent":payload["intent"],"position":checkpoint["positions"][reference]}),
+    )?))
+}
+
 impl Manager {
     fn checkpoint5(&self) -> Result<Value, Error> {
         let mut positions = Map::new();
@@ -193,24 +214,106 @@ impl Manager {
             checkpoint.fingerprint.clone(),
         ))
     }
+    /// Verify the canonical journal, receipt and index bindings without replay.
+    /// The finite result caller must prove that each returned command was applied.
+    pub fn checkpoint_commands<'a>(
+        &self,
+        checkpoint: &'a Value,
+        expected: &str,
+        final_snapshot: &Value,
+    ) -> Result<Vec<(Cow<'a, Value>, String)>, Error> {
+        let bytes = serde_json::to_vec(checkpoint)?;
+        if bytes.len() > MAX_CHECKPOINT {
+            return Err(err("ACCOUNT_CHECKPOINT_BOUND"));
+        }
+        if digest(&bytes) != expected {
+            return Err(err("ACCOUNT_CHECKPOINT_DIGEST"));
+        }
+        self.check_checkpoint_record(checkpoint)?;
+        let state = &checkpoint["state"];
+        let template = self.state();
+        let state_fields = state
+            .as_object()
+            .ok_or_else(|| err("ACCOUNT_CHECKPOINT_STATE"))?;
+        if !state_fields
+            .keys()
+            .eq(template.as_object().expect("Account state").keys())
+            || state["schema_version"] != template["schema_version"]
+            || state["snapshot"] != *final_snapshot
+        {
+            return Err(err("ACCOUNT_CHECKPOINT_STATE"));
+        }
+        let journal = checkpoint["journal"]
+            .as_array()
+            .ok_or_else(|| err("ACCOUNT_CHECKPOINT_JOURNAL"))?;
+        let receipts = state["receipts"]
+            .as_object()
+            .filter(|receipts| receipts.len() == journal.len())
+            .ok_or_else(|| err("ACCOUNT_CHECKPOINT_RECEIPTS"))?;
+        let mut seen = BTreeSet::new();
+        let mut semantic = BTreeMap::new();
+        let mut position_trades = Map::new();
+        let mut commands = Vec::with_capacity(journal.len());
+        for encoded in journal {
+            let command = expand_command(self.checkpoint_version, checkpoint, encoded)?;
+            let (normalized, command_id, _, operation) = self.checked_command(&command)?;
+            let receipt = hash(&normalized);
+            if normalized != *command
+                || receipts.get(&command_id).and_then(Value::as_str) != Some(receipt.as_str())
+                || !seen.insert(command_id)
+            {
+                return Err(err("ACCOUNT_CHECKPOINT_RECEIPTS"));
+            }
+            let aliases = command_aliases(&normalized)?;
+            if !aliases.is_empty() {
+                let fingerprint = json!(command_semantic(&normalized)?);
+                for alias in aliases {
+                    if semantic.insert(alias, fingerprint.clone()).is_some() {
+                        return Err(err("ACCOUNT_CHECKPOINT_SEMANTIC"));
+                    }
+                }
+            }
+            if operation == "TRADE" {
+                position_trades.insert(
+                    id(&normalized["payload"]["trade"])?,
+                    position_trade_record(&normalized),
+                );
+            }
+            commands.push((command, receipt));
+        }
+        if state["semantic"] != serde_json::to_value(semantic)? {
+            return Err(err("ACCOUNT_CHECKPOINT_SEMANTIC"));
+        }
+        if state["position_trades"] != Value::Object(position_trades) {
+            return Err(err("ACCOUNT_CHECKPOINT_POSITION_TRADES"));
+        }
+        Ok(commands)
+    }
+    fn check_checkpoint_record(&self, value: &Value) -> Result<(), Error> {
+        let fields: &[&str] = if self.checkpoint_version == 4 {
+            &["config", "journal", "state"]
+        } else {
+            &["config", "journal", "positions", "state"]
+        };
+        let record = checkpoint_row(value, self.checkpoint_version, fields)?;
+        if record["config"] != self.config {
+            return Err(err("ACCOUNT_CHECKPOINT_CONTEXT_OR_CANONICAL"));
+        }
+        if self.checkpoint_version == 5 {
+            validate_dictionary(value)?;
+        }
+        Ok(())
+    }
     fn checked_checkpoint(&self, bytes: &[u8], expected: &str) -> Result<Value, Error> {
         fingerprint(&json!(expected))?;
         if digest(bytes) != expected {
             return Err(err("ACCOUNT_CHECKPOINT_DIGEST"));
         }
         let value: Value = serde_json::from_slice(bytes)?;
-        let fields: &[&str] = if self.checkpoint_version == 4 {
-            &["config", "journal", "state"]
-        } else {
-            &["config", "journal", "positions", "state"]
-        };
-        let record = checkpoint_row(&value, self.checkpoint_version, fields)?;
-        if serde_json::to_vec(&value)? != bytes || record["config"] != self.config {
+        if serde_json::to_vec(&value)? != bytes {
             return Err(err("ACCOUNT_CHECKPOINT_CONTEXT_OR_CANONICAL"));
         }
-        if self.checkpoint_version == 5 {
-            validate_dictionary(&value)?;
-        }
+        self.check_checkpoint_record(&value)?;
         Ok(value)
     }
     pub fn restore(&mut self, bytes: &[u8], expected: &str) -> Result<(), Error> {
@@ -242,18 +345,9 @@ impl Manager {
             .ok_or_else(|| err("ACCOUNT_CHECKPOINT_JOURNAL"))?;
         let mut candidate = self.fresh()?;
         for encoded in journal {
-            let command = if self.checkpoint_version == 5 && encoded["op"] == "VALUATION" {
-                let payload = &encoded["payload"];
-                let reference = text(&payload["position_ref"])?;
-                Some(with_payload(
-                    encoded,
-                    json!({"schema_version":1,"intent":payload["intent"],"position":value["positions"][reference]}),
-                )?)
-            } else {
-                None
-            };
+            let command = expand_command(self.checkpoint_version, &value, encoded)?;
             let before = candidate.state.journal.len();
-            let input = command.as_ref().unwrap_or(encoded);
+            let input = command.as_ref();
             if candidate.state.perpetual
                 && input["op"] == "ECONOMIC"
                 && input["payload"]["kind"] == "FUNDING"
@@ -322,18 +416,9 @@ impl Manager {
         }
         let mut candidate = self.clone();
         for encoded in &journal[prefix..] {
-            let command = if self.checkpoint_version == 5 && encoded["op"] == "VALUATION" {
-                let payload = &encoded["payload"];
-                let reference = text(&payload["position_ref"])?;
-                Some(with_payload(
-                    encoded,
-                    json!({"schema_version":1,"intent":payload["intent"],"position":value["positions"][reference]}),
-                )?)
-            } else {
-                None
-            };
+            let command = expand_command(self.checkpoint_version, &value, encoded)?;
             let before = candidate.state.journal.len();
-            let input = command.as_ref().unwrap_or(encoded);
+            let input = command.as_ref();
             if candidate.state.perpetual
                 && input["op"] == "ECONOMIC"
                 && input["payload"]["kind"] == "FUNDING"

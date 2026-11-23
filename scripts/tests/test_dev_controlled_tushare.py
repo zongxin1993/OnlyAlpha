@@ -69,6 +69,57 @@ def test_daily_and_stream_modes_cannot_be_combined():
     assert not verification.controlled_https_command(["python", "elsewhere.py", *COMMAND[3:]])
 
 
+def test_backtest_owner_controlled_https_admits_only_the_approved_nodes(monkeypatch):
+    path = "packages/backend/tests/application/test_strategy_research_evidence.py"
+    node = f"{path}::test_actual_strategy_science_producer_report_historical_reader_and_freeze"
+    prefix = ["python", "-m", "pytest", "-q", "-s"]
+    expected = [
+        [*prefix, f"{node}[backtest-owner:{scenario}]"]
+        for scenario in (
+            "queued-cancel",
+            "running-cancel",
+            "shutdown-resume",
+            "attempts-exhausted",
+            "expiry-before-finalization",
+            "expiry-before-recovery-publication",
+            "lost-guard",
+            "crash-recover",
+            "worker-exit",
+            "worker-exit-before-claim",
+            "worker-exit-during-execution",
+            "worker-exit-after-candidate",
+            "worker-exit-during-insert",
+            "recover-cancel",
+            "missing-program",
+            "missing-market-seal",
+            "missing-market-row",
+        )
+    ]
+    assert {tuple(command) for command in verification.CONTROLLED_BACKTEST_OWNER_FIXTURE_COMMANDS} == {
+        tuple(command) for command in expected
+    }
+    monkeypatch.setattr(verification.os, "geteuid", lambda: 10001)
+    for command in expected:
+        assert verification.controlled_https_command(command)
+        for alternative in (
+            [*command, "--collect-only"],
+            [*command[:3], "-s", "-q", command[-1]],
+            [*command[:-2], command[-1]],
+            [*prefix, path],
+            [*prefix, node],
+            [*prefix, f"{node}[backtest-owner:memory-completion]", "--collect-only"],
+            [*prefix, f"{node}[backtest-owner:recover-published]"],
+            [*command, f"{node}[backtest-owner:lost-guard]"],
+        ):
+            assert not verification.controlled_https_command(alternative)
+            with pytest.raises(ValueError, match="DEV_CONTROLLED_HTTPS_COMMAND_REFUSED"):
+                verification.run_host(
+                    "run", alternative, web=False, rebuild=False, reservation={}, controlled_source_https=True
+                )
+            with pytest.raises(ValueError, match="DEV_CONTROLLED_HTTPS_COMMAND_REFUSED"):
+                verification.run_inside(alternative, controlled_source_https=True)
+
+
 @pytest.mark.parametrize("mode", ["prepare", "run", "inside", "runtime-build"])
 def test_internal_daily_flag_is_rejected_outside_root_lifecycle(monkeypatch, mode):
     monkeypatch.setattr(verification.sys, "argv", ["dev_verification.py", "--controlled-tushare-daily", mode])

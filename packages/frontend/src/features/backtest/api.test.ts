@@ -564,6 +564,39 @@ it("reads actual typed result projections including positions without a command"
     missingPositions = true;
     await expect(loadResult(run)).rejects.toThrow();
 });
+it.each([
+    { schema_version: 2 },
+    { run_id: "not-a-uuid" },
+    { run_id: "00000000-0000-1000-8000-000000009402" },
+    { strategy_fingerprint: "A".repeat(64) },
+    { accepted_at: "not-time" },
+    { state: "UNKNOWN" },
+    { revision: Number.MAX_SAFE_INTEGER + 1 },
+    { revision: "-1" },
+    { revision: "01" },
+    { revision: "1.5" },
+    { revision: "9223372036854775808" },
+    { result_fingerprint: "a".repeat(64) }
+])("rejects malformed Run detail %j", async (invalid) => {
+    vi.mocked(request).mockImplementationOnce(<T>(_path: string, schema: z.ZodType<T>) =>
+        Promise.resolve().then(() => schema.parse({ ...runView(), ...invalid }))
+    );
+    await expect(loadRun(run)).rejects.toThrow();
+});
+it.each([
+    { schema_version: 2 },
+    { run_id: future },
+    { state: "FAILED" },
+    { evidence_fingerprint: "invalid" },
+    { result_fingerprint: "A".repeat(64) },
+    { determinism_fingerprint: null },
+    { manifest: {} }
+])("rejects malformed or misbound Run result %j", async (invalid) => {
+    vi.mocked(request).mockImplementationOnce(<T>(_path: string, schema: z.ZodType<T>) =>
+        Promise.resolve().then(() => schema.parse({ ...resultValue, ...invalid }))
+    );
+    await expect(loadResult(run)).rejects.toThrow();
+});
 it.each(["STARTING", "IDLE", "RUNNING", "UNKNOWN", "UNAVAILABLE", "STOPPED"] as const)(
     "reads an optional strict worker %s observation without changing the original Run state",
     async (state) => {

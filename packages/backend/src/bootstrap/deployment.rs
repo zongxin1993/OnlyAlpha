@@ -94,7 +94,7 @@ pub(crate) async fn verify_binding_in_transaction(
     Ok(())
 }
 
-pub(super) async fn read_binding(
+pub(crate) async fn read_binding(
     tx: &tokio_postgres::Transaction<'_>,
 ) -> Result<SemanticStoreId, Error> {
     crate::persistence::postgres::bounds(tx)

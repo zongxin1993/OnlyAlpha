@@ -14,7 +14,7 @@ use crate::{
         authority_session::AuthoritySession,
         qualification_commands::Qualifications,
         qualification_decision::Store as Decisions,
-        research_evidence::Store as Evidence,
+        research_evidence::{Store as Evidence, VerifiedResearchCounts, read_published_strategy},
         research_preparation::{self, BacktestAcceptance, Preparations, State},
         research_submission,
         strategy_promotion::{self, Promotions, Request as PromotionRequest},
@@ -39,6 +39,7 @@ fn output(v: Value) {
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
 }
 pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str) {
+    let mut facts=crate::job_fact_connection::Connection::reader().await.unwrap();
     let request: Value = serde_json::from_slice(
         &std::fs::read(std::env::var("ONLYALPHA_BACKTEST_PREPARATION_REQUEST").unwrap()).unwrap(),
     )
@@ -93,6 +94,8 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
         .unwrap();
     let run = research_submission::load(
         session.client_mut().await.unwrap(),
+        &mut facts.client,
+        &namespace,
         text(&request, "run_id"),
         Some(OWNER),
     )
@@ -103,15 +106,20 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
         run.strategy_specification().unwrap().record()["schema_version"],
         5
     );
-    let evidence = Evidence::open(root)
-        .unwrap()
-        .with_runtime_root(Path::new(text(&request, "runtime_root")))
-        .unwrap();
-    let counts = Arc::new(
-        evidence
-            .read_verified_counts(&run, &frozen, text(&request, "freeze_relation"))
-            .unwrap(),
-    );
+    let relation = text(&request, "freeze_relation");
+    let counts = Arc::new(if phase == "native-qualification-pg" {
+        let publication = read_published_strategy(&mut facts.client, &namespace, &run)
+            .await
+            .unwrap();
+        VerifiedResearchCounts::from_publication(publication, frozen.clone(), relation).unwrap()
+    } else {
+        Evidence::open(root)
+            .unwrap()
+            .with_runtime_root(Path::new(text(&request, "runtime_root")))
+            .unwrap()
+            .read_verified_counts(&run, &frozen, relation)
+            .unwrap()
+    });
     let qualification=QualificationRequest::new(command(&request,"qualification_command"),counts.subject_strategy_fingerprint(),"experimental-backtest","1",
         &json!([{"kind":"RESEARCH_RESULT","evidence_fingerprint":counts.research_result_fingerprint(),
             "locator_fingerprint":counts.research_result_plan_fingerprint(),"subject_binding_fingerprint":counts.freeze_relation_fingerprint()}])).unwrap();
@@ -143,6 +151,7 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
         .unwrap();
     let admission = strategy_promotion::read_verified_admission(
         session.client_mut().await.unwrap(),
+        &mut facts.client,
         &namespace,
         frozen,
         decision,
@@ -155,7 +164,7 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
     )
     .await
     .unwrap();
-    if phase == "native-qualification" {
+    if matches!(phase, "native-qualification" | "native-qualification-pg") {
         // Only observations of the actual count/Policy/Decision/Promotion owners
         // leave this process. Host must re-open admission for the normal API.
         output(

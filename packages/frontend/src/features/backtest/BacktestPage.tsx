@@ -60,6 +60,21 @@ function label(state: string): string {
         )[state] ?? "正在准备回测"
     );
 }
+function runProgress(run: Run): string {
+    if (run.report_status.state === "UNAVAILABLE") {
+        return "结果暂时无法核验，原任务仍然保留。请稍后重新查看。";
+    }
+    if (run.state === "CANCEL_REQUESTED") {
+        return "已收到取消请求，正在等待原任务确认最终状态。";
+    }
+    if (run.state === "CANCELLED" && run.cancellation_reason === "USER_REQUESTED") {
+        return "已按你的请求取消。本次回测没有发布结果。";
+    }
+    if (run.state === "CANCELLED" || run.state === "FAILED") {
+        return "本次回测没有发布结果。";
+    }
+    return "页面刷新后仍会读取同一次回测。";
+}
 function recoverable(value: unknown): value is Error & { observe: () => Promise<unknown> } {
     return value instanceof Error && "observe" in value && typeof value.observe === "function";
 }
@@ -146,7 +161,7 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
                     const value = await api.loadRun(id);
                     if (!isCurrent()) return;
                     setRun(value);
-                    if (value.report_status.state === "VERIFIED") {
+                    if (value.state === "COMPLETED" && value.report_status.state === "VERIFIED") {
                         const original = await api.loadResult(id);
                         if (!isCurrent()) return;
                         if (original.strategy_fingerprint !== value.strategy_fingerprint)
@@ -194,8 +209,9 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
             if (name === "start") {
                 const accepted = value as Awaited<ReturnType<typeof api.confirmBacktest>>;
                 if (accepted.run_id !== null) void navigate(`/backtest/runs/${accepted.run_id}`);
-            } else if (name === "cancel-run") setRun(value as Run);
-            else {
+            } else if (name === "cancel-run") {
+                onRefresh();
+            } else {
                 const actual = value as Preparation;
                 setRecovery(null);
                 setPreparation(actual);
@@ -463,11 +479,7 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
                         showIcon
                         type={completed.has(run.state) ? "warning" : "info"}
                         title={label(run.state)}
-                        description={
-                            run.report_status.state === "UNAVAILABLE"
-                                ? "结果暂时无法核验，原任务仍然保留。请稍后重新查看。"
-                                : "页面刷新后仍会读取同一次回测。"
-                        }
+                        description={runProgress(run)}
                     />
                     {!completed.has(run.state) && run.state !== "CANCEL_REQUESTED" && (
                         <Button
@@ -487,11 +499,7 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
                     <Alert
                         type="info"
                         showIcon
-                        title={
-                            result.state === "CANCELLED"
-                                ? "回测已取消，以下为已完成部分的结果"
-                                : "探索性回测"
-                        }
+                        title="探索性回测"
                         description={result.limitations.join(" ")}
                     />
                     <div className="backtest-metrics">

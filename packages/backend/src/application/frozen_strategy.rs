@@ -282,7 +282,10 @@ impl FrozenStore {
         Ok(Some(fd))
     }
     fn read_all(&self, max_work: usize) -> Result<Inventory, Error> {
-        let mut work = Work(max_work);
+        self.read_inventory(&mut Work(max_work))
+    }
+
+    fn read_inventory(&self, work: &mut Work) -> Result<Inventory, Error> {
         let revision_root = self.tree("frozen-revisions")?;
         let relation_root = self.tree("freeze-relations")?;
         let mut result = Inventory {
@@ -292,7 +295,7 @@ impl FrozenStore {
             relation_tree_present: relation_root.is_some(),
         };
         if let Some(root) = relation_root {
-            for (id, raw) in documents(&root, &mut work)? {
+            for (id, raw) in documents(&root, work)? {
                 let relation = FreezeRelation::from_json(&raw, DOCUMENT_WORK)?;
                 if relation.fingerprint() != id {
                     return Err(Error::Corrupt);
@@ -301,17 +304,13 @@ impl FrozenStore {
             }
         }
         if let Some(root) = revision_root {
-            for (id, raw) in documents(&root, &mut work)? {
+            for (id, raw) in documents(&root, work)? {
                 let v: Value = serde_json::from_str(&raw).map_err(|_| Error::Corrupt)?;
                 exact(&v, &["schema_version", "strategy_fingerprint", "revision"])?;
                 if v["schema_version"].as_u64() != Some(1) || v["strategy_fingerprint"] != id {
                     return Err(Error::Corrupt);
                 }
-                let source = SourceRevision::from_json(&v["revision"].to_string(), DOCUMENT_WORK)
-                    .map_err(|e| match e {
-                    SourceError::Invalid => Error::Corrupt,
-                    SourceError::Unavailable => Error::Unavailable,
-                })?;
+                let source = work.parse_revision(&v["revision"], raw.len())?;
                 if source.fingerprint() != id {
                     return Err(Error::Corrupt);
                 }
@@ -338,7 +337,53 @@ impl Work {
         self.0 = self.0.checked_sub(n).ok_or(Error::Unavailable)?;
         Ok(())
     }
+
+    fn parse_revision(
+        &mut self,
+        revision: &Value,
+        manifest_bytes: usize,
+    ) -> Result<SourceRevision, Error> {
+        // The manifest has already been charged. The parser can spend that allowance once.
+        let parse_limit = DOCUMENT_WORK.min(self.0 + manifest_bytes);
+        let (source, used) = SourceRevision::from_json_with_work(&revision.to_string(), parse_limit)
+            .map_err(|e| match e {
+                SourceError::Invalid => Error::Corrupt,
+                SourceError::Unavailable => Error::Unavailable,
+            })?;
+        self.take(used.saturating_sub(manifest_bytes))?;
+        Ok(source)
+    }
+
+    fn reserve_document(&mut self, manifest: &Value) -> Result<usize, Error> {
+        let bytes = serde_json::to_vec(manifest).map_err(|_| Error::Corrupt)?.len();
+        if bytes > DOCUMENT_WORK {
+            return Err(Error::Unavailable);
+        }
+        // Reserve the leaf and manifest names, including a prefix that may be new.
+        self.take(bytes + (1 + 2) + (1 + 64) + (1 + "manifest.json".len()))?;
+        Ok(bytes)
+    }
+
+    fn reserve_revision(&mut self, manifest: &Value) -> Result<(), Error> {
+        let bytes = self.reserve_document(manifest)?;
+        self.parse_revision(&manifest["revision"], bytes)?;
+        Ok(())
+    }
 }
+fn ensure_shard_capacity<T>(records: &BTreeMap<String, T>, id: &str) -> Result<(), Error> {
+    use std::ops::Bound::{Included, Unbounded};
+
+    let prefix = &id[..2];
+    let entries = records
+        .range::<str, _>((Included(prefix), Unbounded))
+        .take_while(|(key, _)| key.starts_with(prefix))
+        .count();
+    if entries >= protected_files::MAX_DIRECTORY_ENTRIES {
+        return Err(Error::Unavailable);
+    }
+    Ok(())
+}
+
 fn documents(root: &OwnedFd, work: &mut Work) -> Result<Vec<(String, String)>, Error> {
     let mut docs = Vec::new();
     for prefix in protected_files::directory_entries(root, &mut work.0)? {
@@ -363,16 +408,14 @@ fn documents(root: &OwnedFd, work: &mut Work) -> Result<Vec<(String, String)>, E
             {
                 return Err(Error::Corrupt);
             }
-            // Charge the entire per-document parse/expansion allowance, not only bytes.
-            // This bounds cumulative work even for small decimal exponent spellings.
-            work.take(DOCUMENT_WORK)?;
             let data = protected_files::read_file_at(
                 &target,
                 OsStr::new("manifest.json"),
                 FilePolicy::HistoryDocument,
-                DOCUMENT_WORK,
+                DOCUMENT_WORK.min(work.0),
             )
             .map_err(published_error)?;
+            work.take(data.len())?;
             let raw = std::str::from_utf8(&data).map_err(|_| Error::Corrupt)?;
             let v: Value = serde_json::from_str(raw).map_err(|_| Error::Corrupt)?;
             let canonical = serde_json::to_vec(&v).map_err(|_| Error::Corrupt)?;
@@ -491,10 +534,22 @@ mod freeze_publication_tests {
         let relation = fixture["relation"]["relation_fingerprint"]
             .as_str()
             .unwrap();
-        for (tree, id, value) in [
-            ("frozen-revisions", strategy, &fixture["manifest"]),
-            ("freeze-relations", relation, &fixture["relation"]),
-        ] {
+        let mut documents = vec![
+            ("frozen-revisions", strategy.to_owned(), fixture["manifest"].clone()),
+            ("freeze-relations", relation.to_owned(), fixture["relation"].clone()),
+        ];
+        for n in 1..=6 {
+            let mut record = fixture["relation"].clone();
+            record["candidate_fingerprint"] = json!(format!("{n:064x}"));
+            record.as_object_mut().unwrap().remove("relation_fingerprint");
+            let mut identity = record.clone();
+            identity["domain"] = json!("onlyalpha.strategy.freeze-relation");
+            let id = record_fingerprint(&identity);
+            record["relation_fingerprint"] = json!(id);
+            documents.push(("freeze-relations", id, record));
+        }
+        let mut file_bytes = 0;
+        for (tree, id, value) in documents {
             let path = root
                 .0
                 .join("strategy")
@@ -503,21 +558,19 @@ mod freeze_publication_tests {
                 .join(&id[..2])
                 .join(id);
             std::fs::create_dir_all(&path).unwrap();
-            std::fs::write(
-                path.join("manifest.json"),
-                serde_json::to_vec(value).unwrap(),
-            )
-            .unwrap();
+            let encoded = serde_json::to_vec(&value).unwrap();
+            file_bytes += encoded.len();
+            std::fs::write(path.join("manifest.json"), encoded).unwrap();
         }
         let descriptor = protected_files::open_directory(&root.0).unwrap();
         let store = FrozenStore::open(descriptor.as_fd()).unwrap();
         assert_eq!(
-            store.load_verified(strategy, DOCUMENT_WORK).unwrap_err(),
+            store.load_verified(strategy, file_bytes).unwrap_err(),
             Error::Unavailable
         );
         assert_eq!(
             store
-                .load_relation_verified(relation, DOCUMENT_WORK)
+                .load_relation_verified(relation, file_bytes)
                 .unwrap_err(),
             Error::Unavailable
         );
@@ -535,7 +588,35 @@ mod freeze_publication_tests {
                 .to_record(),
             fixture["relation"]
         );
+        let mut expanded = fixture["manifest"].clone();
+        expanded["revision"]["decision_graph"]["nodes"][0]["definition"]["numeric"]
+            ["output_quantum"] = json!("1e100000");
+        let mut work = Work(64 * 1024);
+        let manifest_bytes = work.reserve_document(&expanded).unwrap();
+        assert_eq!(
+            work.parse_revision(&expanded["revision"], manifest_bytes),
+            Err(Error::Unavailable)
+        );
     }
+    #[test]
+    fn new_manifest_must_fit_its_own_shard() {
+        let mut records: BTreeMap<_, _> = (0..4095).map(|n| (format!("ab{n:062x}"), ())).collect();
+        records.insert(format!("aa{:062x}", 0), ());
+        records.insert(format!("ac{:062x}", 0), ());
+
+        let last = format!("ab{:062x}", 4095);
+        assert_eq!(ensure_shard_capacity(&records, &last), Ok(()));
+        records.insert(last, ());
+        assert_eq!(
+            ensure_shard_capacity(&records, &format!("ab{:062x}", 4096)),
+            Err(Error::Unavailable)
+        );
+        assert_eq!(
+            ensure_shard_capacity(&records, &format!("ac{:062x}", 1)),
+            Ok(())
+        );
+    }
+
     #[test]
     fn substituted_evidence_cut_cannot_derive_a_publication_plan() {
         let root = CutRoot::new();
@@ -561,6 +642,7 @@ mod freeze_publication_tests {
 enum PlanEvidence<'a> {
     Research(&'a crate::persistence::research_evidence::VerifiedStrategyResearch),
     Manual(&'a crate::persistence::strategy_validation::VerifiedValidation),
+    Published(&'a crate::persistence::research_evidence::ResearchPublication),
 }
 pub(crate) struct FrozenPlan<'evidence> {
     evidence: PlanEvidence<'evidence>,
@@ -602,6 +684,56 @@ impl<'evidence> FrozenPlan<'evidence> {
         }
         Ok(plan)
     }
+    /// 直接以完整 PG 发布构造冻结计划：六项语义身份全部来自发布正文与本 Run 的正式列，
+    /// 由 `ResearchPublication` 在同一 RepeatableRead 快照内证明（Run 必须 COMPLETED，
+    /// 科学结果身份在发布成员正文上重算并与本 Run 的 research_result_fingerprint 列核对相等，
+    /// 发布身份继续等于 artifact_content_fingerprint=publication_fingerprint，
+    /// 执行证据等于 CAUSAL 成员正文摘要）。
+    /// 不读取文件证据割线，也不得回退文件协议。
+    pub(crate) fn from_published(
+        evidence: &'evidence crate::persistence::research_evidence::ResearchPublication,
+    ) -> Result<Self, Error> {
+        evidence.verify_publication().map_err(|_| Error::Authority)?;
+        if !crate::application::command::uuid4(evidence.run().run_id())
+            || !is_sha256_hex(evidence.run().specification_fingerprint())
+        {
+            return Err(Error::Corrupt);
+        }
+        let references = evidence
+            .execution_evidence_fingerprints()
+            .map_err(|_| Error::Authority)?;
+        let (equivalences, admission) = evidence.freeze_equivalence().map_err(|_| Error::Authority)?;
+        // 科学结果身份：在发布成员正文上重算并核对 Run 列后取值，与文件轨道 `from_verified`
+        // 用 `evidence.research_result_fingerprint()` 同一身份域、同一含义（§4.1）。
+        let research_result = evidence
+            .research_result_fingerprint()
+            .map_err(|_| Error::Authority)?;
+        let mut record = json!({
+            "schema_version":1,
+            "strategy_fingerprint":evidence.source().fingerprint(),
+            "candidate_fingerprint":evidence.candidate_fingerprint(),
+            "research_result_fingerprint":research_result,
+            "research_execution_evidence_fingerprints":references,
+            "admission_evidence_fingerprint":admission,
+            "equivalence_evidence_fingerprints":equivalences
+        });
+        let mut semantic = record.clone();
+        semantic["domain"] = json!("onlyalpha.strategy.freeze-relation");
+        record["relation_fingerprint"] = json!(record_fingerprint(&semantic));
+        let relation = FreezeRelation::from_json(&record.to_string(), DOCUMENT_WORK)?;
+        let plan = Self {
+            evidence: PlanEvidence::Published(evidence),
+            relation,
+        };
+        if serde_json::to_vec(&plan.manifest())
+            .map_err(|_| Error::Corrupt)?
+            .len()
+            > DOCUMENT_WORK
+        {
+            return Err(Error::Unavailable);
+        }
+        Ok(plan)
+    }
     pub(crate) fn from_validation(
         evidence: &'evidence crate::persistence::strategy_validation::VerifiedValidation,
     ) -> Result<Self, Error> {
@@ -632,7 +764,7 @@ impl<'evidence> FrozenPlan<'evidence> {
     ) -> Option<&'evidence crate::persistence::research_evidence::VerifiedStrategyResearch> {
         match self.evidence {
             PlanEvidence::Research(v) => Some(v),
-            PlanEvidence::Manual(_) => None,
+            PlanEvidence::Manual(_) | PlanEvidence::Published(_) => None,
         }
     }
     pub(crate) fn manual_evidence(
@@ -640,13 +772,23 @@ impl<'evidence> FrozenPlan<'evidence> {
     ) -> Option<&'evidence crate::persistence::strategy_validation::VerifiedValidation> {
         match self.evidence {
             PlanEvidence::Manual(v) => Some(v),
-            PlanEvidence::Research(_) => None,
+            PlanEvidence::Research(_) | PlanEvidence::Published(_) => None,
+        }
+    }
+    /// 完整 PG 发布证据；与文件研究证据互斥，两者都不可用时为 None。
+    pub(crate) fn published_evidence(
+        &self,
+    ) -> Option<&'evidence crate::persistence::research_evidence::ResearchPublication> {
+        match self.evidence {
+            PlanEvidence::Published(v) => Some(v),
+            PlanEvidence::Research(_) | PlanEvidence::Manual(_) => None,
         }
     }
     pub(crate) fn revision(&self) -> &SourceRevision {
         match self.evidence {
             PlanEvidence::Research(v) => v.source_revision(),
             PlanEvidence::Manual(v) => v.source_revision(),
+            PlanEvidence::Published(v) => v.source(),
         }
     }
     pub(crate) fn relation(&self) -> &FreezeRelation {
@@ -659,6 +801,9 @@ impl<'evidence> FrozenPlan<'evidence> {
         match self.evidence {
             PlanEvidence::Research(v) => v.verify_cut(),
             PlanEvidence::Manual(v) => v.verify_cut(),
+            PlanEvidence::Published(v) => {
+                v.verify_publication().map_err(|_| "RESEARCH_EVIDENCE_CORRUPT")
+            }
         }
         .map_err(|_| Error::Authority)
     }
@@ -685,13 +830,24 @@ impl FrozenStore {
     ) -> Result<(), Error> {
         use std::os::fd::AsFd;
         self.publication_capability(prepared, plan)?;
-        self.read_all(max_work)?;
+        let mut work = Work(max_work);
+        let before = self.read_inventory(&mut work)?;
         let id = plan.relation().fingerprint();
+        let manifest = plan.relation().to_record();
+        if !before.relations().contains_key(id) {
+            ensure_shard_capacity(before.relations(), id)?;
+            work.reserve_document(&manifest)?;
+        }
+        let revision_id = plan.revision().fingerprint();
+        if !before.revisions().contains_key(revision_id) {
+            ensure_shard_capacity(before.revisions(), revision_id)?;
+            work.reserve_revision(&plan.manifest())?;
+        }
         crate::security::immutable_json::put_at(
             self.research.as_fd(),
             &["strategy", "freeze-relations", "sha256", &id[..2], id],
             "manifest.json",
-            &plan.relation().to_record(),
+            &manifest,
         )
         .map_err(|e| {
             if e == "IMMUTABLE_JSON_INVALID" {
@@ -716,7 +872,8 @@ impl FrozenStore {
         use std::os::fd::AsFd;
         self.publication_capability(prepared, plan)?;
         // Relation-first is enforced here as well as by the Command sequence.
-        let before = self.read_all(max_work)?;
+        let mut work = Work(max_work);
+        let before = self.read_inventory(&mut work)?;
         if before.relations().get(plan.relation().fingerprint()) != Some(plan.relation()) {
             return Err(Error::Corrupt);
         }
@@ -726,11 +883,14 @@ impl FrozenStore {
         // including presentation aliases, instead of publishing another encoding.
         let expected = before.revisions().get(id).unwrap_or(plan.revision());
         if !before.revisions().contains_key(id) {
+            ensure_shard_capacity(before.revisions(), id)?;
+            let manifest = plan.manifest();
+            work.reserve_revision(&manifest)?;
             crate::security::immutable_json::put_at(
                 self.research.as_fd(),
                 &["strategy", "frozen-revisions", "sha256", &id[..2], id],
                 "manifest.json",
-                &plan.manifest(),
+                &manifest,
             )
             .map_err(|e| {
                 if e == "IMMUTABLE_JSON_INVALID" {
@@ -867,7 +1027,7 @@ impl VerifiedManualBacktestEvidence {
     }
     pub(crate) async fn require_running_parent_in_transaction(
         &self,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
         namespace: &crate::bootstrap::deployment::SemanticStoreId,
         actor: &str,
     ) -> std::result::Result<(), &'static str> {
@@ -886,14 +1046,14 @@ impl VerifiedManualBacktestEvidence {
     }
     pub(crate) async fn verify_in_transaction(
         &self,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
         namespace: &crate::bootstrap::deployment::SemanticStoreId,
     ) -> std::result::Result<(), &'static str> {
         if namespace != &self.namespace {
             return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");
         }
         self.verify_cut()?;
-        self.validation.verify_in_transaction(tx, namespace).await?;
+        self.validation.verify_in_transaction(tx,namespace).await?;
         self.verify_cut()
     }
 }

@@ -132,6 +132,9 @@ impl Manager {
         v["day_index"] = json!(self.day_index);
         Ok(v)
     }
+    pub fn equity_occurrences(&self) -> impl Iterator<Item = &Value> {
+        self.timeline.iter().map(std::sync::Arc::as_ref)
+    }
     /// Detached current lines and economic versions for every configured Cluster.
     /// This data-only query omits history; it supplies no Ready/source proof.
     pub fn valuation_view(&self) -> Value {

@@ -68,6 +68,45 @@ impl<'a> Storage<'a> {
     pub fn catalog(&mut self) -> &mut Catalog<'a> {
         &mut self.catalog
     }
+    pub async fn verify_namespace(
+        &mut self,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    ) -> std::result::Result<(), crate::bootstrap::deployment::Error> {
+        crate::bootstrap::deployment::verify_binding(self.catalog.client, namespace).await
+    }
+    /// Lower every catalog/physical read limit for this operation; never widen
+    /// the Host's configuration or change limits on the shared storage handle.
+    pub async fn revision_bounded(
+        &mut self,
+        id: &str,
+        rows: usize,
+        bytes: usize,
+    ) -> Result<SealedRevision> {
+        Catalog::new(
+            self.catalog.client,
+            rows.min(self.catalog.row_limit),
+            bytes.min(self.catalog.byte_limit),
+        )?
+        .revision(id)
+        .await
+    }
+    pub async fn read_dataset_input_profiled(
+        &mut self,
+        id: &str,
+        scope: &Scope,
+        rows: usize,
+        bytes: usize,
+    ) -> Result<(SealedInput, ReadTimings)> {
+        let physical = self.clickhouse.bounded(rows, bytes)?;
+        let catalog = Catalog::new(
+            self.catalog.client,
+            rows.min(self.catalog.row_limit),
+            bytes.min(self.catalog.byte_limit),
+        )?;
+        let mut bounded = Storage::new(catalog, &physical, rows.min(self.limit))?;
+        let input = bounded.read_dataset_input(id, scope).await?;
+        Ok((input, physical.read_timings()?))
+    }
     /// 重读单个原始输入的所有物理列，与原 PG proof 和请求归属同时核对。
     async fn history_observation(
         &mut self,
@@ -576,7 +615,7 @@ impl<'a> Storage<'a> {
                 .checked_add(batch.len())
                 .is_none_or(|n| n > self.limit)
             {
-                return Err(Error::Unavailable);
+                return Err(Error::BudgetExceeded);
             }
             facts.extend(batch);
             segments.push(segment);

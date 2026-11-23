@@ -250,6 +250,8 @@ impl<'a> Fees<'a> {
         order: &OnlyOrderSnapshot,
         bound_day: u64,
         fill: &Value,
+        filled_quantity: &BigDecimal,
+        cumulative_price_quantity: &BigDecimal,
     ) -> Result<Assessment, Error> {
         let role = text(&fill["liquidity_side"])?;
         if !matches!(role, "MAKER" | "TAKER") {
@@ -259,21 +261,29 @@ impl<'a> Fees<'a> {
         let q = nonnegative(&fill["quantity"]["value"])?;
         let mult = nonnegative(&self.terms["multiplier"])?;
         let n = &q * nonnegative(&fill["price"]["value"])? * &mult;
-        let snapshot = order.to_record();
         boundary(self.catalog.assess(
             &b,
             self.day,
             id(&fill["trade_id"]["value"])?,
             uint(&fill["ts_event"]["unix_nanos"])?,
             self.basis(&q, &n),
-            self.basis(
-                &(q + dec(&snapshot["filled_quantity"]["value"])?),
-                &(n + exact(&snapshot["cumulative_price_quantity"])? * mult),
-            ),
+            self.basis(&(q + filled_quantity), &(n + cumulative_price_quantity * mult)),
             Some(role),
         ))
     }
 }
+
+pub(crate) fn fill_day(bound_day: u64, bound_time: u64, fill: &Value) -> Result<u64, Error> {
+    const DAY_NS: u64 = 86_400_000_000_000;
+    let event = uint(&fill["ts_event"]["unix_nanos"])?;
+    if event < bound_time {
+        return Err(err("EXECUTION_BROKER_ECONOMIC_DAY"));
+    }
+    bound_day
+        .checked_add(event / DAY_NS - bound_time / DAY_NS)
+        .ok_or_else(|| err("EXECUTION_BROKER_ECONOMIC_DAY"))
+}
+
 pub(crate) fn decode_assessment(v: &Value) -> Result<Assessment, Error> {
     let c = boundary(Catalog::new(v["catalog"].clone()))?;
     let b = boundary(c.bind(v["binding"]["subject"].clone(), uint(&v["binding"]["day"])?))?;

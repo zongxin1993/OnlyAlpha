@@ -376,6 +376,8 @@ impl DecisionReference {
 #[derive(Clone)]
 pub struct VerifiedRun {
     pub(crate) run_id: String,
+    pub(crate) owner: String,
+    pub(crate) source_selection: super::source_access::Selection,
     pub(crate) payload: String,
     pub(crate) specification: NativeSpecification,
     pub(crate) specification_fingerprint: String,
@@ -387,6 +389,8 @@ pub struct VerifiedRun {
     pub(crate) completion: Option<(String, String, Vec<String>)>,
 }
 impl VerifiedRun {
+    pub fn owner(&self) -> &str { &self.owner }
+    pub fn source_selection(&self) -> &super::source_access::Selection { &self.source_selection }
     pub fn run_id(&self) -> &str {
         &self.run_id
     }

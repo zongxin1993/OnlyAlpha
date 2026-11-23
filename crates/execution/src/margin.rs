@@ -78,18 +78,25 @@ impl Components {
             return Err(err("EXECUTION_MARGIN_VERSION"));
         }
         let effect = boundary(owner.apply(command))?;
-        let record = effect.record();
+        self.project_margin(input, &effect)?;
+        Arc::make_mut(&mut self.meta)["margin_authority"] = owner.checkpoint();
+        Ok(())
+    }
+    pub(crate) fn margin_command_id(input: &Value, effect: &onlyalpha_margin::Effect) -> String {
+        format!("MACMD-{}", hash(&json!([input["input_id"], effect.record()["id"]])))
+    }
+    pub(crate) fn project_margin(
+        &mut self,
+        input: &Value,
+        effect: &onlyalpha_margin::Effect,
+    ) -> Result<(), Error> {
         let mut projection = self.command(input, "MARGIN", Value::Null, 0);
-        projection["command_id"] = json!(format!(
-            "MACMD-{}",
-            hash(&json!([input["input_id"], record["id"]]))
-        ));
-        if boundary(Arc::make_mut(&mut self.account).apply_margin(&projection, &effect))?.status
+        projection["command_id"] = json!(Self::margin_command_id(input, effect));
+        if boundary(Arc::make_mut(&mut self.account).apply_margin(&projection, effect))?.status
             != onlyalpha_account::Status::Applied
         {
             return Err(err("EXECUTION_ACCOUNT_NOT_APPLIED"));
         }
-        Arc::make_mut(&mut self.meta)["margin_authority"] = owner.checkpoint();
         Ok(())
     }
     pub(crate) fn admit_collateral(&mut self, input: &Value) -> Result<(), Error> {
@@ -187,7 +194,7 @@ impl Components {
             let snapshot = boundary(self.order.get(text(&input["cluster"])?, order))?.to_record();
             if snapshot["status"] == "FILLED" {
                 let state = boundary(owner.snapshot(text(&command["reservation"])?))?;
-                let release = self.derived_margin(
+                let release = Self::derived_margin(
                     input,
                     &state,
                     "RELEASE_RESERVED",
@@ -239,7 +246,7 @@ impl Components {
             let quantity = remaining.clone().min(nonnegative(&state["open"])?);
             let spelling = quantity.normalized().to_plain_string();
             let quote = boundary(owner.release_quote(text(&state["id"])?, &spelling))?;
-            let command = self.derived_margin(
+            let command = Self::derived_margin(
                 input,
                 &state,
                 "RELEASE_OCCUPIED",
@@ -329,7 +336,7 @@ impl Components {
         {
             return Err(err("EXECUTION_MARGIN_TERMINAL_RELATION"));
         }
-        let command = self.derived_margin(
+        let command = Self::derived_margin(
             input,
             state,
             "RELEASE_RESERVED",
@@ -339,8 +346,7 @@ impl Components {
         );
         self.consume_margin(input, &mut owner, &command)
     }
-    fn derived_margin(
-        &self,
+    pub(crate) fn derived_margin(
         input: &Value,
         state: &Value,
         action: &str,

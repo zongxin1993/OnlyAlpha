@@ -145,6 +145,7 @@ async fn numeric_report(
 /// The VerifiedRun comes from its immutable Human/DB admission, never supplied JSON.
 pub async fn completed_report(
     client: &mut tokio_postgres::Client,
+    facts: &mut tokio_postgres::Client,
     authority: &Authority,
     root: &Path,
     run: &VerifiedRun,
@@ -154,7 +155,7 @@ pub async fn completed_report(
         let subject = run.specification().subject()?;
         let group = authority
             .retained_group(
-                client,
+                (client, facts),
                 &reference.command,
                 &[subject],
                 &reference.policy_id,
@@ -264,6 +265,7 @@ impl Host {
     ) -> Result<Response, Failure> {
         self.human_access.check_session(&human)?;
         let owner = human.subject_id()?.to_owned();
+        let mut facts = self.job_fact_reader().await?;
         let path = request.uri().path().to_owned();
         let method = request.method().clone();
         let tail = path
@@ -304,6 +306,8 @@ impl Host {
                     .client_mut()
                     .await
                     .map_err(|_| Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?,
+                facts.client_mut().await?,
+                self.inputs.namespace(),
                 &id,
                 Some(&owner),
             )
@@ -324,10 +328,7 @@ impl Host {
                 .map_err(failed)?;
             } else {
                 research_submission::cancel(
-                    session
-                        .client_mut()
-                        .await
-                        .map_err(|_| Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?,
+                    session,
                     (&self.human_access, &human),
                     command,
                     &id,
@@ -347,9 +348,15 @@ impl Host {
             let client = reader
                 .as_mut()
                 .ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-            let current = research_submission::load(client, &id, Some(&owner))
-                .await
-                .map_err(failed)?;
+            let current = research_submission::load(
+                client,
+                facts.client_mut().await?,
+                self.inputs.namespace(),
+                &id,
+                Some(&owner),
+            )
+            .await
+            .map_err(failed)?;
             let status = ResearchExecution::new(client)
                 .observe(&current)
                 .await
@@ -377,26 +384,25 @@ impl Host {
             let (report, report_status) = if !cancellation_response
                 && status.state == crate::persistence::research_execution::RunState::Completed
             {
-                let root = self.research_preparation_config.research_root.clone();
-                let runtime = self.research_preparation_config.runtime_root.clone();
-                let original = run.clone();
-                match tokio::task::spawn_blocking(move || {
-                    read_strategy_report(&root, &runtime, &original)
-                })
+                match super::job_publication::read_research_report(
+                    facts.client_mut().await?,
+                    self.inputs.namespace(),
+                    &run,
+                )
                 .await
                 {
-                    Ok(Ok(report)) => (
+                    Ok(report) => (
                         Some(report),
                         FactorResearchReportAvailability {
                             state: FactorResearchReportState::Verified,
                             code: None,
                         },
                     ),
-                    _ => (
+                    Err(error) => (
                         None,
                         FactorResearchReportAvailability {
                             state: FactorResearchReportState::Unavailable,
-                            code: Some("STRATEGY_RESEARCH_REPORT_UNAVAILABLE".into()),
+                            code: Some(super::job_publication::failure_code(error).into()),
                         },
                     ),
                 }
@@ -434,7 +440,7 @@ impl Host {
                 .and_then(crate::bootstrap::research_namespace::novelty);
             let mut reader = self.reader.lock().await;
             if let (Some(client), Ok(authority)) = (reader.as_mut(), authority.as_ref()) {
-                completed_report(client, authority, root, &run).await
+                completed_report(client, facts.client_mut().await?, authority, root, &run).await
             } else {
                 let (report, report_status) = numeric_report(root, &run).await;
                 ReportRead {

@@ -84,6 +84,7 @@ def _owner(
     phase: str,
     request: dict[str, Any],
     credentials: dict[str, str] | None = None,
+    capture_trace: bool = False,
 ) -> dict[str, Any]:
     path = research.parent / "use_test_manual_owner_request.json"
     path.write_text(json.dumps(request))
@@ -112,6 +113,12 @@ def _owner(
     assert len(values) == 1, result.stdout + result.stderr
     value = values[0]
     assert isinstance(value, dict), "native owner must return an object"
+    if capture_trace:
+        value["process_observation"] = {
+            "controlled_begins": result.stderr.count("[calculation-build] phase=controlled-cases-begin"),
+            "controlled_joins": result.stderr.count("[calculation-build] phase=controlled-cases-joined"),
+            "timings": re.findall(r"proof-(built|loaded) elapsed_us=(\d+)", result.stderr),
+        }
     return value
 
 
@@ -135,6 +142,7 @@ def actual_manual_environment(
         first_bar_start=datetime(2025, 1, 2, 23, 40, tzinfo=UTC),
         runtime_root=semantic / "runtime",
         manual_only=True,
+        builtins_only=True,
     )
     arguments = case["arguments"]
     assert arguments["strategy_context"] is None
@@ -172,13 +180,35 @@ def actual_manual_environment(
 
     def produce(phase: str = "produce") -> dict[str, Any]:
         request = {**common, "preparation_command_id": str(uuid4()), "backtest_command_id": str(uuid4())}
-        actual = _owner(selected, postgres_dsn, research, "manual-producer:" + phase, request, credentials)
+        actual = _owner(
+            selected,
+            postgres_dsn,
+            research,
+            "manual-producer:" + phase,
+            request,
+            credentials,
+            capture_trace=phase == "proof-build",
+        )
         assert actual["state"] == "RUNNING"
         assert actual["pre_accept_observation_checks"] is True
         return actual
 
+    def read_proof(proof: dict[str, Any]) -> dict[str, Any]:
+        # Controlled oracle of the actual owner output, never a READY/Run grant.
+        path = tmp_path / "original_calculation_proof.json"
+        path.write_text(json.dumps(proof))
+        return _owner(
+            selected,
+            postgres_dsn,
+            research,
+            "manual-producer:proof-read",
+            {**common, "proof_file": str(path)},
+            credentials,
+            capture_trace=True,
+        )
+
     # Credentials stay in the closure and never become a printed fixture value.
-    return {"binary": selected, "dsn": postgres_dsn, "research": research, "produce": produce}
+    return {"binary": selected, "dsn": postgres_dsn, "research": research, "produce": produce, "read_proof": read_proof}
 
 
 @pytest.fixture
@@ -190,6 +220,7 @@ def actual_manual_parents(actual_manual_environment: dict[str, Any]) -> dict[str
     assert parents[0]["strategy_fingerprint"] == parents[1]["strategy_fingerprint"]
     with psycopg.connect(fixture["dsn"]) as conn:
         assert conn.execute("SELECT count(*) FROM strategy_validation_publication").fetchone() == (2,)
+        assert conn.execute("SELECT count(*) FROM calculation_build_proof").fetchone() == (1,)
         assert conn.execute("SELECT count(*) FROM research_preparation WHERE state='RUNNING'").fetchone() == (2,)
         assert conn.execute("SELECT count(*) FROM research_run").fetchone() == (0,)
         assert conn.execute("SELECT count(*) FROM backtest_run").fetchone() == (0,)

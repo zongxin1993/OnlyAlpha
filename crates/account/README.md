@@ -16,6 +16,8 @@
 
 ## 公开接口
 
+`Manager::check_new_reservation_capacity` 只检查一个新 RESERVE 的容量，复用实际 apply 的上下文、规范化和原 journal 限制，不复制账户历史，不提供准入或提交资格。已有命令不能借此当作新预留。Execution 在该检查后仍须完成真实资金、仓位和风险处理；检查结果不能单独授权交易。
+
 [`Manager::apply_position_trade`](src/manager.rs) 对显式永续 TRADE 核对 Position 已应用原成交的范围、交易关联、金额和账户持仓结果，随后将其完整成交证据身份写入账户原指令。资金费在同一账户、配置和完整原交易前缀上复核。`restore_with_funding` 依原先后顺序验证 TRADE 与 Funding，保留随后成交和原输入重复的结果。
 
 新 Funding 的公开应用核对 Position effect 的完整当前成交 lineage 与本账户已有 position_trades。相同配置的空前缀或过期 Position 不能为已持仓账户签发流水。恢复旧 Funding 使用本账户重放到该处的成交前缀，从原 Position Journal 重新签发 effect；后续成交不会使过去正确的 Funding 失效。已保留的同一规范命令先按原幂等关系处理，不按未来仓位重算旧流水。
@@ -58,3 +60,5 @@ cargo doc -p onlyalpha-account --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 永续配置 3 使用 new_checkpoint5。账户按 Margin 的真实生产记录投影 maintenance_status；缺少新的维护额时，maintenance_required 和 maintenance_to_equity 为空，last_confirmed_maintenance 保存最近整笔已确认事务的金额、时间及来源。原有成交和 Funding 可继续更新现金、占用和权益。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

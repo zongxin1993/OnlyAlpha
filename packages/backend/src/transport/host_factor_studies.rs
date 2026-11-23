@@ -25,7 +25,8 @@ pub(crate) fn failed(code: &'static str) -> Failure {
             StatusCode::NOT_FOUND
         } else if code.ends_with("INVALID") {
             StatusCode::BAD_REQUEST
-        } else if code.ends_with("UNAVAILABLE")
+        } else if code == "RESEARCH_INPUT_BINDING_MISSING"
+            || code.ends_with("UNAVAILABLE")
             || code.ends_with("CORRUPT")
             || code.ends_with("UNKNOWN")
         {
@@ -145,5 +146,15 @@ impl Host {
             Json(value).into_response(),
             Release::Generation(session),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn missing_original_input_binding_is_not_a_request_conflict() {
+        let response=failed("RESEARCH_INPUT_BINDING_MISSING").into_response();
+        assert_eq!(response.status(),StatusCode::SERVICE_UNAVAILABLE);
     }
 }

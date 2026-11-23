@@ -1,5 +1,6 @@
 //! One owned physical Product mutation session. No readiness or reconnection.
-use std::fmt;
+use std::{fmt, sync::{Arc, atomic::{AtomicBool,Ordering}}};
+const SESSION_IDENTITY:&str = "SELECT pg_catalog.pg_backend_pid(),(backend_start AT TIME ZONE 'UTC')::pg_catalog.text FROM pg_catalog.pg_stat_activity WHERE pid=pg_catalog.pg_backend_pid()";
 /// Failures deliberately contain no driver, SQL, configuration or credential text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthorityError {
@@ -43,12 +44,55 @@ const GUARD_PROOF: &str = "SELECT EXISTS (
       AND granted
       AND ($1::pg_catalog.bool OR mode OPERATOR(pg_catalog.=) 'ExclusiveLock'::pg_catalog.text))";
 
+/// Private resource handle minted only by the actual original AS owner.
+/// It is not a Run, admission or database permission capability.
+pub(crate) struct ControlRoleOwner {
+    revoked: Arc<AtomicBool>,
+    driver: tokio::task::AbortHandle,
+    identity: (i32,String),
+}
+pub(crate) struct ControlRoleScope {
+    revoked: Arc<AtomicBool>,
+    driver: tokio::task::AbortHandle,
+    armed: bool,
+}
+impl ControlRoleOwner {
+    pub(crate) fn enter(&self) -> ControlRoleScope {
+        ControlRoleScope {revoked:self.revoked.clone(),driver:self.driver.clone(),armed:true}
+    }
+    pub(crate) async fn verify_transaction(&self,tx:&tokio_postgres::Transaction<'_>) -> Result<(),AuthorityError> {
+        if self.revoked.load(Ordering::Acquire) || self.driver.is_finished() {return Err(AuthorityError::Lost);}
+        let row=tokio::time::timeout(GUARD_TIMEOUT,tx.query_one(SESSION_IDENTITY,&[])).await.map_err(|_|AuthorityError::Unavailable)?.map_err(|_|AuthorityError::Unavailable)?;
+        if row.try_get::<_,i32>(0).map_err(|_|AuthorityError::Unavailable)?!=self.identity.0
+            || row.try_get::<_,String>(1).map_err(|_|AuthorityError::Unavailable)?!=self.identity.1 {
+            return Err(AuthorityError::Lost);
+        }
+        AuthoritySession::verify_transaction(tx).await
+    }
+}
+impl ControlRoleScope {
+    /// Only after role, baseline, physical identity and guard acknowledgements.
+    pub(crate) fn restored(mut self) {self.armed=false;}
+}
+impl Drop for ControlRoleScope {
+    fn drop(&mut self) {
+        if self.armed {
+            // Sticky across SQL rollback and error-code normalization. Abort is
+            // synchronous; a later AS verification cannot rehabilitate it.
+            self.revoked.store(true,Ordering::Release);
+            self.driver.abort();
+        }
+    }
+}
+
 /// Owns one physical mutation session and its connection driver. This is only
 /// the Infrastructure singleton guard, NOT proof of Node READY or permission to
 /// invoke Product Commands. The owning Host must also prove startup/recovery,
 /// close mutation admission and drain retained work before calling `close`.
 /// No reconnection, credential ownership, separate business socket or HA epoch.
 pub struct AuthoritySession {
+    revoked: Arc<AtomicBool>,
+    identity: Option<(i32,String)>,
     client: Option<tokio_postgres::Client>,
     driver: Option<tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>>,
 }
@@ -60,6 +104,8 @@ impl AuthoritySession {
         // Construct before the first await: cancellation also drops ownership
         // and aborts the driver, rather than leaking an ambiguous acquisition.
         let mut session = Self {
+            revoked:Arc::new(AtomicBool::new(false)),
+            identity:None,
             client: Some(client),
             driver: Some(driver),
         };
@@ -68,7 +114,10 @@ impl AuthoritySession {
             if !session.boolean("SELECT pg_catalog.pg_try_advisory_lock(1329199301::pg_catalog.int4,5::pg_catalog.int4)", &[]).await? {
                 return Err(AuthorityError::AlreadyHeld);
             }
-            session.verify().await
+            session.verify().await?;
+            let row=tokio::time::timeout(GUARD_TIMEOUT,session.client.as_ref().ok_or(AuthorityError::Lost)?.query_one(SESSION_IDENTITY,&[])).await.map_err(|_|AuthorityError::Unavailable)?.map_err(|_|AuthorityError::Unavailable)?;
+            session.identity=Some((row.try_get(0).map_err(|_|AuthorityError::Unavailable)?,row.try_get(1).map_err(|_|AuthorityError::Unavailable)?));
+            Ok(())
         }.await;
         match result {
             Ok(()) => Ok(session),
@@ -83,6 +132,7 @@ impl AuthoritySession {
         sql: &str,
         params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
     ) -> Result<bool, AuthorityError> {
+        if self.revoked.load(Ordering::Acquire) {return Err(AuthorityError::Lost);}
         let client = self.client.as_ref().ok_or(AuthorityError::Lost)?;
         if self
             .driver
@@ -100,14 +150,25 @@ impl AuthoritySession {
     async fn proof(&self, any_mode: bool) -> Result<bool, AuthorityError> {
         self.boolean(GUARD_PROOF, &[&any_mode]).await
     }
+    pub(crate) fn control_roles(&self) -> Result<ControlRoleOwner,AuthorityError> {
+        if self.revoked.load(Ordering::Acquire) || self.client.is_none() {return Err(AuthorityError::Lost);}
+        let driver=self.driver.as_ref().ok_or(AuthorityError::Lost)?;
+        if driver.is_finished() {return Err(AuthorityError::Unavailable);}
+        Ok(ControlRoleOwner {revoked:self.revoked.clone(),driver:driver.abort_handle(),identity:self.identity.clone().ok_or(AuthorityError::Lost)?})
+    }
     pub(crate) fn take_ownership(&mut self) -> Self {
         Self {
+            revoked:self.revoked.clone(),
+            identity:self.identity.clone(),
             client: self.client.take(),
             driver: self.driver.take(),
         }
     }
     pub(crate) fn restore_ownership(&mut self, mut owned: Self) {
         debug_assert!(self.client.is_none() && self.driver.is_none());
+        if owned.revoked.load(Ordering::Acquire) {return;}
+        self.revoked=owned.revoked.clone();
+        self.identity=owned.identity.clone();
         self.client = owned.client.take();
         self.driver = owned.driver.take();
     }

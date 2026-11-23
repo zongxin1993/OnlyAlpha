@@ -3,7 +3,7 @@ use super::*;
 use crate::{
     application::{
         backtest_preparation::{self, BacktestOrigin},
-        backtest_run, private_assets,
+        backtest_run, calculation_build, private_assets,
         private_strategy::Definition,
         research_dataset::MaterializedDataset,
     },
@@ -135,7 +135,7 @@ pub(crate) enum BacktestAcceptance<'proof> {
 impl BacktestAcceptance<'_> {
     async fn verify_in_transaction(
         &self,
-        tx: &Transaction<'_>,
+        tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
         namespace: &SemanticStoreId,
         input: &BacktestPrepareInput,
     ) -> Result<()> {
@@ -242,6 +242,7 @@ pub(crate) async fn accept_backtest(
     )
     .map_err(db)?;
     let mut owned = session.take_ownership();
+    let roles=owned.control_roles().map_err(|_|UNAVAILABLE)?;
     let mut mutated = false;
     let result=async {
         let tx=owned.client_mut().await.map_err(|_|UNAVAILABLE)?.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await.map_err(db)?;
@@ -250,7 +251,7 @@ pub(crate) async fn accept_backtest(
             Binding::Accepted(receipt) if receipt.admission()==&admission=>{let original=load(&tx,command,&owner).await?;AuthoritySession::verify_transaction(&tx).await.map_err(|_|UNAVAILABLE)?;tx.commit().await.map_err(|_|UNKNOWN)?;return Ok(original);},
             Binding::None=>{},Binding::Admitted(_)=>return Err(UNKNOWN),_=>return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT"),
         }
-        proof.verify_in_transaction(&tx,namespace,&input).await?;
+        proof.verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),namespace,&input).await?;
         let future=CommandId::new(&input.backtest_command_id).map_err(db)?;Commands::lock_command(&tx,&future).await.map_err(db)?;
         if !matches!(Commands::verify_binding_in_transaction(&tx,&future).await.map_err(db)?,Binding::None)
             ||tx.query_opt("SELECT 1 FROM research_preparation WHERE COALESCE(accepted_payload::jsonb->'input'->>'research_command_id',accepted_payload::jsonb->'input'->>'backtest_command_id')=$1 UNION ALL SELECT 1 FROM backtest_run WHERE run_id=$2::text::uuid LIMIT 1",&[&future.value(),&backtest_preparation::run_id(&future)]).await.map_err(db)?.is_some(){return Err("RESEARCH_PREPARATION_COMMAND_CONFLICT");}
@@ -264,7 +265,7 @@ pub(crate) async fn accept_backtest(
         tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE").await.map_err(|_|UNKNOWN)?;
         let operation=load(&tx,command,&owner).await?;
         if operation.accepted!=accepted||operation.state!=State::Accepted||operation.revision!=0{return Err(CORRUPT);}
-        proof.verify_in_transaction(&tx,namespace,&input).await?;
+        proof.verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),namespace,&input).await?;
         human.0.check_session(human.1).map_err(|_|"RESEARCH_HUMAN_AUTHORIZATION_REQUIRED")?;
         let Binding::Accepted(actual)=Commands::verify_binding_in_transaction(&tx,command).await.map_err(db)? else{return Err(CORRUPT);};
         if actual!=receipt{return Err(CORRUPT);}AuthoritySession::verify_transaction(&tx).await.map_err(|_|UNKNOWN)?;
@@ -318,6 +319,8 @@ pub(super) fn validate_ready(o: &Operation, outputs: &Value) -> Result<()> {
             "algorithm_resolution",
             "algorithm_resolution_request",
             "native_implementations",
+            "native_image",
+            "calculation_build",
             "backtest_binding",
             "rules_response",
         ],
@@ -381,6 +384,24 @@ pub(super) fn validate_ready(o: &Operation, outputs: &Value) -> Result<()> {
     {
         return Err(CORRUPT);
     }
+    let image = &ready["native_image"];
+    let build = &ready["calculation_build"];
+    exact_fields(image, &["protocol", "artifact", "target", "version"])?;
+    exact_fields(build, &["build_key", "proof_fingerprint"])?;
+    if image["protocol"] != "onlyalpha.research.executor/1"
+        || !text(image, "artifact").is_ok_and(crate::is_sha256_hex)
+        || !matches!(
+            image["target"].as_str(),
+            Some("aarch64-unknown-linux-gnu" | "x86_64-unknown-linux-gnu")
+        )
+        || text(image, "version").is_err()
+        || image["artifact"] != ready["backtest_binding"]["executor_artifact_sha256"]
+        || image["version"] != ready["backtest_binding"]["executor_version"]
+        || !text(build, "build_key").is_ok_and(crate::is_sha256_hex)
+        || !text(build, "proof_fingerprint").is_ok_and(crate::is_sha256_hex)
+    {
+        return Err(CORRUPT);
+    }
     let selected = &ready["source_selection"];
     exact_fields(
         selected,
@@ -420,6 +441,7 @@ pub(crate) struct BacktestReady<'proof> {
     operation: &'proof Operation,
     admission: &'proof VerifiedBacktestAdmission,
     validation: Option<&'proof VerifiedValidation>,
+    calculation_proof: &'proof Value,
     files: Vec<Witness>,
     record: Value,
 }
@@ -428,6 +450,7 @@ pub(crate) struct BacktestReadyResolution<'a> {
     pub(crate) algorithm_resolution: &'a Value,
     pub(crate) algorithm_resolution_request: &'a Value,
     pub(crate) native_implementations: &'a Value,
+    pub(crate) native_image: &'a Value,
     pub(crate) backtest_binding: &'a Value,
     pub(crate) rules_response: &'a Value,
 }
@@ -447,6 +470,7 @@ impl<'proof> BacktestReady<'proof> {
             algorithm_resolution,
             algorithm_resolution_request,
             native_implementations,
+            native_image,
             backtest_binding,
             rules_response,
         } = resolution;
@@ -457,7 +481,7 @@ impl<'proof> BacktestReady<'proof> {
         if admission.namespace() != &namespace {
             return Err(MISMATCH);
         }
-        match (&input.origin, validation) {
+        let calculations = match (&input.origin, validation) {
             (
                 BacktestOrigin::ManualStrategy {
                     strategy_id,
@@ -479,12 +503,10 @@ impl<'proof> BacktestReady<'proof> {
                     return Err(MISMATCH);
                 }
                 let validated = &proof.record()["prepared_inputs"];
-                if validated["algorithm_resolution"] != *algorithm_resolution
-                    || validated["algorithm_resolution_request"] != *algorithm_resolution_request
-                    || validated["native_implementations"] != *native_implementations
-                {
+                if validated["native_implementations"] != *native_implementations {
                     return Err(MISMATCH);
                 }
+                validated
             }
             (
                 BacktestOrigin::FrozenStrategy {
@@ -503,9 +525,16 @@ impl<'proof> BacktestReady<'proof> {
                 {
                     return Err(MISMATCH);
                 }
+                admission.validated_calculations()?
             }
             _ => return Err(MISMATCH),
+        };
+        if calculations["algorithm_resolution"] != *algorithm_resolution
+            || calculations["algorithm_resolution_request"] != *algorithm_resolution_request
+        {
+            return Err(MISMATCH);
         }
+        let calculation_proof = &calculations["build_certification"];
         let retained = MaterializedDataset::load(
             datasets,
             text(materialized.lineage(), "materialization_id")?,
@@ -566,7 +595,7 @@ impl<'proof> BacktestReady<'proof> {
         )?;
         let record = json!({"preparation_command_id":operation.command.value(),"origin":input.origin,"admission":{"strategy_fingerprint":admission.strategy_fingerprint(),"freeze_relation_fingerprint":admission.freeze_relation_fingerprint(),"qualification_decision_fingerprint":admission.qualification_decision_fingerprint(),"promotion_fingerprint":admission.promotion_fingerprint()},
             "validation_fingerprint":validation.map(VerifiedValidation::fingerprint),"preparation_fingerprint":hash(&preparation)?,"preparation":preparation,"input_sources":prepared.inputs().record(),"specification":specification.record(),
-            "dataset_materialization_id":materialized.lineage()["materialization_id"],"source_selection":source_selection,"algorithm_resolution":algorithm_resolution,"algorithm_resolution_request":algorithm_resolution_request,"native_implementations":native_implementations,"backtest_binding":backtest_binding,"rules_response":rules_response});
+            "dataset_materialization_id":materialized.lineage()["materialization_id"],"source_selection":source_selection,"algorithm_resolution":algorithm_resolution,"algorithm_resolution_request":algorithm_resolution_request,"native_implementations":native_implementations,"native_image":native_image,"calculation_build":calculation_build::reference(calculation_proof),"backtest_binding":backtest_binding,"rules_response":rules_response});
         let mut outputs = operation.outputs.clone();
         outputs["ready"] = record.clone();
         validate_ready(operation, &outputs)?;
@@ -574,6 +603,7 @@ impl<'proof> BacktestReady<'proof> {
             operation,
             admission,
             validation,
+            calculation_proof,
             files,
             record,
         };
@@ -593,7 +623,7 @@ impl<'proof> BacktestReady<'proof> {
         }
         Ok(())
     }
-    pub(crate) async fn verify_in_transaction(&self, tx: &Transaction<'_>) -> Result<()> {
+    pub(crate) async fn verify_in_transaction(&self, tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>) -> Result<()> {
         self.verify_cut()?;
         let namespace = SemanticStoreId::new(text(&self.operation.accepted, "semantic_store_id")?)
             .map_err(|e| e.code())?;
@@ -603,7 +633,9 @@ impl<'proof> BacktestReady<'proof> {
         }
         self.admission.verify_in_transaction(tx, &namespace).await?;
         if let Some(validation) = self.validation {
-            validation.verify_in_transaction(tx, &namespace).await?;
+            validation.verify_in_transaction(tx,&namespace).await?;
+        } else {
+            tx.verify_calculation(self.calculation_proof).await?;
         }
         self.verify_cut()
     }
@@ -619,6 +651,7 @@ pub(crate) async fn publish_backtest_ready(
     proof.verify_cut()?;
     let original = proof.operation;
     let mut owned = session.take_ownership();
+    let roles=owned.control_roles().map_err(|_|UNAVAILABLE)?;
     let mut mutated = false;
     let result = async {
         let tx = owned
@@ -642,7 +675,7 @@ pub(crate) async fn publish_backtest_ready(
             if ready != proof.record() {
                 return Err(CORRUPT);
             }
-            proof.verify_in_transaction(&tx).await?;
+            proof.verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles)).await?;
             AuthoritySession::verify_transaction(&tx)
                 .await
                 .map_err(|_| UNAVAILABLE)?;
@@ -660,7 +693,7 @@ pub(crate) async fn publish_backtest_ready(
             return Err("RESEARCH_PREPARATION_ILLEGAL_TRANSITION");
         }
         require_current(&tx, &current).await?;
-        proof.verify_in_transaction(&tx).await?;
+        proof.verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles)).await?;
         let mut outputs = current.outputs.clone();
         outputs["ready"] = proof.record().clone();
         validate_ready(&current, &outputs)?;
@@ -687,7 +720,7 @@ pub(crate) async fn publish_backtest_ready(
         {
             return Err(CORRUPT);
         }
-        proof.verify_in_transaction(&tx).await?;
+        proof.verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles)).await?;
         AuthoritySession::verify_transaction(&tx)
             .await
             .map_err(|_| UNKNOWN)?;
@@ -750,7 +783,7 @@ pub(crate) async fn cancel_backtest(
 /// evidence. Only first stage admission uses this guard; original accepted
 /// Commands and historical facts retain their ordinary recovery/read semantics.
 pub(crate) async fn require_running_manual_backtest_parent(
-    tx: &Transaction<'_>,
+    tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
     namespace: &SemanticStoreId,
     evidence: &VerifiedValidation,
     actor: &str,
@@ -762,7 +795,7 @@ pub(crate) async fn require_running_manual_backtest_parent(
         return Err("MANUAL_BACKTEST_PREPARATION_OWNER_MISMATCH");
     }
     tx.query_opt("SELECT command_id FROM public.research_preparation WHERE command_id=$1::text::uuid FOR SHARE",&[&command.value()]).await.map_err(db)?.ok_or(CORRUPT)?;
-    evidence.verify_in_transaction(tx, namespace).await?;
+    evidence.verify_in_transaction(tx,namespace).await?;
     let parent = load(tx, &command, owner).await?;
     if parent.state != State::Running || parent.outputs.get("cancellation").is_some() {
         return Err("MANUAL_BACKTEST_PREPARATION_NOT_RUNNING");

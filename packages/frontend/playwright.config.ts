@@ -5,6 +5,10 @@ const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 
 export default defineConfig({
     testDir: "./e2e",
+    testIgnore:
+        process.env.ONLYALPHA_BROWSER_BACKTEST_DIAGNOSTIC === "1"
+            ? []
+            : ["**/backtest-diagnostics.spec.ts"],
     workers: 1,
     outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results",
     retries: 0,

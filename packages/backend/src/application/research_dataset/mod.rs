@@ -10,6 +10,13 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 pub type Result<T> = std::result::Result<T, &'static str>;
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DatasetTimings {
+    pub allocation: std::time::Duration,
+    pub normalize: std::time::Duration,
+    pub sort: std::time::Duration,
+    pub digest: std::time::Duration,
+}
 pub(crate) const INVALID: &str = "DATASET_INPUT_INVALID";
 pub(crate) const LIMIT: usize = 128 * 1024 * 1024;
 #[derive(Clone, Debug)]
@@ -27,6 +34,16 @@ impl Dataset {
         construction: &str,
         max_rows: usize,
     ) -> Result<Self> {
+        Self::from_bars_profiled(definition, bars, construction, max_rows)
+            .map(|(dataset, _)| dataset)
+    }
+    pub(crate) fn from_bars_profiled(
+        definition: &Value,
+        bars: &[Value],
+        construction: &str,
+        max_rows: usize,
+    ) -> Result<(Self, DatasetTimings)> {
+        let mut timing = DatasetTimings::default();
         if bars.len() > max_rows {
             return Err("DATASET_READ_BUDGET_EXCEEDED");
         }
@@ -44,7 +61,12 @@ impl Dataset {
             OnlyBarSemantic::from_record(&definition["bar_semantic"]).map_err(|_| INVALID)?;
         let start = ns(&definition["time_range"]["start"])?;
         let end = ns(&definition["time_range"]["end"])?;
-        let mut rows = Vec::with_capacity(bars.len());
+        let allocation = std::time::Instant::now();
+        let mut rows = Vec::new();
+        rows.try_reserve_exact(bars.len())
+            .map_err(|_| "DATASET_READ_BUDGET_EXCEEDED")?;
+        timing.allocation = allocation.elapsed();
+        let normalize = std::time::Instant::now();
         let mut logical = BTreeSet::new();
         for value in bars {
             let bar = OnlyBar::from_record(value).map_err(|_| INVALID)?;
@@ -70,6 +92,8 @@ impl Dataset {
             }
             rows.push(row);
         }
+        timing.normalize = normalize.elapsed();
+        let sorting = std::time::Instant::now();
         rows.sort_by_key(|v| {
             (
                 v["instrument_id"].as_str().unwrap_or_default().to_owned(),
@@ -79,17 +103,23 @@ impl Dataset {
                 v["revision"].as_i64(),
             )
         });
+        timing.sort = sorting.elapsed();
+        let digesting = std::time::Instant::now();
         let content = content_fingerprint(&rows)?;
         let snapshot = fp(
             &json!({"schema_version":2,"definition_fingerprint":fp(&definition)?,"dataset_schema_fingerprint":fp(&schema())?,"content_fingerprint":content,"row_count":rows.len(),"construction_fingerprint":construction}),
         )?;
-        Ok(Self {
-            definition,
-            rows,
-            content,
-            snapshot,
-            construction: construction.into(),
-        })
+        timing.digest = digesting.elapsed();
+        Ok((
+            Self {
+                definition,
+                rows,
+                content,
+                snapshot,
+                construction: construction.into(),
+            },
+            timing,
+        ))
     }
     pub fn rows(&self) -> &[Value] {
         &self.rows
@@ -228,7 +258,7 @@ fn decimal(v: &Value) -> Result<Value> {
     }
     Ok(scaled.to_string().into())
 }
-fn bar_row(bar: &OnlyBar) -> Result<Value> {
+pub(crate) fn bar_row(bar: &OnlyBar) -> Result<Value> {
     let v = bar.to_record();
     let mut r = json!({"instrument_id":bar.instrument_id().to_string(),"bar_semantic_json":canonical(&bar.bar_type().semantic().to_record())?,"trading_day":v["trading_day"],"session_type":v["session_type"],"price_precision":v["open"]["precision"],"volume_precision":v["volume"]["precision"],"is_closed":true,"revision":number(&v["revision"])? ,"adjustment_type":v["adjustment_type"],"trade_count":v["trade_count"]});
     if !v["trade_count"].is_null() {

@@ -2226,6 +2226,8 @@ export interface components {
             /** Format: int32 */
             schema_version: number;
         };
+        /** @enum {string} */
+        BacktestCancellationReason: "USER_REQUESTED";
         BacktestCommandNotAccepted: {
             command_id: string;
             /** Format: int32 */
@@ -2273,7 +2275,12 @@ export interface components {
             nav: string;
         };
         BacktestEvidenceView: {
+            freeze_relation_fingerprint: string;
             manifest: unknown;
+            preparation_command_id: string;
+            promotion_fingerprint: string;
+            publication_fingerprint: string;
+            qualification_decision_fingerprint: string;
             run_id: string;
             /** Format: int32 */
             schema_version: number;
@@ -2392,6 +2399,8 @@ export interface components {
         };
         /** @enum {string} */
         BacktestReportState: "PENDING" | "NOT_CHECKED" | "VERIFIED" | "NOT_APPLICABLE" | "UNAVAILABLE";
+        /** @enum {string} */
+        BacktestResultState: "COMPLETED";
         BacktestResultView: {
             baseline?: components["schemas"]["BacktestBaseline"] | null;
             curve: components["schemas"]["BacktestCurvePoint"][];
@@ -2405,7 +2414,7 @@ export interface components {
             sample: components["schemas"]["BacktestSample"];
             /** Format: int32 */
             schema_version: number;
-            state: string;
+            state: components["schemas"]["BacktestResultState"];
             strategy_fingerprint: string;
             trades: components["schemas"]["BacktestTradeView"][];
         };
@@ -2416,6 +2425,8 @@ export interface components {
         };
         BacktestRunView: {
             accepted_at: string;
+            cancel_requested_at?: string | null;
+            cancellation_reason?: components["schemas"]["BacktestCancellationReason"] | null;
             preparation_command_id?: string | null;
             report_status: components["schemas"]["BacktestReportAvailability"];
             revision: string;

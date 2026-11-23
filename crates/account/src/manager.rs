@@ -1,6 +1,51 @@
 use crate::model::*;
 use bigdecimal::Zero;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
+
+pub(crate) fn command_aliases(command: &Value) -> Result<Vec<String>, Error> {
+    let p = &command["payload"];
+    Ok(match text(&command["op"])? {
+        "TRADE" => ["trade", "execution", "venue_trade", "fee_instruction"]
+            .iter()
+            .map(|f| key(f, p[f].as_str().expect("validated ID")))
+            .collect(),
+        "RESERVE" => vec![key("reservation", text(&p["reservation"])?)],
+        "CASH_CHANGE" => vec![
+            key("change", text(&p["change"])?),
+            key("source_fact", text(&p["source_fact"])?),
+        ],
+        "ECONOMIC" => vec![
+            key("cashflow", text(&p["cashflow"])?),
+            key("source_fact", text(&p["source_fact"])?),
+        ],
+        "MARGIN" => vec![key("margin", text(&p["command"]["id"])?)],
+        "SETTLE" => vec![key("settlement", text(&p["instruction"])?)],
+        "VALUATION" => vec![key("valuation", text(&p["intent"]["valuation"])?)],
+        "BROKER" => vec![key("broker", text(&p["snapshot"])?)],
+        _ => vec![],
+    })
+}
+
+pub(crate) fn command_semantic(command: &Value) -> Result<String, Error> {
+    let unsigned = command
+        .as_object()
+        .expect("validated record")
+        .iter()
+        .filter(|(field, _)| field.as_str() != "command_id")
+        .collect::<BTreeMap<_, _>>();
+    Ok(digest(&serde_json::to_vec(&unsigned)?))
+}
+
+pub(crate) fn position_trade_record(command: &Value) -> Value {
+    let p = &command["payload"];
+    let mut record = json!({"position_evidence":p["position_evidence"],"cause":command["cause"],"time":command["time"],"order":p["order"],"execution":p["execution"],"venue_trade":p["venue_trade"],"sequence":p["sequence"]});
+    if let Some(evidence) = p.get("trade_evidence") {
+        record["trade_evidence"] = evidence.clone();
+    }
+    record
+}
+
 #[derive(Clone)]
 pub struct Manager {
     pub(crate) config: Value,
@@ -202,9 +247,11 @@ impl Manager {
         command["payload"] = effect.replay_input();
         self.apply_inner(&command)
     }
-    pub(crate) fn apply_inner(&mut self, input: &Value) -> Result<Outcome, Error> {
-        #[cfg(test)]
-        crate::recovery::ACCOUNT_COMMAND_REPLAYS.with(|count| count.set(count.get() + 1));
+    // Shared exact parser/normalizer for actual apply and a prospective budget read.
+    pub(crate) fn checked_command(
+        &self,
+        input: &Value,
+    ) -> Result<(Value, String, num_bigint::BigInt, String), Error> {
         if input.to_string().len()
             > if input["op"] == "VALUATION" {
                 32 * 1024 * 1024
@@ -243,6 +290,37 @@ impl Manager {
         }
         let mut command = input.clone();
         command["payload"] = normalize_payload(op, &r["payload"], self.precision)?;
+        Ok((command, cid, t, op.to_owned()))
+    }
+    fn require_admission_capacity(&self, command: &Value) -> Result<(), Error> {
+        if self.state.journal.len() >= MAX_COMMANDS
+            || self
+                .state
+                .journal
+                .iter()
+                .map(|v| v.to_string().len())
+                .sum::<usize>()
+                + command.to_string().len()
+                > 4 * 1024 * 1024
+        {
+            return Err(err("ACCOUNT_JOURNAL_BOUND"));
+        }
+        Ok(())
+    }
+    /// Capacity observation for a new RESERVE, not admission or commit permission.
+    /// Uses the same command checks, normalization and journal limit as apply.
+    pub fn check_new_reservation_capacity(&self, input: &Value) -> Result<(), Error> {
+        let (command, cid, _, op) = self.checked_command(input)?;
+        if op != "RESERVE" || self.state.receipts.contains_key(&cid) {
+            return Err(err("ACCOUNT_NEW_RESERVATION_REQUIRED"));
+        }
+        self.require_admission_capacity(&command)
+    }
+    pub(crate) fn apply_inner(&mut self, input: &Value) -> Result<Outcome, Error> {
+        #[cfg(test)]
+        crate::recovery::ACCOUNT_COMMAND_REPLAYS.with(|count| count.set(count.get() + 1));
+        let (command, cid, t, operation) = self.checked_command(input)?;
+        let op = operation.as_str();
         let encoded = serde_json::to_vec(&command)?;
         let h = digest(&encoded);
         if let Some(old) = self.state.receipts.get(&cid) {
@@ -254,46 +332,12 @@ impl Manager {
         }
         let admission = matches!(op, "RESERVE" | "CASH_CHANGE")
             || (op == "MARGIN" && command["payload"]["command"]["action"] == "RESERVE");
-        if admission
-            && (self.state.journal.len() >= MAX_COMMANDS
-                || self
-                    .state
-                    .journal
-                    .iter()
-                    .map(|v| v.to_string().len())
-                    .sum::<usize>()
-                    + command.to_string().len()
-                    > 4 * 1024 * 1024)
-        {
-            return Err(err("ACCOUNT_JOURNAL_BOUND"));
+        if admission {
+            self.require_admission_capacity(&command)?;
         }
         let p = &command["payload"];
-        let aliases: Vec<String> = match op {
-            "TRADE" => ["trade", "execution", "venue_trade", "fee_instruction"]
-                .iter()
-                .map(|f| key(f, p[f].as_str().expect("validated ID")))
-                .collect(),
-            "RESERVE" => vec![key("reservation", text(&p["reservation"])?)],
-            "CASH_CHANGE" => vec![
-                key("change", text(&p["change"])?),
-                key("source_fact", text(&p["source_fact"])?),
-            ],
-            "ECONOMIC" => vec![
-                key("cashflow", text(&p["cashflow"])?),
-                key("source_fact", text(&p["source_fact"])?),
-            ],
-            "MARGIN" => vec![key("margin", text(&p["command"]["id"])?)],
-            "SETTLE" => vec![key("settlement", text(&p["instruction"])?)],
-            "VALUATION" => vec![key("valuation", text(&p["intent"]["valuation"])?)],
-            "BROKER" => vec![key("broker", text(&p["snapshot"])?)],
-            _ => vec![],
-        };
-        let mut semantic = command.clone();
-        semantic
-            .as_object_mut()
-            .expect("validated record")
-            .remove("command_id");
-        let sh = hash(&semantic);
+        let aliases = command_aliases(&command)?;
+        let sh = command_semantic(&command)?;
         let known: Vec<_> = aliases
             .iter()
             .filter_map(|a| self.state.semantic.get(a))
@@ -330,14 +374,10 @@ impl Manager {
             candidate.transition(op, p, &t)?
         };
         if op == "TRADE" && status == Status::Applied {
-            candidate.state.position_trades.insert(id(&p["trade"])?,json!({"position_evidence":p["position_evidence"],"cause":command["cause"],"time":command["time"],"order":p["order"],"execution":p["execution"],"venue_trade":p["venue_trade"],"sequence":p["sequence"]}));
-            if let Some(original) = p.get("trade_evidence") {
-                candidate
-                    .state
-                    .position_trades
-                    .get_mut(text(&p["trade"])?)
-                    .expect("inserted trade")["trade_evidence"] = original.clone();
-            }
+            candidate
+                .state
+                .position_trades
+                .insert(id(&p["trade"])?, position_trade_record(&command));
         }
         if status != Status::Duplicate {
             candidate.state.sequence += 1;

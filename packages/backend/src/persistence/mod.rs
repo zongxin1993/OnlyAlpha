@@ -1,5 +1,6 @@
 //! Persistence responsibilities of the backend product.
 pub mod authority_session;
+pub(crate) mod build_fact_read;
 pub mod credential_postgres;
 pub mod integration_postgres;
 pub mod market_data;
@@ -37,3 +38,7 @@ pub mod strategy_promotion;
 pub(crate) mod strategy_validation;
 
 pub(crate) mod qualification_commands;
+
+pub mod factor_build;
+pub mod job_publication;
+pub(crate) mod node_access;

@@ -3,7 +3,7 @@ use onlyalpha_backend::bootstrap::{deployment, research_namespace};
 use serde_json::{Value, json};
 use std::path::Path;
 
-pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value {
+pub async fn run(request: &Value, session: &mut onlyalpha_backend::persistence::authority_session::AuthoritySession) -> Value {
     if request["phase"] == "initialize-original-base-v1" {
         // Existing real V1 initializer is a technical compatibility precondition.
         // This creates no Run, scientific evidence, Decision or execution grant.
@@ -19,11 +19,11 @@ pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value 
     let result = async {
         let root = Path::new(request["user_data"].as_str().ok_or("root")?);
         let identity = research_namespace::open_existing(root)?;
-        deployment::verify_binding(client, &identity)
+        deployment::verify_binding(session.client_mut().await.map_err(|e|e.code())?, &identity)
             .await
             .map_err(|_| "SEMANTIC_STORE_BINDING_MISMATCH")?;
         research_namespace::novelty(root)?
-            .refresh_projection(client)
+            .refresh_projection(session)
             .await
     }
     .await;

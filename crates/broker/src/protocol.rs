@@ -337,6 +337,8 @@ fn apply(state: &mut State, scope: &Scope, event: &Value, capacity: usize) -> Re
     Ok(())
 }
 pub struct Broker {
+    finite: bool,
+    retained_bytes: usize,
     scope: Scope,
     capacity: usize,
     state: State,
@@ -352,6 +354,8 @@ impl Broker {
             return Err(err("BROKER_CAPACITY"));
         }
         let mut b = Self {
+            finite: false,
+            retained_bytes: 0,
             scope,
             capacity,
             state: State::default(),
@@ -393,6 +397,11 @@ impl Broker {
     }
     /// 从原序 Journal 更新已有协议对象，不派发或追加事件。
     pub fn refresh(&mut self, j: &impl Journal) -> Result<(), Error> {
+        // Only MemoryBroker can create and exclusively retain this instance.
+        // No caller journal is admitted or read on this path.
+        if self.finite {
+            return Ok(());
+        }
         let result = self.reload(j);
         if result.is_err() {
             self.stream_trusted = false;
@@ -414,6 +423,20 @@ impl Broker {
         let mut v = json!({"schema_version":1,"sequence":self.history.len()+1,"previous":self.history.last().map(|r|text(&r.0["hash"]).expect("validated")).unwrap_or(&"0".repeat(64)),"scope":self.scope.record(),"event":event});
         v["hash"] = json!(digest(&v));
         Record::decode(&v)?;
+        if self.finite {
+            let bytes = self
+                .retained_bytes
+                .checked_add(v.to_string().len())
+                .filter(|n| *n <= 128 * 1024 * 1024)
+                .ok_or_else(|| err("BROKER_MEMORY_BUDGET"))?;
+            self.history
+                .try_reserve(1)
+                .map_err(|_| err("BROKER_MEMORY_BUDGET"))?;
+            self.history.push(Record(v));
+            self.state = candidate;
+            self.retained_bytes = bytes;
+            return Ok(());
+        }
         let intent = AppendIntent {
             value: v.clone(),
             admitted_at,
@@ -523,7 +546,18 @@ impl Broker {
             json!({"kind":"DISPATCHED","command_id":command.id()}),
             intent.admitted_at().cloned(),
         )?;
-        let outcome = adapter.dispatch(command).unwrap_or(DispatchResult::Unknown);
+        let observed = DispatchObservation {
+            command: command.clone(),
+            record: self
+                .history
+                .last()
+                .ok_or_else(|| err("BROKER_DISPATCH_MISSING"))?
+                .clone(),
+            admitted_at: intent.admitted_at().cloned(),
+        };
+        let outcome = adapter
+            .dispatch_observed(command, &observed)
+            .unwrap_or(DispatchResult::Unknown);
         self.append(j,json!({"kind":"RESULT","command_id":command.id(),"result":match outcome{DispatchResult::Received=>"RECEIVED",DispatchResult::Rejected=>"REJECTED",DispatchResult::Unknown=>"UNKNOWN"}}))?;
         Ok(self.state.commands[command.id()].state)
     }
@@ -725,5 +759,45 @@ impl Broker {
             .filter(|k| k.starts_with("EFILL-"))
             .map(|k| self.observed(k))
             .collect()
+    }
+}
+
+impl Broker {
+    pub(crate) fn finite(scope: Scope, capacity: usize) -> Result<Self, Error> {
+        if scope.record()["runtime_kind"] != "BACKTEST" {
+            return Err(err("FINITE_BACKTEST_REQUIRED"));
+        }
+        struct Empty;
+        impl Journal for Empty {
+            fn records(&self) -> Result<Vec<Record>, Error> {
+                Ok(vec![])
+            }
+            fn append(&mut self, _: &AppendIntent) -> Result<(), Error> {
+                Err(err("FINITE_NO_JOURNAL"))
+            }
+        }
+        let mut broker = Self::recover(scope, &Empty, capacity)?;
+        broker.finite = true;
+        Ok(broker)
+    }
+    pub(crate) fn finite_summary(&self) -> Result<Value, Error> {
+        if !self.finite
+            || !self.ready()
+            || !self.state.pending.is_empty()
+            || self.state.commands.values().any(|e| {
+                matches!(
+                    e.state,
+                    CommandState::Durable | CommandState::Unknown | CommandState::Reconciling
+                )
+            })
+        {
+            return Err(err("BROKER_FINITE_NOT_DRAINED"));
+        }
+        Ok(
+            json!({"scope":self.scope.record(),"events":self.history.len(),"head":self.history.last().map(|r|r.0["hash"].clone()).unwrap_or_else(||json!("0".repeat(64))),"bytes":self.retained_bytes}),
+        )
+    }
+    pub(crate) fn into_finite_records(self) -> Vec<Record> {
+        self.history
     }
 }

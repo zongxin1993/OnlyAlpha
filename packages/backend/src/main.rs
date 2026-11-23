@@ -74,6 +74,7 @@ fn configuration(user_data: PathBuf) -> Result<Configuration, &'static str> {
         algorithm_artifact: algorithm_artifact()?,
         trust: PathBuf::from(required("ONLYALPHA_NATIVE_SOURCE_TRUST")?),
         postgres_dsn: required("ONLYALPHA_POSTGRES_DSN")?,
+        factor_build_postgres_dsn: required("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN")?,
         postgres_peer: required("ONLYALPHA_NATIVE_POSTGRES_PEER")?
             .parse()
             .map_err(|_| "DEV_POSTGRES_TRANSPORT_DENIED")?,
@@ -202,41 +203,6 @@ fn runtime_initialization_reply(
     }
 }
 
-async fn initialize_backtest_evidence(
-    root: &std::path::Path,
-    schema: &std::path::Path,
-) -> Result<serde_json::Value, String> {
-    let schema =
-        onlyalpha_backend::bootstrap::configuration::load_schema_history(schema, 8 * 1024 * 1024)
-            .map_err(|error| error.code().to_owned())?;
-    let mut session = namespace_operator_session().await?;
-    let result = onlyalpha_backend::bootstrap::research_namespace::initialize_backtest_evidence(
-        root,
-        &schema,
-        &mut session,
-    )
-    .await
-    .map_err(str::to_owned);
-    let closed = session
-        .close()
-        .await
-        .map_err(|error| error.code().to_owned());
-    backtest_evidence_initialization_reply(result, closed)
-}
-fn backtest_evidence_initialization_reply(
-    result: Result<serde_json::Value, String>,
-    closed: Result<(), String>,
-) -> Result<serde_json::Value, String> {
-    match (result, closed) {
-        (Err(code), _) => Err(code),
-        (Ok(mut value), Ok(())) => {
-            value["schema_version"] = serde_json::json!(1);
-            Ok(value)
-        }
-        (_, Err(_)) => Err("BACKTEST_EVIDENCE_INITIALIZATION_OUTCOME_UNKNOWN".into()),
-    }
-}
-
 async fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if let [command, schema] = args.as_slice()
@@ -280,15 +246,6 @@ async fn run() -> Result<(), String> {
             "{}",
             serde_json::json!({"schema_version": 1, "semantic_store_id": id.value()})
         );
-        return Ok(());
-    }
-    if let [command, root, schema] = args.as_slice()
-        && command == "--initialize-fresh-backtest-evidence"
-    {
-        let value =
-            initialize_backtest_evidence(std::path::Path::new(root), std::path::Path::new(schema))
-                .await?;
-        println!("{value}");
         return Ok(());
     }
     if let [command, root, schema] = args.as_slice()
@@ -340,22 +297,22 @@ async fn run() -> Result<(), String> {
         }
         return Ok(());
     }
-    if let [command, root] = args.as_slice() {
-        if matches!(
+    if let [command, root] = args.as_slice()
+        && matches!(
             command.as_str(),
             "--extend-strategy-research-namespace" | "--extend-manual-backtest-namespace"
-        ) {
-            let identity = extend_research_namespace(
-                std::path::Path::new(root),
-                command == "--extend-manual-backtest-namespace",
-            )
-            .await?;
-            println!(
-                "{}",
-                serde_json::json!({"schema_version":1,"semantic_store_id":identity.value()})
-            );
-            return Ok(());
-        }
+        )
+    {
+        let identity = extend_research_namespace(
+            std::path::Path::new(root),
+            command == "--extend-manual-backtest-namespace",
+        )
+        .await?;
+        println!(
+            "{}",
+            serde_json::json!({"schema_version":1,"semantic_store_id":identity.value()})
+        );
+        return Ok(());
     }
     if args.len() == 2
         && matches!(
@@ -377,9 +334,6 @@ async fn run() -> Result<(), String> {
             "policy":onlyalpha_backend::bootstrap::research_namespace::policy()})
         );
         return Ok(());
-    }
-    if args == ["--read-native-backtest-terminal"] {
-        return onlyalpha_backend::workers::backtest_terminal::run_stdio().map_err(str::to_owned);
     }
     if args == ["--describe-research-runtime"] {
         println!(
@@ -423,6 +377,26 @@ async fn run() -> Result<(), String> {
     };
     let config = configuration(user_data).map_err(String::from)?;
     let address = config.listen;
+    // 仅正式服务角色初始化诊断。导出、运维和算法协议角色已在上方返回。
+    // 诊断配置/输出错误不替换业务启动结果；受控取证由协调器检查 session_start。
+    let diagnostics = {
+        let configured = std::env::var("ONLYALPHA_DIAGNOSTICS").ok();
+        let legacy = std::env::var("ONLYALPHA_BACKTEST_PROFILE").ok();
+        let output = std::env::var_os("ONLYALPHA_DIAGNOSTICS_PATH").map(PathBuf::from);
+        match onlyalpha_backend::bootstrap::observability::mode(
+            configured.as_deref(),
+            legacy.as_deref(),
+        )
+        .and_then(|mode| {
+            onlyalpha_backend::bootstrap::observability::start(mode, output.as_deref())
+        }) {
+            Ok(session) => session,
+            Err(code) => {
+                eprintln!("{code}");
+                None
+            }
+        }
+    };
     // Register both maintained OS signal streams before any protected startup work.
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| "SIGNAL_UNAVAILABLE")?;
@@ -453,35 +427,15 @@ async fn run() -> Result<(), String> {
     .await;
     signal.abort();
     let _ = signal.await;
+    if let Some(session) = diagnostics {
+        eprintln!("ONLYALPHA_DIAGNOSTIC {}", session.close().record());
+    }
     result
 }
 
 #[cfg(test)]
 mod initialization_tests {
     use super::*;
-    #[test]
-    fn evidence_initialization_reply_never_reports_success_after_uncertain_close() {
-        let value = serde_json::json!({"semantic_store_id":"22222222-2222-4222-8222-222222222222","initialized":true});
-        assert_eq!(
-            backtest_evidence_initialization_reply(
-                Ok(value.clone()),
-                Err("POSTGRES_UNAVAILABLE".into())
-            )
-            .unwrap_err(),
-            "BACKTEST_EVIDENCE_INITIALIZATION_OUTCOME_UNKNOWN"
-        );
-        let success = backtest_evidence_initialization_reply(Ok(value), Ok(())).unwrap();
-        assert_eq!(success["schema_version"], 1);
-        assert_eq!(success["initialized"], true);
-        assert_eq!(
-            backtest_evidence_initialization_reply(
-                Err("original failure".into()),
-                Err("POSTGRES_UNAVAILABLE".into())
-            )
-            .unwrap_err(),
-            "original failure"
-        );
-    }
     #[test]
     fn runtime_initialization_reply_never_reports_success_after_uncertain_close() {
         let value = serde_json::json!({"active_for_new_work":null,"states":{}});

@@ -1,3 +1,6 @@
+ARG ONLYALPHA_DEV_BROWSER_SOURCE=playwright-online
+ARG ONLYALPHA_DEV_BROWSER_CACHE_IMAGE=scratch
+
 FROM ghcr.io/astral-sh/uv:0.10.5@sha256:476133fa2aaddb4cbee003e3dc79a88d327a5dc7cb3179b7f02cabd8fdfbcc6e AS uv
 
 # Official Rust toolchain is a build/validation input, never a production service.
@@ -114,11 +117,23 @@ COPY test-data/web/catalog-navigation/ /workspace/test-data/web/catalog-navigati
 COPY test-data/web/chart-studies/ /workspace/test-data/web/chart-studies/
 EXPOSE 5173
 
-FROM web AS playwright
+FROM web AS playwright-online
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=reference-tools /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
     && npx playwright install --with-deps chromium
+
+# Explicit opt-in reuse of the already admitted, immutable local tool image.
+# The host pins its image ID, lock inputs and complete cache tree; verify again here.
+FROM ${ONLYALPHA_DEV_BROWSER_CACHE_IMAGE} AS playwright-cached
+ARG ONLYALPHA_DEV_BROWSER_CACHE_SHA256
+ARG ONLYALPHA_DEV_BROWSER_CACHE_VERSION
+COPY scripts/dev_browser_cache.py /tmp/onlyalpha-dev-browser-cache.py
+RUN python -I -B /tmp/onlyalpha-dev-browser-cache.py \
+    --expect-tree "$ONLYALPHA_DEV_BROWSER_CACHE_SHA256" \
+    --expect-version "$ONLYALPHA_DEV_BROWSER_CACHE_VERSION"
+
+FROM ${ONLYALPHA_DEV_BROWSER_SOURCE} AS playwright
 
 # Owner-authorized opt-in loopback Browser/API acceptance, same canonical test service.
 # Broad Python reference dependencies belong only to verification tools.

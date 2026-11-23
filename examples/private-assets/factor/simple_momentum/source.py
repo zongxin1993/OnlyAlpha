@@ -1,2 +1,3 @@
 def calculate(api, inputs, parameters):
-    return {"value": api.sub(inputs["close"], inputs["previous_close"])}
+    previous = api.delay(inputs["close"], parameters["period"])
+    return {"value": api.sub(api.div(inputs["close"], previous), api.decimal("1"))}

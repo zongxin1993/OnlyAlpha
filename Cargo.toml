@@ -1,5 +1,5 @@
 [workspace]
-members = ["plugs/onlyalpha-broker-binance", "plugs/onlyalpha-broker-virtual", "plugs/onlyalpha-market-cn-ashare", "plugs/onlyalpha-market-crypto", "plugs/onlyalpha-data-source-binance", "plugs/onlyalpha-data-source-tushare", "crates/metadata-json", "crates/integration-contract", "packages/backend", "crates/backtest", "crates/runtime", "crates/margin","crates/settlement","crates/broker",
+members = ["crates/observability", "plugs/onlyalpha-broker-binance", "plugs/onlyalpha-broker-virtual", "plugs/onlyalpha-market-cn-ashare", "plugs/onlyalpha-market-crypto", "plugs/onlyalpha-data-source-binance", "plugs/onlyalpha-data-source-tushare", "crates/metadata-json", "crates/integration-contract", "packages/backend", "crates/backtest", "crates/runtime", "crates/margin","crates/settlement","crates/broker",
     "crates/fee", "crates/execution", "crates/risk", "crates/strategy-ledger", "crates/account", "crates/position", "crates/order", "crates/strategy", "crates/calculation-bridge", "crates/domain", "crates/calculation", "crates/operators", "crates/indicators", "crates/predicates", "crates/clock", "crates/event", "crates/market-data-construction", "crates/market-data"]
 resolver = "3"
 
@@ -19,3 +19,6 @@ panic = "unwind"
 [profile.release]
 overflow-checks = true
 panic = "unwind"
+
+[workspace.dependencies]
+criterion = { version = "=0.7.0", default-features = false, features = ["cargo_bench_support"] }

@@ -60,6 +60,17 @@ pub(crate) struct State {
     pub trade_count: u64,
 }
 impl State {
+    pub(crate) fn finite_quiescent(&self) -> bool {
+        self.due.is_empty()
+            && self.outbox.is_empty()
+            && self.orders.iter().all(|o| {
+                matches!(
+                    o.status,
+                    "FILLED" | "CANCELLED" | "REJECTED" | "EXPIRED" | "FAILED"
+                )
+            })
+    }
+
     pub fn new(cash: &OnlyMoney) -> Result<Self, Error> {
         Ok(Self {
             now: 0,

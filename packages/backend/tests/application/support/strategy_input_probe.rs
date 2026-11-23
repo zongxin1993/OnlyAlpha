@@ -41,7 +41,8 @@ pub async fn run(
         Path::new(v["algorithm_root"].as_str().ok_or("algorithms")?),
         v["algorithm_artifact"].as_str().ok_or("artifact")?,
     )?;
-    let resolved = Composer::new(client)
+    let mut facts = crate::job_fact_connection::Connection::reader().await?;
+    let resolved = Composer::new(client).with_fact_reader(&mut facts.client)
         .resolve(
             v["strategy_id"].as_str().ok_or("strategy")?,
             v["strategy_revision"].as_str().ok_or("revision")?,
@@ -71,8 +72,9 @@ pub async fn run(
             .await?;
         assert_eq!(removed?, 1);
     }
+    let mut builder = crate::job_fact_connection::Connection::builder().await?;
     let (prepared, spec) = PreparedInputs::prepare_strategy(
-        &mut Composer::new(client),
+        &mut Composer::new(client).with_fact_reader(&mut facts.client).with_builder(&mut builder.client),
         resolved,
         &context,
         &installation,

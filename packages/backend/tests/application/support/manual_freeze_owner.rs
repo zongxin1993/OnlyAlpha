@@ -43,6 +43,7 @@ async fn parent(session: &mut AuthoritySession, command: &CommandId, owner: &str
 /// resume-after-cancel -> replay-after-cancel -> physical-replacement -> sql-denials.
 /// Use an independent real producer for cancel-before-prepared.
 pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str) {
+    let mut facts=crate::job_fact_connection::Connection::reader().await.unwrap();
     let request: Value = serde_json::from_slice(
         &std::fs::read(std::env::var("ONLYALPHA_MANUAL_FREEZE_REQUEST").unwrap()).unwrap(),
     )
@@ -117,7 +118,7 @@ pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str)
         .with_runtime_root(Path::new(request["runtime_root"].as_str().unwrap()))
         .unwrap();
     let validation = validations
-        .read_verified(session.client_mut().await.unwrap(), command.value())
+        .read_verified(session.client_mut().await.unwrap(), &mut facts.client, command.value())
         .await
         .unwrap();
     let selected = protected_files::open_directory(root).unwrap();
@@ -151,7 +152,7 @@ pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str)
             .await
             .unwrap();
         let denied =
-            crate::persistence::strategy_promotion::read_selected_admission_in_transaction(
+            read_selected_admission(
                 &tx,
                 &namespace,
                 frozen.clone(),
@@ -173,7 +174,7 @@ pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str)
         tx.rollback().await.unwrap();
         if request["standalone_denied"] == true {
             assert!(crate::persistence::strategy_promotion::read_existing_backtest_admission_for_strategy(
-                session.client_mut().await.unwrap(),&namespace,frozen,decisions,Path::new(request["runtime_root"].as_str().unwrap()),
+                (session.client_mut().await.unwrap(),&mut facts.client),&namespace,frozen,decisions,Path::new(request["runtime_root"].as_str().unwrap()),
                 selected["strategy_fingerprint"].as_str().unwrap(),WORK,
             ).await.is_err(),"standalone Q verification remains mandatory");
         }
@@ -189,7 +190,7 @@ pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str)
             Arc::new(crate::persistence::qualification_decision::Store::open(root).unwrap());
         let result =
             crate::persistence::strategy_promotion::read_existing_backtest_admission_for_strategy(
-                session.client_mut().await.unwrap(),
+                (session.client_mut().await.unwrap(),&mut facts.client),
                 &namespace,
                 frozen.clone(),
                 decisions.clone(),
@@ -222,7 +223,7 @@ pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str)
                     .await
                     .unwrap();
                 let refused =
-                    crate::persistence::strategy_promotion::read_selected_admission_in_transaction(
+                    read_selected_admission(
                         &tx,
                         &namespace,
                         frozen.clone(),
@@ -256,7 +257,7 @@ pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str)
                 .unwrap();
             tx.batch_execute("SET LOCAL search_path=pg_temp;SET LOCAL statement_timeout='4000ms';SET LOCAL lock_timeout='1500ms'").await.unwrap();
             let selected =
-                crate::persistence::strategy_promotion::read_selected_admission_in_transaction(
+                read_selected_admission(
                     &tx,
                     &namespace,
                     frozen,
@@ -495,7 +496,11 @@ pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str)
         .start()
         .await
         .unwrap();
-    proof.verify_in_transaction(&tx, &namespace).await.unwrap();
+    let facts_tx = facts.client.build_transaction().read_only(true).start().await.unwrap();
+    let read_context = crate::persistence::build_fact_read::BuildFactRead::reader(
+        &tx, &facts_tx, &namespace,
+    ).await.unwrap();
+    proof.verify_in_transaction(&read_context, &namespace).await.unwrap();
     let frozen_count:i64=tx.query_one("SELECT count(*) FROM public.strategy_freeze_command_admission WHERE command_id=$1::text::uuid",&[&child.value()]).await.unwrap().get(0);
     assert_eq!(frozen_count, 1);
     let related_runs: i64 = tx
@@ -510,6 +515,7 @@ pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str)
         related_runs, 0,
         "Freeze recovery cannot admit a Backtest Run"
     );
+    facts_tx.commit().await.unwrap();
     tx.commit().await.unwrap();
     println!("MANUAL_FREEZE_VALUE {}", value);
 }
@@ -649,6 +655,7 @@ async fn qualification_promotion_phase(
     frozen: &FrozenStore,
     context: QualificationContext<'_>,
 ) {
+    let mut facts=crate::job_fact_connection::Connection::reader().await.unwrap();
     let QualificationContext {
         namespace,
         access,
@@ -687,7 +694,7 @@ async fn qualification_promotion_phase(
         .unwrap();
     let validation = Arc::new(
         validations
-            .read_verified(session.client_mut().await.unwrap(), command.value())
+            .read_verified(session.client_mut().await.unwrap(), &mut facts.client, command.value())
             .await
             .unwrap(),
     );
@@ -818,15 +825,18 @@ async fn qualification_promotion_phase(
         .start()
         .await
         .unwrap();
+    let facts_tx=facts.client.build_transaction().read_only(true).start().await.unwrap();
+    let read_context=crate::persistence::build_fact_read::BuildFactRead::reader(&tx,&facts_tx,namespace).await.unwrap();
     let decision = decisions
         .read_verified_in_transaction(
-            &tx,
+            &read_context,
             namespace,
             Path::new(request["runtime_root"].as_str().unwrap()),
             outcome["decision_fingerprint"].as_str().unwrap(),
         )
         .await
         .unwrap();
+    facts_tx.commit().await.unwrap();
     tx.commit().await.unwrap();
     let pcommand =
         research_preparation::child_command(command, "manual-backtest-promotion").unwrap();
@@ -1255,4 +1265,21 @@ async fn cleanup_eligibility_and_retry(
         "MANUAL_FREEZE_VALUE {}",
         json!({"phase":"cleanup-eligibility-and-retry","environment_was_present":original.outputs.get("environment").is_some(),"work_id":work,"released":true,"backtest_runs":0})
     );
+}
+
+/// Forward the actual independent facts reader to the same production entry.
+async fn read_selected_admission(
+    tx:&tokio_postgres::Transaction<'_>,
+    namespace:&crate::bootstrap::deployment::SemanticStoreId,
+    frozen:std::sync::Arc<crate::application::frozen_strategy::FrozenStore>,
+    decisions:std::sync::Arc<crate::persistence::qualification_decision::Store>,
+    runtime:&std::path::Path,
+    selection:crate::persistence::strategy_promotion::SelectedBacktestAdmission<'_>,
+) -> Result<crate::persistence::strategy_promotion::VerifiedBacktestAdmission,&'static str> {
+    let mut facts=crate::job_fact_connection::Connection::reader().await.map_err(|_|"PROMOTION_LEDGER_UNAVAILABLE")?;
+    let facts_tx=facts.client.build_transaction().read_only(true).start().await.map_err(|_|"PROMOTION_LEDGER_UNAVAILABLE")?;
+    let context=crate::persistence::build_fact_read::BuildFactRead::reader(tx,&facts_tx,namespace).await.map_err(|_|"PROMOTION_LEDGER_UNAVAILABLE")?;
+    let result=crate::persistence::strategy_promotion::read_selected_admission_in_transaction(&context,namespace,frozen,decisions,runtime,selection).await;
+    facts_tx.commit().await.map_err(|_|"PROMOTION_LEDGER_UNAVAILABLE")?;
+    result
 }

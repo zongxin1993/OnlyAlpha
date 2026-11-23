@@ -44,10 +44,26 @@ fn settings() -> Value {
     let end = input(6, "10.00").event_ns();
     json!({"schema_version":2,"execution":configuration(),"instrument":null,"calendar":{},"policy":{"schema_version":1,"kind":"NEXT_OPEN_LONG_ONLY_V1","quantity":{"schema_version":1,"value":"0.01","precision":2},"buy_multiplier":"1.0002","sell_multiplier":"0.9998","start_ns":start.to_string(),"end_ns":end.to_string()}})
 }
+fn settlement_policy() -> Value {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../test-data/settlement/common-v1.json"
+    ))
+    .unwrap();
+    fixture["policy"].clone()
+}
+
 struct Denied;
 impl NextOpenPolicy for Denied {
+    fn analytical_entry_quote(
+        &self,
+        _: &OnlyPrice,
+        _: &OnlyQuantity,
+        _: &Value,
+    ) -> Result<Value, crate::Error> {
+        Err(crate::Error("CONTROLLED_MODEL_REJECTION".into()))
+    }
     fn binding(&self) -> Value {
-        json!({"schema_version":1,"kind":"UNIT_MODEL_POLICY","configuration":crate::hash(&configuration()),"reference_policy":"MODEL_NEXT_OPEN"})
+        json!({"schema_version":1,"kind":"UNIT_MODEL_POLICY","configuration":crate::hash(&configuration()),"reference_policy":"MODEL_NEXT_OPEN","settlement_policy":settlement_policy()})
     }
     fn admission(&self, _: &Value, _: &OnlyPrice, _: &Value) -> Result<Value, crate::Error> {
         Ok(
@@ -157,8 +173,21 @@ impl ProofPolicy {
     }
 }
 impl NextOpenPolicy for ProofPolicy {
+    fn analytical_entry_quote(
+        &self,
+        price: &OnlyPrice,
+        quantity: &OnlyQuantity,
+        context: &Value,
+    ) -> Result<Value, crate::Error> {
+        let currency =
+            onlyalpha_domain::value::OnlyCurrency::from_record(&self.cfg["currency"]).unwrap();
+        Ok(
+            json!({"schema_version":1,"kind":"ANALYTICAL_ESTIMATE","reference_policy":"MODEL_NEXT_OPEN","venue_acceptance_proven":false,"policy_fingerprint":crate::hash(&self.binding()),"execution_price":price.to_record(),"quantity":quantity.to_record(),"context":context,"gross_notional":self.money(price,quantity),"charges":onlyalpha_domain::value::OnlyMoney::new("1.00".parse().unwrap(),currency.clone()).unwrap().to_record(),"rebates":onlyalpha_domain::value::OnlyMoney::new("0.00".parse().unwrap(),currency).unwrap().to_record()}),
+        )
+    }
+
     fn binding(&self) -> Value {
-        json!({"schema_version":1,"kind":"UNIT_CANONICAL_INPUTS_MODEL","configuration":crate::hash(&self.cfg),"reference_policy":"MODEL_NEXT_OPEN"})
+        json!({"schema_version":1,"kind":"UNIT_CANONICAL_INPUTS_MODEL","configuration":crate::hash(&self.cfg),"reference_policy":"MODEL_NEXT_OPEN","settlement_policy":settlement_policy()})
     }
     fn admission(
         &self,
@@ -220,7 +249,7 @@ impl NextOpenPolicy for ProofPolicy {
             contract["funding"]["total_reservation"]["amount"] = notional["amount"].clone();
         }
         Ok(
-            json!({"schema_version":1,"accepted":true,"contract":contract,"fee_budget":"1.00","notional":notional,"market_provenance":{"kind":"MODEL_RULE_DECISION","verdict":"MODEL_ACCEPT","reference_policy":"MODEL_NEXT_OPEN","venue_acceptance_proven":false}}),
+            json!({"schema_version":1,"accepted":true,"contract":contract,"fee_budget":"1.00","notional":notional,"settlement_policy":settlement_policy(),"market_provenance":{"kind":"MODEL_RULE_DECISION","verdict":"MODEL_ACCEPT","reference_policy":"MODEL_NEXT_OPEN","venue_acceptance_proven":false}}),
         )
     }
     fn fill(
@@ -643,9 +672,6 @@ fn native_book_uses_one_complete_owner_view_without_per_order_source_queries() {
         fn position_order_view(&self) -> Result<Value, crate::Error> {
             self.views.set(self.views.get() + 1);
             self.inner.position_order_view()
-        }
-        fn checkpoint(&self) -> Result<Value, crate::Error> {
-            self.inner.checkpoint()
         }
         fn sequence(&self) -> usize {
             self.inner.records().len()

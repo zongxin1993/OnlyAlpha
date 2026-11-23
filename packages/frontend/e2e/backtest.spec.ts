@@ -2,13 +2,6 @@ import { readFile, writeFile } from "node:fs/promises";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { z } from "zod";
 
-import {
-    observeRuntimePrefix,
-    requirePreservedPrefix,
-    RuntimePrefixSchema,
-    type RuntimePrefix
-} from "./support/backtest-runtime";
-
 type Acceptance =
     "performance" | "functional" | "functional-cancel" | "functional-running-recovery";
 const immutableRun = z.strictObject({
@@ -17,51 +10,24 @@ const immutableRun = z.strictObject({
     preparation_command_id: z.uuid(),
     accepted_at: z.string()
 });
-const observedRun = z.object({ ...immutableRun.shape, state: z.string() });
-const resultSnapshot = z.strictObject({
-    path: z.string(),
-    metrics: z.string(),
-    tables: z.array(z.string())
+const observedRun = z.object({
+    ...immutableRun.shape,
+    state: z.string(),
+    cancel_requested_at: z.string().optional(),
+    cancellation_reason: z.literal("USER_REQUESTED").optional(),
+    report_status: z.object({ state: z.string() })
 });
-const lifecycleEvidence = z.strictObject({
-    kind: z.enum(["CANCELLED", "RUNNING"]),
-    path: z.string(),
-    originalPreparation: z.string(),
-    run: immutableRun,
-    prefix: RuntimePrefixSchema,
-    result: resultSnapshot.nullable()
+const preparationIdentity = z.object({
+    command_id: z.uuid(),
+    backtest_command_id: z.uuid(),
+    reserved_run_id: z.uuid()
 });
-
-// Produced after the original host has positively drained by the read-only
-// Rust VerifiedReplaySnapshot owner. Natural completion cannot satisfy this fence.
-const pausedRuntime = z.object({
-    schema_version: z.literal(1),
-    run_id: z.uuid(),
-    state: z.object({
-        status: z.literal("PAUSED"),
-        input_finished: z.literal(false),
-        input_cancelled: z.boolean().optional()
-    }),
-    replay_prefix: z
-        .array(
-            z.object({
-                sequence: z.number().int().positive(),
-                digest: z.string().regex(/^[0-9a-f]{64}$/)
-            })
-        )
-        .min(1)
-        .max(16),
-    steps: z
-        .array(
-            z.object({
-                kind: z.string(),
-                status: z.string(),
-                input_finished: z.boolean(),
-                input_cancelled: z.boolean()
-            })
-        )
-        .min(1)
-});
+const cancelReceipt = z.strictObject({ command_id: z.uuid(), requested_at: z.string() });
+const lifecycleIdentity = { path: z.string(), originalPreparation: z.string(), run: immutableRun };
+const lifecycleEvidence = z.discriminatedUnion("kind", [
+    z.strictObject({ ...lifecycleIdentity, kind: z.literal("RUNNING") }),
+    z.strictObject({ ...lifecycleIdentity, kind: z.literal("CANCELLED"), cancellation: cancelReceipt })
+]);
 
 // Every case owns the same normal UI journey and original 300s aggregate budget.
 async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Acceptance) {
@@ -110,11 +76,8 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
             backtestWrites.push(path);
     });
     const agentWrites: string[] = [];
-    const confirmationObservations: {
-        command_id: string;
-        backtest_command_id: string;
-        reserved_run_id: string;
-    }[] = [];
+    const readyPreparations = new Map<string, z.infer<typeof preparationIdentity>>();
+    const confirmationObservations: z.infer<typeof preparationIdentity>[] = [];
     const confirmationErrors: string[] = [];
     page.on("response", async (response) => {
         const path = new URL(response.url()).pathname;
@@ -127,14 +90,21 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
             .object({
                 state: z.string(),
                 phase: z.string(),
-                command_id: z.uuid(),
-                backtest_command_id: z.uuid(),
-                reserved_run_id: z.uuid(),
+                ...preparationIdentity.shape,
                 run_id: z.uuid().nullable(),
                 backtest_outcome: z.string(),
                 readiness: z.object({ state: z.string() })
             })
             .parse(await response.json());
+        if (
+            projection.state === "READY" && projection.readiness.state === "VERIFIED" &&
+            projection.backtest_outcome === "NOT_SUBMITTED"
+        ) {
+            readyPreparations.set(
+                `/backtest/preparations/${projection.command_id}`,
+                preparationIdentity.parse(projection)
+            );
+        }
         if (
             projection.state === "RUNNING" &&
             projection.phase === "CONFIRMING" &&
@@ -159,17 +129,37 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
     async function navigateProduct(label: string) {
         await productNav.getByRole("link", { name: label, exact: true }).click();
     }
-    async function resultView(requireBuy = true) {
+    function originalRun(value: z.infer<typeof observedRun>) {
+        return immutableRun.parse({
+            run_id: value.run_id,
+            strategy_fingerprint: value.strategy_fingerprint,
+            preparation_command_id: value.preparation_command_id,
+            accepted_at: value.accepted_at
+        });
+    }
+    async function cancelledView(runId: string, cancellation: z.infer<typeof cancelReceipt>) {
+        await expect(page.getByText("已按你的请求取消。本次回测没有发布结果。", { exact: true })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "回测结果", exact: true })).toHaveCount(0);
+        await expect(page.locator(".backtest-metrics")).toHaveCount(0);
+        await expect.poll(() => runObservations.get(runId)).toMatchObject({
+            state: "CANCELLED",
+            cancel_requested_at: cancellation.requested_at,
+            cancellation_reason: "USER_REQUESTED",
+            report_status: { state: "NOT_APPLICABLE" }
+        });
+    }
+    async function resultView(timeout = 120_000) {
         await expect(page.getByRole("heading", { name: "回测结果", exact: true })).toBeVisible({
-            timeout: 120_000
+            timeout
         });
         const view = page.getByRole("main", { name: "策略回测" });
-        await expect(view.getByText("净收益（USDT）", { exact: true })).toBeVisible();
-        await expect(view.getByText("最大回撤", { exact: true })).toBeVisible();
-        await expect(view.getByText("手续费（USDT）", { exact: true })).toBeVisible();
+        const metrics = view.locator(".backtest-metrics");
+        await expect(metrics.getByText("净收益（USDT）", { exact: true })).toBeVisible();
+        await expect(metrics.getByText("最大回撤", { exact: true })).toBeVisible();
+        await expect(metrics.getByText("手续费（USDT）", { exact: true })).toBeVisible();
         await expect(view.getByText("成交明细", { exact: true })).toBeVisible();
         await expect(view.getByText("期末持仓", { exact: true })).toBeVisible();
-        await expect(view.locator(".backtest-metrics")).not.toContainText("暂不可用");
+        await expect(metrics).not.toContainText("暂不可用");
         const trades = view.getByRole("table").filter({
             has: page.getByRole("columnheader", { name: "成交时间（UTC）", exact: true })
         });
@@ -182,13 +172,10 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
         await expect(trades).toHaveCount(1);
         await expect(positions).toHaveCount(1);
         await expect(details).toHaveCount(1);
-        if (requireBuy)
-            await expect(
-                trades.getByRole("cell", { name: "买入", exact: true }).first()
-            ).toBeVisible();
+        await expect(trades.getByRole("cell", { name: "买入", exact: true }).first()).toBeVisible();
         return {
             path: new URL(page.url()).pathname,
-            metrics: await view.locator(".backtest-metrics").innerText(),
+            metrics: await metrics.innerText(),
             tables: [
                 await trades.innerText(),
                 await positions.innerText(),
@@ -216,26 +203,6 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
         expect(previous.originalPreparation).toBe(
             `/backtest/preparations/${previous.run.preparation_command_id}`
         );
-        if (previous.kind === "RUNNING") {
-            const pause = pausedRuntime.parse(
-                JSON.parse(await readFile(evidence + ".pause", "utf8"))
-            );
-            expect(pause.run_id).toBe(previous.run.run_id);
-            expect(pause.state.input_cancelled).not.toBe(true);
-            expect(pause.steps.at(-1)).toEqual({
-                kind: "PAUSE",
-                status: "PAUSED",
-                input_finished: false,
-                input_cancelled: false
-            });
-            expect(pause.replay_prefix.slice(0, previous.prefix.replay.length)).toEqual(
-                previous.prefix.replay
-            );
-            await testInfo.attach("host-drained-paused-runtime", {
-                body: JSON.stringify(pause),
-                contentType: "application/json"
-            });
-        }
         await navigateProduct("回测");
         const original = page
             .getByRole("row")
@@ -244,44 +211,17 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
             await expect(original.getByText("已取消", { exact: true })).toBeVisible();
         await original.getByRole("link", { name: "查看回测", exact: true }).click();
         expect(new URL(page.url()).pathname).toBe(previous.path);
-        const result = await resultView(previous.kind !== "CANCELLED");
-        expect(result.path).toBe(previous.path);
         if (previous.kind === "CANCELLED") {
-            await expect(
-                page.getByText("回测已取消，以下为已完成部分的结果", { exact: true })
-            ).toBeVisible();
-            expect(result).toEqual(previous.result);
+            await cancelledView(previous.run.run_id, previous.cancellation);
         } else {
-            await expect(page.getByText("已完成", { exact: true })).toBeVisible();
+            const result = await resultView(Math.max(1, journeyDeadline - Date.now()));
+            expect(result.path).toBe(previous.path);
+            await expect.poll(() => runObservations.get(previous.run.run_id)).toMatchObject({
+                state: "COMPLETED", report_status: { state: "VERIFIED" }
+            });
         }
-        await expect
-            .poll(() => runObservations.get(previous.run.run_id)?.state)
-            .toBe(previous.kind === "CANCELLED" ? "CANCELLED" : "COMPLETED");
         const current = runObservations.get(previous.run.run_id);
-        expect(current).toBeDefined();
-        expect(
-            current === undefined
-                ? null
-                : {
-                      run_id: current.run_id,
-                      strategy_fingerprint: current.strategy_fingerprint,
-                      preparation_command_id: current.preparation_command_id,
-                      accepted_at: current.accepted_at
-                  }
-        ).toEqual(previous.run);
-        expect(current?.state).toBe(previous.kind === "CANCELLED" ? "CANCELLED" : "COMPLETED");
-        const after = await observeRuntimePrefix(
-            previous.run.run_id,
-            previous.run.strategy_fingerprint,
-            journeyDeadline
-        );
-        expect(after.state).toBe("OBSERVED");
-        if (after.state !== "OBSERVED") throw new Error("重启后原 Ready 前缀不可读取。");
-        requirePreservedPrefix(previous.prefix, after);
-        await testInfo.attach("restored-runtime-prefix", {
-            body: JSON.stringify(after),
-            contentType: "application/json"
-        });
+        expect(current === undefined ? null : originalRun(current)).toEqual(previous.run);
         expect(backtestWrites).toEqual([]);
         expect(observationErrors).toEqual([]);
         expect(agentWrites).toEqual([]);
@@ -306,6 +246,7 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
             path: testInfo.outputPath("backtest-restored.png"),
             fullPage: true
         });
+        expect(backtestWrites).toEqual([]);
         expect(agentWrites).toEqual([]);
         return;
     }
@@ -394,6 +335,24 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
     expect(Date.now()).toBeLessThanOrEqual(readyDeadline);
     await page.screenshot({ path: testInfo.outputPath("backtest-ready.png"), fullPage: true });
     const originalPreparation = new URL(page.url()).pathname;
+    const interruptionKind = acceptance === "functional-cancel" ? "CANCELLED"
+        : acceptance === "functional-running-recovery" ? "RUNNING" : null;
+    const barrier = process.env.ONLYALPHA_BROWSER_BACKTEST_INPUT_BARRIER;
+    async function inputBarrier(path: string, payload?: unknown) {
+        if (!barrier) throw new Error("回测运行中验收需要冻结行情读取屏障。");
+        const response = await fetch(`${barrier}/backtest-input/${path}`, {
+            method: payload === undefined ? "GET" : "POST",
+            body: payload === undefined ? undefined : JSON.stringify(payload),
+            signal: AbortSignal.timeout(path === "stop" ? 22_000 : 2_000)
+        });
+        expect(response.ok).toBe(true);
+        return response.json();
+    }
+    if (interruptionKind !== null) {
+        await expect.poll(() => readyPreparations.has(originalPreparation)).toBe(true);
+        const ready = preparationIdentity.parse(readyPreparations.get(originalPreparation));
+        expect(await inputBarrier("arm", [interruptionKind, ready.reserved_run_id, ready.backtest_command_id])).toBe(true);
+    }
     await start.focus();
     await expect(start).toBeFocused();
     await page.keyboard.press("Enter");
@@ -435,113 +394,68 @@ async function backtestJourney(page: Page, testInfo: TestInfo, acceptance: Accep
         }
         return resultHeading.isVisible();
     };
-    if (acceptance === "functional-cancel" || acceptance === "functional-running-recovery") {
-        let interruption:
-            { run: z.infer<typeof immutableRun>; prefix: RuntimePrefix; path: string } | undefined;
-        await expect
-            .poll(
-                async () => {
-                    if (await observeOriginalRun())
-                        throw new Error("回测在运行中故障前置屏障之前已完成。");
-                    const path = new URL(page.url()).pathname;
-                    const match = /^\/backtest\/runs\/([0-9a-f-]+)$/.exec(path);
-                    if (match?.[1] === undefined) return false;
-                    const value = runObservations.get(match[1]);
-                    if (value === undefined) return false;
-                    if (["COMPLETED", "FAILED", "CANCELLED"].includes(value.state))
-                        throw new Error(`前置任务已终止：${value.state}`);
-                    if (
-                        value.state !== "RUNNING" ||
-                        !(await page
-                            .getByRole("button", { name: "取消回测", exact: true })
-                            .isVisible())
-                    )
-                        return false;
-                    expect(originalPreparation).toBe(
-                        `/backtest/preparations/${value.preparation_command_id}`
-                    );
-                    const prefix = await observeRuntimePrefix(
-                        value.run_id,
-                        value.strategy_fingerprint,
-                        journeyDeadline
-                    );
-                    await testInfo.attach("runtime-prefix-observation", {
-                        body: JSON.stringify(prefix),
-                        contentType: "application/json"
-                    });
-                    if (prefix.state !== "OBSERVED") return false;
-                    // The visible RUNNING state alone cannot establish an executed prefix.
-                    await expect(
-                        page.getByRole("button", { name: "取消回测", exact: true })
-                    ).toBeEnabled();
-                    interruption = {
-                        path,
-                        prefix,
-                        run: {
-                            run_id: value.run_id,
-                            strategy_fingerprint: value.strategy_fingerprint,
-                            preparation_command_id: value.preparation_command_id,
-                            accepted_at: value.accepted_at
-                        }
-                    };
-                    return true;
-                },
-                { timeout: Math.max(1, journeyDeadline - Date.now()) }
-            )
-            .toBe(true);
-        if (interruption === undefined) throw new Error("未建立实际执行前缀屏障。");
+    if (interruptionKind !== null) {
+        const ready = preparationIdentity.parse(readyPreparations.get(originalPreparation));
+        const runId = ready.reserved_run_id;
+        const path = `/backtest/runs/${runId}`;
+        const cancel = page.getByRole("button", { name: "取消回测", exact: true });
+        await expect.poll(async () => {
+            const run = runObservations.get(runId);
+            if (run && ["COMPLETED", "FAILED", "CANCELLED"].includes(run.state))
+                throw new Error(`冻结行情读取屏障前回测已终止（${run.state}）。`);
+            if (new URL(page.url()).pathname !== path) {
+                await observeOriginalRun();
+                return false;
+            }
+            return run?.state === "RUNNING" && await cancel.isVisible() && await cancel.isEnabled()
+                && await inputBarrier(runId) === "HELD";
+        }, { timeout: Math.max(1, journeyDeadline - Date.now()) }).toBe(true);
+        const current = observedRun.parse(runObservations.get(runId));
+        const interruption = { path, run: originalRun(current), originalPreparation };
         expect(confirmationErrors).toEqual([]);
         expect(observationErrors).toEqual([]);
-        for (const observed of confirmationObservations)
-            expect(interruption.run.run_id).toBe(observed.reserved_run_id);
-        if (acceptance === "functional-running-recovery") {
-            await writeFile(
-                evidence,
-                JSON.stringify({
-                    kind: "RUNNING",
-                    ...interruption,
-                    originalPreparation,
-                    result: null
-                })
-            );
+        expect(interruption.run.preparation_command_id).toBe(ready.command_id);
+        for (const observed of confirmationObservations) expect(observed).toEqual(ready);
+        if (interruptionKind === "RUNNING") {
+            await writeFile(evidence, JSON.stringify({ kind: "RUNNING", ...interruption }));
+            expect(await inputBarrier("stop", runId)).toBe(true);
             await testInfo.attach("running-before-host-stop", {
-                body: JSON.stringify(interruption),
-                contentType: "application/json"
+                body: JSON.stringify(interruption), contentType: "application/json"
             });
             expect(agentWrites).toEqual([]);
             return;
         }
-        const selected = interruption;
-        const cancellation = page.waitForResponse(
-            (response) =>
-                new URL(response.url()).pathname ===
-                    `/api/v2/backtest/runs/${selected.run.run_id}/cancellation` &&
-                response.request().method() === "POST"
+        const cancellationPath = `/api/v2/backtest/runs/${runId}/cancellation`;
+        const cancellationResponse = page.waitForResponse((response) =>
+            new URL(response.url()).pathname === cancellationPath && response.request().method() === "POST"
         );
-        await page.getByRole("button", { name: "取消回测", exact: true }).click();
-        expect((await cancellation).status()).toBe(200);
-        await expect(
-            page.getByText("回测已取消，以下为已完成部分的结果", { exact: true })
-        ).toBeVisible();
-        const result = await resultView(false);
-        expect(result.path).toBe(interruption.path);
-        await expect.poll(() => runObservations.get(selected.run.run_id)?.state).toBe("CANCELLED");
-        expect(backtestWrites.filter((path) => path.endsWith("/cancellation"))).toEqual([
-            `/api/v2/backtest/runs/${interruption.run.run_id}/cancellation`
-        ]);
+        await cancel.click();
+        const response = await cancellationResponse;
+        expect(response.status()).toBe(200);
+        const accepted = z.object({
+            run_id: z.uuid(),
+            state: z.enum(["CANCEL_REQUESTED", "CANCELLED"]),
+            cancel_requested_at: z.string(),
+            cancellation_reason: z.literal("USER_REQUESTED")
+        }).parse(await response.json());
+        expect(accepted.run_id).toBe(runId);
+        const cancellation = cancelReceipt.parse({
+            command_id: await response.request().headerValue("idempotency-key"),
+            requested_at: accepted.cancel_requested_at
+        });
+        await cancelledView(runId, cancellation);
+        await expect.poll(() => inputBarrier(runId)).toBe("DISCONNECTED");
+        expect(backtestWrites.filter((write) => write.endsWith("/cancellation"))).toEqual([cancellationPath]);
         await page.reload();
-        expect(await resultView(false)).toEqual(result);
+        await cancelledView(runId, cancellation);
         await page.getByRole("link", { name: "回测记录", exact: true }).click();
-        const original = page
-            .getByRole("row")
-            .filter({ has: page.locator(`a[href="${result.path}"]`) });
+        const original = page.getByRole("row").filter({ has: page.locator(`a[href="${path}"]`) });
         await expect(original.getByText("已取消", { exact: true })).toBeVisible();
         await original.getByRole("link", { name: "查看回测", exact: true }).click();
-        expect(await resultView(false)).toEqual(result);
-        await writeFile(
-            evidence,
-            JSON.stringify({ kind: "CANCELLED", ...interruption, originalPreparation, result })
-        );
+        expect(new URL(page.url()).pathname).toBe(path);
+        await cancelledView(runId, cancellation);
+        expect(originalRun(observedRun.parse(runObservations.get(runId)))).toEqual(interruption.run);
+        await writeFile(evidence, JSON.stringify({ kind: "CANCELLED", ...interruption, cancellation }));
         expect(agentWrites).toEqual([]);
         return;
     }
@@ -604,8 +518,7 @@ test("normal backtest functional cancellation reopens the same cancelled run aft
     await backtestJourney(page, testInfo, "functional-cancel");
 });
 
-// Last in the initial batch: the harness drains/reopens immediately after this
-// actual RUNNING + Ready-prefix observation, rather than after another journey.
+// The final initial-phase journey sends SIGTERM while its original Attempt is reading frozen input.
 test("normal backtest functional running recovery completes the same run after restart", async ({
     page
 }, testInfo) => {

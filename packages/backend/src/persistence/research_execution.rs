@@ -16,6 +16,18 @@ const UNCERTAIN: &str = "RESEARCH_EXECUTION_OWNERSHIP_UNCERTAIN";
 const INVALID: &str = "RESEARCH_EXECUTION_INPUT_INVALID";
 const MISMATCH: &str = "RESEARCH_EXECUTION_PROOF_MISMATCH";
 
+fn publication_error(error: super::job_publication::PublicationError) -> &'static str {
+    use super::job_publication::PublicationError as E;
+    match error {
+        E::OutcomeUnknown => UNCERTAIN,
+        E::OwnershipLost => LOST,
+        E::Unavailable => UNAVAILABLE,
+        E::Denied => "RESEARCH_EXECUTION_ACCESS_DENIED",
+        E::MissingEvidence => "RESEARCH_INPUT_BINDING_MISSING",
+        E::BudgetExceeded => "RESEARCH_INPUT_BINDING_BUDGET_EXCEEDED",
+        E::Integrity | E::Mismatch | E::Conflict => MISMATCH,
+    }
+}
 /// The original prepared input hold stays live while the claim is attempted.
 pub struct AuthoringClaim {
     run_id: String,
@@ -181,6 +193,9 @@ impl Claim {
     pub fn runtime_generation_fingerprint(&self) -> &str {
         &self.generation
     }
+    pub(crate) fn revoke_certainty(&mut self) {
+        self.certain = false;
+    }
     pub fn ownership_certain(&self) -> bool {
         self.certain
     }
@@ -304,6 +319,29 @@ impl<'a> ResearchExecution<'a> {
             Err(error) => Err(error),
         }
     }
+    /// A guarded status observation preserves no ambiguous physical session.
+    pub async fn observe_guarded(
+        session: &mut super::authority_session::AuthoritySession,
+        run: &VerifiedRun,
+    ) -> Result<RunStatus> {
+        let mut owned = session.take_ownership();
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            ResearchExecution::new(owned.client_mut().await.map_err(|_| UNCERTAIN)?)
+                .observe(run)
+                .await
+        })
+        .await
+        .map_err(|_| UNCERTAIN)
+        .and_then(|result| result);
+        match result {
+            Ok(status) => {
+                owned.verify().await.map_err(|_| UNCERTAIN)?;
+                session.restore_ownership(owned);
+                Ok(status)
+            }
+            Err(error) => Err(error),
+        }
+    }
     pub async fn observe(&mut self, run: &VerifiedRun) -> Result<RunStatus> {
         let tx = self.client.transaction().await.map_err(|_| UNAVAILABLE)?;
         bounds(&tx).await?;
@@ -321,6 +359,141 @@ impl<'a> ResearchExecution<'a> {
         tx.commit().await.map_err(|_| UNAVAILABLE)?;
         Ok(current.status)
     }
+    /// Observe publication on the original AuthoritySession, then recheck that
+    /// same absence proof under the original Run lock before minting a Claim.
+    /// This performs no input loading and grants no Source or READY permission.
+    pub async fn claim_recompute(
+        session: &mut super::authority_session::AuthoritySession,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        run: &VerifiedRun,
+        worker: &str,
+        attempt: &str,
+        at: OnlyUtcDateTime,
+    ) -> Result<Option<Claim>> {
+        use super::job_publication::{
+            JobRole, PublicationObservation, PublicationRepository, RunLocator, with_job_role,
+        };
+        run.strategy_specification().map_err(|_| INVALID)?;
+        let mut owned = session.take_ownership();
+        let result = async {
+            let key = RunLocator::new(
+                crate::application::job_contract::JobKind::Research,
+                run.run_id(),
+            )
+            .map_err(publication_error)?;
+            let observed = with_job_role(&mut owned, JobRole::Publisher, async |client| {
+                PublicationRepository::new(client, namespace, run.owner())
+                    .await?
+                    .observe(&key)
+                    .await
+            })
+            .await
+            .map_err(publication_error)?;
+            let proof = match observed {
+                PublicationObservation::ConfirmedUnpublished(proof)
+                    if matches!(proof.run_state(), "QUEUED" | "RUNNING")
+                        && proof.active_attempts() == 0
+                        && proof.attempts() < 3 =>
+                {
+                    proof
+                }
+                _ => return Ok(None),
+            };
+            let roles = owned.control_roles().map_err(|e| e.code())?;
+            ResearchExecution::new(owned.client_mut().await.map_err(|e| e.code())?)
+                .claim_bound(
+                    run,
+                    worker,
+                    attempt,
+                    at,
+                    None,
+                    Some((&roles, namespace, &proof)),
+                )
+                .await
+        }
+        .await;
+        match result {
+            Ok(value) => {
+                owned.verify().await.map_err(|_| UNCERTAIN)?;
+                session.restore_ownership(owned);
+                Ok(value)
+            }
+            Err(error) => Err(error),
+        }
+    }
+    /// PG-only recovery: publication takes priority over inputs; expiry ends
+    /// operational ownership only, then fresh absence proof settles control.
+    pub async fn recover_finite_guarded(
+        session: &mut super::authority_session::AuthoritySession,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        run: &VerifiedRun,
+        at: OnlyUtcDateTime,
+    ) -> Result<crate::application::job_recovery::RecoveryDecision> {
+        use super::job_publication::PublicationObservation;
+        use crate::application::job_recovery::{
+            JobRecovery, RecoveryDecision, RecoveryRefusal, RetryBudget,
+        };
+        run.strategy_specification().map_err(|_| INVALID)?;
+        let mut owned = session.take_ownership();
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut observation = observe_finite(&mut owned, namespace, run).await?;
+            if let PublicationObservation::ConfirmedUnpublished(proof) = &observation {
+                if proof.active_attempts() == 1 {
+                    expire_finite(&mut owned, namespace, run, proof).await?;
+                    observation = observe_finite(&mut owned, namespace, run).await?;
+                }
+            }
+            // Unresolved never enters expiry or an absence-controlled write.
+            let decision = JobRecovery::decide(observation, RetryBudget::finite_job())
+                .map_err(publication_error)?;
+            match decision {
+                RecoveryDecision::FinishCancellation(proof) => {
+                    finish_unpublished_finite(
+                        &mut owned,
+                        namespace,
+                        run,
+                        &proof,
+                        RunState::Cancelled,
+                        at,
+                    )
+                    .await?;
+                    JobRecovery::decide(
+                        observe_finite(&mut owned, namespace, run).await?,
+                        RetryBudget::finite_job(),
+                    )
+                    .map_err(publication_error)
+                }
+                RecoveryDecision::Refused(RecoveryRefusal::RetryExhausted, proof) => {
+                    finish_unpublished_finite(
+                        &mut owned,
+                        namespace,
+                        run,
+                        &proof,
+                        RunState::Failed,
+                        at,
+                    )
+                    .await?;
+                    JobRecovery::decide(
+                        observe_finite(&mut owned, namespace, run).await?,
+                        RetryBudget::finite_job(),
+                    )
+                    .map_err(publication_error)
+                }
+                decision => Ok(decision),
+            }
+        })
+        .await
+        .map_err(|_| UNCERTAIN)
+        .and_then(|result| result);
+        match result {
+            Ok(decision) => {
+                owned.verify().await.map_err(|_| UNCERTAIN)?;
+                session.restore_ownership(owned);
+                Ok(decision)
+            }
+            Err(error) => Err(error),
+        }
+    }
     /// The caller first re-verifies this exact immutable specification and Runtime binding.
     /// No semantic work runs while this transaction is open.
     pub async fn claim(
@@ -330,7 +503,8 @@ impl<'a> ResearchExecution<'a> {
         attempt_id: &str,
         at: OnlyUtcDateTime,
     ) -> Result<Option<Claim>> {
-        self.claim_bound(run, worker_id, attempt_id, at, None).await
+        self.claim_bound(run, worker_id, attempt_id, at, None, None)
+            .await
     }
 
     pub async fn claim_authoring(
@@ -343,7 +517,7 @@ impl<'a> ResearchExecution<'a> {
     ) -> Result<Option<Claim>> {
         proof.runtime.verify()?;
         proof.installation.verify().map_err(|_| MISMATCH)?;
-        self.claim_bound(run, worker_id, attempt_id, at, Some(proof))
+        self.claim_bound(run, worker_id, attempt_id, at, Some(proof), None)
             .await
     }
 
@@ -354,6 +528,11 @@ impl<'a> ResearchExecution<'a> {
         attempt_id: &str,
         at: OnlyUtcDateTime,
         authoring: Option<&AuthoringClaim>,
+        observation: Option<(
+            &super::authority_session::ControlRoleOwner,
+            &crate::bootstrap::deployment::SemanticStoreId,
+            &super::job_publication::ConfirmedUnpublished,
+        )>,
     ) -> Result<Option<Claim>> {
         if !crate::application::command::uuid4(worker_id)
             || !crate::application::command::uuid4(attempt_id)
@@ -379,6 +558,30 @@ impl<'a> ResearchExecution<'a> {
             tx.commit().await.map_err(|_| UNAVAILABLE)?;
             return Ok(None);
         };
+        if let Some((roles, namespace, proof)) = observation {
+            super::job_publication::durable(&tx)
+                .await
+                .map_err(publication_error)?;
+            let key = super::job_publication::RunLocator::new(
+                crate::application::job_contract::JobKind::Research,
+                run.run_id(),
+            )
+            .map_err(publication_error)?;
+            if !super::job_publication::recheck_control_transaction(
+                &tx,
+                roles,
+                proof,
+                &key,
+                namespace,
+                run.owner(),
+            )
+            .await
+            .map_err(publication_error)?
+            {
+                tx.commit().await.map_err(|_| UNCERTAIN)?;
+                return Ok(None);
+            }
+        }
         let generation = match run.specification() {
             crate::application::research_run::NativeSpecification::Factor(spec) => {
                 spec.authoring_generation_fingerprint.as_deref()
@@ -401,6 +604,9 @@ impl<'a> ResearchExecution<'a> {
         let count: i64 = row.try_get("count").map_err(|_| MISMATCH)?;
         let active: i64 = row.try_get("active").map_err(|_| MISMATCH)?;
         let number: i32 = row.try_get("number").map_err(|_| MISMATCH)?;
+        if observation.is_some() && count != i64::from(number) {
+            return Err(MISMATCH);
+        }
         if active != 0 || count >= i64::from(max_attempts) {
             return Ok(None);
         }
@@ -421,6 +627,57 @@ impl<'a> ResearchExecution<'a> {
         if n != 1 {
             return Err(LOST);
         }
+        if let Some((roles, namespace, _)) = observation {
+            tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE")
+                .await
+                .map_err(|_| UNAVAILABLE)?;
+            let checked = lock_run(
+                &tx,
+                run.run_id(),
+                run.specification_fingerprint(),
+                run.admission_resolution_fingerprint(),
+                run_lineage(run)?,
+                Some(run.canonical_specification_payload()),
+                false,
+            )
+            .await?
+            .ok_or(LOST)?;
+            let expected = current
+                .status
+                .revision
+                .checked_add(i64::from(current.status.state == RunState::Queued))
+                .ok_or(MISMATCH)?;
+            if checked.status.state != RunState::Running || checked.status.revision != expected {
+                return Err(LOST);
+            }
+            let checked=tx.query_one("SELECT count(*)::bigint,COALESCE(max(attempt_number),0)::integer,count(*) FILTER(WHERE state='ACTIVE')::bigint,count(*) FILTER(WHERE attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND state='ACTIVE' AND lease_expires_at>clock_timestamp())::bigint FROM research_run_attempt WHERE run_id=$1::text::uuid",&[&run.run_id(),&attempt_id,&worker_id,&number]).await.map_err(|_|UNAVAILABLE)?;
+            if checked.get::<_, i64>(0) != i64::from(number)
+                || checked.get::<_, i32>(1) != number
+                || checked.get::<_, i64>(2) != 1
+                || checked.get::<_, i64>(3) != 1
+            {
+                return Err(LOST);
+            }
+            let key = super::job_publication::RunLocator::new(
+                crate::application::job_contract::JobKind::Research,
+                run.run_id(),
+            )
+            .map_err(publication_error)?;
+            super::job_publication::verify_registered_control_transaction(
+                &tx,
+                roles,
+                namespace,
+                run.owner(),
+                &key,
+                run.specification_fingerprint(),
+                run.admission_resolution_fingerprint(),
+            )
+            .await
+            .map_err(publication_error)?;
+            super::authority_session::AuthoritySession::verify_transaction(&tx)
+                .await
+                .map_err(|e| e.code())?;
+        }
         // Lost commit acknowledgement grants no token and must never be treated as no claim.
         tx.commit().await.map_err(|_| UNCERTAIN)?;
         Ok(Some(Claim {
@@ -438,10 +695,48 @@ impl<'a> ResearchExecution<'a> {
             certain: true,
         }))
     }
+    /// Retain the original guard socket and driver across the complete lease
+    /// acknowledgement. Cancellation or an unknown commit revokes this owner.
+    pub async fn heartbeat_guarded(
+        session: &mut super::authority_session::AuthoritySession,
+        claim: &mut Claim,
+    ) -> Result<()> {
+        claim.certain = false;
+        let mut owned = session.take_ownership();
+        let outcome = tokio::time::timeout(Duration::from_secs(5), async {
+            let client = owned.client_mut().await.map_err(|_| UNCERTAIN)?;
+            let mut execution = ResearchExecution::new(client);
+            execution.guarded = true;
+            execution.heartbeat(claim).await
+        })
+        .await
+        .map_err(|_| UNCERTAIN)
+        .and_then(|value| value);
+        // The SQL operation alone cannot acknowledge the original physical
+        // AuthoritySession. Keep uncertainty until its final proof succeeds.
+        claim.certain = false;
+        match outcome {
+            Ok(()) => {
+                owned.verify().await.map_err(|_| UNCERTAIN)?;
+                session.restore_ownership(owned);
+                claim.certain = true;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
     pub async fn heartbeat(&mut self, claim: &mut Claim) -> Result<()> {
         let seconds = lease_seconds(Duration::from_secs(120))?;
         claim.certain = false;
         let tx = self.client.transaction().await.map_err(|_| UNCERTAIN)?;
+        if self.guarded {
+            tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp")
+                .await
+                .map_err(|_| UNCERTAIN)?;
+            super::authority_session::AuthoritySession::verify_transaction(&tx)
+                .await
+                .map_err(|_| UNCERTAIN)?;
+        }
         bounds(&tx).await.map_err(|_| UNCERTAIN)?;
         let current = lock_claim_run(&tx, claim).await?;
         if !matches!(
@@ -453,6 +748,16 @@ impl<'a> ResearchExecution<'a> {
         let n=tx.execute("WITH lease AS MATERIALIZED (SELECT clock_timestamp() AS now) UPDATE research_run_attempt a SET last_heartbeat_at=lease.now,lease_expires_at=lease.now+$5::double precision*interval '1 second' FROM lease WHERE a.run_id=$1::text::uuid AND a.attempt_id=$2::text::uuid AND a.worker_instance_id=$3::text::uuid AND a.attempt_number=$4 AND a.state='ACTIVE' AND a.lease_expires_at>lease.now",&[&claim.run_id,&claim.attempt_id,&claim.worker_id,&claim.number,&seconds]).await.map_err(|_|UNCERTAIN)?;
         if n != 1 {
             return Err(LOST);
+        }
+        if self.guarded {
+            // Run deferred work while rollback is still possible, then prove
+            // that this exact transaction still owns the original Node guard.
+            tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE")
+                .await
+                .map_err(|_| UNCERTAIN)?;
+            super::authority_session::AuthoritySession::verify_transaction(&tx)
+                .await
+                .map_err(|_| UNCERTAIN)?;
         }
         tx.commit().await.map_err(|_| UNCERTAIN)?;
         claim.certain = true;
@@ -542,6 +847,170 @@ impl<'a> ResearchExecution<'a> {
         self.finalize(claim, Finalization::Fail(failure, retry), at)
             .await
     }
+    /// A healthy ACTIVE cancellation requires actual task reclamation evidence.
+    pub async fn cancel_finite_guarded(
+        session: &mut super::authority_session::AuthoritySession,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        run: &VerifiedRun,
+        claim: &mut Claim,
+        drained: &crate::application::finite_job::DrainedFiniteJob,
+        at: OnlyUtcDateTime,
+    ) -> Result<RunStatus> {
+        if !claim.certain {
+            return Err(UNCERTAIN);
+        }
+        drained
+            .verify_attempt(&super::job_publication::AttemptClaim::from_research(claim))
+            .map_err(|_| INVALID)?;
+        Self::finish_finite_bound(
+            session,
+            namespace,
+            run,
+            claim,
+            drained.binding(),
+            FiniteFinish::Cancel,
+            at,
+        )
+        .await
+    }
+    pub(crate) async fn cancel_preparation_guarded(
+        session: &mut super::authority_session::AuthoritySession,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        run: &VerifiedRun,
+        claim: &mut Claim,
+        aborted: &crate::application::finite_job::AbortedPreparation,
+        at: OnlyUtcDateTime,
+    ) -> Result<RunStatus> {
+        if !claim.certain {
+            return Err(UNCERTAIN);
+        }
+        aborted
+            .verify_attempt(&super::job_publication::AttemptClaim::from_research(claim))
+            .map_err(|_| INVALID)?;
+        Self::finish_finite_bound(
+            session,
+            namespace,
+            run,
+            claim,
+            aborted.binding(),
+            FiniteFinish::Cancel,
+            at,
+        )
+        .await
+    }
+    pub(crate) async fn fail_preparation_guarded(
+        session: &mut super::authority_session::AuthoritySession,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        run: &VerifiedRun,
+        claim: &mut Claim,
+        aborted: &crate::application::finite_job::AbortedPreparation,
+        failure: &Failure,
+        retry: RetryDecision,
+        at: OnlyUtcDateTime,
+    ) -> Result<RunStatus> {
+        if !claim.certain {
+            return Err(UNCERTAIN);
+        }
+        aborted
+            .verify_attempt(&super::job_publication::AttemptClaim::from_research(claim))
+            .map_err(|_| INVALID)?;
+        Self::finish_finite_bound(
+            session,
+            namespace,
+            run,
+            claim,
+            aborted.binding(),
+            FiniteFinish::Fail(failure, retry),
+            at,
+        )
+        .await
+    }
+    pub(crate) async fn fail_finite_guarded(
+        session: &mut super::authority_session::AuthoritySession,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        run: &VerifiedRun,
+        claim: &mut Claim,
+        drained: &crate::application::finite_job::DrainedFiniteJob,
+        failure: &Failure,
+        retry: RetryDecision,
+        at: OnlyUtcDateTime,
+    ) -> Result<RunStatus> {
+        if !claim.certain {
+            return Err(UNCERTAIN);
+        }
+        drained
+            .verify_attempt(&super::job_publication::AttemptClaim::from_research(claim))
+            .map_err(|_| INVALID)?;
+        Self::finish_finite_bound(
+            session,
+            namespace,
+            run,
+            claim,
+            drained.binding(),
+            FiniteFinish::Fail(failure, retry),
+            at,
+        )
+        .await
+    }
+    async fn finish_finite_bound(
+        session: &mut super::authority_session::AuthoritySession,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+        run: &VerifiedRun,
+        claim: &mut Claim,
+        binding: &crate::application::job_contract::FrozenJobBinding,
+        finish: FiniteFinish<'_>,
+        at: OnlyUtcDateTime,
+    ) -> Result<RunStatus> {
+        use crate::application::job_contract::JobKind;
+        if !claim.certain {
+            return Err(UNCERTAIN);
+        }
+        if binding.kind() != JobKind::Research
+            || binding.run_id() != run.run_id()
+            || binding.namespace() != namespace.value()
+            || binding.owner() != run.owner()
+            || claim.run_id != run.run_id()
+            || claim.specification != run.specification_fingerprint()
+            || claim.admission != run.admission_resolution_fingerprint()
+            || claim.payload != run.canonical_specification_payload()
+            || (claim.schema, claim.composition.as_deref()) != run_lineage(run)?
+            || claim.generation != run.runtime_generation_fingerprint()?
+            || run.strategy_specification().is_err()
+        {
+            return Err(INVALID);
+        }
+        claim.certain = false;
+        let mut owned = session.take_ownership();
+        let roles = owned.control_roles().map_err(|_| UNCERTAIN)?;
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            let client = owned.client_mut().await.map_err(|_| UNCERTAIN)?;
+            claim.certain = true;
+            let mut execution = ResearchExecution::new(client);
+            execution.guarded = true;
+            let cut = UnpublishedControlCut {
+                roles: &roles,
+                namespace,
+                binding,
+            };
+            let outcome = match finish {
+                FiniteFinish::Cancel => Finalization::FiniteCancel(cut),
+                FiniteFinish::Fail(failure, retry) => Finalization::FiniteFail(failure, retry, cut),
+            };
+            execution.finalize(claim, outcome, at).await
+        })
+        .await
+        .map_err(|_| UNCERTAIN)
+        .and_then(|result| result);
+        claim.certain = false;
+        match result {
+            Ok(status) => {
+                owned.verify().await.map_err(|_| UNCERTAIN)?;
+                session.restore_ownership(owned);
+                Ok(status)
+            }
+            Err(error) => Err(error),
+        }
+    }
     pub async fn cancel(&mut self, claim: &mut Claim, at: OnlyUtcDateTime) -> Result<RunStatus> {
         self.finalize(claim, Finalization::Cancel, at).await
     }
@@ -571,9 +1040,17 @@ impl<'a> ResearchExecution<'a> {
             return Err(LOST);
         }
         current.check_time(at)?;
+        if let Finalization::FiniteCancel(cut) | Finalization::FiniteFail(_, _, cut) = outcome {
+            cut.verify(&tx, claim).await?;
+        }
         let (attempt, target, completion, failure) = match outcome {
             Finalization::Complete(c) => ("SUCCEEDED", Some(RunState::Completed), Some(c), None),
-            Finalization::Fail(f, r) => (
+            Finalization::FiniteFail(_, _, _)
+                if current.status.state == RunState::CancelRequested =>
+            {
+                ("CANCELLED", Some(RunState::Cancelled), None, None)
+            }
+            Finalization::Fail(f, r) | Finalization::FiniteFail(f, r, _) => (
                 "FAILED",
                 if r == RetryDecision::Retry
                     && current.status.state == RunState::Running
@@ -586,10 +1063,12 @@ impl<'a> ResearchExecution<'a> {
                 None,
                 Some(f),
             ),
-            Finalization::Cancel if current.status.state == RunState::CancelRequested => {
+            Finalization::Cancel | Finalization::FiniteCancel(_)
+                if current.status.state == RunState::CancelRequested =>
+            {
                 ("CANCELLED", Some(RunState::Cancelled), None, None)
             }
-            Finalization::Cancel => return Err(LOST),
+            Finalization::Cancel | Finalization::FiniteCancel(_) => return Err(LOST),
         };
         // Re-evaluate the server clock in the final write, after all row-lock waits.
         // Run-first lock order is shared by claim, heartbeat, expiry and cancellation.
@@ -639,6 +1118,9 @@ impl<'a> ResearchExecution<'a> {
             )
             .await?;
             guarded_attempt_readback(&tx, claim, attempt, &expected_attempt).await?;
+            if let Finalization::FiniteCancel(cut) | Finalization::FiniteFail(_, _, cut) = outcome {
+                cut.verify(&tx, claim).await?;
+            }
             super::authority_session::AuthoritySession::verify_transaction(&tx)
                 .await
                 .map_err(|_| UNCERTAIN)?;
@@ -791,10 +1273,38 @@ impl<'a> ResearchExecution<'a> {
         Ok(status)
     }
 }
+#[derive(Clone, Copy)]
+enum FiniteFinish<'a> {
+    Cancel,
+    Fail(&'a Failure, RetryDecision),
+}
+#[derive(Clone, Copy)]
+struct UnpublishedControlCut<'a> {
+    roles: &'a super::authority_session::ControlRoleOwner,
+    namespace: &'a crate::bootstrap::deployment::SemanticStoreId,
+    binding: &'a crate::application::job_contract::FrozenJobBinding,
+}
+impl UnpublishedControlCut<'_> {
+    async fn verify(&self, tx: &Transaction<'_>, claim: &Claim) -> Result<()> {
+        super::job_publication::verify_unpublished_control_transaction(
+            tx,
+            self.roles,
+            self.namespace,
+            self.binding,
+            &claim.specification,
+            &claim.admission,
+        )
+        .await
+        .map_err(publication_error)
+    }
+}
+#[derive(Clone, Copy)]
 enum Finalization<'a> {
     Complete(&'a VerifiedCompletion),
     Fail(&'a Failure, RetryDecision),
     Cancel,
+    FiniteCancel(UnpublishedControlCut<'a>),
+    FiniteFail(&'a Failure, RetryDecision, UnpublishedControlCut<'a>),
 }
 fn time(at: OnlyUtcDateTime) -> Result<SystemTime> {
     super::postgres::system_time(at).map_err(|_| INVALID)
@@ -958,7 +1468,15 @@ async fn update_run(
     let phase = failure.map(|f| f.phase.as_str());
     let code = failure.map(|f| f.code.as_str());
     let detail = failure.map(|f| f.detail.as_str());
-    let n=tx.execute("UPDATE research_run SET revision=$4,state=$5,started_at=$6,cancel_requested_at=$7,finished_at=$8,research_result_fingerprint=COALESCE($9,research_result_fingerprint),artifact_content_fingerprint=COALESCE($10,artifact_content_fingerprint),calculation_execution_evidence_fingerprints=COALESCE($11,calculation_execution_evidence_fingerprints),failure_phase=$12,failure_code=$13,failure_detail=$14 WHERE run_id=$1::text::uuid AND revision=$2 AND state=$3",&[&id,&current.status.revision,&current.status.state.as_str(),&revision,&target.as_str(),&start,&cancel,&finish,&result,&artifact,&evidence,&phase,&code,&detail]).await.map_err(|_|UNAVAILABLE)?;
+    let changed = if completion.is_some() {
+        tx.execute("UPDATE research_run SET revision=$4,state=$5,started_at=$6,cancel_requested_at=$7,finished_at=$8,research_result_fingerprint=$9,artifact_content_fingerprint=$10,calculation_execution_evidence_fingerprints=$11,failure_phase=$12,failure_code=$13,failure_detail=$14 WHERE run_id=$1::text::uuid AND revision=$2 AND state=$3",&[&id,&current.status.revision,&current.status.state.as_str(),&revision,&target.as_str(),&start,&cancel,&finish,&result,&artifact,&evidence,&phase,&code,&detail]).await
+    } else {
+        tx.execute("UPDATE research_run SET revision=$4,state=$5,started_at=$6,cancel_requested_at=$7,finished_at=$8,failure_phase=$9,failure_code=$10,failure_detail=$11 WHERE run_id=$1::text::uuid AND revision=$2 AND state=$3",&[&id,&current.status.revision,&current.status.state.as_str(),&revision,&target.as_str(),&start,&cancel,&finish,&phase,&code,&detail]).await
+    };
+    let n = changed.map_err(|error| {
+        tracing::error!(target:"onlyalpha.observability", operation="research_execution.update_run", phase=if completion.is_some() {"result"} else {"control"}, sqlstate=error.code().map(|code|code.code()), "Research state transition failed");
+        UNAVAILABLE
+    })?;
     if n != 1 {
         return Err(LOST);
     }
@@ -1043,7 +1561,32 @@ async fn guarded_attempt_readback(
     expected: &str,
     expected_document: &serde_json::Value,
 ) -> Result<()> {
-    let row=tx.query_one("SELECT pg_catalog.row_to_json(a)::pg_catalog.text FROM public.research_run_attempt a WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid AND attempt_id=$2::pg_catalog.text::pg_catalog.uuid FOR UPDATE",&[&claim.run_id,&claim.attempt_id]).await.map_err(|_|UNCERTAIN)?;
+    guarded_attempt_identity_readback(
+        tx,
+        AttemptReadbackIdentity {
+            run_id: &claim.run_id,
+            attempt_id: &claim.attempt_id,
+            worker_id: &claim.worker_id,
+            number: claim.number,
+        },
+        expected,
+        expected_document,
+    )
+    .await
+}
+struct AttemptReadbackIdentity<'a> {
+    run_id: &'a str,
+    attempt_id: &'a str,
+    worker_id: &'a str,
+    number: i32,
+}
+async fn guarded_attempt_identity_readback(
+    tx: &Transaction<'_>,
+    identity: AttemptReadbackIdentity<'_>,
+    expected: &str,
+    expected_document: &serde_json::Value,
+) -> Result<()> {
+    let row=tx.query_one("SELECT pg_catalog.row_to_json(a)::pg_catalog.text FROM public.research_run_attempt a WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid AND attempt_id=$2::pg_catalog.text::pg_catalog.uuid FOR UPDATE",&[&identity.run_id,&identity.attempt_id]).await.map_err(|_|UNCERTAIN)?;
     let raw: String = row.try_get(0).map_err(|_| MISMATCH)?;
     if raw.len() > 8 * 1024 * 1024 {
         return Err(MISMATCH);
@@ -1053,14 +1596,14 @@ async fn guarded_attempt_readback(
     if &value != expected_document {
         return Err(MISMATCH);
     }
-    if value["worker_instance_id"] != claim.worker_id
-        || value["attempt_number"] != claim.number
+    if value["worker_instance_id"] != identity.worker_id
+        || value["attempt_number"] != identity.number
         || value["state"] != expected
-        || value["finished_at"].is_null()
+        || (expected == "ACTIVE") != value["finished_at"].is_null()
     {
         return Err(MISMATCH);
     }
-    let history:String=tx.query_one("SELECT source_row::pg_catalog.text FROM public.research_source_history WHERE source_family='RESEARCH_ATTEMPT' AND source_row->>'attempt_id'=$1 ORDER BY event_index DESC LIMIT 1",&[&claim.attempt_id]).await.map_err(|_|UNCERTAIN)?.try_get(0).map_err(|_|MISMATCH)?;
+    let history:String=tx.query_one("SELECT source_row::pg_catalog.text FROM public.research_source_history WHERE source_family='RESEARCH_ATTEMPT' AND source_row->>'attempt_id'=$1 ORDER BY event_index DESC LIMIT 1",&[&identity.attempt_id]).await.map_err(|_|UNCERTAIN)?.try_get(0).map_err(|_|MISMATCH)?;
     if history.len() > 8 * 1024 * 1024 {
         return Err(MISMATCH);
     }
@@ -1086,4 +1629,257 @@ async fn guarded_document(
         return Err(MISMATCH);
     }
     serde_json::from_str(&raw).map_err(|_| MISMATCH)
+}
+
+async fn observe_finite(
+    session: &mut super::authority_session::AuthoritySession,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    run: &VerifiedRun,
+) -> Result<super::job_publication::PublicationObservation> {
+    use super::job_publication::{JobRole, PublicationRepository, RunLocator, with_job_role};
+    let key = RunLocator::new(
+        crate::application::job_contract::JobKind::Research,
+        run.run_id(),
+    )
+    .map_err(publication_error)?;
+    with_job_role(session, JobRole::Publisher, async |client| {
+        PublicationRepository::new(client, namespace, run.owner())
+            .await?
+            .observe(&key)
+            .await
+    })
+    .await
+    .map_err(publication_error)
+}
+async fn verify_finite_unpublished(
+    tx: &Transaction<'_>,
+    roles: &super::authority_session::ControlRoleOwner,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    run: &VerifiedRun,
+    proof: &super::job_publication::ConfirmedUnpublished,
+) -> Result<()> {
+    let binding = proof.binding();
+    if binding.kind() != crate::application::job_contract::JobKind::Research
+        || binding.run_id() != run.run_id()
+        || binding.owner() != run.owner()
+        || binding.namespace() != namespace.value()
+    {
+        return Err(MISMATCH);
+    }
+    super::job_publication::verify_unpublished_control_transaction(
+        tx,
+        roles,
+        namespace,
+        binding,
+        run.specification_fingerprint(),
+        run.admission_resolution_fingerprint(),
+    )
+    .await
+    .map_err(publication_error)
+}
+/// Expiry relinquishes only this expired operational owner. It never creates
+/// a semantic failure/cancellation or changes the finite three-Attempt budget.
+async fn expire_finite(
+    session: &mut super::authority_session::AuthoritySession,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    run: &VerifiedRun,
+    proof: &super::job_publication::ConfirmedUnpublished,
+) -> Result<()> {
+    let roles = session.control_roles().map_err(|_| UNCERTAIN)?;
+    let tx = session
+        .client_mut()
+        .await
+        .map_err(|_| UNCERTAIN)?
+        .transaction()
+        .await
+        .map_err(|_| UNCERTAIN)?;
+    tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp")
+        .await
+        .map_err(|_| UNCERTAIN)?;
+    bounds(&tx).await?;
+    let current = lock_run(
+        &tx,
+        run.run_id(),
+        run.specification_fingerprint(),
+        run.admission_resolution_fingerprint(),
+        run_lineage(run)?,
+        Some(run.canonical_specification_payload()),
+        false,
+    )
+    .await?
+    .ok_or(LOST)?;
+    if proof.active_attempts() != 1
+        || current.status.revision != proof.run_revision()
+        || current.status.state.as_str() != proof.run_state()
+        || !matches!(
+            current.status.state,
+            RunState::Running | RunState::CancelRequested
+        )
+    {
+        tx.commit().await.map_err(|_| UNCERTAIN)?;
+        return Ok(());
+    }
+    verify_finite_unpublished(&tx, &roles, namespace, run, proof).await?;
+    let row=tx.query_opt("SELECT attempt_id::text,worker_instance_id::text,attempt_number FROM public.research_run_attempt WHERE run_id=$1::text::uuid AND attempt_number=$2 AND state='ACTIVE' AND lease_expires_at<=clock_timestamp() FOR UPDATE",&[&run.run_id(),&proof.attempts()]).await.map_err(|_|UNAVAILABLE)?;
+    let Some(row) = row else {
+        tx.commit().await.map_err(|_| UNCERTAIN)?;
+        return Ok(());
+    };
+    let attempt: String = row.try_get(0).map_err(|_| MISMATCH)?;
+    let worker: String = row.try_get(1).map_err(|_| MISMATCH)?;
+    let number: i32 = row.try_get(2).map_err(|_| MISMATCH)?;
+    let before = guarded_document(&tx, run.run_id(), Some(&attempt)).await?;
+    guarded_attempt_identity_readback(
+        &tx,
+        AttemptReadbackIdentity {
+            run_id: run.run_id(),
+            attempt_id: &attempt,
+            worker_id: &worker,
+            number,
+        },
+        "ACTIVE",
+        &before,
+    )
+    .await?;
+    let changed=tx.execute("UPDATE public.research_run_attempt SET state='EXPIRED',finished_at=clock_timestamp(),failure_phase='OPERATIONAL',failure_code='LEASE_EXPIRED',failure_detail='Attempt lease expired before operational finalization' WHERE run_id=$1::text::uuid AND attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND state='ACTIVE' AND lease_expires_at<=clock_timestamp()",&[&run.run_id(),&attempt,&worker,&number]).await.map_err(|_|UNCERTAIN)?;
+    if changed != 1 {
+        return Err(LOST);
+    }
+    let expected = guarded_document(&tx, run.run_id(), Some(&attempt)).await?;
+    let expected_run = guarded_document(&tx, run.run_id(), None).await?;
+    tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE")
+        .await
+        .map_err(|_| UNCERTAIN)?;
+    guarded_attempt_identity_readback(
+        &tx,
+        AttemptReadbackIdentity {
+            run_id: run.run_id(),
+            attempt_id: &attempt,
+            worker_id: &worker,
+            number,
+        },
+        "EXPIRED",
+        &expected,
+    )
+    .await?;
+    guarded_run_readback(
+        &tx,
+        RunReadbackIdentity {
+            id: run.run_id(),
+            spec: run.specification_fingerprint(),
+            admission: run.admission_resolution_fingerprint(),
+            lineage: run_lineage(run)?,
+            payload: run.canonical_specification_payload(),
+        },
+        &current.status,
+        None,
+        &expected_run,
+    )
+    .await?;
+    verify_finite_unpublished(&tx, &roles, namespace, run, proof).await?;
+    roles.verify_transaction(&tx).await.map_err(|_| UNCERTAIN)?;
+    tx.commit().await.map_err(|_| UNCERTAIN)?;
+    Ok(())
+}
+async fn finish_unpublished_finite(
+    session: &mut super::authority_session::AuthoritySession,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    run: &VerifiedRun,
+    proof: &super::job_publication::ConfirmedUnpublished,
+    target: RunState,
+    at: OnlyUtcDateTime,
+) -> Result<()> {
+    use super::job_publication::{RunLocator, read_control_facts, recheck_control_transaction};
+    let roles = session.control_roles().map_err(|_| UNCERTAIN)?;
+    let tx = session
+        .client_mut()
+        .await
+        .map_err(|_| UNCERTAIN)?
+        .transaction()
+        .await
+        .map_err(|_| UNCERTAIN)?;
+    tx.batch_execute("SET LOCAL search_path=pg_catalog,public,pg_temp")
+        .await
+        .map_err(|_| UNCERTAIN)?;
+    bounds(&tx).await?;
+    let current = lock_run(
+        &tx,
+        run.run_id(),
+        run.specification_fingerprint(),
+        run.admission_resolution_fingerprint(),
+        run_lineage(run)?,
+        Some(run.canonical_specification_payload()),
+        false,
+    )
+    .await?
+    .ok_or(LOST)?;
+    let eligible = match target {
+        RunState::Cancelled => current.status.state == RunState::CancelRequested,
+        RunState::Failed => {
+            current.status.state == RunState::Running
+                && proof.attempts()
+                    == crate::application::job_recovery::RetryBudget::finite_job().max_attempts()
+        }
+        _ => return Err(INVALID),
+    };
+    let key = RunLocator::new(
+        crate::application::job_contract::JobKind::Research,
+        run.run_id(),
+    )
+    .map_err(publication_error)?;
+    if !eligible
+        || !recheck_control_transaction(&tx, &roles, proof, &key, namespace, run.owner())
+            .await
+            .map_err(publication_error)?
+    {
+        tx.commit().await.map_err(|_| UNCERTAIN)?;
+        return Ok(());
+    }
+    let failure = if target == RunState::Failed {
+        Some(Failure::new(
+            FailurePhase::Operational,
+            "ATTEMPT_LIMIT_EXHAUSTED",
+            "Finite recomputation exhausted its three original Run Attempts without a publication",
+        )?)
+    } else {
+        None
+    };
+    let status = update_run(
+        &tx,
+        run.run_id(),
+        &current,
+        target,
+        time(at)?,
+        None,
+        failure.as_ref(),
+    )
+    .await?;
+    let expected_run = guarded_document(&tx, run.run_id(), None).await?;
+    tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE")
+        .await
+        .map_err(|_| UNCERTAIN)?;
+    guarded_run_readback(
+        &tx,
+        RunReadbackIdentity {
+            id: run.run_id(),
+            spec: run.specification_fingerprint(),
+            admission: run.admission_resolution_fingerprint(),
+            lineage: run_lineage(run)?,
+            payload: run.canonical_specification_payload(),
+        },
+        &status,
+        None,
+        &expected_run,
+    )
+    .await?;
+    verify_finite_unpublished(&tx, &roles, namespace, run, proof).await?;
+    let checked=read_control_facts(&tx,&roles,|reader| async move {
+        reader.query_one("SELECT COALESCE(max(attempt_number),0)::integer,count(*) FILTER(WHERE state='ACTIVE')::bigint FROM public.research_run_attempt WHERE run_id=$1::text::uuid",&[&run.run_id()]).await.map_err(|_|UNAVAILABLE)
+    }).await.map_err(publication_error)??;
+    if checked.get::<_, i32>(0) != proof.attempts() || checked.get::<_, i64>(1) != 0 {
+        return Err(MISMATCH);
+    }
+    roles.verify_transaction(&tx).await.map_err(|_| UNCERTAIN)?;
+    tx.commit().await.map_err(|_| UNCERTAIN)?;
+    Ok(())
 }

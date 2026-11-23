@@ -62,13 +62,24 @@ impl SourceRevision {
     /// Bounded parsing to a self-consistent value only. Frozen readers must still
     /// prove original canonical bytes, manifest/path and immutable Freeze relations.
     pub fn from_json(raw: &str, max_work: usize) -> Result<Self> {
+        Self::from_json_with_work(raw, max_work).map(|(source, _)| source)
+    }
+
+    /// Returns the verified source and the larger of input bytes and graph parsing work.
+    pub fn from_json_with_work(raw: &str, max_work: usize) -> Result<(Self, usize)> {
         if raw.len() > max_work {
             return Err(SourceError::Unavailable);
         }
         let value = serde_json::from_str(raw).map_err(|_| SourceError::Invalid)?;
-        Self::parse_value(&value, max_work)
+        let (source, graph_work) = Self::parse_value_with_work(&value, max_work)?;
+        Ok((source, raw.len().max(graph_work)))
     }
+
     pub(crate) fn parse_value(v: &Value, max_work: usize) -> Result<Self> {
+        Self::parse_value_with_work(v, max_work).map(|(source, _)| source)
+    }
+
+    fn parse_value_with_work(v: &Value, max_work: usize) -> Result<(Self, usize)> {
         exact(
             v,
             &[
@@ -85,7 +96,7 @@ impl SourceRevision {
         if v["schema_version"].as_u64() != Some(1) {
             return Err(SourceError::Invalid);
         }
-        let graph = Graph::from_record(&v["decision_graph"], max_work)?;
+        let (graph, graph_work) = Graph::from_record_with_work(&v["decision_graph"], max_work)?;
         if v["decision_graph_fingerprint"] != graph.fingerprint() {
             return Err(SourceError::Invalid);
         }
@@ -242,7 +253,7 @@ impl SourceRevision {
         if result.fingerprint != record_fingerprint(&result.identity()) {
             return Err(SourceError::Invalid);
         }
-        Ok(result)
+        Ok((result, graph_work))
     }
     fn identity(&self) -> Value {
         let signals: Vec<_> = self

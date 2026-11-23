@@ -11,6 +11,27 @@ fn sample() -> Value {
     rows()[0]["record"].clone()
 }
 #[test]
+fn finite_input_requirements_compose_history_without_market_or_target_policy() {
+    let row = rows()
+        .into_iter()
+        .find(|row| row["case"] == "graph-basic")
+        .unwrap();
+    let graph = Graph::from_record(&row["input"], WORK).unwrap();
+    let required = onlyalpha_calculation::finite_input::requirements(&graph, 3).unwrap();
+    assert_eq!(required.history(), 2);
+    assert_eq!(
+        required
+            .sources()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        vec!["bars"]
+    );
+    assert!(onlyalpha_calculation::finite_input::requirements(&graph, 2).is_err());
+    let empty = Graph::from_record(&json!({"schema_version":1,"nodes":[]}), WORK).unwrap();
+    assert!(onlyalpha_calculation::finite_input::requirements(&empty, 3).is_err());
+}
+#[test]
 fn actual_product_serializer_vectors_preserve_original_identity_and_public_values() {
     for row in rows() {
         if row["case"].as_str().unwrap().starts_with("graph-") {
@@ -180,6 +201,11 @@ fn expanded_decimals_share_the_whole_input_budget_and_invalid_nested_scalars_are
         d["parameters"][format!("p{i}")] = json!({"type":"DECIMAL","value":"1e1000"});
     }
     assert_eq!(Definition::from_record(&d, 5000), Err(Error::Unavailable));
+    let graph = json!({"schema_version":1,"nodes":[{"definition":d,"alias":null}]});
+    let (parsed, used) = Graph::from_record_with_work(&graph, WORK).unwrap();
+    assert!(used >= 20_000);
+    assert_eq!(Graph::from_record(&graph, used).unwrap(), parsed);
+    assert_eq!(Graph::from_record(&graph, used - 1), Err(Error::Unavailable));
     let mut nested = json!(true);
     for _ in 0..64 {
         nested = json!({"nested":nested});

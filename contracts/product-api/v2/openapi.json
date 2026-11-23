@@ -39,6 +39,12 @@
         ],
         "type": "object"
       },
+      "BacktestCancellationReason": {
+        "enum": [
+          "USER_REQUESTED"
+        ],
+        "type": "string"
+      },
       "BacktestCommandNotAccepted": {
         "additionalProperties": false,
         "properties": {
@@ -207,7 +213,22 @@
       "BacktestEvidenceView": {
         "additionalProperties": false,
         "properties": {
+          "freeze_relation_fingerprint": {
+            "type": "string"
+          },
           "manifest": {},
+          "preparation_command_id": {
+            "type": "string"
+          },
+          "promotion_fingerprint": {
+            "type": "string"
+          },
+          "publication_fingerprint": {
+            "type": "string"
+          },
+          "qualification_decision_fingerprint": {
+            "type": "string"
+          },
           "run_id": {
             "type": "string"
           },
@@ -220,6 +241,11 @@
         "required": [
           "schema_version",
           "run_id",
+          "publication_fingerprint",
+          "preparation_command_id",
+          "freeze_relation_fingerprint",
+          "qualification_decision_fingerprint",
+          "promotion_fingerprint",
           "manifest"
         ],
         "type": "object"
@@ -693,6 +719,12 @@
         ],
         "type": "string"
       },
+      "BacktestResultState": {
+        "enum": [
+          "COMPLETED"
+        ],
+        "type": "string"
+      },
       "BacktestResultView": {
         "additionalProperties": false,
         "properties": {
@@ -748,7 +780,7 @@
             "type": "integer"
           },
           "state": {
-            "type": "string"
+            "$ref": "#/components/schemas/BacktestResultState"
           },
           "strategy_fingerprint": {
             "type": "string"
@@ -803,6 +835,22 @@
         "properties": {
           "accepted_at": {
             "type": "string"
+          },
+          "cancel_requested_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cancellation_reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BacktestCancellationReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "preparation_command_id": {
             "type": [

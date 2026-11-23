@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 #[path = "../../../src/application/mod.rs"]
 pub mod application;
+mod job_fact_connection;
 mod backtest_owner_scenarios;
 mod backtest_preparation_queue;
 mod backtest_run_lifecycle;

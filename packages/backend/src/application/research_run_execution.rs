@@ -51,10 +51,13 @@ struct ControlState {
     child: std::sync::Mutex<Option<onlyalpha_calculation_bridge::Cancellation>>,
 }
 impl Control {
-    pub fn stop(&self) -> std::result::Result<(), PreparationError> {
+    pub(crate) fn request_stop(&self) {
         self.0
             .stopped
             .store(true, std::sync::atomic::Ordering::Release);
+    }
+    pub fn stop(&self) -> std::result::Result<(), PreparationError> {
+        self.request_stop();
         if let Some(child) = self
             .0
             .child
@@ -91,6 +94,25 @@ impl Control {
     }
     /// attach() only replaces positively joined owners. Checking the retained
     /// final owner therefore proves every original sequential child was joined.
+    /// Cancellation permits no new child; an empty slot proves no child was
+    /// attached. Only the finite task owner may turn this into a drain receipt.
+    pub(crate) fn verify_drained(&self) -> std::result::Result<(), PreparationError> {
+        let owner = self.0.child.lock().map_err(|error| {
+            PreparationError::unknown(
+                "RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",
+                error.into_inner().clone(),
+            )
+        })?;
+        if owner.as_ref().is_some_and(|child| {
+            child.state() != onlyalpha_calculation_bridge::ProcessState::Joined
+        }) {
+            return Err(PreparationError::unknown(
+                "RESEARCH_ALGORITHM_OUTCOME_UNKNOWN",
+                owner.clone(),
+            ));
+        }
+        Ok(())
+    }
     pub(crate) fn verify_joined(&self) -> std::result::Result<(), PreparationError> {
         self.check()?;
         let owner = self.0.child.lock().map_err(|e| {
@@ -510,6 +532,14 @@ mod control_tests {
         }
     }
     #[test]
+    fn a_stopped_control_with_no_child_proves_drain_but_never_completion() {
+        let control = Control::default();
+        control.stop().unwrap();
+        control.verify_drained().unwrap();
+        assert!(control.verify_joined().is_err());
+        assert!(control.check().is_err());
+    }
+    #[test]
     fn research_stop_unknown_retains_the_original_owner_for_explicit_drain() {
         let (socket, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -532,6 +562,11 @@ mod control_tests {
         assert!(retained.drain().is_err());
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert!(control.check().is_err());
+        let undrained = control.verify_drained().unwrap_err();
+        assert!(
+            undrained.recovery_owner().unwrap().same_owner(retained),
+            "unknown drain must retain the same original owner"
+        );
         assert!(
             control
                 .uncertain("RESEARCH_EXECUTION_OUTCOME_UNKNOWN")

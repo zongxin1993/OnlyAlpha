@@ -34,7 +34,7 @@ pub(super) async fn serve() -> Result<(), Box<dyn Error>> {
     if v.as_object().is_none_or(|m| m.len() != 9) || v["schema_version"] != 1 {
         return Err("explicit Host configuration required".into());
     }
-    let dsn = std::env::var("ONLYALPHA_POSTGRES_DSN")?;
+    let dsn = std::env::var("ONLYALPHA_HOST_POSTGRES_DSN")?;
     let pg: tokio_postgres::Config = dsn.parse()?;
     if !pg.get_dbname().is_some_and(|n| n.ends_with("_test")) {
         return Err("canonical test database required".into());
@@ -54,6 +54,7 @@ pub(super) async fn serve() -> Result<(), Box<dyn Error>> {
         postgres_user: pg.get_user().ok_or("postgres user")?.into(),
         postgres_database: pg.get_dbname().ok_or("postgres database")?.into(),
         postgres_dsn: dsn,
+        factor_build_postgres_dsn: std::env::var("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN")?,
         clickhouse: ClickHouseConfig {
             url: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_URL")?,
             database: database.into(),
@@ -75,6 +76,14 @@ pub(super) async fn serve() -> Result<(), Box<dyn Error>> {
         tokio::select! {_=term.recv()=>{},_=interrupt.recv()=>{}}
         stop.send_replace(true);
     });
+    let diagnostics = std::env::var_os("ONLYALPHA_DIAGNOSTICS_PATH")
+        .map(PathBuf::from)
+        .map(|path| {
+            use onlyalpha_backend::bootstrap::observability;
+            observability::start(observability::mode(Some("detail"), None)?, Some(&path))
+        })
+        .transpose()?
+        .flatten();
     let result = async {
         let listener = tokio::net::TcpListener::bind(config.listen).await?;
         let running = Running::open(config, &shutdown).await?;
@@ -86,5 +95,9 @@ pub(super) async fn serve() -> Result<(), Box<dyn Error>> {
     .await;
     signal.abort();
     let _ = signal.await;
+    if let Some(session) = diagnostics {
+        let receipt = session.close();
+        assert!(receipt.shutdown_complete, "{}", receipt.record());
+    }
     result
 }

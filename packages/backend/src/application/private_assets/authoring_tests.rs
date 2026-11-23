@@ -1,7 +1,7 @@
 use crate::application::private_assets::authoring::{API_FINGERPRINT, Draft};
 use serde_json::{Value, json};
 fn draft() -> Value {
-    json!({"schema_version":1,"factor_id":"private.factor.momentum","base_revision_fingerprint":null,"semantic_version":"1","source_text":"def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n","factor_api_version":1,"factor_api_contract_fingerprint":"3265e2397f581705b67c1372483b6629671b68af71f69575c7bd602816d63be9","input_contract":{"close":{"type":"DECIMAL"}},"parameter_contract":{},"output_contract":{"value":{"type":"DECIMAL"}},"description":"Momentum","economic_rationale":"Trend","category":"price","tags":["price","trend"]})
+    json!({"schema_version":1,"factor_id":"private.factor.momentum","base_revision_fingerprint":null,"semantic_version":"1","source_text":"def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n","factor_api_version":1,"factor_api_contract_fingerprint":"18235355e46a704c55b115242e50999cf7d583ab72e100b5b12bdde4ddd14ccd","input_contract":{"close":{"type":"DECIMAL"}},"parameter_contract":{},"output_contract":{"value":{"type":"DECIMAL"}},"description":"Momentum","economic_rationale":"Trend","category":"price","tags":["price","trend"]})
 }
 #[test]
 fn authoring_preserves_canonical_revision_and_source_identity() {
@@ -12,7 +12,7 @@ fn authoring_preserves_canonical_revision_and_source_identity() {
     assert_eq!(revision["factor_api_contract_fingerprint"], API_FINGERPRINT);
     assert_eq!(
         revision["revision_fingerprint"],
-        "0e9cbd14005ce4f295480363a2305e55d28e9582d8428cc26c486b5d2d128b2b"
+        "ca27e952dae5fd5b9aad39df62ee5b528a92822f9012b4d76ff8191fa2b59a05"
     );
     assert_eq!(
         revision["source_sha256"],

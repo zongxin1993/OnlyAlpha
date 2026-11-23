@@ -12,7 +12,6 @@ import platform
 import queue
 import signal
 import socket
-import sqlite3
 import ssl
 import subprocess
 import sys
@@ -21,7 +20,7 @@ import threading
 import time
 import tomllib
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
@@ -34,70 +33,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.database_guard import assert_test_database
 from scripts.dev_verification import source_inputs
+from scripts.factor_build_database import prepare as prepare_factor_build_database
+from scripts.native_web_backtest import (
+    frozen_market_barrier,
+    read_backtest,
+    require_cancelled_backtest,
+    require_resumed_backtest,
+    require_stopped_backtest,
+)
 from scripts.native_workstation_build import build
+from scripts.node_database import prepare as prepare_node_database
 from scripts.runtime_artifacts import product_versions, verify_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def observe_stopped_backtest(probe: Path, user_data: Path, run_id: str) -> dict:
-    # Call only after Host SIGTERM + positive process join. Do not retry a busy,
-    # unreadable or incomplete source; the Runtime owner must reject it.
-    if str(uuid.UUID(run_id)) != run_id or uuid.UUID(run_id).version != 4:
-        raise ValueError("invalid original Run identity")
-    path = user_data / "backtest" / "runtime" / run_id / "runtime.sqlite3"
-    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
-    try:
-        db.execute("PRAGMA query_only=ON")
-        db.execute("PRAGMA trusted_schema=OFF")
-        # These two values are observed identity inputs, not validated proof.
-        # No Python frame/dictionary/replay codec or digest admission is involved.
-        raw = db.execute("SELECT payload FROM meta WHERE singleton=1").fetchone()
-        if raw is None:
-            raise RuntimeError("missing runtime identity")
-        identity = json.loads(raw[0])
-    finally:
-        db.close()
-    request = {
-        "user_data": str(user_data),
-        "run_id": run_id,
-        "configuration": identity["configuration"],
-        "kernel_artifact": identity["kernel_artifact"],
-    }
-    actual = subprocess.run(
-        [str(probe), "--read-backtest-runtime-source"],
-        input=json.dumps(request),
-        text=True,
-        capture_output=True,
-        check=True,
-        timeout=120,
-    )
-    observation = json.loads(actual.stdout)
-    if observation["schema_version"] != 1 or observation["run_id"] != run_id:
-        raise RuntimeError("wrong observation identity")
-    return observation
-
-
-def require_paused_backtest(observation: dict) -> None:
-    assert observation["execution_prefix"] and observation["replay_prefix"]
-    last = observation["steps"][-1]
-    assert last["kind"] == "PAUSE" and last["status"] == "PAUSED"
-    assert last["input_finished"] is False and last["input_cancelled"] is False
-    state = observation["state"]
-    assert state["status"] == "PAUSED" and state["input_finished"] is False
-    assert state.get("input_cancelled", False) is False
-    assert state["outcome"] is None
-
-
-def require_resumed_backtest(before: dict, after: dict) -> None:
-    assert after["run_id"] == before["run_id"] and after["binding"] == before["binding"]
-    assert after["execution_prefix"][: len(before["execution_prefix"])] == before["execution_prefix"]
-    assert after["replay_prefix"][: len(before["replay_prefix"])] == before["replay_prefix"]
-    assert after["steps"][: len(before["steps"])] == before["steps"]
-    later = after["steps"][len(before["steps"]) :]
-    assert later and later[0]["kind"] == "RESUME" and later[0]["status"] == "RUNNING"
-    assert later[-1]["kind"] == "TERMINATE" and later[-1]["status"] == "TERMINATED"
-    assert after["state"]["outcome"]["status"] == "COMPLETED"
 
 
 def clickhouse_namespace(backend: Path, database: str, *, initialize: bool) -> None:
@@ -165,37 +113,6 @@ def research_deployment_id(backend: Path, command: list[str], dsn: str) -> str:
     if identity.version != 4 or str(identity) != payload["semantic_store_id"]:
         raise ValueError("RESEARCH_DEPLOYMENT_NATIVE_RESPONSE_INVALID")
     return str(identity)
-
-
-def initialize_backtest_evidence(backend: Path, resources: Path, data: Path, dsn: str, namespace: str) -> None:
-    """Explicit empty Infrastructure owner, before any business acceptance."""
-    result = subprocess.run(
-        [str(backend), "--initialize-fresh-backtest-evidence", str(data), str(resources / "schema")],
-        env={**os.environ, "ONLYALPHA_POSTGRES_DSN": dsn},
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    def unique(fields: list[tuple[str, Any]]) -> dict[str, Any]:
-        value = dict(fields)
-        if len(value) != len(fields):
-            raise ValueError("BACKTEST_EVIDENCE_NATIVE_RESPONSE_INVALID")
-        return value
-
-    if len(result.stdout) > 32768:
-        raise ValueError("BACKTEST_EVIDENCE_NATIVE_RESPONSE_INVALID")
-    payload = json.loads(result.stdout, object_pairs_hook=unique)
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {"schema_version", "semantic_store_id", "initialized"}
-        or type(payload["schema_version"]) is not int
-        or payload["schema_version"] != 1
-        or payload["semantic_store_id"] != namespace
-        or payload["initialized"] is not True
-    ):
-        raise ValueError("BACKTEST_EVIDENCE_NATIVE_RESPONSE_INVALID")
 
 
 def initialize_runtime_registry(backend: Path, resources: Path, data: Path, dsn: str) -> None:
@@ -313,7 +230,12 @@ def seed_private_metadata(factor_id: str) -> tuple[dict[str, Any], dict[str, Any
 
 @contextmanager
 def controlled_source_https(
-    output: Path, *, backtest: bool = False, chart_sma: bool = False, tushare_daily: bool = False
+    output: Path,
+    *,
+    backtest: bool = False,
+    chart_sma: bool = False,
+    tushare_daily: bool = False,
+    before_btc_rules: Callable[[], None] | None = None,
 ) -> Iterator[tuple[Path, dict[str, Any]]]:
     """Controlled external Binance input; never a Product/Authority substitute.
 
@@ -627,6 +549,8 @@ def controlled_source_https(
                             {"showPermissionSets": ["false"], "symbols": ['["BTCUSDT"]']},
                         ):
                             raise ValueError("CONTROLLED_SOURCE_UNEXPECTED_QUERY")
+                        if before_btc_rules is not None and query.get("symbols") == ['["BTCUSDT"]']:
+                            before_btc_rules()
                         response = fixture["exchange_info"]
                         if backtest:
                             # Explicit synthetic venue rules, not inferred from
@@ -856,6 +780,7 @@ def seed_retained_market_input(
         "op": "market-storage",
         "request": {
             "op": "retained-source-prerequisite",
+            "fixture_capture_id": str(uuid.uuid4()),
             "user_data": str(data),
             "selected_backend": str(native),
             "selected_backend_sha256": expected,
@@ -900,9 +825,18 @@ def main() -> int:
     )
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--artifact-sha256")
+    parser.add_argument("--backtest-profile", action="store_true", help="Record optional backtest stage timings")
+    parser.add_argument(
+        "--backtest-diagnostic",
+        action="store_true",
+        help="One isolated diagnostic, including original 20s drain within a 20 minute budget",
+    )
     parser.add_argument("--grep", help="Select the affected ordinary Shipping UI tests only")
     parser.add_argument("tests", nargs="*")
     args = parser.parse_args()
+    from scripts.backtest_diagnostic import validate_selection
+
+    validate_selection(args)
     if args.tushare_daily_market_input and (
         args.chart_sma_market_input
         or args.backtest_market_input
@@ -943,6 +877,49 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
     operation = os.environ["ONLYALPHA_DEV_VERIFICATION_OPERATION_ID"]
     dsn = os.environ["ONLYALPHA_POSTGRES_DSN"]
     assert_test_database(dsn)
+    frontend = ROOT / "packages/frontend"
+    browser_command = [
+        "npm",
+        "exec",
+        "--",
+        "playwright",
+        "test",
+        "--workers=1",
+        *args.tests,
+        *(["--grep", args.grep] if args.grep else []),
+    ]
+    lifecycle_tests = {}
+    if args.backtest_market_input and args.restart_check and (not args.contract_fuzz or args.tests):
+        listed = subprocess.run(
+            [*browser_command, "--list", "--reporter=json"],
+            cwd=frontend,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        suites = json.loads(listed.stdout)["suites"]
+        titles = set()
+        while suites:
+            suite = suites.pop()
+            titles.update(
+                spec["title"] for spec in suite.get("specs", []) if Path(spec["file"]).name == "backtest.spec.ts"
+            )
+            suites.extend(suite.get("suites", []))
+        for case, kind, title in (
+            (
+                "cancel",
+                "CANCELLED",
+                "normal backtest functional cancellation reopens the same cancelled run after restart",
+            ),
+            (
+                "running-recovery",
+                "RUNNING",
+                "normal backtest functional running recovery completes the same run after restart",
+            ),
+        ):
+            if title in titles:
+                lifecycle_tests[case] = kind
     data = output / "user-data"
     for relative in ("secrets",):
         (data / relative).mkdir(parents=True, mode=0o700)
@@ -994,7 +971,6 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         if research_deployment_id(executable, [command, str(data)], operator_dsn) != deployment_id:
             raise RuntimeError("RESEARCH_SEMANTIC_STORE_MISMATCH")
     initialize_runtime_registry(executable, resources, data, operator_dsn)
-    initialize_backtest_evidence(executable, resources, data, operator_dsn, deployment_id)
     # Retained metadata is a separate precondition; authoring tests create their
     # own Assets and Revisions exclusively through the normal Shipping UI.
     revision, current = seed_private_metadata("private.factor.native_metadata")
@@ -1021,6 +997,8 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         or not pg_database
     ):
         raise ValueError("CANONICAL_DEV_POSTGRES_REQUIRED")
+    node_dsn = prepare_node_database(dsn, test=True)
+    node_user = conninfo_to_dict(node_dsn)["user"]
     env = {key: value for key, value in os.environ.items() if not key.startswith("ONLYALPHA_")}
     env.update(
         ONLYALPHA_NATIVE_DEPLOYMENT="CONTAINED_DEVELOPMENT",
@@ -1032,26 +1010,68 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
         ONLYALPHA_NATIVE_ALGORITHMS=str(resources / "algorithms"),
         ONLYALPHA_NATIVE_ALGORITHM_ARTIFACT=artifact,
         ONLYALPHA_NATIVE_SOURCE_TRUST=str(source_trust),
-        ONLYALPHA_POSTGRES_DSN=make_conninfo(dsn, sslmode="disable"),
+        ONLYALPHA_POSTGRES_DSN=node_dsn,
+        ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN=prepare_factor_build_database(dsn, test=True),
         ONLYALPHA_NATIVE_POSTGRES_PEER=f"{socket.gethostbyname('postgres')}:5432",
-        ONLYALPHA_NATIVE_POSTGRES_USER=pg_user,
+        ONLYALPHA_NATIVE_POSTGRES_USER=node_user,
         ONLYALPHA_NATIVE_POSTGRES_DATABASE=pg_database,
         ONLYALPHA_CLICKHOUSE_URL=os.environ["ONLYALPHA_TEST_CLICKHOUSE_URL"],
         ONLYALPHA_CLICKHOUSE_DATABASE=database,
         ONLYALPHA_CLICKHOUSE_USER=os.environ["ONLYALPHA_TEST_CLICKHOUSE_USER"],
         ONLYALPHA_CLICKHOUSE_PASSWORD=os.environ["ONLYALPHA_TEST_CLICKHOUSE_PASSWORD"],
     )
+    if args.backtest_profile:
+        env["ONLYALPHA_BACKTEST_PROFILE"] = "1"
+    if args.backtest_diagnostic:
+        env["ONLYALPHA_DIAGNOSTICS"] = "detail"
+        env["ONLYALPHA_DIAGNOSTICS_PATH"] = str(output / "observations.jsonl")
     selected_artifact(ROOT, resources, selected_sha)
 
     def run_host(phase: str) -> int:
+        shutdown_deadline = None
+
+        def stop_host() -> float:
+            nonlocal shutdown_deadline
+            if shutdown_deadline is not None or child.poll() is not None:
+                raise RuntimeError("Native Host unavailable for the interruption")
+            sent_at = time.monotonic()
+            child.terminate()
+            shutdown_deadline = sent_at + 20
+            return sent_at
+
+        def wait_for_host() -> None:
+            timeout = 20 if shutdown_deadline is None else max(0, shutdown_deadline - time.monotonic())
+            child.wait(timeout=timeout)
+
+        initial_interruption = phase == "initial" and bool(lifecycle_tests)
+        upstream = env["ONLYALPHA_CLICKHOUSE_URL"]
+        barrier = (
+            frozen_market_barrier(dsn, deployment_id, database, upstream, stop_host, wait_for_host)
+            if initial_interruption
+            else nullcontext((upstream, {}))
+        )
         phase_output = output if phase == "initial" else output / "after-restart"
         phase_output.mkdir(exist_ok=True)
         started = time.monotonic()
         events: queue.Queue[bytes] = queue.Queue()
-        with (phase_output / "native.log").open("wb") as log:
+        diagnostic_started = None
+        close_output = (
+            (phase_output / "diagnostic-close.jsonl").open("xb") if args.backtest_diagnostic else nullcontext(None)
+        )
+        with (
+            barrier as (clickhouse_url, interruptions),
+            (phase_output / "native.log").open("wb") as log,
+            close_output as close_log,
+        ):
+            child_env = {**env, "ONLYALPHA_CLICKHOUSE_URL": clickhouse_url}
+            if initial_interruption:
+                child_env.update(
+                    ONLYALPHA_DIAGNOSTICS="detail",
+                    ONLYALPHA_DIAGNOSTICS_PATH=str(phase_output / "observations.jsonl"),
+                )
             child = subprocess.Popen(
                 [str(executable), "--user-data-root", str(data)],
-                env=env,
+                env=child_env,
                 stdout=log,
                 stderr=subprocess.PIPE,
                 start_new_session=True,
@@ -1063,6 +1083,9 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                 for line in child.stderr:
                     log.write(line)
                     log.flush()
+                    if close_log is not None and line.startswith(b"ONLYALPHA_DIAGNOSTIC "):
+                        close_log.write(line.removeprefix(b"ONLYALPHA_DIAGNOSTIC "))
+                        close_log.flush()
                     events.put(line)
                 events.put(b"")
 
@@ -1116,35 +1139,41 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                     run_product(phase, output, dsn)
                     results["tushare_daily_api"] = 0
                 if not args.contract_fuzz or args.tests:
-                    browser = subprocess.run(
-                        [
-                            "npm",
-                            "exec",
-                            "--",
-                            "playwright",
-                            "test",
-                            "--workers=1",
-                            *args.tests,
-                            *(["--grep", args.grep] if args.grep else []),
-                        ],
-                        cwd=ROOT / "packages/frontend",
-                        env={
-                            **os.environ,
-                            "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
-                            "ONLYALPHA_BROWSER_RESTART_PHASE": phase,
-                            "ONLYALPHA_BROWSER_TUSHARE_DAILY_INPUT": "1" if args.tushare_daily_market_input else "0",
-                            "ONLYALPHA_BROWSER_CHART_SMA_INPUT": "1" if args.chart_sma_market_input else "0",
-                            "ONLYALPHA_BROWSER_CONTROLLED_SOURCE_HTTPS": "1" if args.controlled_source_https else "0",
-                            "ONLYALPHA_BROWSER_HOST_PID": str(child.pid),
-                            "ONLYALPHA_BROWSER_USER_DATA_ROOT": str(data),
-                            "ONLYALPHA_BROWSER_RESTART_EVIDENCE": str(output / "factor-restart-input.json"),
-                            "ONLYALPHA_BROWSER_CONTROLLED_MARKET_INPUT": (
-                                str(output / "controlled-market-input.json") if args.retained_market_input else ""
-                            ),
-                            "PLAYWRIGHT_OUTPUT_DIR": str(phase_output / "browser"),
-                        },
-                    )
-                    result = browser.returncode
+                    browser_env = {
+                        **os.environ,
+                        "PLAYWRIGHT_BASE_URL": "http://127.0.0.1:5173",
+                        "ONLYALPHA_BROWSER_RESTART_PHASE": phase,
+                        "ONLYALPHA_BROWSER_TUSHARE_DAILY_INPUT": "1" if args.tushare_daily_market_input else "0",
+                        "ONLYALPHA_BROWSER_CHART_SMA_INPUT": "1" if args.chart_sma_market_input else "0",
+                        "ONLYALPHA_BROWSER_CONTROLLED_SOURCE_HTTPS": "1" if args.controlled_source_https else "0",
+                        "ONLYALPHA_BROWSER_HOST_PID": str(child.pid),
+                        "ONLYALPHA_BROWSER_BACKTEST_INPUT_BARRIER": clickhouse_url if initial_interruption else "",
+                        "ONLYALPHA_BROWSER_RESTART_EVIDENCE": str(output / "factor-restart-input.json"),
+                        "ONLYALPHA_BROWSER_CONTROLLED_MARKET_INPUT": (
+                            str(output / "controlled-market-input.json") if args.retained_market_input else ""
+                        ),
+                        "PLAYWRIGHT_OUTPUT_DIR": str(phase_output / "browser"),
+                    }
+                    if args.backtest_diagnostic:
+                        from scripts.backtest_diagnostic import run_browser
+
+                        browser_env.update(
+                            ONLYALPHA_BROWSER_BACKTEST_DIAGNOSTIC="1",
+                            ONLYALPHA_BROWSER_DIAGNOSTIC_LOG=str(output / "observations.jsonl"),
+                            ONLYALPHA_BROWSER_DIAGNOSTIC_NAMESPACE=deployment_id,
+                            ONLYALPHA_BROWSER_DIAGNOSTIC_EVIDENCE=str(output / "diagnostic-browser.json"),
+                        )
+                        diagnostic_started = time.monotonic()
+                        result = run_browser(
+                            browser_command,
+                            cwd=ROOT / "packages/frontend",
+                            env=browser_env,
+                            receipt=output / "diagnostic-budget.json",
+                        )
+                    else:
+                        result = subprocess.run(
+                            browser_command, cwd=ROOT / "packages/frontend", env=browser_env
+                        ).returncode
                     results["browser"] = result
                     (phase_output / "functional-results.json").write_text(json.dumps(results, indent=2) + "\n")
                 if args.contract_fuzz:
@@ -1157,10 +1186,10 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
             finally:
                 for number, handler in previous.items():
                     signal.signal(number, handler)
-                if child.poll() is None:
-                    child.send_signal(signal.SIGTERM)
                 try:
-                    child.wait(timeout=20)
+                    if shutdown_deadline is None and child.poll() is None:
+                        stop_host()
+                    wait_for_host()
                 except subprocess.TimeoutExpired as error:
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait()
@@ -1184,6 +1213,16 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                                 "pid": child.pid,
                                 "exit": child.returncode,
                                 "remaining_process_group": remaining_processes,
+                                **(
+                                    {
+                                        "diagnostic_elapsed_seconds": time.monotonic() - diagnostic_started,
+                                        "diagnostic_overall_budget_seconds": 1200,
+                                        "diagnostic_overall_budget_exceeded": time.monotonic() - diagnostic_started
+                                        > 1200,
+                                    }
+                                    if diagnostic_started is not None
+                                    else {}
+                                ),
                             },
                             indent=2,
                         )
@@ -1191,8 +1230,20 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
                     if remaining_processes:
                         os.killpg(child.pid, signal.SIGKILL)
                         raise RuntimeError("Native process group did not drain")
+        if initial_interruption:
+            (output / "backtest-input-interruptions.json").write_text(json.dumps(interruptions, indent=2) + "\n")
         if child.returncode != 0:
             raise RuntimeError("Native Host failed its owned lifecycle")
+        if args.backtest_diagnostic:
+            from scripts.backtest_diagnostic import finish_capture
+
+            result = finish_capture(
+                output / "observations.jsonl",
+                phase_output / "diagnostic-close.jsonl",
+                child.pid,
+                result,
+                output / "diagnostic-completion.json",
+            )
         selected_artifact(ROOT, resources, selected_sha)
         return result
 
@@ -1205,28 +1256,47 @@ def _run(args: argparse.Namespace, output: Path, source_trust: Path, external_fi
             target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
             probe = ROOT / "test-results/rust-kernel/target" / target / "release/examples/command-postgres-probe"
             check_stopped_preparation(output, dsn, probe, env)
-        lifecycle = output / "factor-restart-input.json.backtest-functional-running-recovery"
-        paused = None
-        if result == 0 and lifecycle.exists():
-            if not args.restart_check:
-                raise ValueError("RUNNING_RECOVERY_REQUIRES_RESTART_CHECK")
-            saved = json.loads(lifecycle.read_text())
-            run_id = saved["run"]["run_id"]
-            if saved["kind"] != "RUNNING" or saved["path"] != f"/backtest/runs/{run_id}":
-                raise ValueError("foreign running recovery evidence")
-            target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
-            probe = ROOT / "test-results/rust-kernel/target" / target / "release/examples/command-postgres-probe"
-            # run_host has positively joined the original Host and all children.
-            # A naturally completed Run must fail this actual PAUSE fence.
-            paused = observe_stopped_backtest(probe, data, run_id)
-            require_paused_backtest(paused)
-            Path(str(lifecycle) + ".pause").write_text(json.dumps(paused) + "\n")
-        if result == 0 and args.restart_check:
-            result = run_host("restored")
-            if result == 0 and paused is not None:
-                resumed = observe_stopped_backtest(probe, data, run_id)
-                require_resumed_backtest(paused, resumed)
-                Path(str(lifecycle) + ".resumed").write_text(json.dumps(resumed) + "\n")
+        if result != 0 or not args.restart_check:
+            return result
+        stopped = {}
+        if lifecycle_tests:
+            barriers = json.loads((output / "backtest-input-interruptions.json").read_text())
+            for case, kind in lifecycle_tests.items():
+                evidence = output / f"factor-restart-input.json.backtest-functional-{case}"
+                saved = json.loads(evidence.read_text())
+                run_id = saved["run"]["run_id"]
+                assert saved["kind"] == kind and saved["path"] == f"/backtest/runs/{run_id}", saved
+                interruption = barriers[run_id]
+                assert interruption["kind"] == kind and interruption["status"] == "DISCONNECTED", interruption
+                assert interruption["hold_seconds"] < 5, interruption
+                snapshot = read_backtest(dsn, run_id)
+                assert snapshot is not None, run_id
+                Path(str(evidence) + ".stopped").write_text(json.dumps(snapshot, indent=2) + "\n")
+                if kind == "CANCELLED":
+                    cancellation = saved["cancellation"]
+                    require_cancelled_backtest(
+                        interruption["before"],
+                        snapshot,
+                        cancellation["command_id"],
+                        cancellation["requested_at"],
+                    )
+                else:
+                    assert interruption["sigterm_at"] < interruption["closed_at"], interruption
+                    require_stopped_backtest(interruption["before"], snapshot)
+                stopped[evidence] = kind, run_id, snapshot
+            assert set(barriers) == {run_id for _, run_id, _ in stopped.values()}, barriers
+        result = run_host("restored")
+        if result == 0:
+            for evidence, (kind, run_id, before) in stopped.items():
+                after = read_backtest(dsn, run_id)
+                assert after is not None, run_id
+                Path(str(evidence) + ".restored").write_text(json.dumps(after, indent=2) + "\n")
+                if kind == "RUNNING":
+                    require_resumed_backtest(before, after)
+                else:
+                    assert {k: v for k, v in before.items() if k != "observed_at"} == {
+                        k: v for k, v in after.items() if k != "observed_at"
+                    }, run_id
         return result
     finally:
         clickhouse_namespace(executable, database, initialize=False)

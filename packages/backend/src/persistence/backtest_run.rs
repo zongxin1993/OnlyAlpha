@@ -3,7 +3,7 @@ use crate::{
     application::{
         backtest_run::{
             self, CancelRequest, Context, CreateRequest, INVALID, Inputs, MISMATCH, Result,
-            Specification, VerifiedCompletion, VerifiedRun, text,
+            Specification, VerifiedRun, text,
         },
         command::{self, Admission, Binding, CommandKind, Outcome, OutcomeKind, Receipt},
         factor_content::hash,
@@ -15,12 +15,16 @@ use crate::{
     },
 };
 use onlyalpha_domain::time::OnlyUtcDateTime;
+use onlyalpha_observability::{Correlation, Operation};
 use serde_json::{Value, json};
 use std::time::SystemTime;
 use tokio_postgres::{Row, Transaction};
+use tracing::Instrument;
 const UNAVAILABLE: &str = "BACKTEST_RUN_STORE_UNAVAILABLE";
+const PROOF_MISSING: &str = "BACKTEST_RUN_PROOF_MISSING";
+const PROOF_CORRUPT: &str = "BACKTEST_RUN_PROOF_CORRUPT";
 const UNCERTAIN: &str = "BACKTEST_RUN_OWNERSHIP_UNCERTAIN";
-const LOST: &str = "BACKTEST_RUN_OWNERSHIP_LOST";
+pub(crate) const LOST: &str = "BACKTEST_RUN_OWNERSHIP_LOST";
 const CONFLICT: &str = "PRODUCT_COMMAND_CONFLICT";
 fn db(_: impl std::fmt::Debug) -> &'static str {
     UNAVAILABLE
@@ -56,7 +60,7 @@ impl RunState {
             "COMPLETED" => Ok(Self::Completed),
             "FAILED" => Ok(Self::Failed),
             "CANCELLED" => Ok(Self::Cancelled),
-            _ => Err(MISMATCH),
+            _ => Err(PROOF_CORRUPT),
         }
     }
     pub fn terminal(self) -> bool {
@@ -84,6 +88,7 @@ pub(crate) struct RunBinding {
     replayed: bool,
     status: RunStatus,
     started: bool,
+    cancel_requested_at: Option<SystemTime>,
     pins: [Option<String>; 3],
 }
 impl RunBinding {
@@ -92,6 +97,9 @@ impl RunBinding {
     }
     pub(crate) fn was_started(&self) -> bool {
         self.started
+    }
+    pub(crate) fn cancel_requested_at(&self) -> Option<SystemTime> {
+        self.cancel_requested_at
     }
     pub(crate) fn completion_fingerprints(&self) -> Option<(&str, &str, &str)> {
         match (&self.pins[0], &self.pins[1], &self.pins[2]) {
@@ -201,40 +209,57 @@ async fn read_run(
     id: &str,
     lock: bool,
 ) -> Result<Option<Current>> {
+    read_run_for_owner(tx, namespace, id, lock, None).await
+}
+
+async fn read_run_for_owner(
+    tx: &Transaction<'_>,
+    namespace: &SemanticStoreId,
+    id: &str,
+    lock: bool,
+    owner: Option<&str>,
+) -> Result<Option<Current>> {
     deployment::verify_binding_in_transaction(tx, namespace)
         .await
-        .map_err(db)?;
-    let query = if lock {
-        format!("{SELECT_RUN} FOR UPDATE")
-    } else {
-        SELECT_RUN.to_owned()
+        .map_err(|error| error.code())?;
+    let mut query = SELECT_RUN.to_owned();
+    if owner.is_some() {
+        query.push_str(" AND admission_resolution_payload::jsonb->>'owner'=$2");
+    }
+    if lock {
+        query.push_str(" FOR UPDATE");
+    }
+    let row = match owner {
+        Some(owner) => tx.query_opt(&query, &[&id, &owner]).await,
+        None => tx.query_opt(&query, &[&id]).await,
     };
-    let Some(row) = tx.query_opt(&query, &[&id]).await.map_err(db)? else {
+    let Some(row) = row.map_err(|error| match error.code() {
+        Some(&tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE) => "BACKTEST_RUN_STORE_DENIED",
+        _ => UNAVAILABLE,
+    })? else {
         return Ok(None);
     };
-    let specification_json: String = row.try_get("specification_payload").map_err(db)?;
-    let resolution_json: String = row.try_get("admission_resolution_payload").map_err(db)?;
+    let corrupt = |_| PROOF_CORRUPT;
+    let specification_json: String = row.try_get("specification_payload").map_err(corrupt)?;
+    let resolution_json: String = row.try_get("admission_resolution_payload").map_err(corrupt)?;
     let specification = Specification::from_record(
-        &serde_json::from_str(&specification_json).map_err(|_| MISMATCH)?,
-    )?;
-    let resolution: Value = serde_json::from_str(&resolution_json).map_err(|_| MISMATCH)?;
-    backtest_run::validate_resolution(&specification, &resolution, namespace)?;
-    let spec_fp: String = row.try_get("specification_fingerprint").map_err(db)?;
-    let resolution_fp: String = row
-        .try_get("admission_resolution_fingerprint")
-        .map_err(db)?;
-    if row
-        .try_get::<_, i16>("specification_schema_version")
-        .map_err(db)?
-        != 3
-        || row
-            .try_get::<_, i16>("admission_resolution_schema_version")
-            .map_err(db)?
-            != 2
-        || spec_fp != specification.fingerprint()?
-        || resolution_fp != hash(&resolution)?
-        || resolution["runtime_work_binding"]["work_id"] != id
+        &serde_json::from_str(&specification_json).map_err(|_| PROOF_CORRUPT)?,
+    )
+    .map_err(|_| PROOF_CORRUPT)?;
+    let resolution: Value = serde_json::from_str(&resolution_json).map_err(|_| PROOF_CORRUPT)?;
+    let spec_fp: String = row.try_get("specification_fingerprint").map_err(corrupt)?;
+    let resolution_fp: String = row.try_get("admission_resolution_fingerprint").map_err(corrupt)?;
+    if row.try_get::<_, i16>("specification_schema_version").map_err(corrupt)? != 3
+        || row.try_get::<_, i16>("admission_resolution_schema_version").map_err(corrupt)? != 2
+        || spec_fp != specification.fingerprint().map_err(|_| PROOF_CORRUPT)?
+        || resolution_fp != hash(&resolution).map_err(|_| PROOF_CORRUPT)?
     {
+        return Err(PROOF_CORRUPT);
+    }
+    backtest_run::validate_resolution(&specification, &resolution, namespace).map_err(|code| {
+        if code == MISMATCH { MISMATCH } else { PROOF_CORRUPT }
+    })?;
+    if resolution["runtime_work_binding"]["work_id"] != id {
         return Err(MISMATCH);
     }
     let owner = text(&resolution, "owner")?.to_owned();
@@ -261,22 +286,23 @@ async fn read_run(
         {
             r
         }
-        _ => return Err(MISMATCH),
+        Binding::None | Binding::Admitted(_) => return Err(PROOF_MISSING),
+        Binding::Accepted(_) => return Err(MISMATCH),
     };
-    let queued: SystemTime = row.try_get("queued_at").map_err(db)?;
-    if system_time(receipt.accepted_at()).map_err(db)? != queued {
+    let queued: SystemTime = row.try_get("queued_at").map_err(corrupt)?;
+    if system_time(receipt.accepted_at()).map_err(|_| PROOF_CORRUPT)? != queued {
         return Err(MISMATCH);
     }
-    let state = RunState::parse(row.try_get::<_, &str>("state").map_err(db)?)?;
-    let revision: i64 = row.try_get("revision").map_err(db)?;
-    let started: Option<SystemTime> = row.try_get("started_at").map_err(db)?;
-    let cancel: Option<SystemTime> = row.try_get("cancel_requested_at").map_err(db)?;
+    let state = RunState::parse(row.try_get::<_, &str>("state").map_err(corrupt)?)?;
+    let revision: i64 = row.try_get("revision").map_err(corrupt)?;
+    let started: Option<SystemTime> = row.try_get("started_at").map_err(corrupt)?;
+    let cancel: Option<SystemTime> = row.try_get("cancel_requested_at").map_err(corrupt)?;
     validate_state(&row, state, revision, queued, started, cancel)?;
     let generation = text(&resolution, "runtime_generation_fingerprint")?.to_owned();
     let pins = [
-        row.try_get("evidence_fingerprint").map_err(db)?,
-        row.try_get("result_fingerprint").map_err(db)?,
-        row.try_get("determinism_fingerprint").map_err(db)?,
+        row.try_get("evidence_fingerprint").map_err(corrupt)?,
+        row.try_get("result_fingerprint").map_err(corrupt)?,
+        row.try_get("determinism_fingerprint").map_err(corrupt)?,
     ];
     Ok(Some(Current {
         run: VerifiedRun {
@@ -294,6 +320,7 @@ async fn read_run(
                 replayed: false,
                 status: RunStatus { state, revision },
                 started: started.is_some(),
+                cancel_requested_at: cancel,
                 pins,
             },
         },
@@ -323,14 +350,44 @@ pub(crate) async fn read_snapshot(
         .await
         .map_err(db)?;
     bounds(&tx).await.map_err(db)?;
-    let current = read_run(&tx, namespace, id, false)
-        .await?
-        .ok_or("BACKTEST_RUN_NOT_FOUND")?;
-    if owner.is_some_and(|value| value != current.run.owner()) {
-        return Err("BACKTEST_RUN_NOT_FOUND");
-    }
+    let current = owned_snapshot(&tx, namespace, id, owner).await?;
     tx.commit().await.map_err(db)?;
     Ok((current.run, current.status))
+}
+
+async fn owned_snapshot(
+    tx: &Transaction<'_>,
+    namespace: &SemanticStoreId,
+    id: &str,
+    owner: Option<&str>,
+) -> Result<Current> {
+    read_run_for_owner(tx, namespace, id, false, owner)
+        .await?
+        .ok_or("BACKTEST_RUN_NOT_FOUND")
+}
+
+pub(crate) async fn read_product_snapshot(
+    client: &mut tokio_postgres::Client,
+    namespace: &SemanticStoreId,
+    id: &str,
+    owner: &str,
+) -> Result<(VerifiedRun, RunStatus, command::CommandId)> {
+    if !command::uuid4(id) {
+        return Err(INVALID);
+    }
+    let tx = client
+        .build_transaction()
+        .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
+        .read_only(true)
+        .start()
+        .await
+        .map_err(db)?;
+    bounds(&tx).await.map_err(db)?;
+    let current = owned_snapshot(&tx, namespace, id, Some(owner)).await?;
+    let preparation = super::research_preparation::original_backtest_preparation(&tx, &current.run)
+        .await?;
+    tx.commit().await.map_err(db)?;
+    Ok((current.run, current.status, preparation.command))
 }
 
 pub(crate) async fn recent_snapshots(
@@ -375,7 +432,8 @@ fn validate_state(
     started: Option<SystemTime>,
     cancel: Option<SystemTime>,
 ) -> Result<()> {
-    let finished: Option<SystemTime> = row.try_get("finished_at").map_err(db)?;
+    let corrupt = |_| PROOF_CORRUPT;
+    let finished: Option<SystemTime> = row.try_get("finished_at").map_err(corrupt)?;
     if revision < 0
         || state.terminal() != finished.is_some()
         || started.is_some_and(|t| t < queued)
@@ -385,7 +443,7 @@ fn validate_state(
         })
         || (state == RunState::CancelRequested) != (cancel.is_some() && finished.is_none())
     {
-        return Err(MISMATCH);
+        return Err(PROOF_CORRUPT);
     }
     if (matches!(
         state,
@@ -393,10 +451,10 @@ fn validate_state(
     ) || (state == RunState::Cancelled && started.is_some()))
         != started.is_some()
     {
-        return Err(MISMATCH);
+        return Err(PROOF_CORRUPT);
     }
     if state == RunState::Queued && (revision != 0 || started.is_some() || cancel.is_some()) {
-        return Err(MISMATCH);
+        return Err(PROOF_CORRUPT);
     }
     let mut pinned = 0;
     for field in [
@@ -404,10 +462,10 @@ fn validate_state(
         "result_fingerprint",
         "determinism_fingerprint",
     ] {
-        let value: Option<String> = row.try_get(field).map_err(db)?;
+        let value: Option<String> = row.try_get(field).map_err(corrupt)?;
         if let Some(value) = value {
             if !crate::is_sha256_hex(&value) {
-                return Err(MISMATCH);
+                return Err(PROOF_CORRUPT);
             }
             pinned += 1;
         }
@@ -419,15 +477,25 @@ fn validate_state(
             RunState::Completed | RunState::Failed | RunState::Cancelled
         ) && pinned != 0)
     {
-        return Err(MISMATCH);
+        return Err(PROOF_CORRUPT);
     }
     for field in ["failure_phase", "failure_code", "failure_detail"] {
-        let value: Option<String> = row.try_get(field).map_err(db)?;
+        let value: Option<String> = row.try_get(field).map_err(corrupt)?;
         if (state == RunState::Failed) != value.is_some() {
-            return Err(MISMATCH);
+            return Err(PROOF_CORRUPT);
         }
     }
     Ok(())
+}
+fn publication_error(error:super::job_publication::PublicationError) -> &'static str {
+    use super::job_publication::PublicationError as P;
+    match error {
+        P::OutcomeUnknown=>UNCERTAIN,
+        P::Unavailable|P::Denied|P::OwnershipLost=>UNAVAILABLE,
+        P::MissingEvidence=>"BACKTEST_FROZEN_INPUT_BINDING_MISSING",
+        P::BudgetExceeded=>"BACKTEST_FROZEN_INPUT_BINDING_BUDGET_EXCEEDED",
+        P::Integrity|P::Mismatch|P::Conflict=>MISMATCH,
+    }
 }
 async fn replay(
     tx: &Transaction<'_>,
@@ -510,6 +578,7 @@ impl<'a> Backtests<'a> {
         .await;
         self.finish(owned, result).await
     }
+    #[cfg(test)]
     pub async fn create(
         &mut self,
         request: &CreateRequest,
@@ -541,12 +610,19 @@ impl<'a> Backtests<'a> {
     ) -> Result<VerifiedRun> {
         let owner = context.owner()?.to_owned();
         let mut owned = self.session.take_ownership();
+        let roles=owned.control_roles().map_err(|e|e.code())?;
         let result=async {
             let tx=owned.client_mut().await.map_err(|e|e.code())?.transaction().await.map_err(db)?;
             Commands::lock_command(&tx,request.command_id()).await.map_err(|e|e.code())?;
-            if let Some(run)=replay(&tx,self.namespace,request,&owner).await? {commit(tx).await?; return Ok(run);}
+            if let Some(run)=replay(&tx,self.namespace,request,&owner).await? {
+                if preparation.is_some() {
+                    let key = super::job_publication::RunLocator::new(crate::application::job_contract::JobKind::Backtest,run.run_id()).map_err(|_|MISMATCH)?;
+                    super::job_publication::verify_registered_control_transaction(&tx,&roles,self.namespace,&owner,&key,run.specification_fingerprint(),run.admission_resolution_fingerprint()).await.map_err(publication_error)?;
+                }
+                commit(tx).await?; return Ok(run);
+            }
             context.source()?;
-            inputs.verify_transaction(&tx,self.namespace).await?;
+            inputs.verify_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),self.namespace).await?;
             if let Some((operation,expected))=preparation {
                 if !operation.request.is_backtest() || operation.request.future_command()!=request.command_id().value()
                     || operation.request.reserved_run_id()!=request.run_id() || operation.outputs["ready"]["specification"]!=*request.specification().record() {return Err(MISMATCH);}
@@ -571,11 +647,16 @@ impl<'a> Backtests<'a> {
             verify_receipt(&tx,&receipt).await?;
             let verified=created.run;
             context.source()?;
-            inputs.verify_transaction(&tx,self.namespace).await?;
+            inputs.verify_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),self.namespace).await?;
             if let Some((operation,expected))=preparation {
                 crate::persistence::research_preparation::guard_submission(&tx,operation,expected).await?;
             }
+            if preparation.is_some() {
+                let registration = super::job_publication::FrozenBindingRegistration::from_backtest(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),inputs,request,context).await.map_err(publication_error)?;
+                super::job_publication::register_control_transaction(&tx,&roles,self.namespace,&owner,&registration).await.map_err(publication_error)?;
+            }
             commit(tx).await?;
+            tracing::info!(target:"onlyalpha.observability",event_kind="summary",module="backend",operation="backtest.run.queued",run_id=verified.run_id(),command_id=request.command_id().value(),outcome="queued");
             post_commit(&mut owned,self.namespace,&verified,Some(RunStatus{state:RunState::Queued,revision:0})).await?; Ok(verified)
         }.await;
         self.finish(owned, result).await
@@ -686,10 +767,10 @@ impl<'a> Backtests<'a> {
                 .map_err(|e| e.code())?;
             let expected = match current.status.state {
                 RunState::Queued => {
-                    transition(&tx, &current, RunState::Cancelled, at_db, None).await?
+                    transition(&tx, &current, RunState::Cancelled, at_db).await?
                 }
                 RunState::Running => {
-                    transition(&tx, &current, RunState::CancelRequested, at_db, None).await?
+                    transition(&tx, &current, RunState::CancelRequested, at_db).await?
                 }
                 _ => current.status,
             };
@@ -720,9 +801,10 @@ impl<'a> Backtests<'a> {
         .await;
         self.finish(owned, result).await
     }
-    pub async fn claim(
+    pub async fn claim_recompute(
         &mut self,
         run: &VerifiedRun,
+        observation: &super::job_publication::ConfirmedUnpublished,
         worker: &str,
         attempt: &str,
         at: OnlyUtcDateTime,
@@ -731,18 +813,35 @@ impl<'a> Backtests<'a> {
             return Err(INVALID);
         }
         let mut owned = self.session.take_ownership();
+        let roles=owned.control_roles().map_err(|e|e.code())?;
         let result=async {
             let tx=owned.client_mut().await.map_err(|e|e.code())?.transaction().await.map_err(db)?;bounds(&tx).await.map_err(db)?;
             let current=read_run(&tx,self.namespace,run.run_id(),true).await?.ok_or(LOST)?;current.matches(run)?;
-            if !matches!(current.status.state,RunState::Queued|RunState::Running|RunState::CancelRequested){commit(tx).await?;return Ok(None);}
+            if !matches!(current.status.state, RunState::Queued | RunState::Running) {
+                commit(tx).await?;
+                return Ok(None);
+            }
+            let key = super::job_publication::RunLocator::new(
+                crate::application::job_contract::JobKind::Backtest,
+                run.run_id(),
+            ).map_err(|_| MISMATCH)?;
+            if !super::job_publication::recheck_control_transaction(
+                &tx, &roles, observation, &key, self.namespace, run.owner(),
+            ).await.map_err(|_| UNAVAILABLE)? {
+                commit(tx).await?;
+                return Ok(None);
+            }
             let at_db=system_time(at).map_err(db)?;current.check_time(at_db)?;
             let row=tx.query_one("SELECT COALESCE(max(attempt_number),0)::integer AS number,COALESCE(max(fencing_token),0)::bigint AS fence,count(*) FILTER(WHERE state='ACTIVE')::bigint AS active FROM backtest_run_attempt WHERE run_id=$1::text::uuid",&[&run.run_id()]).await.map_err(db)?;
             if row.try_get::<_,i64>("active").map_err(db)?!=0 {commit(tx).await?;return Ok(None);}
-            let number=row.try_get::<_,i32>("number").map_err(db)?.checked_add(1).ok_or(MISMATCH)?;
+            let previous=row.try_get::<_,i32>("number").map_err(db)?;
+            if previous >= crate::application::job_recovery::RetryBudget::finite_job().max_attempts() {
+                commit(tx).await?;
+                return Ok(None);
+            }
+            let number=previous.checked_add(1).ok_or(MISMATCH)?;
             let fence=row.try_get::<_,i64>("fence").map_err(db)?.checked_add(1).ok_or(MISMATCH)?;
-            if current.status.state==RunState::Queued {if number!=1||fence!=1{return Err(MISMATCH);}transition(&tx,&current,RunState::Running,at_db,None).await?;}
-            // A CANCEL_REQUESTED replacement owns recovery/drain only. The Host
-            // observes that same Run state before invoking its native consumer.
+            if current.status.state==RunState::Queued {if number!=1||fence!=1{return Err(MISMATCH);}transition(&tx,&current,RunState::Running,at_db).await?;}
             let n=tx.execute("WITH lease AS MATERIALIZED (SELECT clock_timestamp() AS now) INSERT INTO backtest_run_attempt(attempt_id,run_id,attempt_number,state,worker_instance_id,fencing_token,claimed_at,last_heartbeat_at,lease_expires_at) SELECT $1::text::uuid,$2::text::uuid,$3,'ACTIVE',$4::text::uuid,$5,lease.now,lease.now,lease.now+interval '120 seconds' FROM lease",&[&attempt,&run.run_id(),&number,&worker,&fence]).await.map_err(db)?;
             if n!=1{return Err(MISMATCH);}
             let expected=if current.status.state==RunState::Queued{RunStatus{state:RunState::Running,revision:current.status.revision.checked_add(1).ok_or(MISMATCH)?}}else{current.status};
@@ -757,30 +856,227 @@ impl<'a> Backtests<'a> {
         }.await;
         self.finish(owned, result).await
     }
-    pub async fn heartbeat(&mut self, claim: &mut Claim) -> Result<()> {
+    pub(crate) async fn observe_publication(
+        &mut self,
+        run: &VerifiedRun,
+    ) -> Result<super::job_publication::PublicationObservation> {
+        use crate::application::job_contract::JobKind;
+        use super::job_publication::{PublicationObservation, PublicationRepository, RunLocator};
+
+        let key = RunLocator::new(JobKind::Backtest, run.run_id()).map_err(publication_error)?;
+        let observed = PublicationRepository::observe_guarded(self.session, self.namespace, run.owner(), &key)
+            .await.map_err(publication_error)?;
+        if let PublicationObservation::Published(result) = &observed {
+            if result.specification_fingerprint() != run.specification_fingerprint()
+                || result.admission_fingerprint() != run.admission_resolution_fingerprint()
+            {
+                return Err(MISMATCH);
+            }
+        }
+        Ok(observed)
+    }
+
+    pub(crate) async fn finish_aborted(
+        &mut self,
+        claim: &mut Claim,
+        proof: &crate::application::finite_job::AbortedPreparation,
+        error: &'static str,
+    ) -> Result<RunStatus> {
+        proof.verify_attempt(&super::job_publication::AttemptClaim::from_backtest(claim))
+            .map_err(|_| MISMATCH)?;
+        self.finish_claimed_unpublished(claim, proof.binding(), Some(("ADMISSION", error))).await
+    }
+
+    pub(crate) async fn finish_drained(
+        &mut self,
+        claim: &mut Claim,
+        proof: &crate::application::finite_job::DrainedFiniteJob,
+        error: Option<&'static str>,
+    ) -> Result<RunStatus> {
+        proof.verify_attempt(&super::job_publication::AttemptClaim::from_backtest(claim))
+            .map_err(|error| error.code())?;
+        self.finish_claimed_unpublished(claim, proof.binding(), error.map(|code| ("EXECUTION", code))).await
+    }
+
+    async fn finish_claimed_unpublished(
+        &mut self,
+        claim: &mut Claim,
+        binding: &crate::application::job_contract::FrozenJobBinding,
+        failure: Option<(&str, &str)>,
+    ) -> Result<RunStatus> {
+        use crate::application::job_contract::JobKind;
+        use super::job_publication::verify_unpublished_control_transaction;
+
+        if !claim.certain {
+            return Err(UNCERTAIN);
+        }
+        let run = &claim.run;
+        if binding.kind() != JobKind::Backtest || binding.run_id() != run.run_id()
+            || binding.owner() != run.owner() || binding.namespace() != self.namespace.value()
+        {
+            return Err(MISMATCH);
+        }
         claim.certain = false;
         let mut owned = self.session.take_ownership();
-        let result=async {
-            let tx=owned.client_mut().await.map_err(|e|e.code())?.transaction().await.map_err(|_|UNCERTAIN)?;bounds(&tx).await.map_err(|_|UNCERTAIN)?;
-            let current=read_run(&tx,self.namespace,claim.run_id(),true).await?.ok_or(LOST)?;current.matches(&claim.run)?;
-            if !matches!(current.status.state,RunState::Running|RunState::CancelRequested){return Err(LOST);}
-            let n=tx.execute("WITH lease AS MATERIALIZED (SELECT clock_timestamp() AS now) UPDATE backtest_run_attempt a SET last_heartbeat_at=lease.now,lease_expires_at=lease.now+interval '120 seconds' FROM lease WHERE a.run_id=$1::text::uuid AND a.attempt_id=$2::text::uuid AND a.worker_instance_id=$3::text::uuid AND a.attempt_number=$4 AND a.fencing_token=$5 AND a.state='ACTIVE' AND a.lease_expires_at>lease.now",&[&claim.run_id(),&claim.attempt,&claim.worker,&claim.number,&claim.fence]).await.map_err(|_|UNCERTAIN)?;
-            if n!=1{return Err(LOST);}
+        let roles = owned.control_roles().map_err(|e| e.code())?;
+        let result = async {
+            let tx = owned.client_mut().await.map_err(|_| UNCERTAIN)?.transaction().await.map_err(db)?;
+            bounds(&tx).await.map_err(db)?;
+            let current = read_run(&tx, self.namespace, run.run_id(), true).await?.ok_or(LOST)?;
+            current.matches(run)?;
+            let (target, phase, code, detail) = match (current.status.state, failure) {
+                (RunState::CancelRequested, _) => (RunState::Cancelled, None, None, None),
+                (RunState::Running, Some((phase, code))) => (
+                    RunState::Failed, Some(phase), Some(code), Some("Finite Backtest work ended before publication"),
+                ),
+                _ => return Err(LOST),
+            };
+            verify_unpublished_control_transaction(&tx, &roles, self.namespace, binding,
+                run.specification_fingerprint(), run.admission_resolution_fingerprint()).await.map_err(publication_error)?;
+            let at_db: SystemTime = tx.query_one("SELECT clock_timestamp()", &[]).await.map_err(db)?.try_get(0).map_err(db)?;
+            current.check_time(at_db)?;
+            let changed = tx.execute(
+                "UPDATE public.backtest_run_attempt SET state=$6,finished_at=$9,failure_code=$7,failure_detail=$8 WHERE run_id=$1::text::uuid AND attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND fencing_token=$5 AND state='ACTIVE' AND lease_expires_at>clock_timestamp()",
+                &[&run.run_id(), &claim.attempt, &claim.worker, &claim.number, &claim.fence, &target.as_str(), &code, &detail, &at_db],
+            ).await.map_err(db)?;
+            if changed != 1 {
+                return Err(LOST);
+            }
+            let revision = current.status.revision.checked_add(1).ok_or(MISMATCH)?;
+            let changed = tx.execute(
+                "UPDATE public.backtest_run SET state=$4,revision=$3,finished_at=$5,failure_phase=$6,failure_code=$7,failure_detail=$8 WHERE run_id=$1::text::uuid AND revision=$2",
+                &[&run.run_id(), &current.status.revision, &revision, &target.as_str(), &at_db, &phase, &code, &detail],
+            ).await.map_err(db)?;
+            if changed != 1 {
+                return Err(LOST);
+            }
+            let status = RunStatus { state: target, revision };
             flush_deferred(&tx).await?;
-            verify_current(&tx,self.namespace,&claim.run,Some(current.status)).await?;
-            verify_attempt(&tx,claim.run_id(),&claim.attempt,&claim.worker,claim.number,claim.fence,"ACTIVE",true).await?;
+            verify_current(&tx, self.namespace, run, Some(status)).await?;
+            verify_attempt(&tx, run.run_id(), &claim.attempt, &claim.worker, claim.number, claim.fence, target.as_str(), false).await?;
+            verify_unpublished_control_transaction(&tx, &roles, self.namespace, binding,
+                run.specification_fingerprint(), run.admission_resolution_fingerprint()).await.map_err(publication_error)?;
+            commit(tx).await.map_err(|_| UNCERTAIN)?;
+            post_commit(&mut owned, self.namespace, run, Some(status)).await?;
+            post_claim(&mut owned, claim, target.as_str(), false).await?;
+            Ok(status)
+        }.await;
+        self.finish(owned, result).await
+    }
+
+    /// Settle only an original Run with a current, locked absence proof and no
+    /// active owner. Source access and a replacement Attempt are unnecessary.
+    pub(crate) async fn finish_cancelled_unpublished(
+        &mut self, run: &VerifiedRun, proof: &super::job_publication::ConfirmedUnpublished,
+        at: OnlyUtcDateTime,
+    ) -> Result<Option<RunStatus>> {
+        self.finish_unpublished(run, proof, RunState::Cancelled, at).await
+    }
+    pub(crate) async fn finish_exhausted(
+        &mut self, run: &VerifiedRun, proof: &super::job_publication::ConfirmedUnpublished,
+        at: OnlyUtcDateTime,
+    ) -> Result<Option<RunStatus>> {
+        self.finish_unpublished(run, proof, RunState::Failed, at).await
+    }
+    async fn finish_unpublished(
+        &mut self, run: &VerifiedRun, proof: &super::job_publication::ConfirmedUnpublished,
+        target: RunState, at: OnlyUtcDateTime,
+    ) -> Result<Option<RunStatus>> {
+        let mut owned = self.session.take_ownership();
+        let roles = owned.control_roles().map_err(|e|e.code())?;
+        let result = async {
+            let tx = owned.client_mut().await.map_err(|e|e.code())?.transaction().await.map_err(db)?;
+            bounds(&tx).await.map_err(db)?;
+            let current = read_run(&tx,self.namespace,run.run_id(),true).await?.ok_or(LOST)?;
+            current.matches(run)?;
+            let eligible = match target {
+                RunState::Cancelled => current.status.state == RunState::CancelRequested,
+                RunState::Failed => current.status.state == RunState::Running
+                    && proof.attempts() == crate::application::job_recovery::RetryBudget::finite_job().max_attempts(),
+                _ => return Err(INVALID),
+            };
+            let key = super::job_publication::RunLocator::new(crate::application::job_contract::JobKind::Backtest,run.run_id()).map_err(publication_error)?;
+            if !eligible || !super::job_publication::recheck_control_transaction(&tx,&roles,proof,&key,self.namespace,run.owner()).await.map_err(publication_error)? {
+                commit(tx).await?;
+                return Ok(None);
+            }
+            let at_db = system_time(at).map_err(db)?;
+            current.check_time(at_db)?;
+            let status = if target == RunState::Cancelled {
+                transition(&tx,&current,target,at_db).await?
+            } else {
+                let revision = current.status.revision.checked_add(1).ok_or(MISMATCH)?;
+                let changed = tx.execute("UPDATE backtest_run SET state='FAILED',revision=$3,finished_at=$4,failure_phase='OPERATIONAL',failure_code='BACKTEST_ATTEMPTS_EXHAUSTED',failure_detail='Finite recomputation exhausted its three original Run Attempts without a publication' WHERE run_id=$1::text::uuid AND revision=$2 AND state='RUNNING'",&[&run.run_id(),&current.status.revision,&revision,&at_db]).await.map_err(db)?;
+                if changed != 1 { return Err(LOST); }
+                RunStatus { state: target, revision }
+            };
+            flush_deferred(&tx).await?;
+            verify_current(&tx,self.namespace,run,Some(status)).await?;
+            let checked = super::job_publication::read_control_facts(&tx,&roles,|facts| async move {
+                facts.query_one("SELECT evidence_fingerprint IS NULL AND result_fingerprint IS NULL AND determinism_fingerprint IS NULL,NOT EXISTS(SELECT 1 FROM public.job_publication p WHERE p.job_kind='BACKTEST' AND p.run_id=r.run_id),NOT EXISTS(SELECT 1 FROM public.job_result_member m WHERE m.job_kind='BACKTEST' AND m.run_id=r.run_id),failure_phase,failure_code,failure_detail,(SELECT COALESCE(max(attempt_number),0)::integer FROM public.backtest_run_attempt a WHERE a.run_id=r.run_id),(SELECT count(*) FROM public.backtest_run_attempt a WHERE a.run_id=r.run_id AND a.state='ACTIVE') FROM public.backtest_run r WHERE run_id=$1::text::uuid",&[&run.run_id()]).await.map_err(db)
+            }).await.map_err(publication_error)??;
+            if !checked.get::<_,bool>(0) || !checked.get::<_,bool>(1) || !checked.get::<_,bool>(2)
+                || checked.get::<_,i32>(6) != proof.attempts() || checked.get::<_,i64>(7) != 0
+                || (target == RunState::Failed && (checked.get::<_,Option<String>>(3).as_deref()!=Some("OPERATIONAL")
+                    || checked.get::<_,Option<String>>(4).as_deref()!=Some("BACKTEST_ATTEMPTS_EXHAUSTED")
+                    || checked.get::<_,Option<String>>(5).as_deref()!=Some("Finite recomputation exhausted its three original Run Attempts without a publication"))) { return Err(MISMATCH); }
             commit(tx).await.map_err(|_|UNCERTAIN)?;
-            post_commit(&mut owned,self.namespace,&claim.run,Some(current.status)).await?;
-            post_claim(&mut owned,claim,"ACTIVE",true).await?;Ok(())
+            post_commit(&mut owned,self.namespace,run,Some(status)).await?;
+            Ok(Some(status))
+        }.await;
+        self.finish(owned,result).await
+    }
+    pub async fn heartbeat(&mut self, claim: &mut Claim) -> Result<Option<RunStatus>> {
+        claim.certain = false;
+        let mut owned = self.session.take_ownership();
+        let result = async {
+            let tx = owned.client_mut().await.map_err(|e| e.code())?
+                .transaction().await.map_err(|_| UNCERTAIN)?;
+            bounds(&tx).await.map_err(|_| UNCERTAIN)?;
+            let current = read_run(&tx, self.namespace, claim.run_id(), true).await?.ok_or(LOST)?;
+            current.matches(&claim.run)?;
+            let active_run = matches!(current.status.state, RunState::Running | RunState::CancelRequested);
+            let identity: [&(dyn tokio_postgres::types::ToSql + Sync); 5] =
+                [&claim.run_id(), &claim.attempt, &claim.worker, &claim.number, &claim.fence];
+            let renewed = active_run && tx.execute(
+                "WITH lease AS MATERIALIZED (SELECT clock_timestamp() AS now) UPDATE backtest_run_attempt a SET last_heartbeat_at=lease.now,lease_expires_at=lease.now+interval '120 seconds' FROM lease WHERE a.run_id=$1::text::uuid AND a.attempt_id=$2::text::uuid AND a.worker_instance_id=$3::text::uuid AND a.attempt_number=$4 AND a.fencing_token=$5 AND a.state='ACTIVE' AND a.lease_expires_at>lease.now",
+                &identity,
+            ).await.map_err(|_| UNCERTAIN)? == 1;
+            if !renewed {
+                if !attempt_is_expired(&tx, claim, active_run).await? {
+                    return Err(MISMATCH);
+                }
+                commit(tx).await?;
+                return Ok(None);
+            }
+            flush_deferred(&tx).await?;
+            verify_current(&tx, self.namespace, &claim.run, Some(current.status)).await?;
+            verify_attempt(&tx, claim.run_id(), &claim.attempt, &claim.worker, claim.number, claim.fence, "ACTIVE", true).await?;
+            commit(tx).await.map_err(|_| UNCERTAIN)?;
+            post_commit(&mut owned, self.namespace, &claim.run, Some(current.status)).await?;
+            post_claim(&mut owned, claim, "ACTIVE", true).await?;
+            Ok(Some(current.status))
         }.await;
         let value = self.finish(owned, result).await;
-        if value.is_ok() {
-            claim.certain = true;
-        }
+        claim.certain = matches!(value, Ok(Some(_)));
         value
     }
-    /// Expiry relinquishes ownership. It proves neither semantic cancellation
-    /// nor absence of fills; a later fenced Attempt reopens the same journal.
+    pub(crate) async fn confirm_attempt_expired(&mut self, claim: &Claim) -> Result<bool> {
+        let mut owned = self.session.take_ownership();
+        let result = async {
+            let tx = owned.client_mut().await.map_err(|error| error.code())?
+                .transaction().await.map_err(db)?;
+            bounds(&tx).await.map_err(db)?;
+            let current = read_run(&tx, self.namespace, claim.run_id(), true).await?.ok_or(MISMATCH)?;
+            current.matches(&claim.run)?;
+            let active_run = matches!(current.status.state, RunState::Running | RunState::CancelRequested);
+            let expired = attempt_is_expired(&tx, claim, active_run).await?;
+            commit(tx).await?;
+            Ok(expired)
+        }.await;
+        self.finish(owned, result).await
+    }
+    /// Expiry relinquishes the original execution right. Publication is observed separately.
     pub async fn expire(
         &mut self,
         run: &VerifiedRun,
@@ -807,76 +1103,12 @@ impl<'a> Backtests<'a> {
         }.await;
         self.finish(owned, result).await
     }
-    pub async fn complete(
-        &mut self,
-        claim: &mut Claim,
-        proof: &VerifiedCompletion,
-        at: OnlyUtcDateTime,
-    ) -> Result<RunStatus> {
-        self.finalize(claim, proof, RunState::Completed, at).await
-    }
-    pub async fn cancel(
-        &mut self,
-        claim: &mut Claim,
-        proof: &VerifiedCompletion,
-        at: OnlyUtcDateTime,
-    ) -> Result<RunStatus> {
-        self.finalize(claim, proof, RunState::Cancelled, at).await
-    }
-    async fn finalize(
-        &mut self,
-        claim: &mut Claim,
-        completion: &VerifiedCompletion,
-        target: RunState,
-        at: OnlyUtcDateTime,
-    ) -> Result<RunStatus> {
-        if !claim.certain {
-            return Err(UNCERTAIN);
-        }
-        let proof = completion.proof();
-        proof.verify_cut()?;
-        if proof.run_id() != claim.run_id()
-            || proof.specification_fingerprint() != claim.run.specification_fingerprint()
-            || proof.admission_resolution_fingerprint()
-                != claim.run.admission_resolution_fingerprint()
-            || proof.status() != target.as_str()
-        {
-            return Err(MISMATCH);
-        }
-        claim.certain = false;
-        let mut owned = self.session.take_ownership();
-        let result=async {
-            let tx=owned.client_mut().await.map_err(|e|e.code())?.transaction().await.map_err(|_|UNCERTAIN)?;bounds(&tx).await.map_err(|_|UNCERTAIN)?;
-            let current=read_run(&tx,self.namespace,claim.run_id(),true).await?.ok_or(LOST)?;current.matches(&claim.run)?;
-            if !matches!(current.status.state,RunState::Running|RunState::CancelRequested)||(target==RunState::Cancelled&&current.status.state!=RunState::CancelRequested){return Err(LOST);}
-            let at_db=system_time(at).map_err(db)?;current.check_time(at_db)?;proof.verify_cut()?;
-            let attempt=if target==RunState::Completed{"SUCCEEDED"}else{"CANCELLED"};
-            // The full fence and fresh server clock are checked after the Run
-            // lock, rather than trusting a lease observation made before waits.
-            let n=tx.execute("UPDATE backtest_run_attempt SET state=$6,finished_at=clock_timestamp() WHERE run_id=$1::text::uuid AND attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND fencing_token=$5 AND state='ACTIVE' AND lease_expires_at>clock_timestamp()",&[&claim.run_id(),&claim.attempt,&claim.worker,&claim.number,&claim.fence,&attempt]).await.map_err(|_|UNCERTAIN)?;
-            if n!=1{return Err(LOST);}
-            let status=transition(&tx,&current,target,at_db,Some(completion)).await?;
-            flush_deferred(&tx).await?;
-            verify_current(&tx,self.namespace,&claim.run,Some(status)).await?;
-            verify_attempt(&tx,claim.run_id(),&claim.attempt,&claim.worker,claim.number,claim.fence,attempt,false).await?;
-            verify_completion(&tx,completion).await?;
-            proof.verify_cut()?;
-            commit(tx).await.map_err(|_|UNCERTAIN)?;
-            post_commit(&mut owned,self.namespace,&claim.run,Some(status)).await?;
-            post_claim(&mut owned,claim,attempt,false).await?;
-            let tx=owned.client_mut().await.map_err(|_|UNCERTAIN)?.transaction().await.map_err(|_|UNCERTAIN)?;
-            verify_completion(&tx,completion).await.map_err(|_|UNCERTAIN)?;commit(tx).await.map_err(|_|UNCERTAIN)?;
-            Ok(status)
-        }.await;
-        self.finish(owned, result).await
-    }
 }
 async fn transition(
     tx: &Transaction<'_>,
     current: &Current,
     target: RunState,
     at: SystemTime,
-    completion: Option<&VerifiedCompletion>,
 ) -> Result<RunStatus> {
     let revision = current.status.revision.checked_add(1).ok_or(MISMATCH)?;
     let started = if target == RunState::Running {
@@ -884,16 +1116,15 @@ async fn transition(
     } else {
         current.started
     };
-    let cancel = if target == RunState::CancelRequested {
+    let cancel = if target == RunState::CancelRequested
+        || (current.status.state == RunState::Queued && target == RunState::Cancelled)
+    {
         Some(at)
     } else {
         current.cancel
     };
     let finished = if target.terminal() { Some(at) } else { None };
-    let evidence = completion.map(|c| c.proof().evidence_fingerprint());
-    let result = completion.map(|c| c.proof().result_fingerprint());
-    let determinism = completion.map(|c| c.proof().determinism_fingerprint());
-    let n=tx.execute("UPDATE backtest_run SET state=$4,revision=$5,started_at=$6,cancel_requested_at=$7,finished_at=$8,evidence_fingerprint=$9,result_fingerprint=$10,determinism_fingerprint=$11 WHERE run_id=$1::text::uuid AND revision=$2 AND state=$3",&[&current.run.run_id(),&current.status.revision,&current.status.state.as_str(),&target.as_str(),&revision,&started,&cancel,&finished,&evidence,&result,&determinism]).await.map_err(db)?;
+    let n = tx.execute("UPDATE backtest_run SET state=$4,revision=$5,started_at=$6,cancel_requested_at=$7,finished_at=$8 WHERE run_id=$1::text::uuid AND revision=$2 AND state=$3",&[&current.run.run_id(),&current.status.revision,&current.status.state.as_str(),&target.as_str(),&revision,&started,&cancel,&finished]).await.map_err(db)?;
     if n != 1 {
         return Err(LOST);
     }
@@ -906,11 +1137,23 @@ async fn transition(
 /// The shared owner proves the guard in this transaction, after all writes and
 /// before commit. It never acquires another socket or another lock authority.
 async fn commit(tx: Transaction<'_>) -> Result<()> {
-    AuthoritySession::verify_transaction(&tx)
+    let verify = Operation::start("backend", "sql.authority.verify", Correlation::default());
+    let verified = AuthoritySession::verify_transaction(&tx)
+        .instrument(verify.span().clone())
         .await
-        .map_err(|e| e.code())?;
-    tx.commit().await.map_err(db)
+        .map_err(|e| e.code());
+    verify.finish(if verified.is_ok() { "ok" } else { "failed" }, 1, 0);
+    verified?;
+    let operation = Operation::start("backend", "sql.commit", Correlation::default());
+    let committed = tx
+        .commit()
+        .instrument(operation.span().clone())
+        .await
+        .map_err(db);
+    operation.finish(if committed.is_ok() { "ok" } else { "failed" }, 1, 0);
+    committed
 }
+
 /// Acknowledged commit alone does not certify deferred projection effects.
 async fn post_commit(
     owned: &mut AuthoritySession,
@@ -935,6 +1178,14 @@ async fn post_commit(
     }
     commit(tx).await.map_err(|_| UNCERTAIN)
 }
+async fn attempt_is_expired(tx: &Transaction<'_>, claim: &Claim, active_run: bool) -> Result<bool> {
+    let row = tx.query_opt(
+        "SELECT (state='EXPIRED' AND finished_at IS NOT NULL AND failure_code='LEASE_EXPIRED') OR ($6 AND state='ACTIVE' AND finished_at IS NULL AND failure_code IS NULL AND lease_expires_at<=clock_timestamp()) FROM public.backtest_run_attempt WHERE run_id=$1::text::uuid AND attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND fencing_token=$5",
+        &[&claim.run_id(), &claim.attempt, &claim.worker, &claim.number, &claim.fence, &active_run],
+    ).await.map_err(db)?.ok_or(MISMATCH)?;
+    Ok(row.try_get::<_, Option<bool>>(0).map_err(db)? == Some(true))
+}
+
 async fn post_claim(
     owned: &mut AuthoritySession,
     claim: &Claim,
@@ -1008,18 +1259,6 @@ async fn verify_attempt(
     }
     Ok(())
 }
-async fn verify_completion(tx: &Transaction<'_>, completion: &VerifiedCompletion) -> Result<()> {
-    let proof = completion.proof();
-    let row=tx.query_opt("SELECT evidence_fingerprint,result_fingerprint,determinism_fingerprint FROM backtest_run WHERE run_id=$1::text::uuid AND specification_fingerprint=$2 AND admission_resolution_fingerprint=$3 AND state=$4",&[&proof.run_id(),&proof.specification_fingerprint(),&proof.admission_resolution_fingerprint(),&proof.status()]).await.map_err(db)?.ok_or(MISMATCH)?;
-    if row.try_get::<_, &str>(0).map_err(db)? != proof.evidence_fingerprint()
-        || row.try_get::<_, &str>(1).map_err(db)? != proof.result_fingerprint()
-        || row.try_get::<_, &str>(2).map_err(db)? != proof.determinism_fingerprint()
-    {
-        return Err(MISMATCH);
-    }
-    Ok(())
-}
-
 /// Observation does not acquire a Command lock, Source grant or Runtime hold.
 pub(crate) enum CreationOutcome {
     NotSubmitted,

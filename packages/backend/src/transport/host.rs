@@ -42,7 +42,6 @@ pub(crate) const ROWS: usize = 10000;
 /// Single compiled local development Owner role. Source grants are separately
 /// issued exact selections and withdrawn on management changes.
 pub struct Host {
-    pub(crate) backtest_root: std::path::PathBuf,
     pub(crate) human_access: Arc<human_access::Access>,
     pub(crate) research_preparation_config:
         crate::transport::host_research_preparation::PreparationConfig,
@@ -52,6 +51,9 @@ pub struct Host {
     pub(crate) database: crate::bootstrap::workstation_startup::Database,
     pub(crate) writer: Arc<Mutex<Option<AuthoritySession>>>,
     pub(crate) writer_live: tokio::sync::watch::Receiver<bool>,
+    pub(crate) factor_build: Mutex<Option<crate::workers::factor_build::Service>>,
+    pub(crate) factor_build_wake: OnceLock<crate::workers::factor_build::Wake>,
+    pub(crate) factor_build_drained: AtomicBool,
     pub(crate) research: Mutex<Option<crate::workers::research_service::Service>>,
     pub(crate) backtest: Mutex<Option<crate::workers::backtest_worker::Service>>,
     pub(crate) backtest_wake: OnceLock<crate::workers::backtest_worker::Wake>,
@@ -237,6 +239,9 @@ impl Host {
             .map(|service| service.status())
     }
     pub(crate) fn stop_research_admission(&self) {
+        if let Some(wake) = self.factor_build_wake.get() {
+            wake.stop();
+        }
         if let Some(wake) = self.backtest_wake.get() {
             wake.stop();
         }
@@ -254,6 +259,19 @@ impl Host {
         if held.is_none() {
             *held = Some(Arc::clone(self));
         }
+    }
+    /// Separate read-only facts, still bound to this original Node guard.
+    pub(super) async fn job_fact_reader(&self) -> Result<crate::bootstrap::workstation_startup::ResearchConnection,Failure> {
+        let writer_pid = {
+            let mut writer = self.writer.lock().await;
+            let client = writer.as_mut().ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?
+                .client_mut().await.map_err(|_|Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+            tokio::time::timeout(std::time::Duration::from_secs(5),client.query_one("SELECT pg_catalog.pg_backend_pid()",&[]))
+                .await.map_err(|_|Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?
+                .map_err(|_|Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?
+                .try_get::<_,i32>(0).map_err(|_|Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?
+        };
+        self.database.job_reader_connection(self.inputs.namespace(),writer_pid,self.writer_live.clone()).await
     }
     pub(crate) fn writer_active(&self) -> bool {
         crate::bootstrap::workstation_startup::driver_active(&self.writer_live)
@@ -289,6 +307,21 @@ impl Host {
         failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")
     }
     pub async fn dispatch(self: &Arc<Self>, request: Request<Body>) -> Response {
+        use tracing::Instrument;
+        let Some(trace) = super::observability::begin(&request) else {
+            return self.dispatch_response(request).await;
+        };
+        let response = async {
+            let mut handler = super::observability::Stage::new(onlyalpha_observability::Operation::start(
+                "transport", "http.handler", onlyalpha_observability::Correlation::default()));
+            let response = self.dispatch_response(request).instrument(handler.span().clone()).await;
+            handler.span().in_scope(|| tracing::info!(target:"onlyalpha.observability",event_kind="summary",outcome=response.status().as_str()));
+            handler.finish(if response.status().is_server_error() { "failed" } else { "ok" }, 1, 0);
+            response
+        }.instrument(trace.span().clone()).await;
+        super::observability::response(response, trace)
+    }
+    async fn dispatch_response(self: &Arc<Self>, request: Request<Body>) -> Response {
         let started = Instant::now();
         let startup_read = match request.uri().path() {
             "/api/v2/market-data/sources" => Some("SOURCES"),
@@ -567,6 +600,16 @@ impl Host {
         .list_snapshots(None, None, ROWS, WORK)
         .await
         .map_err(Into::into)
+    }
+    pub(crate) fn worker_sources(self: &std::sync::Arc<Self>) -> crate::workers::source_sessions::SourceSessions {
+        let owner = std::sync::Arc::downgrade(self);
+        crate::workers::source_sessions::SourceSessions::new(move || {
+            let owner = owner.clone();
+            async move {
+                let host = owner.upgrade().ok_or(crate::application::source_access::Error::ProofUnavailable)?;
+                Ok(host.source_session().await)
+            }
+        })
     }
     pub(crate) async fn source_session(&self) -> Session {
         self.issuer.lock().await.session.clone()

@@ -46,3 +46,20 @@ pub mod strategy_promotion;
 mod backtest_preparation_tests;
 
 pub(crate) mod manual_backtest_context;
+
+#[cfg(test)]
+#[path = "../tests/job_contract_tests.rs"]
+mod job_contract_tests;
+
+pub mod job_contract;
+
+pub mod factor_build;
+pub mod job_input;
+
+#[cfg(test)]
+#[path = "../tests/job_input_tests.rs"]
+mod job_input_tests;
+
+pub(crate) mod calculation_build;
+pub mod finite_job;
+pub mod job_recovery;

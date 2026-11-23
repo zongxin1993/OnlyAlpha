@@ -275,7 +275,7 @@ pub fn compile_revision(
     let inputs = bindings.keys().map(|name| port(name)).collect();
     let mut root = definition("FACTOR", draft.factor_id(), "1", inputs, json!(bindings));
     root["outputs"][0]["semantic_type"] = json!("FACTOR_VALUE");
-    root["numeric"]["precision"] = json!(38);
+    // The current factor API shares the native precision-28 policy.
     root["parameters"] = json!(
         draft.record()["parameter_contract"]
             .as_object()

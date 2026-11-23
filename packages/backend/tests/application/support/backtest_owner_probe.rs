@@ -7,6 +7,7 @@
 )]
 #[path = "../../../src/application/mod.rs"]
 pub mod application;
+mod job_fact_connection;
 mod backtest_owner_scenarios;
 mod backtest_preparation_queue;
 mod backtest_run_lifecycle;
@@ -72,7 +73,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
+        let diagnostics = std::env::var_os("ONLYALPHA_DIAGNOSTICS_PATH")
+            .map(|path| {
+                use bootstrap::observability;
+                observability::start(
+                    observability::mode(Some("detail"), None)?,
+                    Some(std::path::Path::new(&path)),
+                )
+            })
+            .transpose()?
+            .flatten();
         runtime.block_on(strategy_freeze_boundary::run_command_boundary());
+        if let Some(session) = diagnostics {
+            let receipt = session.close();
+            assert!(receipt.shutdown_complete, "{}", receipt.record());
+        }
         return Ok(());
     }
     if args.is_empty() {

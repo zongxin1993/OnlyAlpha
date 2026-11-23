@@ -408,6 +408,11 @@ pub struct BacktestWorkerObservation {
     pub run_id: Option<String>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BacktestCancellationReason {
+    UserRequested,
+}
+#[derive(Deserialize, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BacktestRunView {
     pub schema_version: u8,
@@ -417,6 +422,10 @@ pub struct BacktestRunView {
     pub revision: String,
     pub accepted_at: String,
     pub preparation_command_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_requested_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancellation_reason: Option<BacktestCancellationReason>,
     pub report_status: BacktestReportAvailability,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_observation: Option<BacktestWorkerObservation>,
@@ -487,6 +496,11 @@ pub struct BacktestPositionView {
     pub state: String,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BacktestResultState {
+    Completed,
+}
+#[derive(Deserialize, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BacktestResultView {
     pub schema_version: u8,
@@ -495,7 +509,7 @@ pub struct BacktestResultView {
     pub evidence_fingerprint: String,
     pub result_fingerprint: String,
     pub determinism_fingerprint: String,
-    pub state: String,
+    pub state: BacktestResultState,
     pub sample: BacktestSample,
     pub metrics: BacktestMetrics,
     pub curve: Vec<BacktestCurvePoint>,
@@ -509,6 +523,11 @@ pub struct BacktestResultView {
 pub struct BacktestEvidenceView {
     pub schema_version: u8,
     pub run_id: String,
+    pub publication_fingerprint: String,
+    pub preparation_command_id: String,
+    pub freeze_relation_fingerprint: String,
+    pub qualification_decision_fingerprint: String,
+    pub promotion_fingerprint: String,
     pub manifest: Value,
 }
 

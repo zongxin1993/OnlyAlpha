@@ -1,4 +1,6 @@
 //! Actual Strategy evidence technical path. No fixture creates an execution/read seal.
+#[path = "finite_job_probe.rs"]
+mod finite_job_probe;
 use onlyalpha_backend::{
     application::{
         command::CommandId,
@@ -20,6 +22,7 @@ use onlyalpha_backend::{
 };
 use onlyalpha_calculation_bridge::ChartInstallation;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
@@ -30,6 +33,11 @@ fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
 fn store(v: &Value) -> Result<Evidence> {
     Ok(Evidence::open(Path::new(text(v, "research_root")?))?
         .with_runtime_root(Path::new(text(v, "runtime_root")?))?)
+}
+async fn load_run(session:&mut AuthoritySession,v:&Value,id:&str) -> Result<onlyalpha_backend::application::research_run::VerifiedRun> {
+    let mut facts=super::super::job_fact_connection::Connection::reader().await?;
+    let namespace=onlyalpha_backend::bootstrap::deployment::load_semantic_store_id(&Path::new(text(v,"research_root")?).join(".onlyalpha-semantic-store.json"))?;
+    Ok(research_submission::load(session.client_mut().await?,&mut facts.client,&namespace,id,Some("local-developer")).await?)
 }
 pub async fn provision(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
     let root = Path::new(text(v, "semantic_root")?);
@@ -60,12 +68,6 @@ pub async fn provision(session: &mut AuthoritySession, v: &Value) -> Result<Valu
         let registry =
             research_namespace::initialize_runtime_registry(root, &schema, session).await?;
         assert_eq!(registry, json!({"active_for_new_work":null,"states":{}}));
-        let evidence =
-            research_namespace::initialize_backtest_evidence(root, &schema, session).await?;
-        assert_eq!(
-            evidence,
-            json!({"semantic_store_id":namespace.value(),"initialized":true})
-        );
     }
     assert_eq!(
         std::fs::read(root.join("research/.onlyalpha-factor-research-owner-profile.json"))?,
@@ -101,7 +103,35 @@ pub async fn submit(
     .into_parts();
     assert!(actionable);
     let fingerprint = study.fingerprint()?;
-    let run = strategy::submit(
+    let study_record = study.record()?;
+    for (label, value) in [
+        ("prepared-inputs", inputs.record()),
+        (
+            "build-certification",
+            &inputs.record()["build_certification"],
+        ),
+        (
+            "algorithm-resolution",
+            &inputs.record()["algorithm_resolution"],
+        ),
+        ("composition", &inputs.record()["composition"]),
+        ("specification", spec.record()),
+        ("study", &study_record),
+        ("request", &study_record["request"]),
+    ] {
+        let raw = value.to_string();
+        let digest: String = Sha256::digest(raw.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        eprintln!(
+            "[strategy-evidence] payload={label} bytes={} sha256={digest}",
+            raw.len()
+        );
+    }
+    eprintln!("[strategy-evidence] phase=submission-start");
+    let submission_started = std::time::Instant::now();
+    let submitted = strategy::submit(
         session,
         &novelty,
         &context,
@@ -110,7 +140,12 @@ pub async fn submit(
         datasets,
         text(v, "at")?.parse()?,
     )
-    .await?;
+    .await;
+    eprintln!(
+        "[strategy-evidence] submission_us={}",
+        submission_started.elapsed().as_micros()
+    );
+    let run = submitted?;
     assert!(store(v)?.load_verified(&run)?.is_none());
     assert!(
         store(v)?.read_verified_strategy(&run).is_err(),
@@ -123,18 +158,20 @@ pub async fn submit(
     )
 }
 pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
+    if v["evidence_phase"] == "memory-build" {
+        return finite_job_probe::build(session, v).await;
+    }
     let pid: i32 = session
         .client_mut()
         .await?
         .query_one("SELECT pg_catalog.pg_backend_pid()", &[])
         .await?
         .get(0);
-    let run = research_submission::load(
-        session.client_mut().await?,
-        text(v, "run_id")?,
-        Some("local-developer"),
-    )
+    let run = load_run(session,v,text(v,"run_id")?)
     .await?;
+    if v["evidence_phase"] == "memory" {
+        return finite_job_probe::research(session, v, run).await;
+    }
     let evidence = store(v)?;
     if v["evidence_phase"] == "completion-read" {
         return Ok(
@@ -186,7 +223,7 @@ pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
         .with_runtime_root(Path::new(text(v, "runtime_root")?))?;
         eprintln!("[strategy-evidence] phase=historical-projection");
         let projection = novelty
-            .refresh_projection(session.client_mut().await?)
+            .refresh_projection(session)
             .await?;
         eprintln!("[strategy-evidence] phase=historical-complete");
         return Ok(
@@ -241,8 +278,9 @@ pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
         text(v, "algorithm_artifact")?,
     )?);
     let datasets = Datasets::open(Path::new(text(v, "dataset_root")?), 8192, 8 * 1024 * 1024)?;
+    let mut facts = crate::job_fact_connection::Connection::reader().await?;
     let inputs = onlyalpha_backend::application::research_admission::restore_strategy(
-        &mut Composer::new(session.client_mut().await?),
+        &mut Composer::new(session.client_mut().await?).with_fact_reader(&mut facts.client),
         &run,
         runtime,
         &installation,
@@ -309,7 +347,7 @@ pub async fn phase(session: &mut AuthoritySession, v: &Value) -> Result<Value> {
         &generation,
     )?;
     let inputs = onlyalpha_backend::application::research_admission::restore_strategy(
-        &mut Composer::new(session.client_mut().await?),
+        &mut Composer::new(session.client_mut().await?).with_fact_reader(&mut facts.client),
         &run,
         runtime,
         &installation,
@@ -412,11 +450,7 @@ async fn worker_work(
     let runtime = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || -> std::result::Result<_, String> {
         runtime.block_on(async move {
-            let run = research_submission::load(
-                session.client_mut().await.map_err(|e| e.to_string())?,
-                text(&v, "run_id").map_err(|e| e.to_string())?,
-                Some("local-developer"),
-            )
+            let run = load_run(&mut session,&v,text(&v,"run_id").map_err(|e|e.to_string())?)
             .await
             .map_err(|e| e.to_string())?;
             let root =
@@ -440,8 +474,9 @@ async fn worker_work(
                 8 * 1024 * 1024,
             )
             .map_err(|e| e.to_string())?;
+            let mut facts = crate::job_fact_connection::Connection::reader().await.map_err(|e|e.to_string())?;
             let inputs = onlyalpha_backend::application::research_admission::restore_strategy(
-                &mut Composer::new(session.client_mut().await.map_err(|e| e.to_string())?),
+                &mut Composer::new(session.client_mut().await.map_err(|e| e.to_string())?).with_fact_reader(&mut facts.client),
                 &run,
                 held,
                 &installation,
@@ -485,7 +520,7 @@ pub async fn worker(mut session: AuthoritySession, v: &Value) -> Result<Value> {
         .await?
         .get(0);
     if guarded {
-        session.client_mut().await?.batch_execute("CREATE FUNCTION use_test_worker_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_unlock(1329199301,5); RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER use_test_worker_guard AFTER UPDATE ON research_run DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='COMPLETED' AND OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION use_test_worker_guard()").await?;
+        super::super::job_fact_connection::Connection::operator().await?.client.batch_execute("CREATE FUNCTION use_test_worker_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$ BEGIN PERFORM pg_advisory_unlock(1329199301,5); RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER use_test_worker_guard AFTER UPDATE ON research_run DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='COMPLETED' AND OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION use_test_worker_guard()").await?;
     }
     let (session, work) = worker_work(session, v.clone()).await?;
     let run = work.run.clone();
@@ -522,11 +557,7 @@ pub async fn worker(mut session: AuthoritySession, v: &Value) -> Result<Value> {
     let completed = outcome?;
     assert_eq!(completed.state.as_str(), "COMPLETED");
     let mut original = writer.lock().await.take().ok_or("original session")?;
-    let current = research_submission::load(
-        original.client_mut().await?,
-        run.run_id(),
-        Some("local-developer"),
-    )
+    let current = load_run(&mut original,v,run.run_id())
     .await?;
     let report = store(v)?.read_report(&current)?;
     assert_eq!(
@@ -610,9 +641,9 @@ async fn refused_deferred_finalization(
         "UPDATE research_run SET revision=revision+1,research_result_fingerprint=repeat('e',64),artifact_content_fingerprint=repeat('f',64) WHERE run_id=NEW.run_id;"
     };
     let sql = format!(
-        "CREATE FUNCTION use_test_research_deferred() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN {mutation} RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER use_test_research_deferred AFTER UPDATE ON research_run DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='COMPLETED' AND OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION use_test_research_deferred()"
+        "CREATE FUNCTION use_test_research_deferred() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$ BEGIN {mutation} RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER use_test_research_deferred AFTER UPDATE ON research_run DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='COMPLETED' AND OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION use_test_research_deferred()"
     );
-    session.client_mut().await?.batch_execute(&sql).await?;
+    super::super::job_fact_connection::Connection::operator().await?.client.batch_execute(&sql).await?;
     let before: i64 = session
         .client_mut()
         .await?
@@ -623,11 +654,7 @@ async fn refused_deferred_finalization(
         .await?
         .get(0);
     let rejected = if reconcile {
-        let current = research_submission::load(
-            session.client_mut().await?,
-            run.run_id(),
-            Some("local-developer"),
-        )
+        let current = load_run(session,v,run.run_id())
         .await?;
         let state = ResearchExecution::new(session.client_mut().await?)
             .observe(&current)

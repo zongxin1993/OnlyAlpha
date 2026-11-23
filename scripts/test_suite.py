@@ -135,7 +135,6 @@ LANES = {
             "packages/backend/tests/application/test_watchlist_postgres.py",
             "packages/backend/tests/application/test_clickhouse_schema.py",
             "packages/backend/tests/application/test_runtime_registry_operator.py",
-            "packages/backend/tests/application/test_backtest_evidence_operator.py",
             "packages/backend/tests/application/test_factor_proposals_postgres.py",
             "packages/backend/tests/application/test_factor_studies_postgres.py",
             "packages/backend/tests/application/test_private_strategy_authoring_postgres.py",

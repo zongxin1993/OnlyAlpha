@@ -1,4 +1,6 @@
 //! Guarded technical DB probe. It is never a business API or a Shipping UI.
+#[path = "job_input_probe.rs"]
+mod job_input_probe;
 #[path = "research_execution_probe.rs"]
 mod research_execution_probe;
 #[path = "strategy_evidence_probe.rs"]
@@ -17,11 +19,16 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         return fixture_reference(v);
     }
     let dsn = std::env::var("ONLYALPHA_POSTGRES_DSN")?;
-    let config: tokio_postgres::Config = dsn.parse()?;
+    let mut config: tokio_postgres::Config = dsn.parse()?;
     if !config.get_dbname().is_some_and(|n| n.ends_with("_test")) {
         return Err("test DSN required".into());
     }
-    let (client, connection) = tokio_postgres::connect(&dsn, tokio_postgres::NoTls).await?;
+    if matches!(text(v,"op")?,"strategy-evidence-phase"|"strategy-worker-phase"|"strategy-submission-outcome"|"research-finite-recovery"|"dataset-strategy-prepare"|"dataset-research") {
+        super::job_fact_connection::prepare_node_fixture()?;
+        config.user("onlyalpha_node_test");
+        config.options("-c search_path=pg_catalog,public,pg_temp");
+    }
+    let (client, connection) = config.connect(tokio_postgres::NoTls).await?;
     let driver = tokio::spawn(connection);
     let op = text(v, "op")?;
     if op == "retained-source-prerequisite" {
@@ -68,6 +75,9 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     if op == "strategy-evidence-phase" {
         return strategy_evidence_probe::phase(&mut session, v).await;
     }
+    if op == "research-finite-recovery" {
+        return strategy_input_probe::strategy_submission_probe::recover_finite(&mut session,v).await;
+    }
     if op == "strategy-submission-outcome" {
         return strategy_input_probe::strategy_submission_probe::outcome(&mut session, v).await;
     }
@@ -88,9 +98,16 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         max_bytes: 32 * 1024 * 1024,
         max_rows: 10_000,
     })?;
-    ch.assert_server().await?;
-    let mut store = Storage::new(catalog, &ch, 10_000)?;
+    if op != "job-input" {
+        ch.assert_server().await?;
+    }
+    let mut store = Storage::new(
+        catalog,
+        &ch,
+        v["storage_limit"].as_u64().unwrap_or(10_000).try_into()?,
+    )?;
     let result = match op {
+        "job-input" => job_input_probe::run(&mut store, v).await?,
         "intent" => {
             let scope = Scope::from_record(&v["scope"])?;
             store
@@ -243,7 +260,7 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                         &datasets,
                         text(v, "materialization_id")?,
                     )?;
-                return research_execution_probe::run(session.client_mut().await?, v, &retained)
+                return research_execution_probe::run(&mut session, v, &retained)
                     .await;
             }
             let plan =
@@ -280,7 +297,7 @@ pub async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
                 std::process::exit(73);
             }
             if op == "dataset-research" {
-                return research_execution_probe::run(session.client_mut().await?, v, &result)
+                return research_execution_probe::run(&mut session, v, &result)
                     .await;
             }
             if op == "dataset-admit" {
@@ -484,16 +501,22 @@ async fn retained_source_prerequisite(
         }
         _ => return Err("unknown controlled input profile".into()),
     };
-    let next_open = v["fixture_profile"] == "BTC_SPOT_NEXT_OPEN_2025_V1";
-    let research = matches!(
-        v["fixture_profile"].as_str(),
-        Some(
-            "STRATEGY_RESEARCH_EVIDENCE_V1"
-                | "MANUAL_BACKTEST_VALIDATION_V1"
-                | "STRATEGY_PREPARATION_EVALUATION_V1"
-                | "STRATEGY_PREPARATION_V1"
-        )
-    );
+    let coherent_backtest = match v.get("coherent_backtest") {
+        None | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) if v["fixture_profile"] == "STRATEGY_RESEARCH_EVIDENCE_V1" => true,
+        _ => return Err("invalid coherent market fixture profile".into()),
+    };
+    let next_open = v["fixture_profile"] == "BTC_SPOT_NEXT_OPEN_2025_V1" || coherent_backtest;
+    let research = !coherent_backtest
+        && matches!(
+            v["fixture_profile"].as_str(),
+            Some(
+                "STRATEGY_RESEARCH_EVIDENCE_V1"
+                    | "MANUAL_BACKTEST_VALIDATION_V1"
+                    | "STRATEGY_PREPARATION_EVALUATION_V1"
+                    | "STRATEGY_PREPARATION_V1"
+            )
+        );
     fn sha(bytes: &[u8]) -> String {
         Sha256::digest(bytes)
             .iter()
@@ -646,18 +669,31 @@ async fn retained_source_prerequisite(
     let rows = (0..row_count)
         .map(|i| {
             let start = start_ms + i * stride_ms;
+            // One absolute-time market definition for the joint scenario.
+            // The original NextOpen trading window and its economic triggers stay exact.
+            let bar_index = if coherent_backtest {
+                (start - 1_735_861_200_000) / stride_ms
+            } else {
+                i
+            };
             let price = 10000 + (i / 13) * 3 + (i * 7) % 11;
             let close = price + i % 5 - 2;
             let volume = 10 + i % 9;
             let (price, close, volume) = if next_open {
                 (
-                    match i {
+                    match bar_index {
+                        ..=-1 => 100000,
                         0..=20 => 100000,
                         21 => 100100,
                         22 => 99800,
                         _ => 99700,
                     },
-                    match i {
+                    match bar_index {
+                        ..=-1 => match i {
+                            20 => 101202,
+                            21 => 100899,
+                            _ => 101000,
+                        },
                         0..=19 => 100000,
                         20 => 100200,
                         21 => 99900,
@@ -708,7 +744,7 @@ async fn retained_source_prerequisite(
                 volume.to_string(),
                 start + stride_ms - 1,
                 (price * volume).to_string(),
-                100 + i % 17,
+                100 + bar_index.rem_euclid(17),
                 "0",
                 "0",
                 "0"
@@ -717,11 +753,28 @@ async fn retained_source_prerequisite(
         .collect::<Vec<_>>();
     let raw = serde_json::to_vec(&rows)?;
     let raw_sha = sha(&raw);
+    let occurrence = text(v, "fixture_capture_id")?;
+    if occurrence.len() > 48
+        || !occurrence
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    {
+        return Err("invalid controlled capture occurrence".into());
+    }
     let capture = format!(
-        "native:{}:controlled-retained",
+        "native:{}:{occurrence}",
         resolved.implementation_fingerprint()
     );
-    let segment_id = "controlled-retained-source";
+    // An occurrence owns ordinal zero. Changed bytes retain this identity and
+    // must be rejected by the original immutable segment comparison.
+    let segment_id = format!(
+        "controlled-source-{}-0000000000000000",
+        fp(&json!([
+            "ONLYALPHA_CONTROLLED_SOURCE_SEGMENT_V1",
+            occurrence
+        ]))?
+    );
+    let segment_id = segment_id.as_str();
     let raw_id = format!(
         "raw-event:{}",
         fp(
@@ -857,7 +910,7 @@ fn fixture_reference(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
             json!({"bars":materialized.verified().dataset().bars()?.iter().map(OnlyDomainModel::to_record).collect::<Vec<_>>(),"rows":materialized.verified().dataset().rows(),"lineage":materialized.lineage()}),
         );
     }
-    if action == "dataset-reference" {
+    if matches!(action, "dataset-reference" | "dataset-reference-from-wal") {
         let scope = Scope::from_record(&v["scope"])?;
         let context = scope.to_record();
         let construction = OnlyConstructionIdentity::from_record(&context["bar_construction"])?;
@@ -867,12 +920,27 @@ fn fixture_reference(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
             v["revision"]["fingerprint"],
             v["seal"]["seal_id"]
         ]]);
-        let dataset = Dataset::from_bars(
-            &v["definition"],
-            v["bars"].as_array().ok_or("bars")?,
-            &fixture_fp(&binding)?,
-            8192,
-        )?;
+        let mut retained_bars = Vec::new();
+        if action == "dataset-reference-from-wal" {
+            let wal = Wal::new(Path::new(text(v, "expected_wal_root")?), 32 * 1024 * 1024)?;
+            for record in wal.read_sealed(text(v, "expected_segment")?)? {
+                for fact in record["canonical_facts"]
+                    .as_array()
+                    .ok_or("expected canonical facts")?
+                {
+                    if fact["data_kind"] != "BAR" {
+                        return Err("expected Bar fixture".into());
+                    }
+                    retained_bars.push(fact["canonical_payload"]["payload"]["value"].clone());
+                }
+            }
+        }
+        let bars = if action == "dataset-reference-from-wal" {
+            &retained_bars
+        } else {
+            v["bars"].as_array().ok_or("bars")?
+        };
+        let dataset = Dataset::from_bars(&v["definition"], bars, &fixture_fp(&binding)?, 8192)?;
         let mut definition = dataset.definition().clone();
         definition["bar_semantic"] = fixture_projection(&definition["bar_semantic"]);
         let instrument = text(&context, "instrument_id")?
@@ -883,7 +951,7 @@ fn fixture_reference(v: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         )?;
         let lineage = json!({"dataset_snapshot_fingerprint":dataset.snapshot_fingerprint(),"market_data_revision_bindings":[{"source_id":context["source_id"],"instrument_id":context["instrument_id"],"data_kind":"BAR","revision_id":v["revision"]["revision_id"],"revision_fingerprint":v["revision"]["fingerprint"]}],"materializer_id":"onlyalpha.sealed-market-data","materializer_version":"1","request_fingerprint":request});
         return Ok(
-            json!({"snapshot":dataset.snapshot_fingerprint(),"rows":dataset.rows(),"materialization":format!("dataset-materialization:{}",fixture_fp(&lineage)?),"request":request}),
+            json!({"snapshot":dataset.snapshot_fingerprint(),"content":dataset.content_fingerprint(),"rows":dataset.rows(),"materialization":format!("dataset-materialization:{}",fixture_fp(&lineage)?),"request":request}),
         );
     }
     if action == "wrong-trade-row" {

@@ -22,13 +22,16 @@ Funding effect 的紧凑 lineage 必须与本 Ledger 已记账的 TRADE、cluste
 
 BACKTEST 配置 schema 2 支持线性永续开仓。apply_funding 消费 Position 的不透明 FundingEffect，按策略归属记录内部损益与现金，外部资金流保持不变。公开 apply 拒绝 raw FUNDING；restore_with_funding 必须从真实 Position 和冻结 MarketSourceCut 重推原引用与金额。缺来源或重算摘要后的篡改金额仍拒绝，旧现金 Reader 保持原行为。
 
-Manager::new / apply 接收配置和规范记账输入并返回 Outcome；state / snapshot 查询账本，估值和恢复入口通过 Manager 暴露。Status / Error 表达处理状态与失败，digest 提供记录摘要。
+`Manager::new` 和 `apply` 接收配置和规范记账输入，处理结果通过 `Outcome`、`Status` 和 `Error` 表达。`state` 和 `snapshot` 查询账本。[`Manager::equity_occurrences`](src/manager.rs) 按入账顺序借用各策略簇的权益发生记录，供调用方逐点核对。估值和恢复入口通过 `Manager` 暴露。`digest` 计算记录摘要。
+
+[`realized_rounding_delta`](src/accounting.rs) 根据成交前后有符号成本差、按货币精度舍入的名义金额和已实现损益变化，计算该笔成交对舍入残差的贡献。线性永续的贡献为零。Ledger 记账和 Execution 正式回测正文复证共用此公式。[`equity_return`](src/model.rs) 计算权益相对基准的收益率，非正基准返回空值。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
 
 ```rust
+pub use accounting::realized_rounding_delta;
 pub use manager::Manager;
-pub use model::{Error, Outcome, Status, digest};
+pub use model::{Error, Outcome, Status, digest, equity_return};
 ```
 
 ## 状态与生命周期
@@ -51,3 +54,5 @@ cargo doc -p onlyalpha-strategy-ledger --no-deps
 集成测试位于 [`tests/`](tests/)，独立单元测试统一集中在 `src/tests/`，仍由原业务模块挂载并保留私有访问；内联测试可保留。 无外部服务依赖的库验证可在宿主机运行并记录平台；数据库或运行中应用验证使用固定 `onlyalpha-dev` 环境。
 
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

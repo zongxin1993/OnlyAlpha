@@ -3,6 +3,7 @@ use crate::{Components, model::*, perpetual_fees::Fees};
 use bigdecimal::{BigDecimal, RoundingMode, Zero};
 use onlyalpha_domain::{
     base::OnlyDomainModel,
+    execution::OnlyOrderSnapshot,
     identifiers::OnlyInstrumentId,
     market::{OnlyFundingRateFact, OnlyReferencePriceFact},
     time::{OnlyTimestamp, OnlyUtcDateTime},
@@ -214,14 +215,14 @@ pub(crate) fn validate_config(cfg: &Value) -> Result<(), Error> {
     }
     Ok(())
 }
-fn nanos(d: OnlyUtcDateTime) -> Result<u64, Error> {
+pub(crate) fn nanos(d: OnlyUtcDateTime) -> Result<u64, Error> {
     OnlyTimestamp::from_datetime(d)
         .unix_nanos()
         .to_string()
         .parse()
         .map_err(|_| err("EXECUTION_PERPETUAL_TIME"))
 }
-fn mark_fact(cfg: &Value, raw: &Value) -> Result<OnlyReferencePriceFact, Error> {
+pub(crate) fn mark_fact(cfg: &Value, raw: &Value) -> Result<OnlyReferencePriceFact, Error> {
     bound_decimal_leaves(raw)?;
     let f = OnlyReferencePriceFact::from_record(raw)?;
     let t = &cfg["perpetual"];
@@ -236,7 +237,25 @@ fn mark_fact(cfg: &Value, raw: &Value) -> Result<OnlyReferencePriceFact, Error> 
     }
     Ok(f)
 }
-fn funding_pair(cfg: &Value, mark: &Value, raw: &Value) -> Result<OnlyFundingRateFact, Error> {
+pub(crate) fn validate_mark_order(
+    mark: &OnlyReferencePriceFact,
+    previous: &OnlyReferencePriceFact,
+) -> Result<(), Error> {
+    if (mark.ts_event() == previous.ts_event()
+        && mark.source_sequence() == previous.source_sequence()
+        && mark.revision() == previous.revision())
+        || mark.stable_order() <= previous.stable_order()
+    {
+        return Err(err("EXECUTION_MARK_STALE"));
+    }
+    Ok(())
+}
+
+pub(crate) fn funding_pair(
+    cfg: &Value,
+    mark: &Value,
+    raw: &Value,
+) -> Result<OnlyFundingRateFact, Error> {
     let f = OnlyFundingRateFact::from_record(raw)?;
     dec(&raw["rate"])?;
     let m = mark_fact(cfg, mark)?;
@@ -349,6 +368,18 @@ pub(crate) fn validate_metadata(cfg: &Value, p: &Value) -> Result<(), Error> {
 pub fn funding_boundary(raw: &Value) -> Result<u64, Error> {
     nanos(*OnlyFundingRateFact::from_record(raw)?.funding_time())
 }
+pub(crate) fn validate_admission_after_funding(admitted: u64, settled: u64) -> Result<(), Error> {
+    if admitted <= settled {
+        return Err(err("EXECUTION_ADMISSION_AT_SETTLED_BOUNDARY"));
+    }
+    Ok(())
+}
+pub(crate) fn validate_terminal_venue(venue: &Value, observed: &Value) -> Result<(), Error> {
+    if !venue.is_null() && venue != observed {
+        return Err(err("EXECUTION_BROKER_VENUE"));
+    }
+    Ok(())
+}
 fn boundary_source<'a>(
     source: Option<&'a onlyalpha_broker::source::SourceHistory>,
     terms: &Value,
@@ -386,6 +417,38 @@ impl Components {
         broker: &onlyalpha_broker::Broker,
         source: Option<&onlyalpha_broker::source::SourceHistory>,
     ) -> Result<crate::Prepared, Error> {
+        let origin = self.original_origin(input, cut, broker, source, |intent| {
+            let mut found = false;
+            for n in 1..=store.head()? {
+                let rec = store
+                    .get(n)?
+                    .ok_or_else(|| err("EXECUTION_PREFIX_MISSING"))?;
+                let prepared = rec.prepared();
+                if intent["transaction"] != prepared.id() {
+                    continue;
+                }
+                let admission = prepared.input();
+                let command = &intent["command"];
+                found = rec.ready()
+                    && admission["op"] == "ADMIT"
+                    && admission["payload"]["request"] == command["request"]
+                    && command["order"] == input["payload"]["order"]
+                    && admission["payload"]["order"] == input["payload"]["order"]
+                    && intent["payload_hash"] == prepared.record()["payload_hash"];
+                break;
+            }
+            Ok(found)
+        })?;
+        self.prepare_with_origin(store, input, origin)
+    }
+    pub(crate) fn original_origin(
+        &self,
+        input: &Value,
+        cut: &crate::MarketSourceCut,
+        broker: &onlyalpha_broker::Broker,
+        source: Option<&onlyalpha_broker::source::SourceHistory>,
+        mut admission: impl FnMut(&Value) -> Result<bool, Error>,
+    ) -> Result<Value, Error> {
         let t = &self.config["perpetual"];
         if self.config["schema_version"] != 3 || t["source_cut_sha256"] != cut.fingerprint() {
             return Err(err("EXECUTION_SOURCE_CUT"));
@@ -440,33 +503,19 @@ impl Components {
                 }
                 let intent = original.intent().record();
                 origin = json!({"observation":original.source(),"ready_intent":intent});
-                let mut found = false;
-                for n in 1..=store.head()? {
-                    let rec = store
-                        .get(n)?
-                        .ok_or_else(|| err("EXECUTION_PREFIX_MISSING"))?;
-                    let prepared = rec.prepared();
-                    if intent["transaction"] != prepared.id() {
-                        continue;
-                    }
-                    let admission = prepared.input();
-                    let command = &intent["command"];
-                    found = rec.ready()
-                        && admission["op"] == "ADMIT"
-                        && admission["payload"]["request"] == command["request"]
-                        && command["scope"] == fact.scope().record()
-                        && command["order"] == p["order"]
-                        && admission["payload"]["order"] == p["order"]
-                        && intent["payload_hash"] == prepared.record()["payload_hash"];
-                    break;
+                if intent["command"]["scope"] != fact.scope().record()
+                    || intent["command"]["order"] != input["payload"]["order"]
+                {
+                    return Err(err("EXECUTION_BROKER_ORIGINAL_COMMAND"));
                 }
+                let found = admission(&intent)?;
                 if !found {
                     return Err(err("EXECUTION_BROKER_ORIGINAL_COMMAND"));
                 }
             }
             _ => (),
         }
-        self.prepare_with_origin(store, input, origin)
+        Ok(origin)
     }
     pub(crate) fn funding_cut(&self) -> Result<crate::MarketSourceCut, Error> {
         let t = &self.config["perpetual"];
@@ -489,7 +538,9 @@ impl Components {
         &mut Arc::make_mut(&mut self.meta)["perpetual"]
     }
     fn current_mark(&self, input: &Value) -> Result<&Value, Error> {
-        let key = text(&self.perp()["latest_mark"])?;
+        let key = self.perp()["latest_mark"]
+            .as_str()
+            .ok_or_else(|| err("EXECUTION_MARK_UNAVAILABLE"))?;
         let raw = &self.perp()["marks"][key];
         if nanos(*mark_fact(&self.config, raw)?.ts_init())? > uint(&input["time"])? {
             return Err(err("EXECUTION_MARK_UNAVAILABLE"));
@@ -527,6 +578,7 @@ impl Components {
         filled: &BigDecimal,
         n: &BigDecimal,
         ordinary: BigDecimal,
+        owner: &onlyalpha_margin::Manager,
     ) -> Result<BigDecimal, Error> {
         let multiplier = self.contract_multiplier()?;
         let mark = nonnegative(&self.current_mark(input)?["value"]["value"])? * &multiplier;
@@ -534,7 +586,7 @@ impl Components {
         let mut outstanding = Vec::new();
         let mut pending = BigDecimal::zero();
         let mut marked_pending = BigDecimal::zero();
-        for row in self.margin_owner()?.snapshots() {
+        for row in owner.snapshots() {
             marked_open += nonnegative(&row["open"])? * &mark;
             let remaining = nonnegative(&row["unfilled"])?;
             if !remaining.is_zero() {
@@ -606,18 +658,20 @@ impl Components {
             &nonnegative(&request["price"]["value"])?,
         )))
     }
-    fn collateral(
+    pub(crate) fn perpetual_collateral(
         &self,
         input: &Value,
         request: &Value,
-        quantity: &Value,
-        trade: Option<&Value>,
+        fill: Option<&Value>,
         n: &BigDecimal,
+        owner: &onlyalpha_margin::Manager,
     ) -> Result<Value, Error> {
         let terms = &self.config["perpetual"];
         let order = &input["payload"]["order"];
+        let trade = fill.map(|fill| &fill["trade_id"]["value"]);
+        let quantity = fill.map_or(&request["quantity"], |fill| &fill["quantity"]);
         let state = if trade.is_some() {
-            self.margin_owner()?
+            owner
                 .snapshots()
                 .into_iter()
                 .find(|s| s["order"] == *order)
@@ -636,15 +690,14 @@ impl Components {
         let (a, m) = self.requirements(&(&gross + n))?;
         let mut initial = a - a0;
         if trade.is_none() {
-            initial = self.admission_initial(input, request, &gross, n, initial)?;
+            initial = self.admission_initial(input, request, &gross, n, initial, owner)?;
         }
         let action = if trade.is_some() { "OCCUPY" } else { "RESERVE" };
         let mut cmd = json!({"schema_version":1,"id":format!("MINST-{}",hash(&json!([input["input_id"],action]))),"scope":scope(input,&terms["instrument"],request),"reservation":state["id"],"source_order":order,"source_trade":trade,"source_ref":input["source_ref"],"mode":"CROSS","isolation":null,"position_side":"LONG","action":action,"quantity":quantity["value"],"quantity_precision":quantity["precision"],"amount":money(&initial,self.precision)?,"maintenance":money(&if trade.is_some(){m-m0}else{BigDecimal::zero()},self.precision)?,"time":input["time"],"expected_version":state["version"].as_u64().unwrap_or(0),"before_hash":if state.is_null(){Value::Null}else{json!(hash(&state))}});
         cmd["source_fingerprint"] = json!(hash(&cmd));
         Ok(json!({"schema_version":1,"kind":"MARGIN","instruction":cmd,"close_allocation":null}))
     }
-    pub(crate) fn perpetual_operation(&mut self, input: &Value) -> Result<(), Error> {
-        // 此配置只支持原编译正文声明的 UTC 24x7。编译日期是第一个自然日。
+    pub(crate) fn perpetual_epoch_ns(&self) -> Result<u64, Error> {
         let policy: Value = serde_json::from_str(
             self.config["perpetual"]["compiled_policy_json"]
                 .as_str()
@@ -654,7 +707,14 @@ impl Components {
             .as_str()
             .ok_or_else(|| err("EXECUTION_PERPETUAL_TRADING_DAY"))?
             .parse()?;
-        let epoch_ns = nanos(epoch)?;
+        nanos(epoch)
+    }
+    pub(crate) fn validate_perpetual_input_context(
+        &self,
+        input: &Value,
+        epoch_ns: u64,
+    ) -> Result<(), Error> {
+        // 编译日期是 UTC 24×7 日历的第一个自然日。
         const DAY_NS: u64 = 86_400_000_000_000;
         let processing = uint(&input["time"])?;
         let expected_day = (processing / DAY_NS)
@@ -671,6 +731,10 @@ impl Components {
         if input["cluster"] != self.config["perpetual"]["cluster"] {
             return Err(err("EXECUTION_PERPETUAL_CLUSTER"));
         }
+        Ok(())
+    }
+    pub(crate) fn perpetual_operation(&mut self, input: &Value) -> Result<(), Error> {
+        self.validate_perpetual_input_context(input, self.perpetual_epoch_ns()?)?;
         match text(&input["op"])? {
             "MARK" => self.consume_mark(input),
             "FUNDING" => self.consume_funding(input),
@@ -681,23 +745,7 @@ impl Components {
             _ => Err(err("EXECUTION_PERPETUAL_OPERATION")),
         }
     }
-    fn perpetual_admit(&mut self, input: &Value) -> Result<(), Error> {
-        let admitted = uint(&input["time"])?;
-        for event in self.perp()["funding"]
-            .as_object()
-            .ok_or_else(|| err("EXECUTION_FUNDING_BOUNDARIES"))?
-            .values()
-        {
-            if admitted <= funding_boundary(&event["fact"])? {
-                return Err(err("EXECUTION_ADMISSION_AT_SETTLED_BOUNDARY"));
-            }
-        }
-        if self.margin_owner()?.observation_capacity_reached() {
-            return Err(err("MARGIN_OBSERVATION_HISTORY_LIMIT"));
-        }
-        if self.account.snapshot()["maintenance_status"] == "UNAVAILABLE" {
-            return Err(err("MARGIN_MAINTENANCE_UNAVAILABLE"));
-        }
+    pub(crate) fn validate_perpetual_admission_request(&self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         shape(p, 3, &["order", "request", "policy_fingerprint"])?;
         let t = &self.config["perpetual"];
@@ -719,7 +767,27 @@ impl Components {
         if !rules.validates_at(&price, &quantity, at)? {
             return Err(err("EXECUTION_MARKET_LIMIT_RULES"));
         }
+        Ok(())
+    }
+    fn perpetual_admit(&mut self, input: &Value) -> Result<(), Error> {
+        let admitted = uint(&input["time"])?;
+        for event in self.perp()["funding"]
+            .as_object()
+            .ok_or_else(|| err("EXECUTION_FUNDING_BOUNDARIES"))?
+            .values()
+        {
+            validate_admission_after_funding(admitted, funding_boundary(&event["fact"])?)?;
+        }
+        if self.margin_owner()?.observation_capacity_reached() {
+            return Err(err("MARGIN_OBSERVATION_HISTORY_LIMIT"));
+        }
+        if self.account.snapshot()["maintenance_status"] == "UNAVAILABLE" {
+            return Err(err("MARGIN_MAINTENANCE_UNAVAILABLE"));
+        }
+        self.validate_perpetual_admission_request(input)?;
         self.current_mark(input)?;
+        let p = &input["payload"];
+        let r = &p["request"];
         let order = Components::fee_order_preview_checkpoint(
             &self.config,
             &boundary(self.order.checkpoint_record())?.0,
@@ -736,27 +804,28 @@ impl Components {
             &n,
         )?;
         let market = json!({"schema_version":1,"verdict":"ACCEPT","source_ref":input["source_ref"],"request_digest":hash(r),"notional":self.cash_value(&n)?,"rounding":"HALF_EVEN"});
-        let collateral = self.collateral(input, r, &r["quantity"], None, &n)?;
+        let collateral = self.perpetual_collateral(input, r, None, &n, &self.margin_owner()?)?;
         self.admit(&expanded(input,json!({"schema_version":1,"order":p["order"],"request":r,"fee_contract":fees,"fee_budget":fees["funding"]["fee_reservation"]["amount"],"market":market,"collateral":collateral})))?;
         let relation = &mut Arc::make_mut(&mut self.meta)["orders"][id(&p["order"])?];
         relation["fee_binding_day"] = input["day_index"].clone();
         relation["fee_binding_time"] = input["time"].clone();
         Ok(())
     }
-    fn perpetual_broker(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn validate_perpetual_broker_input(
+        &self,
+        input: &Value,
+    ) -> Result<onlyalpha_broker::Fact, Error> {
         let p = &input["payload"];
         shape(p, 2, &["order", "broker"])?;
         let fact = broker(&self.config, &p["broker"])?;
         let b = &p["broker"]["record"];
         let order = id(&p["order"])?;
-        let kind = text(&b["kind"])?;
-        let op = match kind {
+        let op = match text(&b["kind"])? {
             "ACCEPTED" => "ACCEPT",
             "TRADE" => "FILL",
             "REJECTED" | "EXPIRED" | "CANCELLED" => "TERMINAL",
             _ => return Err(err("EXECUTION_BROKER_KIND")),
         };
-        let _ = self.relation(input)?;
         if fact.order() != Some(order)
             || b["correlation"] != order
             || input["op"] != op
@@ -765,6 +834,39 @@ impl Components {
         {
             return Err(err("EXECUTION_BROKER_RELATION"));
         }
+        if op == "FILL" {
+            let fill = &b["payload"]["fill"];
+            if fill["ts_event"]["unix_nanos"] != b["ts_event"]
+                || fill["ts_init"]["unix_nanos"] != b["ts_init"]
+                || fill["external_sequence"] != b["source_sequence"]
+            {
+                return Err(err("EXECUTION_BROKER_FILL_SCOPE"));
+            }
+        }
+        Ok(fact)
+    }
+    pub(crate) fn perpetual_broker_order(&self, input: &Value) -> Result<OnlyOrderSnapshot, Error> {
+        let p = &input["payload"];
+        let snapshot = boundary(self.order.get(text(&input["cluster"])?, id(&p["order"])?))?;
+        let venue = &snapshot.to_record()["venue_order_id"]["value"];
+        let broker = &p["broker"]["record"]["payload"];
+        match text(&input["op"])? {
+            "TERMINAL" => validate_terminal_venue(venue, &broker["venue"])?,
+            "FILL" if venue.is_null() || *venue != broker["fill"]["venue_order_id"]["value"] => {
+                return Err(err("EXECUTION_BROKER_FILL_SCOPE"));
+            }
+            _ => {}
+        }
+        Ok(snapshot)
+    }
+    fn perpetual_broker(&mut self, input: &Value) -> Result<(), Error> {
+        let fact = self.validate_perpetual_broker_input(input)?;
+        let _ = self.relation(input)?;
+        let p = &input["payload"];
+        let b = &p["broker"]["record"];
+        let order = id(&p["order"])?;
+        let op = text(&input["op"])?;
+        let kind = text(&b["kind"])?;
         let existing = &self.perp()["broker_facts"][fact.identity()];
         if !existing.is_null() {
             if existing["broker"] != p["broker"] {
@@ -773,7 +875,7 @@ impl Components {
             self.perp_mut()["last_disposition"] = json!("DUPLICATE");
             return Ok(());
         }
-        let snapshot = boundary(self.order.get(text(&input["cluster"])?, order))?;
+        let snapshot = self.perpetual_broker_order(input)?;
         let venue = &snapshot.to_record()["venue_order_id"]["value"];
         let payload = &b["payload"];
         let mut next = expanded(input, Value::Null);
@@ -785,36 +887,25 @@ impl Components {
                 self.accept(&next)?;
             }
             "TERMINAL" => {
-                if !venue.is_null() && *venue != payload["venue"] {
-                    return Err(err("EXECUTION_BROKER_VENUE"));
-                }
                 next["payload"] = json!({"schema_version":1,"order":order,"outcome":kind,"collateral":{"schema_version":1,"kind":"MARGIN","instruction":null,"close_allocation":null}});
                 self.terminal(&next)?;
             }
             _ => {
                 let f = &payload["fill"];
-                if venue.is_null()
-                    || *venue != f["venue_order_id"]["value"]
-                    || f["ts_event"]["unix_nanos"] != b["ts_event"]
-                    || f["ts_init"]["unix_nanos"] != b["ts_init"]
-                    || f["external_sequence"] != b["source_sequence"]
-                {
-                    return Err(err("EXECUTION_BROKER_FILL_SCOPE"));
-                }
                 let rel = self.relation(input)?;
                 let terms = &self.config["perpetual"];
                 let bound_day = uint(&rel["fee_binding_day"])?;
                 let bound_time = uint(&rel["fee_binding_time"])?;
-                let event = uint(&b["ts_event"])?;
-                if event < bound_time {
-                    return Err(err("EXECUTION_BROKER_ECONOMIC_DAY"));
-                }
-                const DAY_NS: u64 = 86_400_000_000_000;
-                let fee_day = bound_day
-                    .checked_add(event / DAY_NS - bound_time / DAY_NS)
-                    .ok_or_else(|| err("EXECUTION_BROKER_ECONOMIC_DAY"))?;
+                let fee_day = crate::perpetual_fees::fill_day(bound_day, bound_time, f)?;
+                let order_record = snapshot.to_record();
                 let fee = Fees::new(&self.config, fee_day)?
-                    .fill(&snapshot, bound_day, f)?
+                    .fill(
+                        &snapshot,
+                        bound_day,
+                        f,
+                        &dec(&order_record["filled_quantity"]["value"])?,
+                        &exact(&order_record["cumulative_price_quantity"])?,
+                    )?
                     .record();
                 let n = nonnegative(&f["price"]["value"])?
                     * nonnegative(&f["quantity"]["value"])?
@@ -841,8 +932,11 @@ impl Components {
                     "VALUATION",
                     json!({"mark":self.current_mark(input)?["value"]["value"]}),
                 );
+                let collateral = self.perpetual_collateral(
+                    input, &rel["request"], Some(f), &n, &self.margin_owner()?,
+                )?;
                 next["fee_assessment"] = fee;
-                next["payload"] = json!({"schema_version":1,"order":order,"trade":trade,"venue_trade":f["venue_trade_id"]["value"],"venue_order":venue,"quantity":f["quantity"]["value"],"price":f["price"]["value"],"fees":fee_proof,"settlement":settlement,"valuation":valuation,"collateral":self.collateral(input,&rel["request"],&f["quantity"],Some(trade),&n)?});
+                next["payload"] = json!({"schema_version":1,"order":order,"trade":trade,"venue_trade":f["venue_trade_id"]["value"],"venue_order":venue,"quantity":f["quantity"]["value"],"price":f["price"]["value"],"fees":fee_proof,"settlement":settlement,"valuation":valuation,"collateral":collateral});
                 self.fill(&next)?;
                 self.mark_margin(input)?;
             }
@@ -869,13 +963,7 @@ impl Components {
         }
         if let Some(key) = self.perp()["latest_mark"].as_str() {
             let previous = mark_fact(&self.config, &self.perp()["marks"][key])?;
-            if m.ts_event() == previous.ts_event()
-                && m.source_sequence() == previous.source_sequence()
-                && m.revision() == previous.revision()
-                || m.stable_order() <= previous.stable_order()
-            {
-                return Err(err("EXECUTION_MARK_STALE"));
-            }
+            validate_mark_order(&m, &previous)?;
         }
         let n = &input["runtime_sequence"];
         let inst = &self.config["perpetual"]["instrument"];
@@ -887,21 +975,41 @@ impl Components {
             let info = json!({"schema_version":1,"valuation":m.fact_id(),"version":n,"economic_version":self.account.snapshot()["economic_version"],"position_evidence":boundary(self.position.checkpoint_record())?.1,"marks":[{"schema_version":1,"instrument":inst,"mark":raw["value"]["value"],"precision":raw["value"]["precision"],"source_ref":m.fact_id(),"family":"MARK","version":n,"time":at,"as_of_sequence":n}]});
             self.valuation(&expanded(input, info))?;
         }
-        self.perp_mut()["marks"][m.fact_id()] = raw.clone();
-        self.perp_mut()["latest_mark"] = json!(m.fact_id());
+        self.record_perpetual_mark(raw)?;
         self.perp_mut()["last_disposition"] = json!("APPLIED");
         self.mark_margin(input)
     }
+    pub(crate) fn record_perpetual_mark(&mut self, raw: &Value) -> Result<(), Error> {
+        let id = id(&raw["fact_id"])?;
+        self.perp_mut()["marks"][id] = raw.clone();
+        self.perp_mut()["latest_mark"] = json!(id);
+        Ok(())
+    }
     fn mark_margin(&mut self, input: &Value) -> Result<(), Error> {
+        let mut owner = self.margin_owner()?;
+        let effects = self.mark_margin_effects(input, &mut owner)?;
+        if !effects.is_empty() {
+            for effect in &effects {
+                self.project_margin(input, effect)?;
+            }
+            Arc::make_mut(&mut self.meta)["margin_authority"] = owner.checkpoint();
+        }
+        Ok(())
+    }
+    pub(crate) fn mark_margin_effects(
+        &self,
+        input: &Value,
+        owner: &mut onlyalpha_margin::Manager,
+    ) -> Result<Vec<onlyalpha_margin::Effect>, Error> {
         let mark = self.current_mark(input)?;
         let price = nonnegative(&mark["value"]["value"])? * self.contract_multiplier()?;
-        let mark_id = mark["fact_id"].clone();
-        let mut owner = self.margin_owner()?;
+        let mark_id = &mark["fact_id"];
         let unit = price.normalized().to_plain_string();
         let covered = boundary(
             owner.covers_open_notional(text(&self.config["perpetual"]["instrument"])?, &unit),
         )?;
         let mut gross = BigDecimal::zero();
+        let mut effects = Vec::new();
         for state in owner.snapshots() {
             let open = nonnegative(&state["open"])?;
             if open.is_zero() {
@@ -931,9 +1039,9 @@ impl Components {
             };
             let mut cmd = json!({"schema_version":2,"id":format!("MMARK-{}",hash(&json!([mark_id,state["id"],state["version"],action]))),"scope":state["scope"],"reservation":state["id"],"source_order":state["order"],"source_trade":null,"source_ref":format!("MSRC-{}",hash(&json!([mark_id,input["source_ref"],state["id"]]))),"mode":state["mode"],"isolation":state["isolation"],"position_side":state["position_side"],"action":action,"quantity":state["open"],"quantity_precision":state["quantity_precision"],"marked_unit_notional":unit,"amount":money(&BigDecimal::zero(),self.precision)?,"maintenance":maintenance,"time":input["time"],"expected_version":state["version"],"before_hash":hash(&state)});
             cmd["source_fingerprint"] = json!(hash(&cmd));
-            self.consume_margin(input, &mut owner, &cmd)?;
+            effects.push(boundary(owner.apply(&cmd))?);
         }
-        Ok(())
+        Ok(effects)
     }
     fn consume_funding(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];

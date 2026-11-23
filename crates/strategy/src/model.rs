@@ -467,6 +467,37 @@ impl Program {
     pub fn to_record(&self) -> Value {
         json!({"schema_version":1,"revision":self.revision.to_record(),"scope":self.scope.to_record(),"generation":self.generation,"source":self.source,"artifact":self.artifact,"bindings":self.bindings.values().map(ExecutionBinding::to_record).collect::<Vec<_>>()})
     }
+    pub fn from_record(v: &Value) -> StrategyResult<Self> {
+        object(
+            v,
+            &[
+                "schema_version",
+                "revision",
+                "scope",
+                "generation",
+                "source",
+                "artifact",
+                "bindings",
+            ],
+        )?;
+        object(&v["scope"], &["engine", "runtime", "cluster"])?;
+        let scope = Scope {
+            engine: text(&v["scope"]["engine"])?.parse().map_err(|_| bad())?,
+            runtime: text(&v["scope"]["runtime"])?.parse().map_err(|_| bad())?,
+            cluster: text(&v["scope"]["cluster"])?.parse().map_err(|_| bad())?,
+        };
+        let program = Self::new(
+            Revision::from_record(&v["revision"])?,
+            scope,
+            text(&v["generation"])?,
+            text(&v["source"])?,
+            text(&v["artifact"])?,
+        )?;
+        if program.to_record() != *v {
+            return Err(bad());
+        }
+        Ok(program)
+    }
     pub fn bindings(&self) -> &BTreeMap<String, ExecutionBinding> {
         &self.bindings
     }

@@ -1,3 +1,5 @@
+#[cfg(test)]
+std::thread_local! { pub(crate) static DATA_FORKS:std::cell::Cell<u64>=const {std::cell::Cell::new(0)}; }
 use crate::model::*;
 use onlyalpha_domain::{base::OnlyDomainModel, value::OnlyCurrency};
 use serde_json::{Value, json};
@@ -208,6 +210,8 @@ impl Components {
     }
     /// Independent data only; callers still prove their current owning Store.
     pub(crate) fn clone_data(&self) -> Self {
+        #[cfg(test)]
+        DATA_FORKS.with(|n| n.set(n.get() + 1));
         Self {
             projection_data: self.projection_data,
             config: self.config.clone(),
@@ -445,6 +449,9 @@ impl Components {
     /// Position identity is its complete canonical checkpoint SHA, not metadata.
     pub fn position_order_view<S: crate::Store>(&self, store: &S) -> Result<Value, Error> {
         self.ready_source(store)?;
+        self.position_order_data()
+    }
+    pub(crate) fn position_order_data(&self) -> Result<Value, Error> {
         let relations = self.meta["orders"]
             .as_object()
             .ok_or_else(|| err("EXECUTION_ORDER_VIEW_RELATION"))?;
@@ -502,9 +509,10 @@ impl Components {
         self.ready_source(store)?;
         #[cfg(test)]
         FULL_STATE_CONSTRUCTIONS.with(|count| count.set(count.get() + 1));
-        Ok(
-            json!({"schema_version":1,"execution_sequence":self.sequence,"account":self.account.state(),"position":self.position.state(),"ledger":self.ledger.state(),"risk":self.risk.state(),"execution":self.meta.as_ref()}),
-        )
+        Ok(self.state_data())
+    }
+    pub(crate) fn state_data(&self) -> Value {
+        json!({"schema_version":1,"execution_sequence":self.sequence,"account":self.account.state(),"position":self.position.state(),"ledger":self.ledger.state(),"risk":self.risk.state(),"execution":self.meta.as_ref()})
     }
     fn require_account_checkpoint_for_config(config: &Value, value: &Value) -> Result<(), Error> {
         Self::require_account_checkpoint_version(config, value["schema_version"].as_u64())

@@ -28,12 +28,12 @@ pub struct Trading<C: NodePort> {
 }
 /// One canonical transport derivation for actual BAR valuation and its original
 /// read-only journal consumer. Values confer no execution permission.
-struct BarOperation<'a> {
-    kind: &'a str,
-    payload: Value,
-    cause: &'a str,
+pub(crate) struct BarOperation<'a> {
+    pub(crate) kind: &'a str,
+    pub(crate) payload: Value,
+    pub(crate) cause: &'a str,
 }
-fn bar_request(
+pub(crate) fn bar_request(
     binding: &Value,
     input: &MarketInput,
     now: u64,

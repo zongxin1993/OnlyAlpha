@@ -173,6 +173,7 @@ services:
     environment:
       ONLYALPHA_NATIVE_ARTIFACT_ROOT: ${ONLYALPHA_NATIVE_ARTIFACT_ROOT:-/workspace/test-results/native-workstation/unprepared}
       ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha?sslmode=disable
+      ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN: postgresql://onlyalpha_factor_builder_runtime:onlyalpha@postgres:5432/onlyalpha?sslmode=disable
       ONLYALPHA_CLICKHOUSE_URL: http://clickhouse:8123
       ONLYALPHA_CLICKHOUSE_USER: onlyalpha
       ONLYALPHA_CLICKHOUSE_PASSWORD: onlyalpha

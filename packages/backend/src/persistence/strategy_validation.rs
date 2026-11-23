@@ -29,6 +29,7 @@ use onlyalpha_calculation::{
     product::{Graph, normalize_scalar},
 };
 use onlyalpha_strategy::SourceRevision;
+use crate::persistence::build_fact_read::BuildFactRead;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -76,6 +77,8 @@ fn verify_case(
     if case["axis"] != json!(axis) || !rows(&case["target_outputs"])?.is_empty() {
         return Err(INVALID);
     }
+    let starts = onlyalpha_calculation::finite_input::node_execution_starts(graph, 8192)
+        .map_err(|_| INVALID)?;
     let mut outputs = Vec::new();
     for (key, implementation) in [
         ("research_outputs", "research_implementation_fingerprint"),
@@ -118,13 +121,21 @@ fn verify_case(
                 if values.len() != axis.len() {
                     return Err(INVALID);
                 }
-                for value in values {
+                for (position, value) in values.iter().enumerate() {
                     if normalize_scalar(value, WORK).map_err(|_| INVALID)? != *value
                         || normalize_result_outputs(&json!({(name):value})).map_err(|_| INVALID)?
                             [name]
                             != *value
                     {
                         return Err(INVALID);
+                    }
+                    if u64::try_from(position).map_err(|_| INVALID)?
+                        < *starts.get(&id).ok_or(INVALID)?
+                    {
+                        if value != &json!({"type":"NULL","value":null}) {
+                            return Err(INVALID);
+                        }
+                        continue;
                     }
                     if value["type"] == "NULL" {
                         if port["nullable"] != true {
@@ -175,14 +186,14 @@ fn verify_case(
     }
     Ok(())
 }
-/// Value validation is deliberately not a publication constructor or grant.
-pub(crate) fn verify_observation(
-    prepared: &Value,
-    observation: &Value,
-    materialized: &MaterializedDataset,
-) -> Result<Vec<Value>> {
+pub(crate) fn verify_controlled_case(
+    graph: &Graph,
+    bindings: &Value,
+    signals: &Value,
+    case: &Value,
+) -> Result<()> {
     exact(
-        observation,
+        case,
         &[
             "axis",
             "research_outputs",
@@ -190,11 +201,37 @@ pub(crate) fn verify_observation(
             "target_outputs",
             "decisions",
             "restoration",
-            "graph_cases",
-            "node_profiles",
-            "producer",
+            "case_id",
+            "rows",
         ],
     )?;
+    let axis = rows(&case["rows"])?
+        .iter()
+        .map(|r| r["at_ns"].clone())
+        .collect::<Vec<_>>();
+    verify_case(graph, bindings, signals, case, &axis)
+}
+/// Value validation is deliberately not a publication constructor or grant.
+pub(crate) fn verify_observation(
+    prepared: &Value,
+    observation: &Value,
+    materialized: &MaterializedDataset,
+) -> Result<Vec<Value>> {
+    let mut fields = vec![
+        "axis",
+        "research_outputs",
+        "streaming_outputs",
+        "target_outputs",
+        "decisions",
+        "restoration",
+        "graph_cases",
+        "node_profiles",
+        "producer",
+    ];
+    if prepared.get("build_certification").is_some() {
+        fields.push("build_certification");
+    }
+    exact(observation, &fields)?;
     let graph =
         Graph::from_record(&prepared["decision"]["decision_graph"], WORK).map_err(|_| INVALID)?;
     let signals = &prepared["decision"]["signal_semantics"];
@@ -221,6 +258,21 @@ pub(crate) fn verify_observation(
         || observation["restoration"]["restored_checkpoint_fingerprint"] != before
     {
         return Err(INVALID);
+    }
+    if prepared.get("build_certification").is_some() {
+        crate::application::calculation_build::verify_reference(
+            prepared,
+            prepared,
+            materialized.verified().dataset().definition(),
+            &materialized.verified().manifest()["provenance"][0]["source_metadata"]["construction_recipe"],
+            observation,
+        )?;
+        return equivalence::derive_certified(
+            &graph,
+            bindings,
+            observation,
+            &prepared["build_certification"],
+        );
     }
     let (cases, profiles) = planned_graph_validation(
         &graph,
@@ -283,7 +335,8 @@ pub(crate) fn verify_observation(
     }
     equivalence::derive(&graph, bindings, observation)
 }
-fn verify_resolution(
+async fn verify_resolution(
+    facts: &BuildFactRead<'_, '_>,
     prepared: &Value,
     archive: &Value,
     factors: &BTreeMap<String, Value>,
@@ -291,6 +344,47 @@ fn verify_resolution(
 ) -> Result<()> {
     let request = &prepared["algorithm_resolution_request"];
     let observed = &prepared["algorithm_resolution"];
+    if observed["contract"] == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1" {
+        if prepared["execution_binding"] != archive["execution_binding"]
+            || observed["algorithm_artifact"] != archive["installed_proof"]["algorithm_artifact"]
+            || observed["native_execution"]["artifact"]
+                != archive["execution_binding"]["executor_artifact_sha256"]
+            || !observed["target_resolution"].is_null()
+            || !request["target_resolution_request"].is_null()
+            || request["instances"] != definition.to_record()["calculations"]
+        {
+            return Err(INVALID);
+        }
+        facts.verify_retained(
+            prepared,
+            &prepared["strategy_revision"],
+            factors,
+        )
+        .await
+        .map_err(|e| match e {
+            crate::application::factor_build::BuildError::Storage(
+                crate::persistence::job_publication::PublicationError::Unavailable,
+            ) => UNAVAILABLE,
+            _ => INVALID,
+        })?;
+        let d = definition.to_record();
+        let dataset = json!({"instruments":d["universe"]["instruments"],"bar_semantic":d["market_input"]["bar_semantic"]});
+        let expected = crate::application::calculation_build::context(
+            prepared,
+            prepared,
+            &dataset,
+            &d["market_input"]["construction_requirement"]["recipe"],
+        )?;
+        crate::application::calculation_build::verify(&prepared["build_certification"], &expected)?;
+        let native = &archive["installed_proof"]["native_descriptor"]["implementations"];
+        let mut seen = BTreeSet::new();
+        for n in rows(&prepared["native_implementations"])? {
+            if !rows(native)?.contains(n) || !seen.insert(text(&n["implementation_fingerprint"])?) {
+                return Err(INVALID);
+            }
+        }
+        return Ok(());
+    }
     exact(
         observed,
         &[
@@ -495,6 +589,8 @@ impl VerifiedValidation {
             || ready["algorithm_resolution"] != prepared["algorithm_resolution"]
             || ready["algorithm_resolution_request"] != prepared["algorithm_resolution_request"]
             || ready["native_implementations"] != prepared["native_implementations"]
+            || ready["calculation_build"]
+                != crate::application::calculation_build::reference(&prepared["build_certification"])
         {
             return Err(INVALID);
         }
@@ -502,9 +598,13 @@ impl VerifiedValidation {
     }
     pub(crate) async fn verify_in_transaction(
         &self,
-        tx: &Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
         namespace: &SemanticStoreId,
     ) -> Result<()> {
+        if let Some(proof) = self.record["prepared_inputs"].get("build_certification") {
+            tx.verify_calculation(proof).await?;
+        }
+
         self.verify_cut()?;
         if namespace != &self.namespace {
             return Err(INVALID);
@@ -600,6 +700,7 @@ impl Store {
     pub(crate) async fn read_verified(
         &self,
         client: &mut Client,
+        fact_client: &mut Client,
         id: &str,
     ) -> Result<VerifiedValidation> {
         let tx = client
@@ -609,24 +710,32 @@ impl Store {
             .start()
             .await
             .map_err(|_| UNAVAILABLE)?;
-        let value = self.read_verified_in_transaction(&tx, id).await?;
+        let namespace=deployment::load_semantic_store_id_at(&self.research.fd).map_err(|e|e.code())?;
+        // Establish the original metadata snapshot first. Every referenced
+        // immutable fact must then be visible in the later facts snapshot.
+        deployment::verify_binding_in_transaction(&tx,&namespace).await.map_err(|e|e.code())?;
+        let facts_tx=fact_client.build_transaction().read_only(true)
+            .start().await.map_err(|_|UNAVAILABLE)?;
+        let facts=BuildFactRead::reader(&tx,&facts_tx,&namespace).await.map_err(|_|UNAVAILABLE)?;
+        let value = self.read_verified_in_transaction(&facts,id).await?;
         value.verify_cut()?;
+        facts_tx.commit().await.map_err(|_|UNAVAILABLE)?;
         tx.commit().await.map_err(|_| UNAVAILABLE)?;
         value.verify_cut()?;
         Ok(value)
     }
     pub(crate) async fn read_verified_in_transaction(
         &self,
-        tx: &Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
         id: &str,
     ) -> Result<VerifiedValidation> {
         let lock = Arc::new(SourceLock::publication(&self.owner.path)?);
-        self.read_verified_captured_in_transaction(tx, id, vec![lock])
+        self.read_verified_captured_in_transaction(tx,id,vec![lock])
             .await
     }
     pub(crate) async fn read_verified_captured_in_transaction(
         &self,
-        tx: &Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
         id: &str,
         mut locks: Vec<Arc<SourceLock>>,
     ) -> Result<VerifiedValidation> {
@@ -701,29 +810,30 @@ impl Store {
             return Err(INVALID);
         }
         let prepared = &record["prepared_inputs"];
-        exact(
-            prepared,
-            &[
-                "semantic_store_id",
-                "origin",
-                "strategy_revision",
-                "factor_revisions",
-                "runtime_manifest",
-                "runtime_work_binding",
-                "execution_binding",
-                "algorithm_resolution",
-                "algorithm_resolution_request",
-                "native_implementations",
-                "decision",
-                "implementation_bindings",
-                "input_window",
-                "dataset_snapshot_fingerprint",
-                "dataset_manifest",
-                "dataset_materialization",
-                "dataset_construction_fingerprint",
-                "source_revision",
-            ],
-        )?;
+        let mut fields = vec![
+            "semantic_store_id",
+            "origin",
+            "strategy_revision",
+            "factor_revisions",
+            "runtime_manifest",
+            "runtime_work_binding",
+            "execution_binding",
+            "algorithm_resolution",
+            "algorithm_resolution_request",
+            "native_implementations",
+            "decision",
+            "implementation_bindings",
+            "input_window",
+            "dataset_snapshot_fingerprint",
+            "dataset_manifest",
+            "dataset_materialization",
+            "dataset_construction_fingerprint",
+            "source_revision",
+        ];
+        if prepared.get("build_certification").is_some() {
+            fields.push("build_certification");
+        }
+        exact(prepared, &fields)?;
         if prepared["semantic_store_id"] != namespace.value() {
             return Err(INVALID);
         }
@@ -777,7 +887,7 @@ impl Store {
         {
             return Err(INVALID);
         }
-        verify_resolution(prepared, &archive, &factors, &definition)?;
+        verify_resolution(tx,prepared,&archive,&factors,&definition).await?;
         if validation::implementation_bindings(
             decision.graph(),
             &prepared["algorithm_resolution"],
@@ -836,7 +946,7 @@ impl Store {
             namespace,
             cut,
         };
-        value.verify_in_transaction(tx, &value.namespace).await?;
+        value.verify_in_transaction(tx,&value.namespace).await?;
         self.verify_layout()?;
         Ok(value)
     }
@@ -882,6 +992,7 @@ impl Store {
         let source = Arc::new(SourceLock::publication(&self.owner.path)?);
         let equivalence_source = Arc::new(SourceLock::publication(&self.equivalence.path)?);
         let mut owned = session.take_ownership();
+        let roles=owned.control_roles().map_err(|_|UNAVAILABLE)?;
         let mut mutated = false;
         let result=async {
             let tx=owned.client_mut().await.map_err(|_|UNAVAILABLE)?.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await.map_err(|_|UNAVAILABLE)?;
@@ -891,7 +1002,7 @@ impl Store {
             let original=research_preparation::load(&tx,&origin.command,&origin.owner).await?;
             if Origin::from_operation(&original)?.record()!=origin.record(){return Err(INVALID);}
             if tx.query_opt("SELECT 1 FROM strategy_validation_publication WHERE preparation_command_id=$1::text::uuid",&[&origin.command.value()]).await.map_err(|_|UNAVAILABLE)?.is_some() {
-                let existing=self.read_verified_captured_in_transaction(&tx,origin.command.value(),vec![source.clone(),equivalence_source.clone()]).await?;
+                let existing=self.read_verified_captured_in_transaction(&BuildFactRead::control(&tx,&roles),origin.command.value(),vec![source.clone(),equivalence_source.clone()]).await?;
                 if existing.record()!=&record{return Err(INVALID);}joined.verify_cut()?;AuthoritySession::verify_transaction(&tx).await.map_err(|_|UNAVAILABLE)?;
                 tx.commit().await.map_err(|_|UNKNOWN)?;return Ok(existing);
             }
@@ -911,9 +1022,9 @@ impl Store {
             mutated=true;
             tx.execute("INSERT INTO strategy_validation_publication(preparation_command_id,validation_fingerprint,accepted_fingerprint,private_strategy_id,private_strategy_revision_fingerprint,recorded_at) VALUES($1::text::uuid,$2,$3,$4,$5,$6::text::timestamptz)",&[&origin.command.value(),&identity,&origin.accepted_fingerprint,&origin.strategy_id,&origin.strategy_revision_fingerprint,&text(&origin.accepted["accepted_at"])?]).await.map_err(|_|UNKNOWN)?;
             tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE").await.map_err(|_|UNKNOWN)?;
-            let verified=self.read_verified_captured_in_transaction(&tx,origin.command.value(),vec![source.clone(),equivalence_source.clone()]).await?;
+            let verified=self.read_verified_captured_in_transaction(&BuildFactRead::control(&tx,&roles),origin.command.value(),vec![source.clone(),equivalence_source.clone()]).await?;
             if verified.record()!=&record||verified.source_revision()!=joined.source_revision(){return Err(INVALID);}
-            joined.verify_cut()?;verified.verify_in_transaction(&tx,&namespace).await?;AuthoritySession::verify_transaction(&tx).await.map_err(|_|UNAVAILABLE)?;
+            joined.verify_cut()?;verified.verify_in_transaction(&BuildFactRead::control(&tx,&roles),&namespace).await?;AuthoritySession::verify_transaction(&tx).await.map_err(|_|UNAVAILABLE)?;
             tx.commit().await.map_err(|_|UNKNOWN)?;joined.verify_cut()?;verified.verify_cut()?;Ok(verified)
         }.await;
         // A pending commit never reconnects, invents a new task, or enrolls a

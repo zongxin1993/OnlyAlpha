@@ -350,6 +350,11 @@ pub struct Graph {
 }
 impl Graph {
     pub fn from_record(v: &Value, max_work: usize) -> Result<Self> {
+        Self::from_record_with_work(v, max_work).map(|(graph, _)| graph)
+    }
+
+    /// Returns the verified graph and the work charged for scanning and decimal expansion.
+    pub fn from_record_with_work(v: &Value, max_work: usize) -> Result<(Self, usize)> {
         let mut work = Work(max_work);
         work.scan(v)?;
         exact(v, &["schema_version", "nodes"])?;
@@ -379,12 +384,11 @@ impl Graph {
             .collect();
         let order = crate::graph::order(&records).map_err(|_| Error::Invalid)?;
         let mut selected: Vec<_> = nodes.into_iter().map(Some).collect();
-        Ok(Self {
-            nodes: order
-                .into_iter()
-                .map(|i| selected[i].take().expect("unique ordered index"))
-                .collect(),
-        })
+        let nodes = order
+            .into_iter()
+            .map(|i| selected[i].take().expect("unique ordered index"))
+            .collect();
+        Ok((Self { nodes }, max_work - work.0))
     }
     pub fn ordered_nodes(&self) -> impl Iterator<Item = &Definition> {
         self.nodes.iter().map(|(definition, _)| definition)

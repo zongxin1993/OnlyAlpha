@@ -1,5 +1,7 @@
 //! 确定性的模拟场所。Broker 接收观察，Runtime 独立验证、应用交易事实。
 mod config;
+mod memory;
+pub use memory::{CompletedMemoryVenue, MemoryVirtualActor, SourceAction, SourceTrace};
 mod discovery;
 mod plan;
 mod projection;

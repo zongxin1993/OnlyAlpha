@@ -191,7 +191,7 @@ impl StrategyEvaluation {
             return Err(invalid().into());
         }
         phase("dataset-axis");
-        let bars = verified.dataset().bars()?;
+        let bars = crate::application::job_input::ordered_bars(verified.dataset())?;
         let window = &spec["input_window"];
         let ns = |key: &str| -> Result<u64> { text(&window[key])?.parse().map_err(mapped) };
         let start = ns("dataset_event_start_ns")?;
@@ -210,19 +210,15 @@ impl StrategyEvaluation {
         {
             return Err(invalid().into());
         }
+        let axis = onlyalpha_market_data::finite_input::Axis::new(
+            start.try_into().map_err(mapped)?,
+            end.try_into().map_err(mapped)?,
+            stride.try_into().map_err(mapped)?,
+            bars.len(),
+        )
+        .map_err(mapped)?;
         for (index, bar) in bars.iter().enumerate() {
-            if event(bar)?
-                != start
-                    .checked_add(
-                        (index as u64)
-                            .checked_mul(stride)
-                            .ok_or_else(|| invalid())?,
-                    )
-                    .ok_or_else(|| invalid())?
-                || event(bar)? >= end
-            {
-                return Err(invalid().into());
-            }
+            axis.check(index, bar).map_err(mapped)?;
         }
         phase("graph-values");
         let graph =
@@ -231,6 +227,7 @@ impl StrategyEvaluation {
         let mut actual = observe_graph(
             inputs.runtime_hold(),
             GraphObservationInputs {
+                programs: inputs.programs(),
                 prepared,
                 spec,
                 graph: &graph,
@@ -276,6 +273,7 @@ impl StrategyEvaluation {
 /// Purely finite mathematical observation shared by Research and manual Backtest.
 /// It does not construct a Research Context, Target, Run, report or admission.
 pub(crate) struct GraphObservationInputs<'a> {
+    pub(crate) programs: &'a [crate::application::factor_build::ReadyFactorBinding],
     pub(crate) prepared: &'a Value,
     pub(crate) spec: &'a Value,
     pub(crate) graph: &'a Graph,
@@ -291,6 +289,7 @@ pub(crate) fn observe_graph(
     control: &Control,
 ) -> std::result::Result<Value, PreparationError> {
     let GraphObservationInputs {
+        programs,
         prepared,
         spec,
         graph,
@@ -306,12 +305,12 @@ pub(crate) fn observe_graph(
         return Err(INVALID.into());
     }
     let columns = rows(&spec["input_window"]["dataset_columns"])?;
-    let window = &spec["input_window"];
     let binding = rows(&spec["implementation_bindings"])?
         .iter()
         .map(|b| Ok((text(&b["node_fingerprint"])?.to_owned(), b.clone())))
         .collect::<Result<BTreeMap<_, _>>>()?;
     let runner = Runner {
+        programs,
         runtime: runtime.clone(),
         prepared,
         spec,
@@ -324,6 +323,58 @@ pub(crate) fn observe_graph(
         definition: definition.clone(),
         recipe: recipe.clone(),
     };
+    let proof = &prepared["build_certification"];
+    let expected =
+        crate::application::calculation_build::context(prepared, spec, definition, recipe)?;
+    crate::application::calculation_build::verify(proof, &expected)?;
+    let mut actual =
+        runner.run_case(bars, true, text(&prepared["dataset_snapshot_fingerprint"])?)?;
+    actual["graph_cases"] = proof["graph_cases"].clone();
+    actual["node_profiles"] = proof["node_profiles"].clone();
+    actual["build_certification"] = crate::application::calculation_build::reference(proof);
+    runtime.verify()?;
+    installation.verify().map_err(|_| UNAVAILABLE)?;
+    if prepared["algorithm_resolution"]["contract"]
+        == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1"
+        && targets.is_none()
+    {
+        control.check()?;
+    } else {
+        control.verify_joined()?;
+    }
+    Ok(actual)
+}
+/// Only explicit build preparation runs the controlled corpus. No Target is loaded.
+pub(crate) fn certify_graph(
+    inputs: crate::application::calculation_build::Inputs,
+) -> std::result::Result<Value, PreparationError> {
+    let expected = crate::application::calculation_build::context(
+        &inputs.prepared,
+        &inputs.specification,
+        &inputs.definition,
+        &inputs.recipe,
+    )?;
+    let prepared = crate::application::calculation_build::signal_preparation(&inputs.prepared)?;
+    let graph = Graph::from_record(&inputs.specification["decision"]["decision_graph"], WORK)
+        .map_err(mapped)?;
+    let bindings = rows(&inputs.specification["implementation_bindings"])?
+        .iter()
+        .map(|b| Ok((text(&b["node_fingerprint"])?.to_owned(), b.clone())))
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let runner = Runner {
+        programs: &inputs.programs,
+        runtime: inputs.runtime.clone(),
+        prepared: &prepared,
+        spec: &inputs.specification,
+        graph: &graph,
+        targets: None,
+        bindings,
+        installation: inputs.installation.clone(),
+        control: &inputs.control,
+        columns: rows(&expected["window"]["dataset_columns"])?.clone(),
+        definition: inputs.definition.clone(),
+        recipe: inputs.recipe.clone(),
+    };
     let q = graph
         .ordered_nodes()
         .filter_map(|d| {
@@ -333,11 +384,10 @@ pub(crate) fn observe_graph(
         })
         .min()
         .ok_or(UNAVAILABLE)?;
-
-    let controlled = controlled_cases(&bars[0], window, &q)?;
-
-    let profiles = profile_inputs(graph, &q)?;
-    let mut work = bars.len();
+    let seed = OnlyBar::from_record(&expected["seed"]).map_err(mapped)?;
+    let controlled = controlled_cases(&seed, &expected["window"], &q)?;
+    let profiles = profile_inputs(&graph, &q)?;
+    let mut work = 0usize;
     for (_, case) in &controlled {
         work = work.checked_add(case.len()).ok_or(UNAVAILABLE)?;
     }
@@ -351,27 +401,33 @@ pub(crate) fn observe_graph(
     if work > 8192 {
         return Err(UNAVAILABLE.into());
     }
-
-    let mut actual =
-        runner.run_case(bars, true, text(&prepared["dataset_snapshot_fingerprint"])?)?;
-
-    let mut graph_cases = Vec::new();
-    for (case_id, case) in controlled {
-        control.check()?;
-        let input = runner.input_rows(&case)?;
-        let mut observation = runner.run_case(&case, false, &hash(&input)?)?;
-        observation["case_id"] = json!(case_id);
-        observation["rows"] = input;
-        graph_cases.push(observation);
+    inputs.control.check()?;
+    inputs.runtime.verify()?;
+    inputs.installation.verify().map_err(|_| UNAVAILABLE)?;
+    eprintln!("[calculation-build] phase=controlled-cases-begin");
+    let mut cases = Vec::new();
+    for (name, bars) in controlled {
+        inputs.control.check()?;
+        let input = runner.input_rows(&bars)?;
+        let mut case = runner.run_case(&bars, false, &hash(&input)?)?;
+        case["case_id"] = json!(name);
+        case["rows"] = input;
+        cases.push(case);
     }
-
-    let node_profiles = runner.node_profiles(profiles)?;
-    actual["graph_cases"] = json!(graph_cases);
-    actual["node_profiles"] = json!(node_profiles);
-    runtime.verify()?;
-    installation.verify().map_err(|_| UNAVAILABLE)?;
-    control.verify_joined()?;
-    Ok(actual)
+    let profiles = runner.node_profiles(profiles)?;
+    inputs.runtime.verify()?;
+    inputs.installation.verify().map_err(|_| UNAVAILABLE)?;
+    if inputs.prepared["algorithm_resolution"]["contract"]
+        == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1"
+    {
+        inputs.control.check()?;
+    } else {
+        inputs.control.verify_joined()?;
+    }
+    let mut proof = json!({"schema_version":1,"contract":"ONLYALPHA_CALCULATION_BUILD_PROOF_V1","build_key":hash(&expected)?,"context":expected,"graph_cases":cases,"node_profiles":profiles});
+    proof["proof_fingerprint"] = json!(hash(&proof)?);
+    eprintln!("[calculation-build] phase=controlled-cases-joined");
+    Ok(proof)
 }
 /// The canonical SourceRevision identity is unchanged; this helper grants nothing.
 pub(crate) fn source_revision(
@@ -425,7 +481,16 @@ pub(crate) fn planned_graph_validation(
         .collect::<Result<Vec<_>>>()?;
     Ok((cases, profile_inputs(graph, &q)?))
 }
+struct StreamCase<'a> {
+    mapping: BTreeMap<String, String>,
+    bars: &'a [OnlyBar],
+    restore: bool,
+    source: &'a str,
+    research_outputs: Vec<Value>,
+    targets: Vec<Value>,
+}
 struct Runner<'a> {
+    programs: &'a [crate::application::factor_build::ReadyFactorBinding],
     runtime: Arc<crate::persistence::research_runtime::RuntimeInputHold>,
     prepared: &'a Value,
     spec: &'a Value,
@@ -456,6 +521,13 @@ impl Runner<'_> {
         worker
             .handshake_research(DEADLINE)
             .map_err(|e| PreparationError::worker(e, owner.clone()))?;
+        #[cfg(test)]
+        crate::workers::research_service::owner_tests::child_gate(
+            self.prepared["runtime_work_binding"]["work_id"]
+                .as_str()
+                .ok_or_else(invalid)?,
+            owner.clone(),
+        );
         let mut result = worker
             .evaluate_research(payload, DEADLINE)
             .map_err(|e| PreparationError::worker(e, owner.clone()))?;
@@ -480,6 +552,11 @@ impl Runner<'_> {
         restore: bool,
         source: &str,
     ) -> std::result::Result<Value, PreparationError> {
+        if self.prepared["algorithm_resolution"]["contract"]
+            == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1"
+        {
+            return self.native_case(bars, restore, source);
+        }
         let input = self.input_rows(bars)?;
         phase("graph-research");
         let observed=self.research(json!({"contract":GRAPH_CONTRACT,"resolution":self.prepared["algorithm_resolution_request"],"rows":input}))?;
@@ -561,6 +638,130 @@ impl Runner<'_> {
             NodeFailure::Unknown => self.control.uncertain("RESEARCH_ALGORITHM_OUTCOME_UNKNOWN"),
         })?;
         phase("graph-stream");
+        self.stream_case(
+            program,
+            port,
+            StreamCase {
+                mapping,
+                bars,
+                restore,
+                source,
+                research_outputs,
+                targets,
+            },
+            |port| port.cancellation().map_err(|_| UNAVAILABLE),
+        )
+    }
+    fn native_case(
+        &self,
+        bars: &[OnlyBar],
+        restore: bool,
+        source: &str,
+    ) -> std::result::Result<Value, PreparationError> {
+        let image = self.prepared["algorithm_resolution"]["native_execution"]["artifact"]
+            .as_str()
+            .ok_or(INVALID)?;
+        let native = super::native_signal::SignalPrograms::new(
+            self.graph,
+            self.programs,
+            &self.spec["implementation_bindings"],
+            image,
+        )?;
+        let input = self.input_rows(bars)?;
+        let raw = native.batch(self.graph, &input, || self.control.check())?;
+        let research_outputs = encode_columns(
+            rows(&raw)?,
+            self.graph,
+            &self.bindings,
+            "research_implementation_fingerprint",
+            bars.len(),
+        )?;
+        let targets = if let Some(targets) = self.targets {
+            let mut prepared = self.prepared.clone();
+            prepared["algorithm_resolution_request"] =
+                self.prepared["algorithm_resolution_request"]["target_resolution_request"].clone();
+            prepared["algorithm_resolution"] =
+                self.prepared["algorithm_resolution"]["target_resolution"].clone();
+            let runner = Runner {
+                runtime: self.runtime.clone(),
+                prepared: &prepared,
+                spec: self.spec,
+                graph: self.graph,
+                targets: self.targets,
+                bindings: self.bindings.clone(),
+                installation: self.installation.clone(),
+                control: self.control,
+                columns: self.columns.clone(),
+                definition: self.definition.clone(),
+                recipe: self.recipe.clone(),
+                programs: self.programs,
+            };
+            let observed=runner.research(json!({"contract":GRAPH_CONTRACT,"resolution":prepared["algorithm_resolution_request"],"rows":input}))?;
+            let axis = rows(&input)?
+                .iter()
+                .map(|r| r["at_ns"].clone())
+                .collect::<Vec<_>>();
+            if observed["schema_version"] != 1
+                || observed["contract"] != GRAPH_CONTRACT
+                || observed["axis"] != json!(axis)
+                || observed["input_fingerprint"] != hash(&input)?
+                || !observed["feature"].is_null()
+            {
+                return Err(INVALID.into());
+            }
+            checked_target_evaluation(
+                &observed["targets"],
+                targets,
+                &axis,
+                &input,
+                &prepared["algorithm_resolution"],
+            )?
+        } else {
+            Vec::new()
+        };
+        let (program, definitions, mapping) = self.program(
+            source,
+            &native.capabilities(&self.spec["implementation_bindings"])?,
+        )?;
+        let port = native.port(
+            program.clone(),
+            definitions,
+            &mapping,
+            &self.spec["implementation_bindings"],
+        )?;
+        self.stream_case(
+            program,
+            port,
+            StreamCase {
+                mapping,
+                bars,
+                restore,
+                source,
+                research_outputs,
+                targets,
+            },
+            |_| Ok(None),
+        )
+    }
+    fn stream_case<C: onlyalpha_strategy::NodePort>(
+        &self,
+        program: onlyalpha_strategy::Program,
+        port: C,
+        case: StreamCase<'_>,
+        cancellation: impl Fn(&C) -> Result<Option<onlyalpha_calculation_bridge::Cancellation>>,
+    ) -> std::result::Result<Value, PreparationError> {
+        let StreamCase {
+            mapping,
+            bars,
+            restore,
+            source,
+            research_outputs,
+            targets,
+        } = case;
+        let axis = rows(&self.input_rows(bars)?)?
+            .iter()
+            .map(|r| r["at_ns"].clone())
+            .collect::<Vec<_>>();
         let mut executor = Executor::new(program, port).map_err(mapped)?;
         let mut streaming: BTreeMap<String, Value> = self
             .graph
@@ -672,7 +873,7 @@ impl Runner<'_> {
                 phase("graph-fresh-restore");
                 // Join the original child before constructing its explicit fresh
                 // candidate. The same Control never replaces an uncertain owner.
-                if let Some(owner) = executor.port().cancellation().map_err(|_| UNAVAILABLE)? {
+                if let Some(owner) = cancellation(executor.port())? {
                     owner
                         .cancel()
                         .map_err(|e| PreparationError::worker(e, owner.clone()))?;
@@ -698,7 +899,7 @@ impl Runner<'_> {
                 return Err(MISMATCH.into());
             }
         }
-        if let Some(owner) = executor.port().cancellation().map_err(|_| UNAVAILABLE)? {
+        if let Some(owner) = cancellation(executor.port())? {
             owner
                 .cancel()
                 .map_err(|e| PreparationError::worker(e, owner.clone()))?;
@@ -739,15 +940,83 @@ impl Runner<'_> {
         .map_err(mapped)
     }
 
+    fn native_profiles(
+        &self,
+        planned: Vec<Value>,
+    ) -> std::result::Result<Vec<Value>, PreparationError> {
+        let image = self.prepared["algorithm_resolution"]["native_execution"]["artifact"]
+            .as_str()
+            .ok_or(INVALID)?;
+        let native = super::native_signal::SignalPrograms::new(
+            self.graph,
+            self.programs,
+            &self.spec["implementation_bindings"],
+            image,
+        )?;
+        let mut result = BTreeMap::new();
+        for node in &planned {
+            self.control.check()?;
+            let d = Definition::from_record(&node["definition"], WORK).map_err(mapped)?;
+            let id = d.fingerprint();
+            let ports = d.to_record()["outputs"].clone();
+            let mut cases = Vec::new();
+            for case in rows(&node["cases"])? {
+                let inputs = rows(&case["inputs"])?
+                    .iter()
+                    .map(|r| {
+                        Ok(Value::Object(
+                            r.as_object()
+                                .ok_or(INVALID)?
+                                .iter()
+                                .map(|(k, v)| (k.clone(), v["value"].clone()))
+                                .collect(),
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let convert = |rows: Vec<Value>| -> Result<Vec<Value>> {
+                    rows.iter()
+                        .map(|r| {
+                            let mut out = serde_json::Map::new();
+                            for p in ports.as_array().ok_or(INVALID)? {
+                                let name = p["name"].as_str().ok_or(INVALID)?;
+                                let value = &r[name];
+                                out.insert(
+                                    name.into(),
+                                    scalar(if value.is_null() {
+                                        json!({"type":"NULL","value":null})
+                                    } else {
+                                        json!({"type":p["data_type"],"value":value})
+                                    })?,
+                                );
+                            }
+                            let value = Value::Object(out);
+                            check_typed(&value, &ports)?;
+                            Ok(value)
+                        })
+                        .collect()
+                };
+                let research =
+                    convert(native.node_rows(&id, &inputs, false, || self.control.check())?)?;
+                let trading =
+                    convert(native.node_rows(&id, &inputs, true, || self.control.check())?)?;
+                if research != trading || research.len() != inputs.len() {
+                    return Err(MISMATCH.into());
+                }
+                cases.push(json!({"case_id":case["case_id"],"inputs":case["inputs"],"research_outputs":research,"trading_outputs":trading}));
+            }
+            result.insert(id.clone(),json!({"node_fingerprint":id,"research_implementation_fingerprint":self.bindings[&id]["research_implementation_fingerprint"],"trading_implementation_fingerprint":self.bindings[&id]["trading_implementation_fingerprint"],"cases":cases}));
+        }
+        self.checked_profiles(planned, result.into_values().collect())
+    }
     fn node_profiles(
         &self,
         planned: Vec<Value>,
     ) -> std::result::Result<Vec<Value>, PreparationError> {
-        let definitions = self
-            .graph
-            .ordered_nodes()
-            .map(|d| (d.fingerprint(), d.to_record()))
-            .collect::<BTreeMap<_, _>>();
+        if self.prepared["algorithm_resolution"]["contract"]
+            == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1"
+        {
+            return self.native_profiles(planned);
+        }
         let numerical = planned
             .iter()
             .filter(|n| n["definition"]["kind"] != "PREDICATE")
@@ -807,6 +1076,18 @@ impl Runner<'_> {
             let id = definition.fingerprint();
             observed.push(json!({"node_fingerprint":id,"research_implementation_fingerprint":self.bindings[&id]["research_implementation_fingerprint"],"trading_implementation_fingerprint":self.bindings[&id]["trading_implementation_fingerprint"],"cases":cases}));
         }
+        self.checked_profiles(planned, observed)
+    }
+    fn checked_profiles(
+        &self,
+        planned: Vec<Value>,
+        observed: Vec<Value>,
+    ) -> std::result::Result<Vec<Value>, PreparationError> {
+        let definitions = self
+            .graph
+            .ordered_nodes()
+            .map(|d| (d.fingerprint(), d.to_record()))
+            .collect::<BTreeMap<_, _>>();
         if observed.len() != planned.len() {
             return Err(invalid().into());
         }
@@ -981,6 +1262,8 @@ fn encode_columns(
             return Err(invalid());
         }
     }
+    let starts =
+        onlyalpha_calculation::finite_input::node_execution_starts(graph, 8192).map_err(mapped)?;
     let mut result = BTreeMap::new();
     for node in graph.ordered_nodes() {
         let id = node.fingerprint();
@@ -1012,7 +1295,13 @@ fn encode_columns(
                     normalized.get(name).cloned().ok_or_else(|| invalid())
                 })
                 .collect::<Result<Vec<_>>>()?;
-            for value in &values {
+            for (index, value) in values.iter().enumerate() {
+                if u64::try_from(index).map_err(mapped)? < *starts.get(&id).ok_or(INVALID)? {
+                    if value != &json!({"type":"NULL","value":null}) {
+                        return Err(INVALID);
+                    }
+                    continue;
+                }
                 check_typed(&json!({(text(&port["name"])?):value}), &json!([port]))?;
             }
             columns.insert(text(&port["name"])?.into(), json!(values));
@@ -1316,6 +1605,58 @@ mod scalar_boundary_tests {
     use super::*;
 
     #[test]
+    fn nonnullable_output_allows_only_provably_unexecuted_prefix_placeholders() {
+        use onlyalpha_calculation::program::Program;
+        use onlyalpha_calculation_bridge::{
+            ProgramCalculation, native_operators::OperatorCalculation,
+        };
+        let parent = OperatorCalculation::resolve(
+            "onlyalpha.operator.rolling_mean",
+            "2",
+            &json!({"period":{"type":"INTEGER","value":2}}),
+            &json!({"value":{"node_fingerprint":null,"output_name":"value","source":"bar.close"}}),
+        )
+        .unwrap();
+        let p=Program::decode(json!({"schema_version":1,"numeric_policy":"DECIMAL28_HALF_EVEN_Q12_V1","inputs":{"value":{"type":"DECIMAL","role":"MARKET"}},"parameters":[],"nodes":[{"op":"input","name":"value"},{"op":"literal","type":"DECIMAL","value":"0"},{"op":"coalesce","args":[0,1]}],"outputs":{"value":2}}).to_string().as_bytes()).unwrap();
+        let child=ProgramCalculation::resolve(&json!({"factor_id":"private.factor.placeholder_test","semantic_version":"1","factor_api_version":1,"factor_api_contract_fingerprint":"a".repeat(64),"input_contract":{"value":{"type":"DECIMAL","missing":true}},"output_contract":{"value":{"type":"DECIMAL","nullable":false}}}),Arc::new(p.bind(&p.resolve_parameters(&json!({})).unwrap()).unwrap()),&"c".repeat(64),&"f".repeat(64),&json!({"value":{"node_fingerprint":parent.definition().fingerprint(),"output_name":"value","source":null}})).unwrap();
+        let graph=Graph::from_record(&json!({"schema_version":1,"nodes":[{"alias":null,"definition":parent.definition().to_record()},{"alias":null,"definition":child.definition().to_record()}]}),WORK).unwrap();
+        let id = child.definition().fingerprint();
+        let bindings = graph
+            .ordered_nodes()
+            .map(|d| {
+                (
+                    d.fingerprint(),
+                    json!({"research_implementation_fingerprint":"d".repeat(64)}),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let good = json!([{"node_fingerprint":parent.definition().fingerprint(),"values":{"value":[null,"2"]}},{"node_fingerprint":id,"values":{"value":[null,"2"]}}]);
+        assert!(
+            encode_columns(
+                rows(&good).unwrap(),
+                &graph,
+                &bindings,
+                "research_implementation_fingerprint",
+                2
+            )
+            .is_ok()
+        );
+        for (position, value) in [(0, json!("9")), (1, Value::Null)] {
+            let mut bad = good.clone();
+            bad[1]["values"]["value"][position] = value;
+            assert!(
+                encode_columns(
+                    rows(&bad).unwrap(),
+                    &graph,
+                    &bindings,
+                    "research_implementation_fingerprint",
+                    2
+                )
+                .is_err()
+            );
+        }
+    }
+    #[test]
     fn product_profile_scalars_retain_scale_and_strict_port_types() {
         let ports = json!([{"name":"value","data_type":"DECIMAL","nullable":true}]);
         let scaled = json!({"type":"DECIMAL","value":"101.000000000000"});
@@ -1392,6 +1733,46 @@ mod controlled_domain_tests {
         ))
         .unwrap();
         Graph::from_record(&json!({"schema_version":1,"nodes":fixture["nodes"].as_array().unwrap().iter().map(|node|json!({"alias":null,"definition":node["definition"]})).collect::<Vec<_>>()}),WORK).unwrap()
+    }
+
+    #[test]
+    fn build_context_is_independent_of_target_and_job_window_but_binds_actual_artifacts() {
+        let graph = graph();
+        let definition = json!({"instruments":["BTCUSDT.BINANCE"],"bar_semantic":{"schema_version":3,"formation":{"schema_version":1,"kind":"FIXED_DURATION","window_minutes":1,"stride_minutes":1,"alignment":"UTC"},"price_type":"LAST","adjustment_policy":"RAW"},"time_range":{"start":"2025-01-01T00:00:00Z"}});
+        let mut prepared = json!({"execution_binding":{"executor_artifact_sha256":"a".repeat(64)},"algorithm_resolution_request":{"sources":[],"instances":[],"target_artifact":null},"algorithm_resolution":{"nodes":[],"target_artifact_sha256":null,"target_resources_fingerprint":null}});
+        let spec = json!({"decision":{"decision_graph":graph.to_record(),"signal_semantics":{}},"implementation_bindings":[]});
+        let original = crate::application::calculation_build::context(
+            &prepared,
+            &spec,
+            &definition,
+            &json!({}),
+        )
+        .unwrap();
+        prepared["algorithm_resolution_request"]["instances"] =
+            json!([{"type_reference":{"kind":"TARGET"}}]);
+        prepared["algorithm_resolution_request"]["target_artifact"] =
+            json!({"sha256":"b".repeat(64)});
+        prepared["algorithm_resolution"]["nodes"] = json!([{"definition":{"kind":"TARGET"}}]);
+        prepared["algorithm_resolution"]["target_artifact_sha256"] = json!("b".repeat(64));
+        prepared["algorithm_resolution"]["target_resources_fingerprint"] = json!("c".repeat(64));
+        let mut later = definition.clone();
+        later["time_range"]["start"] = json!("2026-01-01T00:00:00Z");
+        assert_eq!(
+            crate::application::calculation_build::context(&prepared, &spec, &later, &json!({}))
+                .unwrap(),
+            original
+        );
+        prepared["execution_binding"]["executor_artifact_sha256"] = json!("d".repeat(64));
+        assert_ne!(
+            crate::application::calculation_build::context(
+                &prepared,
+                &spec,
+                &definition,
+                &json!({})
+            )
+            .unwrap(),
+            original
+        );
     }
 
     #[test]
@@ -1492,4 +1873,151 @@ mod controlled_domain_tests {
             }
         }
     }
+}
+
+/// Run only the already selected Target plane. Signal/factor calculations come
+/// from the shared native program; no factor source or graph re-certification
+/// is sent to the installed numerical process on this finite path.
+pub(crate) fn finite_ancillaries(
+    inputs: &PreparedInputs,
+    specification: &RunSpecification,
+    installation: Arc<ChartInstallation>,
+    bars: &[OnlyBar],
+    features: Value,
+    control: &Control,
+) -> std::result::Result<(Vec<Value>, Vec<Value>), PreparationError> {
+    let spec = specification.record();
+    let targets = Graph::from_record(&spec["target_graph"], WORK).map_err(mapped)?;
+    let mut prepared = inputs.record().clone();
+    if prepared["algorithm_resolution"]["contract"]
+        == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1"
+    {
+        prepared["algorithm_resolution_request"] =
+            inputs.record()["algorithm_resolution_request"]["target_resolution_request"].clone();
+        prepared["algorithm_resolution"] =
+            inputs.record()["algorithm_resolution"]["target_resolution"].clone();
+    } else {
+        let request = &mut prepared["algorithm_resolution_request"];
+        request["sources"] = json!([]);
+        request["instances"] = json!(
+            rows(&request["instances"])?
+                .iter()
+                .filter(|n| n["type_reference"]["kind"] == "TARGET")
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        let expected = &mut prepared["algorithm_resolution"];
+        expected["source_artifacts"] = json!([]);
+        expected["nodes"] = json!(
+            rows(&expected["nodes"])?
+                .iter()
+                .filter(|n| n["definition"]["kind"] == "TARGET")
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+    }
+    if rows(&prepared["algorithm_resolution_request"]["instances"])?.len()
+        != targets.ordered_nodes().count()
+        || rows(&prepared["algorithm_resolution"]["nodes"])?.len()
+            != targets.ordered_nodes().count()
+    {
+        return Err(INVALID.into());
+    }
+    let runner = Runner {
+        programs: inputs.programs(),
+        runtime: inputs.runtime_hold(),
+        prepared: &prepared,
+        spec,
+        graph: &targets,
+        targets: Some(&targets),
+        bindings: BTreeMap::new(),
+        installation: installation.clone(),
+        control,
+        columns: rows(&spec["input_window"]["dataset_columns"])?.clone(),
+        definition: Value::Null,
+        recipe: Value::Null,
+    };
+    let input = runner.input_rows(bars)?;
+    let axis = rows(&input)?
+        .iter()
+        .map(|r| r["at_ns"].clone())
+        .collect::<Vec<_>>();
+    let observed=runner.research(json!({"contract":GRAPH_CONTRACT,"resolution":prepared["algorithm_resolution_request"],"rows":input}))?;
+    if observed["schema_version"] != 1
+        || observed["contract"] != GRAPH_CONTRACT
+        || observed["axis"] != json!(axis)
+        || observed["input_fingerprint"] != hash(&input)?
+        || !observed["feature"].is_null()
+    {
+        return Err(INVALID.into());
+    }
+    let target = checked_target_evaluation(
+        &observed["targets"],
+        &targets,
+        &axis,
+        &input,
+        &prepared["algorithm_resolution"],
+    )?;
+    let stats = statistics(
+        specification,
+        &json!({"research_outputs":features,"target_outputs":target,"axis":axis}),
+    )?;
+    control.verify_joined()?;
+    inputs.verify_runtime()?;
+    installation.verify().map_err(|_| UNAVAILABLE)?;
+    Ok((target, stats))
+}
+
+/// Typed columns from an actual native batch, never relabelled event results.
+pub(crate) struct CompletedBatchCalculations {
+    columns: Value,
+    evidence: Value,
+}
+impl CompletedBatchCalculations {
+    pub(crate) fn columns(&self) -> &Value {
+        &self.columns
+    }
+    pub(crate) fn evidence(&self) -> &Value {
+        &self.evidence
+    }
+}
+pub(crate) fn finite_calculations(
+    inputs: &PreparedInputs,
+    specification: &RunSpecification,
+    bars: &[OnlyBar],
+    image: &str,
+    control: &Control,
+) -> std::result::Result<CompletedBatchCalculations, PreparationError> {
+    control.check()?;
+    inputs.verify_runtime()?;
+    let spec = specification.record();
+    if inputs.record()["algorithm_resolution"]["native_execution"]["artifact"] != image {
+        return Err(INVALID.into());
+    }
+    let graph = specification.calculation_graph("decision")?;
+    let programs = super::native_signal::SignalPrograms::new(
+        graph,
+        inputs.programs(),
+        &spec["implementation_bindings"],
+        image,
+    )?;
+    let input = input_rows(rows(&spec["input_window"]["dataset_columns"])?, bars)?;
+    let completed = programs.complete_batch(graph, &input, || control.check())?;
+    let bindings = rows(&spec["implementation_bindings"])?
+        .iter()
+        .map(|b| Ok((text(&b["node_fingerprint"])?.to_owned(), b.clone())))
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let columns = encode_columns(
+        rows(completed.values())?,
+        graph,
+        &bindings,
+        "research_implementation_fingerprint",
+        bars.len(),
+    )?;
+    control.check()?;
+    inputs.verify_runtime()?;
+    Ok(CompletedBatchCalculations {
+        columns: json!(columns),
+        evidence: completed.evidence().clone(),
+    })
 }

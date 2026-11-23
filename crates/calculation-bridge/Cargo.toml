@@ -28,3 +28,10 @@ codegen = ["dep:prost-build", "dep:prost-types"]
 name = "gateway-codegen"
 path = "src/codegen.rs"
 required-features = ["codegen"]
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "workload"
+harness = false

@@ -3,11 +3,12 @@
 use crate::{
     application::{
         backtest_run::{self, CancelRequest},
+        job_contract::{JobKind, MemberKind},
         source_access::{Reference, Selection},
     },
     persistence::{
-        backtest_evidence::{self, BacktestReadContext, VerifiedEvidence},
         backtest_run::{self as runs, Backtests, RunState, RunStatus},
+        job_publication::{PublicationError, PublicationRepository, PublishedJobResult, RunLocator},
     },
     security::{
         human_access,
@@ -26,15 +27,124 @@ use axum::{
 };
 use http::{Method, Request, StatusCode};
 use onlyalpha_domain::{base::OnlyDomainModel, time::OnlyTimestamp};
+use onlyalpha_observability::{Correlation, Operation};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
+use tracing::Instrument;
 
-const INVALID: &str = "BACKTEST_RESULT_UNAVAILABLE";
-struct FilledOpening {
-    trade: String,
-    side: String,
-    fee: String,
-    signal_time: String,
+const INVALID: &str = "BACKTEST_RESULT_CORRUPT";
+const NOT_READY: &str = "BACKTEST_RESULT_NOT_READY";
+struct BacktestPublication {
+    publication: PublishedJobResult,
+    result: BacktestResultView,
+}
+
+fn member(
+    publication: &PublishedJobResult,
+    key: &str,
+    kind: MemberKind,
+) -> Result<Value, PublicationError> {
+    let raw = publication
+        .content(key)
+        .ok_or(PublicationError::MissingEvidence)?;
+    let value: Value = serde_json::from_str(raw).map_err(|_| PublicationError::Integrity)?;
+    if value["schema_version"] != 1 || value["kind"] != json!(kind) {
+        return Err(PublicationError::Integrity);
+    }
+    Ok(value)
+}
+
+fn root_member(publication: &PublishedJobResult, kind: MemberKind) -> Result<Value, PublicationError> {
+    let mut keys = publication.member_keys(kind);
+    let key = keys.next().ok_or(PublicationError::MissingEvidence)?;
+    if keys.next().is_some() {
+        return Err(PublicationError::Integrity);
+    }
+    let mut value = member(publication, key, kind)?;
+    value
+        .as_object_mut()
+        .and_then(|fields| fields.remove("body"))
+        .filter(Value::is_object)
+        .ok_or(PublicationError::Integrity)
+}
+
+fn member_rows(
+    publication: &PublishedJobResult,
+    kind: MemberKind,
+) -> Result<Vec<Value>, PublicationError> {
+    let mut rows = Vec::new();
+    for key in publication.member_keys(kind) {
+        let mut value = member(publication, key, kind)?;
+        let partition = value
+            .get_mut("rows")
+            .and_then(Value::as_array_mut)
+            .ok_or(PublicationError::Integrity)?;
+        rows.append(partition);
+    }
+    Ok(rows)
+}
+
+impl BacktestPublication {
+    fn verify(
+        run: &backtest_run::VerifiedRun,
+        publication: PublishedJobResult,
+    ) -> Result<Self, Failure> {
+        let fp = publication.fingerprint();
+        let binding = publication.binding();
+        let record = binding.record();
+        let resolution = run.resolution();
+        if binding.kind() != JobKind::Backtest
+            || binding.run_id() != run.run_id()
+            || binding.namespace() != run.namespace().value()
+            || binding.owner() != run.owner()
+            || publication.specification_fingerprint() != run.specification_fingerprint()
+            || publication.admission_fingerprint() != run.admission_resolution_fingerprint()
+            || run.completion_fingerprints() != Some((fp, fp, fp))
+            || record["runtime_generation"] != run.runtime_generation_fingerprint()
+            || record["kernel_artifact"] != resolution["backtest_binding"]["executor_artifact_sha256"]
+            || record["market"]["dataset_snapshot"] != resolution["dataset_snapshot_fingerprint"]
+        {
+            return Err(publication_failure(PublicationError::Mismatch));
+        }
+        let causal = root_member(&publication, MemberKind::CausalEvidence)
+            .map_err(publication_failure)?;
+        let refs = binding
+            .result_plan()
+            .members()
+            .iter()
+            .filter(|member| member.kind() != MemberKind::CausalEvidence)
+            .map(|member| {
+                let key = member.key();
+                let fingerprint = publication
+                    .content_fingerprint(key)
+                    .ok_or(PublicationError::MissingEvidence)?;
+                Ok(json!({"key": key, "content": fingerprint}))
+            })
+            .collect::<Result<Vec<_>, PublicationError>>()
+            .map_err(publication_failure)?;
+        let execution = &causal["execution"];
+        let execution_fingerprint = crate::application::factor_content::hash(&execution["execution_binding"])
+            .map_err(|_| publication_failure(PublicationError::Integrity))?;
+        if causal["binding"] != record
+            || causal["members"] != json!(refs)
+            || execution["runtime_binding"]["execution"] != record["execution_configuration"]
+            || execution["native_image"]["artifact"] != record["kernel_artifact"]
+            || execution_fingerprint != record["execution_configuration"]
+        {
+            return Err(publication_failure(PublicationError::Mismatch));
+        }
+        let economics = root_member(&publication, MemberKind::EconomicResult)
+            .map_err(publication_failure)?;
+        if economics["preparation"] != resolution["preparation"]
+            || economics["economic_result"]["run"]["status"] != "COMPLETED"
+        {
+            return Err(publication_failure(PublicationError::Mismatch));
+        }
+        let result = crate::workers::backtest_profile::measure(run.run_id(), "http.result.project", || {
+            display_result(run, &publication, &economics)
+        })?;
+        Ok(Self { publication, result })
+    }
 }
 pub(super) fn worker_observation(
     status: Option<crate::workers::backtest_worker::Status>,
@@ -75,6 +185,12 @@ fn text(value: &Value) -> Result<String, Failure> {
         .map(str::to_owned)
         .ok_or_else(|| failed(INVALID))
 }
+fn optional_text(value: &Value, key: &str) -> Result<Option<String>, Failure> {
+    match value.get(key).ok_or_else(|| failed(INVALID))? {
+        Value::Null => Ok(None),
+        value => text(value).map(Some),
+    }
+}
 fn number(value: &Value) -> Result<u64, Failure> {
     value.as_u64().ok_or_else(|| failed(INVALID))
 }
@@ -97,8 +213,16 @@ fn run_view(
         RunState::Queued | RunState::Running | RunState::CancelRequested => {
             BacktestReportState::Pending
         }
-        RunState::Cancelled if !run.was_started() => BacktestReportState::NotApplicable,
-        _ => BacktestReportState::NotChecked,
+        RunState::Cancelled | RunState::Failed => BacktestReportState::NotApplicable,
+        RunState::Completed => BacktestReportState::NotChecked,
+    };
+    let cancel_requested_at = match status.state {
+        RunState::CancelRequested | RunState::Cancelled => run
+            .cancel_requested_at()
+            .map(crate::transport::host::observation_time)
+            .transpose()?
+            .map(|at| at.to_string()),
+        _ => None,
     };
     Ok(BacktestRunView {
         schema_version: 1,
@@ -108,118 +232,108 @@ fn run_view(
         revision: status.revision.to_string(),
         accepted_at: text(&run.record()["accepted_at"])?,
         preparation_command_id: preparation,
+        cancellation_reason: cancel_requested_at.as_ref().map(|_| BacktestCancellationReason::UserRequested),
+        cancel_requested_at,
         report_status: BacktestReportAvailability { state, code: None },
         worker_observation: Some(worker_observation(worker)),
     })
 }
 
-pub(crate) fn display_result(
-    context: &BacktestReadContext,
-    evidence: &VerifiedEvidence,
+fn display_result(
+    run: &backtest_run::VerifiedRun,
+    publication: &PublishedJobResult,
+    economics: &Value,
 ) -> Result<BacktestResultView, Failure> {
-    context.verify_cut().map_err(failed)?;
-    evidence.verify_cut().map_err(failed)?;
-    let run = context.run();
-    let manifest = evidence.manifest().record();
-    let observation = evidence.observation();
-    let result = evidence.result();
-    let preparation = &run.resolution()["preparation"];
-    if manifest["backtest_run_id"] != run.run_id()
-        || manifest["specification_fingerprint"] != run.specification_fingerprint()
-        || manifest["admission_resolution_fingerprint"] != run.admission_resolution_fingerprint()
-        || manifest["result_fingerprint"] != result["result_fingerprint"]
-        || observation["status"] != result["run"]["status"]
-    {
-        return Err(failed(INVALID));
-    }
-    let summary = &observation["account_summary"];
-    let metrics=serde_json::from_value(json!({
-        "initial_equity":summary["initial_equity"],"final_equity":summary["final_equity"],"return_since_start":summary["return_since_start"],
-        "net_pnl":summary["net_pnl"],"realized_pnl":summary["realized_pnl"],"unrealized_pnl":summary["unrealized_pnl"],
-        "fees":summary["fees"],"maximum_drawdown":summary["maximum_drawdown"],"fill_count":observation["fill_count"],"roundtrip_count":observation["roundtrip_count"]
-    })).map_err(|_|failed(INVALID))?;
-    let curve = observation["close_curve"]
-        .as_array()
-        .ok_or_else(|| failed(INVALID))?
+    let result = &economics["economic_result"];
+    let preparation = &economics["preparation"];
+    let summary = &result["runtime_performance"]["summary"];
+    let metrics = BacktestMetrics {
+        initial_equity: text(&summary["initial_equity"])?,
+        final_equity: text(&summary["final_equity"])?,
+        return_since_start: optional_text(summary, "return_since_start")?,
+        net_pnl: text(&summary["net_pnl"])?,
+        realized_pnl: text(&summary["realized_pnl"])?,
+        unrealized_pnl: text(&summary["unrealized_pnl"])?,
+        fees: text(&summary["fees"])?,
+        maximum_drawdown: optional_text(summary, "maximum_drawdown")?,
+        fill_count: number(&result["execution"]["trade_count"])?,
+        roundtrip_count: number(&economics["roundtrip_count"])?,
+    };
+    let curve = member_rows(publication, MemberKind::CloseCurve)
+        .map_err(publication_failure)?
         .iter()
         .map(|v| {
             Ok(BacktestCurvePoint {
                 at_ns: text(&v["bar_end_ns"])?,
                 nav: text(&v["nav"])?,
-                drawdown: v["drawdown"].as_str().map(str::to_owned),
+                drawdown: optional_text(v, "drawdown")?,
             })
         })
         .collect::<Result<Vec<_>, Failure>>()?;
-    let baseline = if observation["baseline"].is_null() {
-        None
-    } else {
-        let b = &observation["baseline"];
-        Some(BacktestBaseline {
-            final_equity: text(&b["final_equity"])?,
-            net_pnl: text(&b["net_pnl"])?,
-            return_since_start: text(&b["return_since_start"])?,
-        })
-    };
+    let b = &economics["analytical_baseline"];
+    let baseline = Some(BacktestBaseline {
+        final_equity: text(&b["final_equity"])?,
+        net_pnl: text(&b["net_pnl"])?,
+        return_since_start: text(&b["return_since_start"])?,
+    });
+    let facts = member_rows(publication, MemberKind::ExecutionFacts)
+        .map_err(publication_failure)?;
     let mut openings = BTreeMap::new();
-    evidence
-        .for_each_step(&mut |step, ready| {
-            if !ready {
-                return Err(INVALID);
+    let mut execution_fills = Vec::new();
+    for row in &facts {
+        let body = &row["body"];
+        if row["family"] == "OPEN" && body["status"] == "FILLED" {
+            let order = body["order"].as_str().ok_or_else(|| failed(INVALID))?;
+            if openings.insert(order, body).is_some() {
+                return Err(failed(INVALID));
             }
-            let cause = &step["cause"];
-            let output = &cause["processing"]["processing"];
-            if cause["kind"] == "OPEN" && output["status"] == "FILLED" {
-                let order = output["order"].as_str().ok_or(INVALID)?.to_owned();
-                let opening = FilledOpening {
-                    trade: output["trade"].as_str().ok_or(INVALID)?.into(),
-                    side: output["signal"]["side"].as_str().ok_or(INVALID)?.into(),
-                    fee: output["economic_evidence"]["charge_target"]
-                        .as_str()
-                        .ok_or(INVALID)?
-                        .into(),
-                    signal_time: output["signal"]["signal_time"]
-                        .as_str()
-                        .ok_or(INVALID)?
-                        .into(),
-                };
-                if openings.insert(order, opening).is_some() {
-                    return Err(INVALID);
-                }
-            }
-            Ok(())
-        })
-        .map_err(failed)?;
+        }
+        if row["family"] == "EXECUTION" && body["input"]["op"] == "FILL" {
+            execution_fills.push(body);
+        }
+    }
     let fills = result["trades"].as_array().ok_or_else(|| failed(INVALID))?;
-    if openings.len() != fills.len() {
+    if openings.len() != fills.len()
+        || execution_fills.len() != fills.len()
+        || metrics.fill_count != fills.len() as u64
+    {
         return Err(failed(INVALID));
     }
     let mut trades = Vec::with_capacity(fills.len());
-    for (ordinal, fact) in fills.iter().enumerate() {
+    for (ordinal, (fact, applied)) in fills.iter().zip(execution_fills).enumerate() {
         let input = &fact["input"];
         let payload = &input["payload"];
         let order = text(&payload["order"])?;
-        let opening = openings.get(&order).ok_or_else(|| failed(INVALID))?;
-        let side = &opening.side;
+        let opening = openings.remove(order.as_str()).ok_or_else(|| failed(INVALID))?;
+        let side = text(&opening["signal"]["side"])?;
+        let fee = &opening["economic_evidence"]["charge_target"];
+        let signal_time = text(&opening["signal"]["signal_time"])?;
+        let time = number(&input["time"])?;
         if input["op"] != "FILL"
-            || payload["trade"].as_str() != Some(opening.trade.as_str())
+            || fact["sequence"] != applied["sequence"]
+            || fact["transaction"] != applied["transaction"]
+            || *input != applied["input"]
+            || payload["trade"] != opening["trade"]
+            || payload["fees"]["charge_target"] != *fee
             || !matches!(side.as_str(), "BUY" | "SELL")
+            || signal_time.parse::<u64>().map_err(|_| failed(INVALID))? > time
         {
             return Err(failed(INVALID));
         }
         trades.push(BacktestTradeView {
             ordinal: ordinal as u64 + 1,
-            time_ns: number(&input["time"])?.to_string(),
-            side: side.clone(),
+            time_ns: time.to_string(),
             quantity: text(&payload["quantity"])?,
             price: text(&payload["price"])?,
-            fee: opening.fee.clone(),
-            signal_time_ns: opening.signal_time.clone(),
+            fee: text(fee)?,
+            signal_time_ns: signal_time,
             signal: if side == "BUY" {
                 "满足开仓条件"
             } else {
                 "满足平仓条件"
             }
             .into(),
+            side,
             order_id: order,
             trade_id: text(&payload["trade"])?,
         });
@@ -237,11 +351,7 @@ pub(crate) fn display_result(
             {
                 return Err(failed(INVALID));
             }
-            let average_price = if snapshot["average"].is_null() {
-                None
-            } else {
-                Some(text(&snapshot["average"])?)
-            };
+            let average_price = optional_text(snapshot, "average")?;
             Ok(BacktestPositionView {
                 instrument,
                 quantity: text(&snapshot["quantity"])?,
@@ -259,11 +369,11 @@ pub(crate) fn display_result(
     let value = BacktestResultView {
         schema_version: 1,
         run_id: run.run_id().into(),
-        strategy_fingerprint: text(&manifest["strategy_fingerprint"])?,
-        evidence_fingerprint: evidence.manifest().fingerprint().into(),
-        result_fingerprint: text(&result["result_fingerprint"])?,
-        determinism_fingerprint: text(&result["determinism_fingerprint"])?,
-        state: text(&observation["status"])?,
+        strategy_fingerprint: text(&run.specification().record()["strategy_fingerprint"])?,
+        evidence_fingerprint: publication.fingerprint().into(),
+        result_fingerprint: publication.fingerprint().into(),
+        determinism_fingerprint: publication.fingerprint().into(),
+        state: BacktestResultState::Completed,
         sample: BacktestSample {
             instrument: "BTCUSDT".into(),
             start_at: instant(&preparation["window"]["sample_start_ns"])?,
@@ -282,48 +392,47 @@ pub(crate) fn display_result(
             "未平仓头寸按样本末尾收盘价估值；未读取保留样本。".into(),
         ],
     };
-    context.verify_cut().map_err(failed)?;
-    evidence.verify_cut().map_err(failed)?;
     Ok(value)
 }
 
+fn publication_failure(error: PublicationError) -> Failure {
+    match error {
+        PublicationError::Denied => failed(error.code()),
+        _ => Failure::unavailable(error.code()),
+    }
+}
+
 impl Host {
-    pub(crate) async fn backtest_result_owners(
+    async fn read_backtest_publication(
         &self,
-        run: &str,
-        human: &human_access::Session,
-    ) -> Result<(Arc<BacktestReadContext>, VerifiedEvidence), Failure> {
-        self.human_access.check_session(human)?;
-        let owner = human.subject_id()?;
-        let config = &self.research_preparation_config;
-        let context = {
+        run: &backtest_run::VerifiedRun,
+    ) -> Result<BacktestPublication, Failure> {
+        let operation = Operation::start(
+            "transport",
+            "http.backtest.read_publication",
+            Correlation {
+                run_id: Some(run.run_id().into()),
+                ..Default::default()
+            },
+        );
+        let result = async {
+            let locator = RunLocator::new(JobKind::Backtest, run.run_id()).map_err(publication_failure)?;
+            let mut facts = self.job_fact_reader().await?;
+            let facts = facts.client_mut().await?;
             let mut reader = self.reader.lock().await;
-            let client = reader
-                .as_mut()
-                .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-            backtest_evidence::read_context(
-                client,
-                self.inputs.namespace(),
-                &config.research_root,
-                &config.runtime_root,
-                run,
-                Some(owner),
-            )
-            .await
-            .map_err(failed)?
-        };
-        let store = backtest_evidence::Store::open(
-            &self.backtest_root,
-            &config.research_root,
-            &config.runtime_root,
-        )
-        .map_err(failed)?;
-        let evidence = store
-            .read_verified(&context)
-            .map_err(failed)?
-            .ok_or_else(|| failed("BACKTEST_RESULT_NOT_READY"))?;
-        self.human_access.check_session(human)?;
-        Ok((context, evidence))
+            let metadata = reader.as_mut().ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+            let publication = PublicationRepository::new(facts, run.namespace(), run.owner())
+                .await
+                .map_err(publication_failure)?
+                .read_backtest(&locator, metadata)
+                .await
+                .map_err(publication_failure)?;
+            BacktestPublication::verify(run, publication)
+        }
+        .instrument(operation.span().clone())
+        .await;
+        operation.finish(if result.is_ok() { "ok" } else { "failed" }, 1, 0);
+        result
     }
 
     pub(crate) async fn backtest_product(
@@ -341,7 +450,13 @@ impl Host {
         let owner = human.subject_id()?.to_owned();
         if path == "/api/v2/backtest/runs" && method == Method::GET {
             let rows = {
-                let mut reader = self.reader.lock().await;
+                let mut reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let wait =
+                    Operation::start("transport", "http.reader.wait", Correlation::default());
+                let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+                wait.finish("acquired", 1, 0);
+                reader_hold.acquired("reader", "reader.hold");
+                let _reader_release = reader_hold.begin_release_marker();
                 let client = reader
                     .as_mut()
                     .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
@@ -380,7 +495,13 @@ impl Host {
                 serde_json::from_value(body).map_err(|_| invalid())?;
             body.validate(id).map_err(failed)?;
             let (run, _) = {
-                let mut reader = self.reader.lock().await;
+                let mut reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let wait =
+                    Operation::start("transport", "http.reader.wait", Correlation::default());
+                let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+                wait.finish("acquired", 1, 0);
+                reader_hold.acquired("reader", "reader.hold");
+                let _reader_release = reader_hold.begin_release_marker();
                 let client = reader
                     .as_mut()
                     .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
@@ -425,7 +546,13 @@ impl Host {
             }
             self.wake_backtest_after_commit();
             let (run, status) = {
-                let mut reader = self.reader.lock().await;
+                let mut reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let wait =
+                    Operation::start("transport", "http.reader.wait", Correlation::default());
+                let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+                wait.finish("acquired", 1, 0);
+                reader_hold.acquired("reader", "reader.hold");
+                let _reader_release = reader_hold.begin_release_marker();
                 let client = reader
                     .as_mut()
                     .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
@@ -448,36 +575,45 @@ impl Host {
         if method != Method::GET {
             return Err(invalid());
         }
+        let artifact_name = action.strip_prefix("evidence/artifacts/");
+        if !matches!(action, "" | "result" | "evidence") && artifact_name.is_none() {
+            return Err(invalid());
+        }
+        let (run, status, preparation) = {
+            let wait = Operation::start("transport", "http.reader.wait", Correlation::default());
+            let mut reader = self.reader.lock().instrument(wait.span().clone()).await;
+            wait.finish("acquired", 1, 0);
+            let client = reader
+                .as_mut()
+                .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+            runs::read_product_snapshot(client, self.inputs.namespace(), id, &owner)
+                .await
+                .map_err(|code| {
+                    if code.ends_with("_MISSING") {
+                        Failure::unavailable(code)
+                    } else {
+                        failed(code)
+                    }
+                })?
+        };
         if action.is_empty() {
-            let (run, status) = {
-                let mut reader = self.reader.lock().await;
-                let client = reader
-                    .as_mut()
-                    .ok_or_else(|| failed("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-                runs::read_snapshot(client, self.inputs.namespace(), id, Some(&owner))
-                    .await
-                    .map_err(failed)?
-            };
-            let mut view = run_view(&run, status, None, self.backtest_worker_status().await)?;
-            if status.state.terminal()
-                && !(status.state == RunState::Cancelled && !run.was_started())
-            {
-                match self.backtest_result_owners(id, &human).await {
-                    Ok((context, _)) => {
-                        view.preparation_command_id =
-                            Some(context.original_operation().command.value().into());
-                        view.report_status = BacktestReportAvailability {
-                            state: BacktestReportState::Verified,
-                            code: None,
-                        };
-                    }
-                    Err(_) => {
-                        view.report_status = BacktestReportAvailability {
-                            state: BacktestReportState::Unavailable,
-                            code: Some(INVALID.into()),
-                        }
-                    }
-                }
+            let mut view = run_view(
+                &run,
+                status,
+                Some(preparation.value().into()),
+                self.backtest_worker_status().await,
+            )?;
+            if status.state == RunState::Completed {
+                view.report_status = match self.read_backtest_publication(&run).await {
+                    Ok(_) => BacktestReportAvailability {
+                        state: BacktestReportState::Verified,
+                        code: None,
+                    },
+                    Err(error) => BacktestReportAvailability {
+                        state: BacktestReportState::Unavailable,
+                        code: Some(error.code().into()),
+                    },
+                };
             }
             self.human_access.check_session(&human)?;
             return Ok(ingress::attach(
@@ -485,37 +621,49 @@ impl Host {
                 Release::Generation(human.metadata_session()),
             ));
         }
-        let (context, evidence) = self.backtest_result_owners(id, &human).await?;
+        if status.state != RunState::Completed {
+            return Err(failed(NOT_READY));
+        }
+        let BacktestPublication { publication, result } = self.read_backtest_publication(&run).await?;
+        let resolution = run.resolution();
         let response = if action == "result" {
-            Json(display_result(&context, &evidence)?).into_response()
+            crate::workers::backtest_profile::measure(id, "http.result.serialize", || {
+                Ok::<_, Failure>(Json(result).into_response())
+            })?
         } else if action == "evidence" {
             Json(BacktestEvidenceView {
                 schema_version: 1,
                 run_id: id.into(),
-                manifest: evidence.manifest().record().clone(),
+                publication_fingerprint: publication.fingerprint().into(),
+                preparation_command_id: preparation.value().into(),
+                freeze_relation_fingerprint: text(&resolution["freeze_relation_fingerprint"] )?,
+                qualification_decision_fingerprint: text(&resolution["qualification_decision_fingerprint"] )?,
+                promotion_fingerprint: text(&resolution["promotion_fingerprint"] )?,
+                manifest: publication.manifest().clone(),
             })
             .into_response()
-        } else if let Some(name) = action.strip_prefix("evidence/artifacts/") {
-            let (bytes, media) = evidence.artifact(name).map_err(failed)?;
+        } else {
+            let key = artifact_name.ok_or_else(invalid)?;
+            let bytes = publication.content(key)
+                .ok_or_else(|| failed("BACKTEST_ARTIFACT_NOT_FOUND"))?;
             Response::builder()
                 .status(StatusCode::OK)
-                .header("content-type", media)
+                .header("content-type", "application/octet-stream")
                 .header("content-disposition", "attachment")
-                .body(Body::from(bytes))
+                .body(Body::from(bytes.to_owned()))
                 .map_err(|_| failed(INVALID))?
-        } else {
-            return Err(invalid());
         };
         if Instant::now() >= deadline {
             return Err(failed("REQUEST_DEADLINE_EXPIRED"));
         }
-        context.verify_cut().map_err(failed)?;
-        evidence.verify_cut().map_err(failed)?;
         self.human_access.check_session(&human)?;
-        Ok(ingress::attach(
-            response,
-            Release::Generation(human.metadata_session()),
-        ))
+        let session = human.metadata_session();
+        let release = if artifact_name.is_some() {
+            Release::BacktestArtifact(session)
+        } else {
+            Release::Generation(session)
+        };
+        Ok(ingress::attach(response, release))
     }
 }
 

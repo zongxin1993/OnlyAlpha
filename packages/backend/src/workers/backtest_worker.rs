@@ -1,29 +1,30 @@
 //! Host scheduling over the original Backtest Run/Attempt and physical owners.
 //! Wake-ups are observations, never another queue or execution authority.
 pub(crate) use super::backtest_service::Configuration;
+use super::source_sessions::SourceSessions;
 use crate::{
     application::{
-        backtest_run::{VerifiedCompletion, VerifiedRun},
+        backtest_run::VerifiedRun,
+        finite_job::{AbortedPreparation, FiniteOutcome, PreparationTask, PreparedExecution},
+        job_input::MemoryBudget,
+        job_recovery::{JobRecovery, RecoveryDecision, RecoveryRefusal, RetryBudget},
         research_admission::PreparationError,
     },
     bootstrap::{
         deployment::{self, SemanticStoreId},
-        workstation_startup::ResearchConnection,
+        workstation_startup::{ResearchConnection,JobReadConnections as InputConnections},
     },
     persistence::{
-        backtest_evidence::{self, CompletionProof, Store},
         backtest_run::{self, Backtests, Claim, RunState, RunStatus},
+        job_publication::{AttemptClaim, AttemptExecutionBinding, PublicationError, PublicationObservation, PublicationRepository},
         research_runtime::Registry,
     },
     security::protected_files,
-    workers::{
-        backtest_service::{self, Control, Produced, StartMode, Work},
-        research::SharedAuthority,
-    },
+    workers::research::SharedAuthority,
 };
 use onlyalpha_domain::time::OnlyUtcDateTime;
+use onlyalpha_observability::{Correlation, Operation};
 use std::{
-    io::Write as _,
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
@@ -34,9 +35,11 @@ use tokio::{
     sync::{Notify, watch},
     task::JoinHandle,
 };
+use tracing::Instrument;
 const UNAVAILABLE: &str = "BACKTEST_SERVICE_UNAVAILABLE";
 const UNKNOWN: &str = "BACKTEST_SERVICE_OUTCOME_UNKNOWN";
 const LOST: &str = "BACKTEST_EXECUTION_OWNERSHIP_UNCERTAIN";
+const CLEANUP_PENDING: &str = "BACKTEST_RUNTIME_CLEANUP_PENDING";
 type Result<T> = std::result::Result<T, &'static str>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,6 +50,18 @@ pub(crate) enum Status {
     Uncertain(&'static str),
     Unavailable(&'static str),
     Stopped,
+}
+impl Status {
+    fn after_error(&self, code: &'static str) -> Self {
+        if code.contains("UNKNOWN")
+            || code.contains("UNCERTAIN")
+            || matches!(self, Self::Uncertain(prior) if *prior != CLEANUP_PENDING)
+        {
+            Self::Uncertain(code)
+        } else {
+            Self::Unavailable(code)
+        }
+    }
 }
 struct Admission {
     state: AtomicU8,
@@ -109,13 +124,17 @@ pub(crate) struct Service {
 impl Service {
     pub(crate) fn start(
         connection: ResearchConnection,
+        facts: ResearchConnection,
         writer: SharedAuthority,
+        sources: SourceSessions,
+        physical: Arc<crate::persistence::market_data::ClickHouse>,
         configuration: Configuration,
         clock: impl Fn() -> std::result::Result<OnlyUtcDateTime, PreparationError>
         + Send
         + Sync
         + 'static,
     ) -> Result<Self> {
+        let connection=InputConnections::new(connection,facts,physical).map_err(|_|UNAVAILABLE)?;
         if !connection.active() {
             return Err(UNAVAILABLE);
         }
@@ -137,6 +156,7 @@ impl Service {
                     serve(
                         &mut connection,
                         &writer,
+                        &sources,
                         &configuration,
                         &selected,
                         &status,
@@ -161,12 +181,8 @@ impl Service {
                 }
                 Err(code) => {
                     eprintln!("BACKTEST_WORKER_EXIT code={code}");
-                    let uncertain = matches!(status.borrow().clone(), Status::Uncertain(_));
-                    if uncertain {
-                        status.send_replace(Status::Uncertain(code));
-                    } else {
-                        status.send_replace(Status::Unavailable(code));
-                    }
+                    let failed = status.borrow().after_error(code);
+                    status.send_replace(failed);
                 }
             }
             // The operational outcome remains visible above; this Ok proves
@@ -190,8 +206,7 @@ impl Service {
             self.status.borrow().clone()
         }
     }
-    #[cfg(test)]
-    fn test_observations(&self) -> watch::Receiver<Status> {
+    pub(crate) fn subscribe(&self) -> watch::Receiver<Status> {
         self.status.clone()
     }
     pub(crate) async fn drain(&mut self) -> Result<()> {
@@ -240,8 +255,9 @@ async fn next_scan(wake: &Wake, poll: &mut tokio::time::Interval) -> bool {
     !wake.stopped()
 }
 async fn serve(
-    connection: &mut Option<ResearchConnection>,
+    connection: &mut Option<InputConnections>,
     writer: &SharedAuthority,
+    sources: &SourceSessions,
     config: &Configuration,
     wake: &Wake,
     status: &watch::Sender<Status>,
@@ -267,7 +283,16 @@ async fn serve(
                 return Ok(());
             }
             let run = {
-                let mut held = writer.lock().await;
+                let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let writer_wait = onlyalpha_observability::Operation::start(
+                    "backend",
+                    "writer.wait",
+                    onlyalpha_observability::Correlation::default(),
+                );
+                let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+                writer_wait.finish("acquired", 1, 0);
+                writer_hold.acquired("writer", "writer.hold");
+                let _writer_release_begin = writer_hold.begin_release_marker();
                 Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, &namespace)
                     .load(&id)
                     .await?
@@ -278,6 +303,7 @@ async fn serve(
                 run_one(
                     connection,
                     writer,
+                    sources,
                     config,
                     WorkerSignals { wake, status },
                     clock,
@@ -290,7 +316,7 @@ async fn serve(
                 None => return Ok(()),
                 Some(result) => result?,
             }
-            if !connection.as_ref().is_some_and(ResearchConnection::active) {
+            if !connection.as_ref().is_some_and(InputConnections::active) {
                 return Err(UNAVAILABLE);
             }
         }
@@ -311,7 +337,16 @@ async fn observe(
     namespace: &SemanticStoreId,
     run: &VerifiedRun,
 ) -> Result<RunStatus> {
-    let mut held = writer.lock().await;
+    let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+    let writer_wait = onlyalpha_observability::Operation::start(
+        "backend",
+        "writer.wait",
+        onlyalpha_observability::Correlation::default(),
+    );
+    let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+    writer_wait.finish("acquired", 1, 0);
+    writer_hold.acquired("writer", "writer.hold");
+    let _writer_release_begin = writer_hold.begin_release_marker();
     Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, namespace)
         .observe(run)
         .await
@@ -320,246 +355,390 @@ async fn heartbeat(
     writer: &SharedAuthority,
     run: &VerifiedRun,
     claim: &mut Claim,
-) -> Result<RunStatus> {
-    let mut held = writer.lock().await;
+) -> Result<Option<RunStatus>> {
+    let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+    let writer_wait = onlyalpha_observability::Operation::start(
+        "backend",
+        "writer.wait",
+        onlyalpha_observability::Correlation::default(),
+    );
+    let mut held = writer.lock().instrument(writer_wait.span().clone()).await;
+    writer_wait.finish("acquired", 1, 0);
+    writer_hold.acquired("writer", "writer.hold");
+    let _writer_release_begin = writer_hold.begin_release_marker();
     let mut store = Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace());
-    let current = store.observe(run).await?;
-    store.heartbeat(claim).await?;
+    let current = store.heartbeat(claim).await?;
     #[cfg(test)]
-    tests::observed_phase(run.run_id(), "heartbeat_committed");
+    if current.is_some() {
+        tests::observed_phase(run.run_id(), "heartbeat_committed");
+    }
     Ok(current)
-}
-enum CompletedJob {
-    Published(CompletionProof),
-    Paused,
-}
-enum JobFailure {
-    Native(backtest_service::Error),
-    Known(&'static str),
 }
 struct WorkerSignals<'a> {
     wake: &'a Wake,
     status: &'a watch::Sender<Status>,
 }
-async fn run_one(
-    connection: &mut Option<ResearchConnection>,
+
+#[derive(Clone, Copy)]
+enum Ownership {
+    Retained,
+    Expired,
+    Unknown(&'static str),
+}
+
+async fn wait_owned<T>(
+    work: impl std::future::Future<Output = std::result::Result<T, PreparationError>>,
+    stop: impl Fn(),
+    signals: &WorkerSignals<'_>,
     writer: &SharedAuthority,
+    run: &VerifiedRun,
+    claim: &mut Claim,
+) -> Result<(T, Ownership)> {
+    tokio::pin!(work);
+    let mut timer = tokio::time::interval(Duration::from_secs(30));
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut ownership = Ownership::Retained;
+    let result = loop {
+        tokio::select! {
+            joined = &mut work => break joined,
+            _ = signals.wake.0.changed.notified(), if matches!(ownership, Ownership::Retained) => {},
+            _ = timer.tick(), if matches!(ownership, Ownership::Retained) => {},
+        }
+        if signals.wake.stopped() {
+            stop();
+            #[cfg(test)]
+            tests::observed_phase(run.run_id(), "pause_requested");
+        }
+        match heartbeat(writer, run, claim).await {
+            Ok(Some(current)) if current.state == RunState::CancelRequested => {
+                stop();
+                #[cfg(test)]
+                tests::observed_phase(run.run_id(), "cancel_observed");
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                ownership = Ownership::Expired;
+                stop();
+                #[cfg(test)]
+                tests::observed_phase(run.run_id(), "attempt_expired");
+            }
+            Err(code) => {
+                ownership = Ownership::Unknown(code);
+                stop();
+                signals.status.send_replace(Status::Uncertain(code));
+                tracing::warn!(run_id = run.run_id(), rejection = code, "Backtest Attempt heartbeat failed");
+                #[cfg(test)]
+                tests::observed_phase(run.run_id(), "ownership_uncertain");
+            }
+        }
+    };
+    result.map(|value| (value, ownership)).map_err(|error| error.code())
+}
+
+async fn finish_lost_attempt(
+    ownership: Ownership,
+    connection: &mut Option<InputConnections>,
+    writer: &SharedAuthority,
+) -> Result<()> {
+    if let Ownership::Unknown(code) = ownership {
+        return Err(code);
+    }
+    let mut held = writer.lock().await;
+    held.as_mut().ok_or(UNAVAILABLE)?.verify().await.map_err(|error| error.code())?;
+    connection.as_mut().ok_or(UNKNOWN)?.clients_mut().await.map_err(|_| UNAVAILABLE)?;
+    Ok(())
+}
+
+async fn finish_or_confirm_expiry(
+    result: Result<()>,
+    claim: &Claim,
+    connection: &mut Option<InputConnections>,
+    writer: &SharedAuthority,
+) -> Result<()> {
+    if !matches!(result, Err(LOST | backtest_run::LOST)) {
+        return result;
+    }
+    let expired = {
+        let mut held = writer.lock().await;
+        Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, claim.run().namespace())
+            .confirm_attempt_expired(claim)
+            .await?
+    };
+    if !expired {
+        return result;
+    }
+    finish_lost_attempt(Ownership::Expired, connection, writer).await
+}
+
+async fn run_one(
+    connection: &mut Option<InputConnections>,
+    writer: &SharedAuthority,
+    sources: &SourceSessions,
     config: &Configuration,
     signals: WorkerSignals<'_>,
     clock: &(impl Fn() -> std::result::Result<OnlyUtcDateTime, PreparationError> + Send + Sync),
     worker: &str,
     run: &VerifiedRun,
 ) -> Result<()> {
-    let WorkerSignals { wake, status } = signals;
-    let mut current = observe(writer, run.namespace(), run).await?;
-    if current.state.terminal() {
-        return terminal(connection, writer, config, wake, status, clock, run).await;
-    }
-    if matches!(current.state, RunState::Running | RunState::CancelRequested) {
-        let mut held = writer.lock().await;
-        let expired = Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
-            .expire(run, clock().map_err(|e| e.code())?)
-            .await?;
-        if let Some(expired) = expired {
-            current = expired;
-        }
-    }
-    let claim = {
-        let mut held = writer.lock().await;
-        Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
-            .claim(run, worker, &uuid4()?, clock().map_err(|e| e.code())?)
-            .await?
-    };
-    let Some(mut claim) = claim else {
-        return Ok(());
-    };
-    let control = Control::default();
-    if current.state == RunState::CancelRequested {
-        control.request_cancel();
-    }
-    if wake.stopped() {
-        control.request_pause();
-    }
-    let child = control.clone();
-    let configuration = config.clone();
-    let selected = run.clone();
-    let mode = if claim.attempt_number() == 1 {
-        StartMode::Create
-    } else {
-        StartMode::Resume
-    };
-    let handle = tokio::runtime::Handle::current();
-    let mut original = connection.take().ok_or(UNKNOWN)?;
-    let mut job = tokio::task::spawn_blocking(move || {
-        let result = handle.block_on(async {
-            let started = std::time::Instant::now();
-            let phase = |name: &str| {
-                let _ = writeln!(
-                    std::io::stderr().lock(),
-                    "BACKTEST_JOB_PHASE phase={name} elapsed_ms={}",
-                    started.elapsed().as_millis()
-                );
-            };
-            phase("history-open");
-            let client = original
-                .client_mut()
-                .await
-                .map_err(|_| JobFailure::Known(UNAVAILABLE))?;
-            let context = backtest_evidence::read_context(
-                client,
-                selected.namespace(),
-                &configuration.research_root,
-                &configuration.runtime_root,
-                selected.run_id(),
-                Some(selected.owner()),
-            )
-            .await
-            .map_err(JobFailure::Known)?;
-            phase("history-ready");
-            let store = Store::open(
-                &configuration.backtest_root,
-                &configuration.research_root,
-                &configuration.runtime_root,
-            )
-            .map_err(JobFailure::Known)?;
-            if let Some(proof) = store.load_completion(&context).map_err(JobFailure::Known)? {
-                return Ok(CompletedJob::Published(proof));
+    let command = run.resolution()["runtime_work_binding"]["reason"]
+        .as_str()
+        .map(str::to_owned);
+    let trace_job = Operation::root(
+        "backend",
+        "backtest.run_one",
+        Correlation {
+            run_id: Some(run.run_id().into()),
+            links: command.as_ref().map(|id| format!("command:{id}")),
+            command_id: command,
+            ..Default::default()
+        },
+    );
+    let observed: Result<()> = async {
+        #[cfg(test)]
+        tests::wait_at_phase(run.run_id(), "before_claim").await;
+        let at = || clock().map_err(|error| error.code());
+        let budget = MemoryBudget::new(crate::transport::host::ROWS, crate::transport::host::WORK)
+            .map_err(|_| "BACKTEST_INPUT_BUDGET_INVALID")?;
+        let (mut claim, binding) = {
+            let mut held = writer.lock().await;
+            let mut runs = Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace());
+            let mut observation = runs.observe_publication(run).await?;
+            if matches!(&observation, PublicationObservation::ConfirmedUnpublished(proof) if proof.active_attempts() == 1)
+                && runs.expire(run, at()?).await?.is_some()
+            {
+                observation = runs.observe_publication(run).await?;
             }
-            phase("completion-read");
-            let operation = context.original_operation().clone();
-            let work = Work::restore(context, &selected, &operation, &configuration)
-                .map_err(JobFailure::Native)?;
-            phase("work-restored");
-            #[cfg(test)]
-            tests::blocking_phase(selected.run_id(), "before_produce");
-            match backtest_service::produce(work, mode, &child).map_err(JobFailure::Native)? {
-                Produced::Paused(paused) => {
-                    paused.verify_cut().map_err(JobFailure::Known)?;
-                    drop(paused);
-                    Ok(CompletedJob::Paused)
+            match JobRecovery::decide(observation, RetryBudget::finite_job()).map_err(publication_error)? {
+                RecoveryDecision::RecomputeWithNewClaim(proof) => {
+                    if signals.wake.stopped() {
+                        return Ok(());
+                    }
+                    let Some(claim) = runs.claim_recompute(run, &proof, worker, &uuid4()?, at()?).await? else {
+                        return Ok(());
+                    };
+                    (claim, proof.binding().clone())
                 }
-                Produced::Terminal(joined) => {
-                    phase("result-observed");
-                    let proof = store.commit(joined).map_err(JobFailure::Known)?;
-                    phase("evidence-published");
-                    #[cfg(test)]
-                    tests::blocking_phase(selected.run_id(), "after_publish");
-                    Ok(CompletedJob::Published(proof))
+                RecoveryDecision::FinishCancellation(proof) => {
+                    runs.finish_cancelled_unpublished(run, &proof, at()?).await?;
+                    return Ok(());
                 }
+                RecoveryDecision::Refused(RecoveryRefusal::RetryExhausted, proof) => {
+                    runs.finish_exhausted(run, &proof, at()?).await?;
+                    return Ok(());
+                }
+                RecoveryDecision::AlreadyPublished(_)
+                | RecoveryDecision::Refused(RecoveryRefusal::Terminal, _)
+                | RecoveryDecision::WaitForResolution => return Ok(()),
             }
+        };
+        let trace_attempt = Operation::start("backend", "backtest.attempt", Correlation {
+            attempt: u64::try_from(claim.attempt_number()).ok(),
+            links: Some(format!("attempt:{}", claim.attempt_id())),
+            ..Default::default()
         });
-        (original, result)
-    });
-    let mut timer = tokio::time::interval(Duration::from_secs(30));
-    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut uncertain = None;
-    let mut stopping = wake.stopped();
-    let result = loop {
-        tokio::select! {
-            finished=&mut job=>break finished.map_err(|_|UNKNOWN)?,
-            _=wake.0.changed.notified()=>{},
-            _=timer.tick()=>{},
-        }
-        if wake.stopped() {
-            stopping = true;
-            control.request_pause();
-            #[cfg(test)]
-            tests::observed_phase(run.run_id(), "pause_requested");
-        }
-        if uncertain.is_none() {
-            match heartbeat(writer, run, &mut claim).await {
-                Ok(observed) => {
-                    if observed.state == RunState::CancelRequested {
-                        control.request_cancel();
-                        #[cfg(test)]
-                        tests::observed_phase(run.run_id(), "cancel_observed");
+        let attempted: Result<()> = async {
+            tracing::info!(target: "onlyalpha.observability", event_kind = "summary", module = "backend", operation = "backtest.run.claimed", outcome = "claimed");
+            let execution = AttemptExecutionBinding::capture(&AttemptClaim::from_backtest(&claim))
+                .map_err(publication_error)?;
+            let preparing = PreparationTask::start_backtest(
+                connection.take().ok_or(UNKNOWN)?, sources.clone(), run.clone(), binding,
+                execution, config.clone(), budget,
+            );
+            let stop = preparing.cancellation();
+            let (prepared, ownership) = wait_owned(
+                preparing.join(), || { stop.send_replace(true); }, &signals, writer, run, &mut claim,
+            ).await?;
+            let outcome = match prepared {
+                PreparedExecution::Ready { readers, value } => {
+                    *connection = Some(readers);
+                    if !matches!(ownership, Ownership::Retained) {
+                        drop(value.discard());
+                        return finish_lost_attempt(ownership, connection, writer).await;
+                    }
+                    let Some(current) = heartbeat(writer, run, &mut claim).await? else {
+                        drop(value.discard());
+                        return finish_lost_attempt(Ownership::Expired, connection, writer).await;
+                    };
+                    if current.state == RunState::CancelRequested {
+                        Err((value.discard(), "BACKTEST_EXECUTION_CANCELLED".into()))
+                    } else if signals.wake.stopped() {
+                        return Ok(());
+                    } else {
+                        value.start(&AttemptClaim::from_backtest(&claim))
                     }
                 }
-                Err(_) => {
-                    uncertain = Some(LOST);
-                    control.request_pause();
-                    status.send_replace(Status::Uncertain(LOST));
-                    #[cfg(test)]
-                    tests::observed_phase(run.run_id(), "ownership_uncertain");
+                PreparedExecution::Aborted { readers, proof, error } => {
+                    *connection = Some(readers);
+                    if !matches!(ownership, Ownership::Retained) {
+                        verify_preparation_drained(&error)?;
+                        drop(proof);
+                        return finish_lost_attempt(ownership, connection, writer).await;
+                    }
+                    Err((proof, error))
                 }
+            };
+            let task = match outcome {
+                Ok(task) => task,
+                Err((proof, error)) => {
+                    if signals.wake.stopped() && error.code() == "BACKTEST_EXECUTION_CANCELLED"
+                        && observe(writer, run.namespace(), run).await?.state == RunState::Running
+                    {
+                        return Ok(());
+                    }
+                    let result = settle_preparation(writer, run, &mut claim, proof, error).await;
+                    return finish_or_confirm_expiry(result, &claim, connection, writer).await;
+                }
+            };
+            let control = task.cancellation();
+            let (finished, ownership) = wait_owned(
+                task.finish(), || control.request_stop(), &signals, writer, run, &mut claim,
+            ).await?;
+            if !matches!(ownership, Ownership::Retained) {
+                drop(finished.into_drained().map_err(|error| error.code())?);
+                return finish_lost_attempt(ownership, connection, writer).await;
             }
+            let Some(current) = heartbeat(writer, run, &mut claim).await? else {
+                drop(finished.into_drained().map_err(|error| error.code())?);
+                return finish_lost_attempt(Ownership::Expired, connection, writer).await;
+            };
+            #[cfg(test)]
+            super::backtest_profile::spawn_blocking({
+                let id = run.run_id().to_owned();
+                let attempt = claim.attempt_number();
+                move || {
+                    if attempt == 1 {
+                        tests::blocking_phase(&id, "before_first_finalization");
+                    }
+                    tests::blocking_phase(&id, "before_finalization");
+                }
+            }).await.map_err(|_| UNKNOWN)?;
+            if current.state == RunState::CancelRequested || signals.wake.stopped() {
+                let drained = finished.into_drained().map_err(|error| error.code())?;
+                if current.state == RunState::CancelRequested {
+                    let result = {
+                        let mut held = writer.lock().await;
+                        Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
+                            .finish_drained(&mut claim, &drained, None).await.map(drop)
+                    };
+                    drop(drained);
+                    return finish_or_confirm_expiry(result, &claim, connection, writer).await;
+                }
+                return Ok(());
+            }
+            let result = match finished.into_outcome().map_err(|error| error.code())? {
+                FiniteOutcome::Completed(candidate) => {
+                    #[cfg(test)]
+                    tests::wait_at_phase(run.run_id(), "candidate_ready").await;
+                    #[cfg(test)]
+                    let rollback_revision = tests::verify_economic_publication_rollbacks(
+                        connection, writer, run, &claim, &candidate,
+                    ).await;
+                    let result = {
+                        let mut held = writer.lock().await;
+                        let published = PublicationRepository::publish_guarded(
+                            held.as_mut().ok_or(UNAVAILABLE)?, run.namespace(),
+                            &AttemptClaim::from_backtest(&claim), &candidate,
+                        ).await;
+                        #[cfg(test)]
+                        tests::record_first_publication(run.run_id(), claim.attempt_number(), &published);
+                        published.map(drop).map_err(|error| {
+                            tracing::warn!(run_id = run.run_id(), ?error, "Backtest publication refused");
+                            publication_error(error)
+                        })
+                    };
+                    #[cfg(test)]
+                    if let Some(revision) = rollback_revision {
+                        assert!(result.is_ok(), "original candidate after rollbacks: {result:?}");
+                        tests::assert_original_economic_publication(connection, &claim, &candidate, revision).await;
+                    }
+                    drop(candidate);
+                    #[cfg(test)]
+                    if result.is_ok() {
+                        super::backtest_profile::spawn_blocking({
+                            let id = run.run_id().to_owned();
+                            move || tests::blocking_phase(&id, "after_publish")
+                        }).await.map_err(|_| UNKNOWN)?;
+                    }
+                    result
+                }
+                FiniteOutcome::Failed { drained, error } => {
+                    let mut held = writer.lock().await;
+                    Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
+                        .finish_drained(&mut claim, &drained, Some(error.code())).await.map(drop)
+                }
+            };
+            finish_or_confirm_expiry(result, &claim, connection, writer).await
+        }.instrument(trace_attempt.span().clone()).await;
+        trace_attempt.finish(if attempted.is_ok() { "ok" } else { "failed" }, 1, 0);
+        attempted
+    }.instrument(trace_job.span().clone()).await;
+    if let Err(code) = observed {
+        if code.contains("UNKNOWN") || code.contains("UNCERTAIN") {
+            signals.status.send_replace(Status::Uncertain(code));
         }
-    };
-    *connection = Some(result.0);
-    let outcome = match result.1 {
-        Err(JobFailure::Native(error)) => {
-            let code = error.code();
-            drain_native(error, wake, status).await?;
-            return Err(uncertain.unwrap_or(code));
-        }
-        Err(JobFailure::Known(code)) => return Err(uncertain.unwrap_or(code)),
-        Ok(outcome) => outcome,
-    };
-    if let Some(code) = uncertain {
-        drop(outcome);
+    }
+    trace_job.finish(if observed.is_ok() { "ok" } else { "failed" }, 1, 0);
+    observed
+}
+
+fn verify_preparation_drained(error: &PreparationError) -> Result<()> {
+    let code = error.code();
+    if code.contains("UNKNOWN") || code.contains("UNCERTAIN") || error.recovery_owner().is_some() {
         return Err(code);
     }
-    match outcome {
-        CompletedJob::Paused => {
-            if !stopping {
-                return Err("BACKTEST_PAUSE_UNREQUESTED");
-            }
-            Ok(())
-        }
-        CompletedJob::Published(proof) => {
-            let completion = VerifiedCompletion::from_proof(proof)?;
-            {
-                let mut held = writer.lock().await;
-                let mut store = Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace());
-                if completion.proof().status() == "CANCELLED" {
-                    store
-                        .cancel(&mut claim, &completion, clock().map_err(|e| e.code())?)
-                        .await?;
-                } else {
-                    store
-                        .complete(&mut claim, &completion, clock().map_err(|e| e.code())?)
-                        .await?;
-                }
-            }
-            drop(completion);
-            terminal(connection, writer, config, wake, status, clock, run).await
-        }
-    }
+    Ok(())
 }
-async fn drain_native(
-    mut error: backtest_service::Error,
-    wake: &Wake,
-    status: &watch::Sender<Status>,
+
+async fn settle_preparation(
+    writer: &SharedAuthority,
+    run: &VerifiedRun,
+    claim: &mut Claim,
+    proof: AbortedPreparation,
+    error: PreparationError,
 ) -> Result<()> {
-    let code = error.code();
-    if code.contains("UNKNOWN") || code.contains("UNCERTAIN") {
-        status.send_replace(Status::Uncertain(code));
-    }
-    let mut retry = tokio::time::interval_at(
-        tokio::time::Instant::now() + Duration::from_secs(5),
-        Duration::from_secs(5),
-    );
-    retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        let (returned, drained) = tokio::task::spawn_blocking(move || {
-            let result = error.drain();
-            (error, result)
-        })
-        .await
-        .map_err(|_| UNKNOWN)?;
-        error = returned;
-        if drained.is_ok() {
-            drop(error);
-            return Ok(());
-        }
-        status.send_replace(Status::Uncertain(code));
-        wait_cleanup(wake, &mut retry).await;
+    verify_preparation_drained(&error)?;
+    let mut held = writer.lock().await;
+    Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
+        .finish_aborted(claim, &proof, error.code()).await?;
+    Ok(())
+}
+
+fn publication_error(error: PublicationError) -> &'static str {
+    match error {
+        PublicationError::OutcomeUnknown => "BACKTEST_PUBLICATION_OUTCOME_UNKNOWN",
+        PublicationError::OwnershipLost => LOST,
+        PublicationError::Unavailable => "BACKTEST_PUBLICATION_UNAVAILABLE",
+        PublicationError::Denied => "BACKTEST_PUBLICATION_DENIED",
+        PublicationError::MissingEvidence => "BACKTEST_PUBLICATION_MISSING_EVIDENCE",
+        PublicationError::BudgetExceeded => "BACKTEST_PUBLICATION_BUDGET_EXCEEDED",
+        PublicationError::Integrity | PublicationError::Mismatch => "BACKTEST_PUBLICATION_INTEGRITY_MISMATCH",
+        PublicationError::Conflict => "BACKTEST_PUBLICATION_CONFLICT",
     }
 }
-/// A terminal binding is released only after actual owning evidence verification
-/// and after every returned proof/context/input hold has been dropped.
+
+async fn try_release_runtime_work(
+    config: &Configuration,
+    work: &str,
+    generation: &str,
+    owner: &str,
+    at: OnlyUtcDateTime,
+) -> Result<bool> {
+    let root = config.runtime_root.clone();
+    let work = work.to_owned();
+    let generation = generation.to_owned();
+    let owner = owner.to_owned();
+    super::backtest_profile::spawn_blocking(move || {
+        let Some(mut registry) = Registry::try_open_for_release(&root)? else {
+            return Ok(false);
+        };
+        registry.release_work_exact(&work, &generation, &owner, "backtest-service", at)?;
+        Ok(true)
+    })
+    .await
+    .map_err(|_| UNKNOWN)?
+}
+
 async fn terminal(
-    connection: &mut Option<ResearchConnection>,
     writer: &SharedAuthority,
     config: &Configuration,
     wake: &Wake,
@@ -567,95 +746,56 @@ async fn terminal(
     clock: &(impl Fn() -> std::result::Result<OnlyUtcDateTime, PreparationError> + Send + Sync),
     run: &VerifiedRun,
 ) -> Result<()> {
-    let current = {
-        let mut held = writer.lock().await;
-        Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
-            .load(run.run_id())
-            .await?
-    };
-    if !current.state().terminal() {
-        return Err("BACKTEST_TERMINAL_CLEANUP_CONFLICT");
-    }
-    if current.state() == RunState::Completed
-        || (current.state() == RunState::Cancelled && current.was_started())
-    {
-        let mut original = connection.take().ok_or(UNKNOWN)?;
-        let selected = current.clone();
-        let cfg = config.clone();
-        let handle = tokio::runtime::Handle::current();
-        let (returned, checked) = tokio::task::spawn_blocking(move || {
-            let result = handle.block_on(async {
-                let client = original.client_mut().await.map_err(|_| UNAVAILABLE)?;
-                let context = backtest_evidence::read_context(
-                    client,
-                    selected.namespace(),
-                    &cfg.research_root,
-                    &cfg.runtime_root,
-                    selected.run_id(),
-                    Some(selected.owner()),
-                )
-                .await?;
-                let store = Store::open(&cfg.backtest_root, &cfg.research_root, &cfg.runtime_root)?;
-                let proof = store
-                    .load_completion(&context)?
-                    .ok_or("BACKTEST_COMPLETION_PROOF_UNAVAILABLE")?;
-                proof.verify_cut()?;
-                if proof.status() != selected.state().as_str() {
-                    return Err("BACKTEST_TERMINAL_CLEANUP_CONFLICT");
-                }
-                drop(proof);
-                drop(context);
-                Ok(())
-            });
-            (original, result)
-        })
-        .await
-        .map_err(|_| UNKNOWN)?;
-        *connection = Some(returned);
-        checked?;
-    } else if current.state() != RunState::Cancelled
-        || current.was_started()
-        || current.completion_fingerprints().is_some()
-    {
-        // No known producer drain proof exists for an arbitrary FAILED row.
-        return Err("BACKTEST_TERMINAL_CLEANUP_UNPROVEN");
-    }
-    let work = current.run_id().to_owned();
-    let generation = current.runtime_generation_fingerprint().to_owned();
-    let owner = current.resolution()["runtime_work_binding"]["reason"]
-        .as_str()
-        .ok_or("BACKTEST_RUNTIME_BINDING_INVALID")?
-        .to_owned();
-    let mut retry = tokio::time::interval_at(
-        tokio::time::Instant::now() + Duration::from_secs(5),
-        Duration::from_secs(5),
+    let trace_cleanup = Operation::start(
+        "backend",
+        "backtest.terminal.cleanup",
+        Correlation {
+            run_id: Some(run.run_id().into()),
+            ..Default::default()
+        },
     );
-    retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        let root = config.runtime_root.clone();
-        let work = work.clone();
-        let generation = generation.clone();
-        let owner = owner.clone();
-        let at = clock().map_err(|e| e.code())?;
-        let result = tokio::task::spawn_blocking(move || {
-            Registry::open_existing(&root)?
-                .release_work_exact(&work, &generation, &owner, "backtest-service", at)
-                .map(drop)
-        })
-        .await
-        .map_err(|_| UNKNOWN)?;
-        match result {
-            Ok(()) => return Ok(()),
-            Err("RESEARCH_RUNTIME_UNAVAILABLE") => {
-                status.send_replace(Status::Uncertain("BACKTEST_RUNTIME_CLEANUP_PENDING"));
-                wait_cleanup(wake, &mut retry).await;
+    let cleaned: Result<()> = async {
+        let observation = {
+            let mut held = writer.lock().await;
+            Backtests::new(held.as_mut().ok_or(UNAVAILABLE)?, run.namespace())
+                .observe_publication(run).await?
+        };
+        match observation {
+            PublicationObservation::Published(_) if run.state() == RunState::Completed => {}
+            PublicationObservation::ConfirmedUnpublished(proof)
+                if matches!(run.state(), RunState::Cancelled | RunState::Failed)
+                    && proof.run_state() == run.state().as_str()
+                    && proof.active_attempts() == 0
+                    && run.completion_fingerprints().is_none() => {}
+            PublicationObservation::Unresolved => return Ok(()),
+            _ => return Err("BACKTEST_TERMINAL_CLEANUP_UNPROVEN"),
+        }
+        let work = run.run_id();
+        let generation = run.runtime_generation_fingerprint();
+        let owner = run.resolution()["runtime_work_binding"]["reason"]
+            .as_str()
+            .ok_or("BACKTEST_RUNTIME_BINDING_INVALID")?;
+        let mut retry = tokio::time::interval_at(
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            Duration::from_secs(5),
+        );
+        retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            let at = clock().map_err(|e| e.code())?;
+            if try_release_runtime_work(config, work, generation, owner, at).await? {
+                return Ok(());
             }
-            Err(code) => return Err(code),
+            status.send_replace(Status::Uncertain(CLEANUP_PENDING));
+            wait_cleanup(wake, &mut retry).await;
         }
     }
+    .instrument(trace_cleanup.span().clone())
+    .await;
+    trace_cleanup.finish(if cleaned.is_ok() { "ok" } else { "failed" }, 1, 0);
+    cleaned
 }
 async fn cleanup_terminal(
-    connection: &mut Option<ResearchConnection>,
+    connection: &mut Option<InputConnections>,
     writer: &SharedAuthority,
     config: &Configuration,
     wake: &Wake,
@@ -664,13 +804,14 @@ async fn cleanup_terminal(
     namespace: &SemanticStoreId,
 ) -> Result<()> {
     let root = config.runtime_root.clone();
-    let Some(bindings) =
-        tokio::task::spawn_blocking(move || Registry::try_unreleased_work_bindings(&root))
-            .await
-            .map_err(|_| UNKNOWN)?
-            .inspect_err(|code| {
-                eprintln!("BACKTEST_WORKER_SCAN_FAILED phase=registry-inventory code={code}")
-            })?
+    let Some(bindings) = super::backtest_profile::spawn_blocking(move || {
+        Registry::try_unreleased_work_bindings(&root)
+    })
+    .await
+    .map_err(|_| UNKNOWN)?
+    .inspect_err(|code| {
+        eprintln!("BACKTEST_WORKER_SCAN_FAILED phase=registry-inventory code={code}")
+    })?
     else {
         eprintln!(
             "BACKTEST_WORKER_SCAN_DEFERRED phase=registry-inventory code=RESEARCH_RUNTIME_INVENTORY_LOCK_BUSY"
@@ -708,31 +849,11 @@ async fn cleanup_terminal(
                     let eligible=crate::persistence::research_preparation::cancelled_backtest_cleanup_in_transaction(&tx,namespace,&work,&generation,&owner).await?;
                     tx.commit().await.map_err(|_| UNAVAILABLE)?;
                     if eligible.is_some() {
-                        let root = config.runtime_root.clone();
-                        let work = work.clone();
-                        let generation = generation.clone();
-                        let owner = owner.clone();
                         let at = clock().map_err(|e| e.code())?;
-                        let released = tokio::task::spawn_blocking(move || {
-                            Registry::open_existing(&root)?
-                                .release_work_exact(
-                                    &work,
-                                    &generation,
-                                    &owner,
-                                    "backtest-service",
-                                    at,
-                                )
-                                .map(drop)
-                        })
-                        .await
-                        .map_err(|_| UNKNOWN)?;
-                        match released {
-                            Ok(()) | Err("RESEARCH_RUNTIME_UNAVAILABLE") => {}
-                            Err(code) => return Err(code),
+                        if !try_release_runtime_work(config, &work, &generation, &owner, at).await? {
+                            eprintln!("BACKTEST_WORKER_SCAN_DEFERRED phase=cancelled-preparation-release code=RESEARCH_RUNTIME_INVENTORY_LOCK_BUSY");
                         }
                     }
-                    // Busy physical readers retain the same exact binding. The
-                    // existing five-second scan observes it again; no new job/Run.
                     continue;
                 }
                 Err(code) => return Err(code),
@@ -748,7 +869,7 @@ async fn cleanup_terminal(
         }
         match handoff(
             wake,
-            terminal(connection, writer, config, wake, status, clock, &run),
+            terminal(writer, config, wake, status, clock, &run),
         )
         .await
         {

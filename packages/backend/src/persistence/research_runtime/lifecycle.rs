@@ -81,8 +81,23 @@ impl Registry {
         Self::open_existing(root)
     }
     pub fn open_existing(root: &Path) -> Result<Self> {
-        let mut held =
-            RuntimeInputHold::acquire(root, fs::FlockOperation::NonBlockingLockExclusive)?;
+        Self::open_existing_with_contention(root, UNAVAILABLE)
+    }
+
+    pub(crate) fn try_open_for_release(root: &Path) -> Result<Option<Self>> {
+        match Self::open_existing_with_contention(root, INVENTORY_LOCK_BUSY) {
+            Ok(registry) => Ok(Some(registry)),
+            Err(INVENTORY_LOCK_BUSY) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn open_existing_with_contention(root: &Path, contention: &'static str) -> Result<Self> {
+        let mut held = RuntimeInputHold::acquire_with_contention(
+            root,
+            fs::FlockOperation::NonBlockingLockExclusive,
+            contention,
+        )?;
         let history = held.replay()?;
         Ok(Self { held, history })
     }
@@ -173,21 +188,6 @@ impl Registry {
             runtime,
         )?;
         self.held.private_factor(&id)?;
-        self.held.verify()
-    }
-    pub(crate) fn retain_abi_vectors(&mut self, vectors: &Value, expected: &Value) -> Result<()> {
-        self.held.verify()?;
-        let id = hash(vectors).map_err(|_| INVALID)?;
-        if expected.as_str() != Some(id.as_str()) {
-            return Err(INVALID);
-        }
-        let directory = crate::security::immutable_json::Directory::open(&self.held.root_path)?;
-        super::publication::put_file(
-            &directory,
-            &["artifacts", "private-factor-equivalence", &id[..2]],
-            &format!("{id}.json"),
-            vectors,
-        )?;
         self.held.verify()
     }
     pub(crate) fn retain_installed_proof(&mut self, manifest: &Value, proof: &Value) -> Result<()> {

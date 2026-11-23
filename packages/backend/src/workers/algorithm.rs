@@ -2,6 +2,7 @@
 use onlyalpha_calculation_bridge::{
     ChartInstallation, ProcessControl, ProcessState, Result, Worker, WorkerError,
 };
+use onlyalpha_observability::{Correlation, measure};
 use std::{
     os::{fd::OwnedFd, unix::net::UnixStream},
     path::{Path, PathBuf},
@@ -143,14 +144,31 @@ impl AlgorithmProcess {
         generation: &str,
         completion: Box<dyn Send>,
     ) -> Result<super::research_calculations::ResearchProcess> {
-        installation.verify()?;
-        let image = describe_research_runtime(env!("CARGO_PKG_VERSION"))?;
-        let worker = Self::new(installation.root().join("bin/python")).spawn_bound(
-            generation.into(),
-            installation.artifact_fingerprint().into(),
-            installation.root(),
-            completion,
-            WorkerRole::Research,
+        measure(
+            "backend",
+            "runtime.resolver.installation_verify",
+            Correlation::default(),
+            || installation.verify(),
+        )?;
+        let image = measure(
+            "backend",
+            "runtime.resolver.native_image",
+            Correlation::default(),
+            || describe_research_runtime(env!("CARGO_PKG_VERSION")),
+        )?;
+        let worker = measure(
+            "backend",
+            "runtime.resolver.spawn",
+            Correlation::default(),
+            || {
+                Self::new(installation.root().join("bin/python")).spawn_bound(
+                    generation.into(),
+                    installation.artifact_fingerprint().into(),
+                    installation.root(),
+                    completion,
+                    WorkerRole::Research,
+                )
+            },
         )?;
         Ok(super::research_calculations::ResearchProcess::new(
             worker,

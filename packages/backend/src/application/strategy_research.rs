@@ -22,13 +22,16 @@ pub(crate) use run_specification::tests::record as test_run_record;
 mod execution;
 pub use execution::StrategyEvaluation;
 pub(crate) use execution::{
-    GraphObservationInputs, observe_graph, planned_graph_validation, source_revision,
+    GraphObservationInputs, certify_graph, finite_ancillaries, finite_calculations, observe_graph,
+    planned_graph_validation, source_revision,
 };
 mod decision;
 pub use decision::DecisionGraph;
 pub(crate) use decision::canonical_input_window;
+pub(crate) mod native_signal;
 mod resolution;
 pub use resolution::ResolvedCalculations;
+pub(crate) use resolution::native_program_instances;
 fn mapped(e: &'static str) -> &'static str {
     if e.ends_with("UNAVAILABLE") {
         UNAVAILABLE
@@ -288,9 +291,6 @@ impl Composition {
         {
             return Err(INVALID);
         }
-        let bindings = manifest["private_factor_bindings"]
-            .as_array()
-            .ok_or(INVALID)?;
         let implementations = manifest["implementations"].as_array().ok_or(INVALID)?;
         for dependency in dependencies {
             let id = dependency["factor_id"].as_str().ok_or(INVALID)?;
@@ -301,56 +301,25 @@ impl Composition {
             {
                 return Err(MISMATCH);
             }
-            let mut matched = bindings.iter().filter(|b| b["entry"]["factor_id"] == id);
-            let binding = matched.next().ok_or(MISMATCH)?;
-            if matched.next().is_some() {
-                return Err(MISMATCH);
-            }
-            for key in [
-                "provider_snapshot_fingerprint",
-                "runtime_artifact_fingerprint",
-            ] {
-                if !binding[key].as_str().is_some_and(crate::is_sha256_hex) {
-                    return Err(MISMATCH);
-                }
-            }
-            let entry = &binding["entry"];
-            for key in [
-                "factor_id",
-                "revision_fingerprint",
-                "semantic_version",
-                "source_sha256",
-                "factor_api_version",
-                "factor_api_contract_fingerprint",
-            ] {
-                if entry[key] != factor[key] {
-                    return Err(MISMATCH);
-                }
-            }
-            if !entry["research_implementation_fingerprint"]
-                .as_str()
-                .is_some_and(crate::is_sha256_hex)
-                || implementations
-                    .iter()
-                    .filter(|i| {
-                        i["kind"] == "FACTOR"
-                            && i["type_id"] == id
-                            && i["semantic_version"] == factor["semantic_version"]
-                            && i["backend"] == "RESEARCH"
-                            && i["implementation_fingerprint"]
-                                == entry["research_implementation_fingerprint"]
-                    })
-                    .count()
-                    != 1
-            {
-                return Err(MISMATCH);
-            }
         }
         for calculation in rows(&d["calculations"])?
             .iter()
             .chain(rows(&context.record()["targets"])?)
         {
             let reference = &calculation["type_reference"];
+            if reference["kind"] == "FACTOR"
+                && reference["type_id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("private.factor."))
+            {
+                let factor = factors
+                    .get(reference["type_id"].as_str().ok_or(INVALID)?)
+                    .ok_or(MISMATCH)?;
+                if reference["semantic_version"] != factor["semantic_version"] {
+                    return Err(MISMATCH);
+                }
+                continue;
+            }
             let mut matched = implementations.iter().filter(|i| {
                 i["kind"] == reference["kind"]
                     && i["type_id"] == reference["type_id"]
@@ -366,18 +335,6 @@ impl Composition {
                     .is_some_and(crate::is_sha256_hex)
             {
                 return Err(INVALID);
-            }
-            if reference["kind"] == "FACTOR"
-                && reference["type_id"]
-                    .as_str()
-                    .is_some_and(|id| id.starts_with("private.factor."))
-            {
-                let factor = factors
-                    .get(reference["type_id"].as_str().ok_or(INVALID)?)
-                    .ok_or(MISMATCH)?;
-                if reference["semantic_version"] != factor["semantic_version"] {
-                    return Err(MISMATCH);
-                }
             }
         }
         let mut record = json!({"schema_version":1,"private_strategy_id":revision["strategy_id"],"private_strategy_revision_fingerprint":revision["revision_fingerprint"],"private_strategy_definition_fingerprint":revision["definition_fingerprint"],"research_context_fingerprint":context.fingerprint()?,"factor_revision_bindings":dependencies,"catalog_generation_fingerprint":manifest["catalog_generation_fingerprint"],"research_definition_fingerprint":research.fingerprint()?});
@@ -624,14 +581,14 @@ mod tests {
         use crate::application::private_assets::authoring::{
             API_FINGERPRINT, Draft as FactorDraft,
         };
-        let factor=FactorDraft::new(json!({"schema_version":1,"factor_id":"private.factor.simple_momentum","semantic_version":"1","base_revision_fingerprint":null,"source_text":"def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n","factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":{"close":{"type":"DECIMAL"},"previous_close":{"type":"DECIMAL"}},"parameter_contract":{},"output_contract":{"value":{"type":"DECIMAL"}},"description":"Technical metadata fixture","economic_rationale":"Contract only","category":"price","tags":[]})).unwrap().revision().unwrap();
+        let factor=FactorDraft::new(json!({"schema_version":1,"factor_id":"private.factor.simple_momentum","semantic_version":"2","base_revision_fingerprint":null,"source_text":"def calculate(api, inputs, parameters):\n    return {'value': inputs['close']}\n","factor_api_version":1,"factor_api_contract_fingerprint":API_FINGERPRINT,"input_contract":{"close":{"type":"DECIMAL"}},"parameter_contract":{"period":{"type":"INTEGER","default":1}},"output_contract":{"value":{"type":"DECIMAL"}},"description":"Technical metadata fixture","economic_rationale":"Contract only","category":"price","tags":[]})).unwrap().revision().unwrap();
         let mut d = strategy();
         d["factor_revision_dependencies"][0]["revision_fingerprint"] =
             factor["revision_fingerprint"].clone();
-        let revision=crate::application::private_strategy::Draft::new(json!({"schema_version":1,"strategy_id":"private.strategy.composition","semantic_version":"1","base_revision_fingerprint":null,"definition":d,"description":"Contract fixture","tags":[]})).unwrap().revision().unwrap();
+        let revision=crate::application::private_strategy::Draft::new(json!({"schema_version":1,"strategy_id":"private.strategy.composition","semantic_version":"2","base_revision_fingerprint":null,"definition":d,"description":"Contract fixture","tags":[]})).unwrap().revision().unwrap();
         let context = Context::new(context()).unwrap();
         // Only value-level metadata. No READY/executable/equivalence claim is made.
-        let manifest = json!({"catalog_generation_fingerprint":"a".repeat(64),"private_factor_bindings":[{"provider_snapshot_fingerprint":"b".repeat(64),"runtime_artifact_fingerprint":"c".repeat(64),"entry":{"factor_id":factor["factor_id"],"revision_fingerprint":factor["revision_fingerprint"],"semantic_version":factor["semantic_version"],"source_sha256":factor["source_sha256"],"factor_api_version":factor["factor_api_version"],"factor_api_contract_fingerprint":factor["factor_api_contract_fingerprint"],"research_implementation_fingerprint":"d".repeat(64)}}],"implementations":[{"kind":"FACTOR","type_id":factor["factor_id"],"semantic_version":"1","backend":"RESEARCH","implementation_fingerprint":"d".repeat(64)},{"kind":"TARGET","type_id":"onlyalpha.target.forward_return","semantic_version":"1","backend":"RESEARCH","implementation_fingerprint":"e".repeat(64)}]});
+        let manifest = json!({"catalog_generation_fingerprint":"a".repeat(64),"private_factor_bindings":[{"provider_snapshot_fingerprint":"b".repeat(64),"runtime_artifact_fingerprint":"c".repeat(64),"entry":{"factor_id":factor["factor_id"],"revision_fingerprint":factor["revision_fingerprint"],"semantic_version":factor["semantic_version"],"source_sha256":factor["source_sha256"],"factor_api_version":factor["factor_api_version"],"factor_api_contract_fingerprint":factor["factor_api_contract_fingerprint"],"research_implementation_fingerprint":"d".repeat(64)}}],"implementations":[{"kind":"FACTOR","type_id":factor["factor_id"],"semantic_version":"2","backend":"RESEARCH","implementation_fingerprint":"d".repeat(64)},{"kind":"TARGET","type_id":"onlyalpha.target.forward_return","semantic_version":"1","backend":"RESEARCH","implementation_fingerprint":"e".repeat(64)}]});
         let factors =
             std::collections::BTreeMap::from([("private.factor.simple_momentum".into(), factor)]);
         (revision, context, manifest, factors)
@@ -684,27 +641,27 @@ mod tests {
             )
             .is_err()
         );
-        for key in [
-            "revision_fingerprint",
-            "source_sha256",
-            "semantic_version",
-            "factor_api_contract_fingerprint",
-        ] {
-            let mut changed = manifest.clone();
-            changed["private_factor_bindings"][0]["entry"][key] = json!("f".repeat(64));
-            assert!(
-                Composition::derive(&revision, &context, &changed, &factors).is_err(),
-                "{key}"
-            );
-        }
-        let mut changed = manifest.clone();
-        changed["private_factor_bindings"] = json!([]);
-        assert!(Composition::derive(&revision, &context, &changed, &factors).is_err());
-        let mut changed = manifest.clone();
-        changed["implementations"][1]["backend"] = json!("TRADING");
-        assert!(Composition::derive(&revision, &context, &changed, &factors).is_err());
-        let mut changed = manifest;
-        changed["implementations"][0]["semantic_version"] = json!("2");
+        // Composition describes semantic asset lineage. Private executable
+        // readiness belongs to the exact PostgreSQL program reader, not Runtime.
+        let mut without_private = manifest.clone();
+        without_private["private_factor_bindings"] = json!([]);
+        without_private["implementations"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|i| i["kind"] != "FACTOR");
+        assert_eq!(
+            Composition::derive(&revision, &context, &without_private, &factors)
+                .unwrap()
+                .record(),
+            Composition::derive(&revision, &context, &manifest, &factors)
+                .unwrap()
+                .record()
+        );
+        let mut changed = factors.clone();
+        changed.values_mut().next().unwrap()["source_sha256"] = json!("f".repeat(64));
+        assert!(Composition::derive(&revision, &context, &without_private, &changed).is_err());
+        let mut changed = without_private;
+        changed["implementations"][0]["backend"] = json!("TRADING");
         assert!(Composition::derive(&revision, &context, &changed, &factors).is_err());
     }
     #[test]

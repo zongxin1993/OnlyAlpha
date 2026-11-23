@@ -34,6 +34,7 @@ fn output(v: Value) {
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
 }
 pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str) {
+    let mut facts=crate::job_fact_connection::Connection::reader().await.unwrap();
     let request: Value = serde_json::from_slice(
         &std::fs::read(std::env::var("ONLYALPHA_QUALIFICATION_PRODUCT_REQUEST").unwrap()).unwrap(),
     )
@@ -120,6 +121,8 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
     let frozen = Arc::new(FrozenStore::open(fd.as_fd()).unwrap());
     let run = research_submission::load(
         session.client_mut().await.unwrap(),
+        &mut facts.client,
+        &namespace,
         text(&request, "run_id"),
         Some(OWNER),
     )

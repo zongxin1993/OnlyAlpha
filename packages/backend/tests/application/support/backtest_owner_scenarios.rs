@@ -21,14 +21,19 @@ pub async fn run(scenario: &str) -> Result<(), Box<dyn Error>> {
     let frame: Value = serde_json::from_slice(&std::fs::read(std::env::var(
         "ONLYALPHA_BACKTEST_OWNER_REQUEST",
     )?)?)?;
-    if frame.as_object().is_none_or(|m| m.len() != 4) {
+    if frame.as_object().is_none_or(|m| {
+        m.len() != 3
+            || !["configuration", "preparation", "fresh"]
+                .iter()
+                .all(|key| m.contains_key(*key))
+    }) {
         return Err("explicit scenario locators required".into());
     }
     let v = &frame["configuration"];
     if v.as_object().is_none_or(|m| m.len() != 9) || v["schema_version"] != 1 {
         return Err("explicit Host configuration required".into());
     }
-    let dsn = std::env::var("ONLYALPHA_POSTGRES_DSN")?;
+    let dsn = std::env::var("ONLYALPHA_HOST_POSTGRES_DSN")?;
     let pg: tokio_postgres::Config = dsn.parse()?;
     if !pg.get_dbname().is_some_and(|n| n.ends_with("_test")) {
         return Err("canonical test database required".into());
@@ -48,6 +53,7 @@ pub async fn run(scenario: &str) -> Result<(), Box<dyn Error>> {
         postgres_user: pg.get_user().ok_or("postgres user")?.into(),
         postgres_database: pg.get_dbname().ok_or("postgres database")?.into(),
         postgres_dsn: dsn,
+        factor_build_postgres_dsn: std::env::var("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN")?,
         clickhouse: ClickHouseConfig {
             url: std::env::var("ONLYALPHA_TEST_CLICKHOUSE_URL")?,
             database: database.into(),
@@ -64,22 +70,11 @@ pub async fn run(scenario: &str) -> Result<(), Box<dyn Error>> {
 
     let preparation = CommandId::new(field(&frame, "preparation")?)?;
     let fresh = frame["fresh"].as_str().map(CommandId::new).transpose()?;
-    let external = frame["external_files"]
-        .as_array()
-        .ok_or("external owner paths required")?
-        .iter()
-        .map(|v| {
-            v.as_str()
-                .map(PathBuf::from)
-                .ok_or("external owner path required")
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     crate::transport::run_backtest_owner_scenario(
         config,
         &preparation,
         fresh.as_ref(),
         scenario,
-        &external,
     )
     .await;
     println!("BACKTEST_OWNER_SCENARIO_CONFIRMED {scenario}");

@@ -859,6 +859,79 @@ fn recorded_replay(p: &Root) -> (Value, Value, Value) {
     drop(runtime);
     (binding, state, result)
 }
+#[path = "support/observation.rs"]
+mod observation;
+#[test]
+fn readonly_observation_modes_preserve_exact_source_and_close_each_checkpoint_stage() {
+    use onlyalpha_observability::{Config, Mode, Session};
+    use onlyalpha_runtime::VerifiedReplaySnapshot;
+    let p = Root::new();
+    let (binding, state, expected) = recorded_replay(&p);
+    let before = fs::read(p.db()).unwrap();
+    for mode in [Mode::Off, Mode::Basic, Mode::Detail] {
+        let buffer = observation::Buffer::default();
+        let session = Session::new(
+            Config::new(mode, format!("readonly-{mode:?}"), 4096),
+            buffer.clone(),
+        )
+        .unwrap();
+        tracing::dispatcher::with_default(session.dispatch(), || {
+            let source = VerifiedReplaySnapshot::read(&p.0, config(), &artifact()).unwrap();
+            source.verify_cut().unwrap();
+            assert_eq!(source.binding(), &binding);
+            assert_eq!(source.state(), &state);
+            assert_eq!(
+                source
+                    .backtest_result(
+                        &manifest(),
+                        &json!({"schema_version":1,"status":"COMPLETED","reason":null})
+                    )
+                    .unwrap()
+                    .record(),
+                expected
+            );
+        });
+        assert!(session.close().shutdown_complete);
+        let rows = buffer.rows();
+        if mode == Mode::Detail {
+            for operation in [
+                "source.read",
+                "source.schema",
+                "records.read_validate",
+                "checkpoint.rows.sql",
+                "checkpoint.rebuild",
+                "checkpoint.decode",
+                "checkpoint.components.new",
+                "checkpoint.components.restore",
+                "checkpoint.prefix.compare",
+                "checkpoint.source.compare",
+                "source.cut.compare",
+            ] {
+                assert!(
+                    rows.iter().any(|r| r["operation"] == operation
+                        && r["event_kind"] == "operation_end"
+                        && r["outcome"] == "ok"),
+                    "missing stage {operation}"
+                );
+            }
+            assert!(
+                rows.iter()
+                    .filter(|r| r["operation"] == "records.read_validate"
+                        && r["event_kind"] == "operation_end")
+                    .all(|r| r["work_items"] == 4 && r["bytes"].as_u64().unwrap() > 0)
+            );
+            assert!(
+                rows.iter()
+                    .any(|r| r["operation"] == "checkpoint.components.restore"
+                        && r["work_items"] == 4)
+            );
+        } else {
+            assert!(rows.iter().all(|r| r["event_kind"] != "operation_start"));
+        }
+        assert_eq!(fs::read(p.db()).unwrap(), before);
+        assert_eq!(fs::read_dir(&p.0).unwrap().count(), 1);
+    }
+}
 #[test]
 fn readonly_replay_snapshot_reads_existing_ready_owning_source_without_any_write() {
     use onlyalpha_runtime::VerifiedReplaySnapshot;

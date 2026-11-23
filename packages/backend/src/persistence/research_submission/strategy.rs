@@ -150,6 +150,17 @@ fn authority(_: impl std::fmt::Debug) -> Failure {
 fn retained(code: &'static str) -> Failure {
     Failure::Authority(code)
 }
+fn publication_error(error: crate::persistence::job_publication::PublicationError) -> Failure {
+    use crate::persistence::job_publication::PublicationError as E;
+    match error {
+        E::OutcomeUnknown=>retained(UNKNOWN),
+        E::Unavailable|E::OwnershipLost=>retained(UNAVAILABLE),
+        E::MissingEvidence=>retained("RESEARCH_INPUT_BINDING_MISSING"),
+        E::Denied=>retained("RESEARCH_INPUT_BINDING_ACCESS_DENIED"),
+        E::BudgetExceeded=>retained("RESEARCH_INPUT_BINDING_BUDGET_EXCEEDED"),
+        E::Integrity|E::Mismatch|E::Conflict=>retained(CORRUPT),
+    }
+}
 fn command_error(error: crate::application::command::Error) -> Failure {
     if error == crate::application::command::Error::Conflict {
         rejected("RESEARCH_COMMAND_CONFLICT")
@@ -256,6 +267,7 @@ pub async fn prepare_study(
     datasets: &Datasets,
 ) -> Result<StudyPreparationOutcome> {
     let mut owned = session.take_ownership();
+    let roles=owned.control_roles().map_err(|e|e.code())?;
     let result = async {
         let owner = context.owner().map_err(rejected)?.to_owned();
         check_inputs(&request, &command, inputs)?;
@@ -263,7 +275,7 @@ pub async fn prepare_study(
         let client = owned.client_mut().await.map_err(authority)?;
         let tx = client.transaction().await.map_err(authority)?;
         transaction_bounds(&tx).await?;
-        verify_origin(&tx, inputs.record(), &request.specification)
+        verify_origin(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), inputs.record(), &request.specification)
             .await
             .map_err(retained)?;
         AuthoritySession::verify_transaction(&tx)
@@ -271,12 +283,12 @@ pub async fn prepare_study(
             .map_err(authority)?;
         tx.commit().await.map_err(authority)?;
         let projection = novelty
-            .refresh_projection(owned.client_mut().await.map_err(authority)?)
+            .refresh_projection(&mut owned)
             .await
             .map_err(novelty_error)?;
         let group = novelty
             .seal(
-                owned.client_mut().await.map_err(authority)?,
+                &mut owned,
                 &command,
                 &[request.specification.subject().map_err(rejected)?],
                 &request.policy,
@@ -356,7 +368,7 @@ fn admission(study: &PreparedStudy, owner: &str) -> Work<Admission> {
     .map_err(command_error)
 }
 async fn accepted(
-    tx: &Transaction<'_>,
+    tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
     study: &PreparedStudy,
     owner: &str,
     admission: &Admission,
@@ -378,11 +390,64 @@ async fn accepted(
             if run.specification().as_strategy().is_err() {
                 return Err(retained(CORRUPT));
             }
+            tx.verify_research_registration(&run).await.map_err(publication_error)?;
             Ok(Some(run))
         }
         Binding::Admitted(a) if a != *admission => Err(rejected("RESEARCH_COMMAND_CONFLICT")),
         _ => Ok(None),
     }
+}
+/// Freeze the original admitted strategy and retained input owners, not a new
+/// worker claim or a caller-supplied binding description.
+pub(crate) async fn frozen_binding(
+    tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    run: &VerifiedRun, inputs: &PreparedInputs, datasets: &Datasets, context: &Context<'_>,
+) -> std::result::Result<crate::application::job_contract::FrozenJobBinding, crate::persistence::job_publication::PublicationError> {
+    use crate::application::{finite_job, job_contract::{FrozenJobBinding, JobKind}};
+    use crate::persistence::job_publication::{PublicationError as E, owner_error};
+    use onlyalpha_domain::time::OnlyTimestamp;
+    context.source().map_err(|_|E::Denied)?;
+    inputs.verify_runtime().map_err(owner_error)?;
+    if run.owner()!=context.owner().map_err(|_|E::Denied)? || run.source_selection()!=context.selection
+        || run.prepared_inputs!=*inputs.record() { return Err(E::Mismatch); }
+    let prepared=inputs.record();
+    let dataset=crate::application::research_dataset::MaterializedDataset::load(datasets,
+        text(&prepared["dataset_materialization"],"materialization_id").map_err(owner_error)?).map_err(owner_error)?;
+    if dataset.lineage()!=&prepared["dataset_materialization"]
+        || dataset.verified().dataset().snapshot_fingerprint()!=prepared["dataset_snapshot_fingerprint"] { return Err(E::Mismatch); }
+    let metadata=&dataset.verified().manifest()["provenance"][0]["source_metadata"];
+    if metadata["sealed_input"]["scope"]["source_id"]!=context.selection.source_id()
+        || metadata["sealed_input"]["scope"]["bar_construction"]["plan"]["integration_revision_fingerprint"]!=context.selection.reference().revision() { return Err(E::Denied); }
+    let retained=&metadata["sealed_input"];
+    let revision=crate::persistence::market_data::verify_frozen_input_metadata(tx,&retained["evidence"],&retained["segments"],32*1024*1024).await.map_err(|error|match error {
+        crate::persistence::market_data::Error::NotFound|crate::persistence::market_data::Error::MissingEvidence=>E::MissingEvidence,
+        crate::persistence::market_data::Error::Unavailable|crate::persistence::market_data::Error::Busy=>E::Unavailable,
+        crate::persistence::market_data::Error::Unknown=>E::OutcomeUnknown,
+        crate::persistence::market_data::Error::BudgetExceeded=>E::BudgetExceeded,
+        _=>E::Mismatch,
+    })?;
+    let original=revision.revision();
+    let scope=&original["scope"];
+    if retained["scope"]!=*scope { return Err(E::Mismatch); }
+    let values=dataset.verified().dataset();
+    let axis=values.rows().iter().map(|r|json!([r["instrument_id"],r["bar_start_ns"],r["bar_end_ns"],r["ts_event_ns"],r["revision"]])).collect::<Vec<_>>();
+    let spec=run.strategy_specification().map_err(owner_error)?;
+    let warmup=spec.record()["input_window"]["warmup_bars"].as_u64().ok_or(E::Mismatch)?;
+    let sample=axis.get(usize::try_from(warmup).map_err(|_|E::Mismatch)?..).ok_or(E::Mismatch)?;
+    let plan=finite_job::plan_members(JobKind::Research,&json!(axis),&json!(sample),spec.statistics_intents().map_err(owner_error)?.len())?;
+    let timestamp=|v:&Value| -> std::result::Result<i64,E> {
+        let utc:OnlyUtcDateTime=v.as_str().ok_or(E::Mismatch)?.parse().map_err(|_|E::Mismatch)?;
+        OnlyTimestamp::from_datetime(utc).unix_nanos().try_into().map_err(|_|E::Mismatch)
+    };
+    let factors=finite_job::calculation_factor_inputs(prepared).map_err(owner_error)?.0;
+    let mut raw=json!({"schema_version":1,"kind":"RESEARCH","scope":{"namespace":namespace.value(),"owner":run.owner(),"run_id":run.run_id()},"factor_bindings":factors,
+        "market":{"dataset_snapshot":values.snapshot_fingerprint(),"source_revision":original["fingerprint"],"bar_semantic":hash(&values.definition()["bar_semantic"]).map_err(owner_error)?,"instruments":values.definition()["instruments"],"start_ns":timestamp(&values.definition()["time_range"]["start"])? ,"end_ns":timestamp(&values.definition()["time_range"]["end"])? ,"versions":[hash(&scope["data_version"]).map_err(owner_error)?],"seals":[revision.seal()["seal_id"].as_str().and_then(|s|s.strip_prefix("seal:")).ok_or(E::Mismatch)?],"segments":original["segment_refs"].as_array().ok_or(E::Mismatch)?.iter().map(hash).collect::<Result<Vec<_>>>().map_err(owner_error)?,"rows":axis.len(),"warmup_rows":warmup,"sample_rows":sample.len(),"axis":hash(&json!(axis)).map_err(owner_error)?,"content":values.content_fingerprint()},"result_plan":plan.record()});
+    let execution=finite_job::research_execution_values(spec,values.definition(),&metadata["construction_recipe"]).map_err(owner_error)?;
+    for (key,value) in execution.as_object().ok_or(E::Mismatch)? { if key!="source" { raw[key]=value.clone(); } }
+    inputs.verify_runtime().map_err(owner_error)?;
+    context.source().map_err(|_|E::Denied)?;
+    FrozenJobBinding::from_record(&raw).map_err(|_|E::Mismatch)
 }
 /// Same-database Run + original Novelty action + Human authorization + Receipt.
 /// Original accepted Commands are resolved before any current Source or Runtime preflight.
@@ -460,17 +525,18 @@ async fn submit_inner(
         preparation,
     } = selection;
     let mut owned = session.take_ownership();
+    let roles=owned.control_roles().map_err(|e|e.code())?;
     let result=async {
         let owner=context.owner().map_err(rejected)?;
         if study.owner!=owner||study.fingerprint().map_err(rejected)?!=expected {return Err(rejected("RESEARCH_PROPOSAL_STALE"));}
         if let Some(operation)=preparation
-            && (!operation.request.is_strategy() || operation.owner!=owner || operation.request.research_command()!=study.command.value()) {return Err(rejected("RESEARCH_PREPARATION_COMMAND_CONFLICT"));}
+            && (!operation.request.is_strategy() || operation.owner!=owner || operation.request.research_command()!=study.command.value() || operation.source().and_then(|v|v.selection()).map_err(rejected)? != *context.selection) {return Err(rejected("RESEARCH_PREPARATION_COMMAND_CONFLICT"));}
         let admission=admission(study,owner)?;
         {
             let tx=owned.client_mut().await.map_err(authority)?.transaction().await.map_err(authority)?;
             transaction_bounds(&tx).await?;
             Commands::lock_command(&tx,&study.command).await.map_err(command_error)?;
-            let original=accepted(&tx,study,owner,&admission).await?;
+            let original=accepted(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),study,owner,&admission).await?;
             AuthoritySession::verify_transaction(&tx).await.map_err(authority)?;
             tx.commit().await.map_err(authority)?;
             if let Some(run)=original {return Ok(run);}
@@ -478,13 +544,13 @@ async fn submit_inner(
         check_inputs(&study.request,&study.command,inputs)?;
         if inputs.record()["composition"]["composition_fingerprint"]!=study.composition {return Err(rejected(INVALID));}
         check_source(context,inputs,datasets)?;
-        let projection=novelty.refresh_projection(owned.client_mut().await.map_err(authority)?).await.map_err(novelty_error)?;
-        let action=novelty.authorize_action(owned.client_mut().await.map_err(authority)?,&study.command,&[study.request.specification.subject().map_err(rejected)?],&projection).await.map_err(novelty_error)?;
+        let projection=novelty.refresh_projection(&mut owned).await.map_err(novelty_error)?;
+        let action=novelty.authorize_action(&mut owned,&study.command,&[study.request.specification.subject().map_err(rejected)?],&projection).await.map_err(novelty_error)?;
         if !action.policy_matches(&study.request.policy,&study.request.version)||action.group_fingerprint()!=study.group {return Err(rejected("RESEARCH_PROPOSAL_STALE"));}
         let tx=owned.client_mut().await.map_err(authority)?.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await.map_err(authority)?;
         transaction_bounds(&tx).await?;
         Commands::lock_command(&tx,&study.command).await.map_err(command_error)?;
-        if let Some(run)=accepted(&tx,study,owner,&admission).await? {
+        if let Some(run)=accepted(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),study,owner,&admission).await? {
             AuthoritySession::verify_transaction(&tx).await.map_err(authority)?;
             tx.commit().await.map_err(authority)?;
             return Ok(run);
@@ -492,8 +558,8 @@ async fn submit_inner(
         if let Some(operation)=preparation {
             crate::persistence::research_preparation::guard_submission(&tx,operation,expected).await.map_err(|code|match code {"RESEARCH_PREPARATION_STALE"|"RESEARCH_PREPARATION_STUDY_STALE"|"RESEARCH_PREPARATION_STRATEGY_MISMATCH"|"FACTOR_PROPOSAL_STALE"|"RESEARCH_PREPARATION_CANCEL_REQUESTED"=>rejected(code),_=>retained(code)})?;
         }
-        action.recheck_in_transaction(&tx).await.map_err(novelty_error)?;
-        let revision=verify_origin(&tx,inputs.record(),&study.request.specification).await.map_err(retained)?;
+        action.recheck_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles)).await.map_err(novelty_error)?;
+        let revision=verify_origin(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),inputs.record(),&study.request.specification).await.map_err(retained)?;
         let strategy_id=text(&revision,"strategy_id").map_err(retained)?;
         let id=run_id(&study.command);
         let prior=trial_prefix(&tx,owner,strategy_id,None).await.map_err(retained)?;
@@ -501,7 +567,7 @@ async fn submit_inner(
         for (prior_id,index) in prior {
             index.ok_or_else(||retained("RESEARCH_AUTHORIZATION_UNAVAILABLE"))?;
             let previous=run_row(&tx,&prior_id).await.map_err(retained)?;
-            let grant=verify_authorization_record(&tx,&previous).await.map_err(retained)?;
+            let grant=verify_authorization_record(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),&previous).await.map_err(retained)?;
             if grant["actor_id"]!=owner||grant["strategy_id"]!=strategy_id {return Err(retained(CORRUPT));}
             prior_ids.push(prior_id);
         }
@@ -510,7 +576,7 @@ async fn submit_inner(
         let native=study.request.specification.fingerprint().map_err(rejected)?;
         let science=study.request.specification.scientific_specification_fingerprint().map_err(rejected)?;
         let names=name_snapshot(&revision);
-        let authorization=json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_RESEARCH_AUTHORIZATION_V1","actor_id":owner,
+        let authorization=json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_RESEARCH_AUTHORIZATION_V1","actor_id":owner,"source_selection":context.selection.record(),
             "command_id":study.command.value(),"command_fingerprint":admission.fingerprint(),"run_id":id,
             "strategy_id":strategy_id,"strategy_revision_fingerprint":revision["revision_fingerprint"],"composition_fingerprint":study.composition,
             "specification_fingerprint":native,"scientific_specification_fingerprint":science,"novelty_admission_fingerprint":parent["admission_fingerprint"],
@@ -528,7 +594,12 @@ async fn submit_inner(
         let receipt=Receipt::new(admission,Outcome::new(OutcomeKind::ResearchRun,&id).map_err(command_error)?,&at.to_string()).map_err(command_error)?;
         Commands::put_verified_receipt_in_transaction(&tx,&receipt).await.map_err(command_error)?;
         tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE").await.map_err(authority)?;
-        let verified=load_in_transaction(&tx,&id,Some(owner)).await.map_err(retained)?;
+        let verified=load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),&id,Some(owner)).await.map_err(retained)?;
+        let namespace=crate::bootstrap::deployment::read_binding(&tx).await.map_err(|_|retained(UNAVAILABLE))?;
+        let registration=crate::persistence::job_publication::FrozenBindingRegistration::from_research(
+            &crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),&namespace,&verified,inputs,datasets,context,
+        ).await.map_err(publication_error)?;
+        crate::persistence::job_publication::register_control_transaction(&tx,&roles,&namespace,owner,&registration).await.map_err(publication_error)?;
         action.verify_cut().map_err(retained)?;
         context.owner().map_err(rejected)?;
         context.source().map_err(rejected)?;
@@ -543,6 +614,8 @@ async fn submit_inner(
 /// mutable head, executable availability, or replacement PreparedInputs.
 pub(crate) async fn submission_outcome_readonly(
     client: &mut tokio_postgres::Client,
+    facts: &mut tokio_postgres::Client,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
     context: &Context<'_>,
     study: &PreparedStudy,
 ) -> Result<SubmissionOutcome> {
@@ -560,7 +633,9 @@ pub(crate) async fn submission_outcome_readonly(
             .await
             .map_err(authority)?;
         transaction_bounds(&tx).await?;
-        let outcome = if let Some(run) = accepted(&tx, study, owner, &admission).await? {
+        let facts_tx=facts.build_transaction().read_only(true).start().await.map_err(authority)?;
+        let read_context=crate::persistence::build_fact_read::BuildFactRead::reader(&tx,&facts_tx,namespace).await.map_err(authority)?;
+        let outcome = if let Some(run) = accepted(&read_context, study, owner, &admission).await? {
             SubmissionOutcome::Accepted(Box::new(run))
         } else {
             match Commands::verify_binding_in_transaction(&tx, &study.command)
@@ -586,6 +661,7 @@ pub(crate) async fn submission_outcome_readonly(
             }
         };
         context.owner().map_err(rejected)?;
+        facts_tx.commit().await.map_err(authority)?;
         tx.commit().await.map_err(authority)?;
         Ok(outcome)
     }
@@ -600,6 +676,7 @@ pub async fn submission_outcome(
     study: &PreparedStudy,
 ) -> Result<SubmissionOutcome> {
     let mut owned = session.take_ownership();
+    let roles=owned.control_roles().map_err(|e|e.code())?;
     let result = async {
         let owner = context.owner().map_err(rejected)?;
         if study.owner != owner {
@@ -617,7 +694,7 @@ pub async fn submission_outcome(
         Commands::lock_command(&tx, &study.command)
             .await
             .map_err(command_error)?;
-        let outcome = if let Some(run) = accepted(&tx, study, owner, &admission).await? {
+        let outcome = if let Some(run) = accepted(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), study, owner, &admission).await? {
             SubmissionOutcome::Accepted(Box::new(run))
         } else {
             match Commands::verify_binding_in_transaction(&tx, &study.command)
@@ -659,6 +736,7 @@ pub async fn cancel(
     at: OnlyUtcDateTime,
 ) -> Result<VerifiedRun> {
     let mut owned = session.take_ownership();
+    let roles=owned.control_roles().map_err(|e|e.code())?;
     let result=async {
         human.0.check_session(human.1).map_err(|_|rejected("RESEARCH_HUMAN_AUTHORIZATION_REQUIRED"))?;
         let owner=human.1.subject_id().map_err(|_|rejected("RESEARCH_HUMAN_AUTHORIZATION_REQUIRED"))?;
@@ -667,7 +745,7 @@ pub async fn cancel(
         let tx=owned.client_mut().await.map_err(authority)?.transaction().await.map_err(authority)?;
         transaction_bounds(&tx).await?;
         Commands::lock_command(&tx,&command).await.map_err(command_error)?;
-        let run=load_in_transaction(&tx,id,Some(owner)).await.map_err(retained)?;
+        let run=load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),id,Some(owner)).await.map_err(retained)?;
         run.specification().as_strategy().map_err(rejected)?;
         match Commands::verify_binding_in_transaction(&tx,&command).await.map_err(command_error)? {
             Binding::Accepted(r)=>if r.admission()!=&admission||r.outcome().kind()!=OutcomeKind::ResearchRun||r.outcome().id()!=id {return Err(rejected("RESEARCH_COMMAND_CONFLICT"));},
@@ -680,7 +758,7 @@ pub async fn cancel(
             }
         }
         tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE").await.map_err(authority)?;
-        let run=load_in_transaction(&tx,id,Some(owner)).await.map_err(retained)?;
+        let run=load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),id,Some(owner)).await.map_err(retained)?;
         human.0.check_session(human.1).map_err(|_|rejected("RESEARCH_HUMAN_AUTHORIZATION_REQUIRED"))?;
         AuthoritySession::verify_transaction(&tx).await.map_err(authority)?;
         tx.commit().await.map_err(|_|retained(UNKNOWN))?;
@@ -723,26 +801,27 @@ async fn trial_prefix(
 }
 /// Re-derive source/graph/scientific value closure from original immutable DB
 /// revisions. Reading historical authorization never needs current Runtime files.
-async fn verify_origin(tx: &Transaction<'_>, p: &Value, spec: &RunSpecification) -> Result<Value> {
-    fields(
-        p,
-        &[
-            "schema_version",
-            "contract",
-            "composition",
-            "runtime_generation_fingerprint",
-            "runtime_work_binding",
-            "execution_binding",
-            "input_window",
-            "dataset_snapshot_fingerprint",
-            "dataset_materialization",
-            "dataset_construction_fingerprint",
-            "run_specification_fingerprint",
-            "algorithm_resolution_request",
-            "algorithm_resolution",
-            "native_implementations",
-        ],
-    )?;
+async fn verify_origin(tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>, p: &Value, spec: &RunSpecification) -> Result<Value> {
+    let mut expected_fields = vec![
+        "schema_version",
+        "contract",
+        "composition",
+        "runtime_generation_fingerprint",
+        "runtime_work_binding",
+        "execution_binding",
+        "input_window",
+        "dataset_snapshot_fingerprint",
+        "dataset_materialization",
+        "dataset_construction_fingerprint",
+        "run_specification_fingerprint",
+        "algorithm_resolution_request",
+        "algorithm_resolution",
+        "native_implementations",
+    ];
+    if p.get("build_certification").is_some() {
+        expected_fields.push("build_certification");
+    }
+    fields(p, &expected_fields)?;
     let s = spec.record();
     let composition = &p["composition"];
     let pin = text(composition, "composition_fingerprint")?;
@@ -802,18 +881,7 @@ async fn verify_origin(tx: &Transaction<'_>, p: &Value, spec: &RunSpecification)
         }
     }
     let request = &p["algorithm_resolution_request"];
-    fields(
-        request,
-        &[
-            "schema_version",
-            "contract",
-            "sources",
-            "instances",
-            "core_artifact",
-            "operator_artifact",
-            "target_artifact",
-        ],
-    )?;
+    let observed = &p["algorithm_resolution"];
     let mut instances = source["calculations"].as_array().ok_or(CORRUPT)?.clone();
     instances.extend(
         context.record()["targets"]
@@ -822,45 +890,139 @@ async fn verify_origin(tx: &Transaction<'_>, p: &Value, spec: &RunSpecification)
             .iter()
             .cloned(),
     );
-    let mut sources = Vec::new();
-    for factor in factors.values() {
-        let mut projection = serde_json::Map::new();
-        for key in [
-            "factor_id",
-            "semantic_version",
-            "revision_fingerprint",
-            "source_text",
-            "source_sha256",
-            "factor_api_version",
-            "factor_api_contract_fingerprint",
-            "input_contract",
-            "parameter_contract",
-            "output_contract",
-        ] {
-            projection.insert(key.into(), factor[key].clone());
-        }
-        sources.push(Value::Object(projection));
-    }
-    let observed = &p["algorithm_resolution"];
-    if request["schema_version"] != 1
-        || request["contract"] != "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1"
-        || request["sources"] != json!(sources)
-        || request["instances"] != json!(instances)
-        || observed["contract"] != request["contract"]
-        || observed["schema_version"] != 1
-        || observed["algorithm_artifact"] != s["algorithm_artifact_fingerprint"]
-        || observed["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
-    {
-        return Err(CORRUPT);
-    }
-    for name in ["core", "operator", "target"] {
-        if request[format!("{name}_artifact")]["sha256"]
-            != observed[format!("{name}_artifact_sha256")]
-            || !observed[format!("{name}_resources_fingerprint")]
-                .as_str()
-                .is_some_and(crate::is_sha256_hex)
+    let composite = observed["contract"] == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1";
+    if composite {
+        tx.verify_retained(p, &revision, &factors)
+            .await
+            .map_err(|e| match e {
+                crate::application::factor_build::BuildError::Storage(
+                    crate::persistence::job_publication::PublicationError::MissingEvidence,
+                ) => "JOB_INPUT_MISSING_EVIDENCE",
+                crate::application::factor_build::BuildError::Storage(
+                    crate::persistence::job_publication::PublicationError::Unavailable,
+                ) => UNAVAILABLE,
+                _ => CORRUPT,
+            })?;
+        if request["instances"] != json!(instances)
+            || observed["algorithm_artifact"] != s["algorithm_artifact_fingerprint"]
         {
             return Err(CORRUPT);
+        }
+        let target_request = &request["target_resolution_request"];
+        let target = &observed["target_resolution"];
+        fields(
+            target_request,
+            &[
+                "schema_version",
+                "contract",
+                "sources",
+                "instances",
+                "core_artifact",
+                "operator_artifact",
+                "target_artifact",
+            ],
+        )?;
+        fields(
+            target,
+            &[
+                "schema_version",
+                "contract",
+                "nodes",
+                "source_artifacts",
+                "core_artifact_sha256",
+                "core_resources_fingerprint",
+                "algorithm_artifact",
+                "operator_artifact_sha256",
+                "operator_resources_fingerprint",
+                "target_artifact_sha256",
+                "target_resources_fingerprint",
+                "isolation",
+            ],
+        )?;
+        if target_request["schema_version"] != 1
+            || target_request["contract"] != "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1"
+            || target_request["sources"] != json!([])
+            || target_request["instances"] != context.record()["targets"]
+            || target["schema_version"] != 1
+            || target["contract"] != target_request["contract"]
+            || target["algorithm_artifact"] != observed["algorithm_artifact"]
+            || target["source_artifacts"] != json!([])
+            || target["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
+        {
+            return Err(CORRUPT);
+        }
+        for name in ["core", "operator", "target"] {
+            if target_request[format!("{name}_artifact")]["sha256"]
+                != target[format!("{name}_artifact_sha256")]
+                || !target[format!("{name}_resources_fingerprint")]
+                    .as_str()
+                    .is_some_and(crate::is_sha256_hex)
+            {
+                return Err(CORRUPT);
+            }
+        }
+        let target_nodes = observed["nodes"]
+            .as_array()
+            .ok_or(CORRUPT)?
+            .iter()
+            .filter(|n| n["definition"]["kind"] == "TARGET")
+            .cloned()
+            .collect::<Vec<_>>();
+        if json!(target_nodes) != target["nodes"] {
+            return Err(CORRUPT);
+        }
+    } else {
+        fields(
+            request,
+            &[
+                "schema_version",
+                "contract",
+                "sources",
+                "instances",
+                "core_artifact",
+                "operator_artifact",
+                "target_artifact",
+            ],
+        )?;
+        let mut sources = Vec::new();
+        for factor in factors.values() {
+            let mut projection = serde_json::Map::new();
+            for key in [
+                "factor_id",
+                "semantic_version",
+                "revision_fingerprint",
+                "source_text",
+                "source_sha256",
+                "factor_api_version",
+                "factor_api_contract_fingerprint",
+                "input_contract",
+                "parameter_contract",
+                "output_contract",
+            ] {
+                projection.insert(key.into(), factor[key].clone());
+            }
+            sources.push(Value::Object(projection));
+        }
+        if request["schema_version"] != 1
+            || request["contract"] != "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1"
+            || request["sources"] != json!(sources)
+            || request["instances"] != json!(instances)
+            || observed["contract"] != request["contract"]
+            || observed["schema_version"] != 1
+            || observed["algorithm_artifact"] != s["algorithm_artifact_fingerprint"]
+            || observed["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
+        {
+            return Err(CORRUPT);
+        }
+        for name in ["core", "operator", "target"] {
+            if request[format!("{name}_artifact")]["sha256"]
+                != observed[format!("{name}_artifact_sha256")]
+                || !observed[format!("{name}_resources_fingerprint")]
+                    .as_str()
+                    .is_some_and(crate::is_sha256_hex)
+            {
+                return Err(CORRUPT);
+            }
         }
     }
     let nodes = observed["nodes"].as_array().ok_or(CORRUPT)?;
@@ -992,9 +1154,19 @@ async fn verify_origin(tx: &Transaction<'_>, p: &Value, spec: &RunSpecification)
     if json!(used.into_values().collect::<Vec<_>>()) != p["native_implementations"] {
         return Err(CORRUPT);
     }
+    if composite {
+        let dataset = json!({"instruments":source["universe"]["instruments"],"bar_semantic":source["market_input"]["bar_semantic"]});
+        let expected = crate::application::calculation_build::context(
+            p,
+            s,
+            &dataset,
+            &source["market_input"]["construction_requirement"]["recipe"],
+        )?;
+        crate::application::calculation_build::verify(&p["build_certification"], &expected)?;
+    }
     Ok(revision)
 }
-async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Result<Value> {
+async fn verify_authorization_record(tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>, row: &Value) -> Result<Value> {
     let id = text(row, "run_id")?;
     let a=tx.query_opt("SELECT command_id::text,fingerprint,payload FROM research_strategy_study_authorization WHERE run_id=$1::text::uuid",&[&id]).await.map_err(super::db)?.ok_or("RESEARCH_AUTHORIZATION_UNAVAILABLE")?;
     let raw: String = a.try_get(2).map_err(super::db)?;
@@ -1011,6 +1183,7 @@ async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Resul
             "schema_version",
             "contract",
             "actor_id",
+            "source_selection",
             "command_id",
             "command_fingerprint",
             "run_id",
@@ -1033,6 +1206,7 @@ async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Resul
             "prepared_inputs",
         ],
     )?;
+    crate::application::source_access::Selection::from_record(&v["source_selection"]).map_err(|_| CORRUPT)?;
     let request = Request::from_record(&v["request"])?;
     let command =
         CommandId::new(&a.try_get::<_, String>(0).map_err(super::db)?).map_err(|_| CORRUPT)?;
@@ -1117,7 +1291,7 @@ async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Resul
     .await?;
     Ok(v)
 }
-pub(super) async fn verify_authorization(tx: &Transaction<'_>, row: &Value) -> Result<Value> {
+pub(super) async fn verify_authorization(tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>, row: &Value) -> Result<Value> {
     let v = verify_authorization_record(tx, row).await?;
     let id = text(row, "run_id")?;
     let first:Option<i64>=tx.query_one("SELECT min(event_index) FROM research_source_history WHERE source_family='RESEARCH_RUN' AND source_row->>'run_id'=$1",&[&id]).await.map_err(super::db)?.try_get(0).map_err(super::db)?;

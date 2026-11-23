@@ -496,6 +496,7 @@ def inside() -> int:
         ONLYALPHA_NATIVE_POSTGRES_PEER=attestation["postgres_peer"],
         ONLYALPHA_NATIVE_POSTGRES_USER=pg_user,
         ONLYALPHA_NATIVE_POSTGRES_DATABASE=pg_database,
+        ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN=os.environ["ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN"],
         ONLYALPHA_NATIVE_SCHEMA=str(artifact / "schema"),
         ONLYALPHA_NATIVE_WEB_ASSETS=str(artifact / "web"),
         ONLYALPHA_NATIVE_ALGORITHMS=str(artifact / "algorithms"),

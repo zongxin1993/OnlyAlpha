@@ -28,6 +28,12 @@ pub(crate) async fn run_command_boundary() {
         std::env::var("ONLYALPHA_FREEZE_TEST_ROOT").expect("isolated use_test root required"),
     );
     let phase = std::env::var("ONLYALPHA_FREEZE_TEST_PHASE").unwrap();
+    if phase == "research-owner:complete" {
+        let request:serde_json::Value=serde_json::from_slice(&std::fs::read(std::env::var("ONLYALPHA_RESEARCH_OWNER_REQUEST").unwrap()).unwrap()).unwrap();
+        let value=crate::workers::research_service::owner_tests::run(&request).await.unwrap();
+        println!("RESEARCH_WORKER_VALUE {value}");
+        return;
+    }
     if let Some(scenario) = phase.strip_prefix("backtest-owner:") {
         backtest_owner_scenarios::run(scenario).await.unwrap();
         return;
@@ -50,10 +56,6 @@ pub(crate) async fn run_command_boundary() {
     println!("FREEZE_TEST_BACKEND_PID {backend_pid}");
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
     let mut session = AuthoritySession::acquire(client, driver).await.unwrap();
-    if let Some(phase) = phase.strip_prefix("evidence-initialize:") {
-        runtime_registry_init::run_evidence(&mut session, &root, phase).await;
-        return;
-    }
     if let Some(phase) = phase.strip_prefix("runtime-initialize:") {
         runtime_registry_init::run(&mut session, &root, phase).await;
         return;

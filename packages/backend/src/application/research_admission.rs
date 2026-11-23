@@ -13,7 +13,7 @@ use crate::{
 use onlyalpha_calculation_bridge::{Cancellation, ChartInstallation, WorkerError};
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
-pub use strategy::restore_strategy;
+pub use strategy::{restore_finite, restore_strategy};
 pub(crate) use strategy::{
     observed_node as observed_strategy_node, select as select_strategy_implementations,
 };
@@ -81,12 +81,16 @@ pub struct PreparedInputs {
     runtime: Arc<RuntimeInputHold>,
     record: Value,
     authoring_generation: Option<PreparedAuthoringGeneration>,
+    programs: Vec<crate::application::factor_build::ReadyFactorBinding>,
 }
 struct PreparedAuthoringGeneration {
     provider: Value,
     fingerprint: String,
 }
 impl PreparedInputs {
+    pub(crate) fn programs(&self) -> &[crate::application::factor_build::ReadyFactorBinding] {
+        &self.programs
+    }
     pub(crate) fn runtime_hold(&self) -> Arc<RuntimeInputHold> {
         self.runtime.clone()
     }
@@ -333,6 +337,7 @@ pub fn prepare(
     Ok(PreparedInputs {
         runtime,
         record,
+        programs: Vec::new(),
         authoring_generation: Some(PreparedAuthoringGeneration {
             provider,
             fingerprint,

@@ -621,9 +621,14 @@ impl FreezeRequest {
     }
     fn matches(&self, plan: &FrozenPlan<'_>) -> bool {
         match &self.origin {
-            FreezeOrigin::Research { run, candidate } => plan
-                .research_evidence()
-                .is_some_and(|e| run == e.run_id() && candidate == e.candidate_fingerprint()),
+            FreezeOrigin::Research { run, candidate } => {
+                if let Some(e) = plan.research_evidence() {
+                    return run == e.run_id() && candidate == e.candidate_fingerprint();
+                }
+                plan.published_evidence().is_some_and(|e| {
+                    run == e.run().run_id() && candidate == e.candidate_fingerprint()
+                })
+            }
             FreezeOrigin::Manual {
                 preparation,
                 validation,
@@ -716,6 +721,20 @@ impl<'a> Freezes<'a> {
         self.execute_plan(request, &plan, audit_at, max_rows, max_work)
             .await
     }
+    /// 正式 Freeze 直接消费完整 PG 发布：证据身份来自 `ResearchPublication` 的同一快照读取，
+    /// 不打开文件证据割线，也不在任何失败下回退文件协议。
+    pub(crate) async fn execute_published(
+        &mut self,
+        request: &FreezeRequest,
+        evidence: &crate::persistence::research_evidence::ResearchPublication,
+        audit_at: &str,
+        max_rows: usize,
+        max_work: usize,
+    ) -> FreezeResult<Value> {
+        let plan = FrozenPlan::from_published(evidence).map_err(|e| e.code())?;
+        self.execute_plan(request, &plan, audit_at, max_rows, max_work)
+            .await
+    }
     pub(crate) async fn execute_manual(
         &mut self,
         evidence: &crate::persistence::strategy_validation::VerifiedValidation,
@@ -790,6 +809,7 @@ impl<'a> Freezes<'a> {
         max_rows: usize,
         max_work: usize,
     ) -> FreezeResult<Value> {
+        let roles=owned.control_roles().map_err(|e|e.code())?;
         let prepared = {
             let client = owned.client_mut().await.map_err(freeze_db)?;
             let tx = client
@@ -812,7 +832,7 @@ impl<'a> Freezes<'a> {
                     value
                 }
                 None => {
-                    verify_freeze_plan(&tx, self.namespace, plan).await?;
+                    verify_freeze_plan(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace, plan).await?;
                     require_new_manual_parent(&tx, plan).await?;
                     let admission = request.admission(actor)?;
                     GlobalCommands::admit_exact_in_transaction(&tx, &admission)
@@ -845,7 +865,7 @@ impl<'a> Freezes<'a> {
             {
                 return Err(FREEZE_CORRUPT);
             }
-            verify_freeze_plan(&tx, self.namespace, plan).await?;
+            verify_freeze_plan(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace, plan).await?;
             if new_admission {
                 require_new_manual_parent(&tx, plan).await?;
             }
@@ -926,7 +946,7 @@ impl<'a> Freezes<'a> {
         if current != prepared {
             return Err(FREEZE_CORRUPT);
         }
-        verify_freeze_plan(&tx, self.namespace, plan).await?;
+        verify_freeze_plan(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace, plan).await?;
         let mut budget = Budget {
             rows: max_rows,
             bytes: max_work,
@@ -1021,9 +1041,9 @@ impl<'a> Freezes<'a> {
         {
             return Err(FREEZE_CORRUPT);
         }
-        verify_freeze_plan(&tx, self.namespace, plan).await?;
+        verify_freeze_plan(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace, plan).await?;
         if let Some(cut) = &manual_cut {
-            cut.verify_in_transaction(&tx, self.namespace).await?;
+            cut.verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace).await?;
         }
         // Re-read the original physical Frozen records after deferred effects.
         // This exact comparison is against the already selected Source record,
@@ -1105,15 +1125,33 @@ async fn freeze_transaction(tx: &Transaction<'_>, namespace: &SemanticStoreId) -
         .map_err(|e| e.code())
 }
 async fn verify_freeze_plan(
-    tx: &Transaction<'_>,
+    tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
     namespace: &SemanticStoreId,
     plan: &FrozenPlan<'_>,
 ) -> FreezeResult<()> {
     if let Some(e) = plan.manual_evidence() {
-        return e.verify_in_transaction(tx, namespace).await;
+        return e.verify_in_transaction(tx,namespace).await;
     }
-    let e = plan.research_evidence().ok_or(FREEZE_CORRUPT)?;
-    let row=tx.query_opt("SELECT state,origin_kind,strategy_research_composition_fingerprint,specification_fingerprint,research_result_fingerprint,calculation_execution_evidence_fingerprints FROM public.research_run WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid FOR SHARE",&[&e.run_id()]).await.map_err(freeze_db)?.ok_or(FREEZE_CORRUPT)?;
+    // 文件研究证据与完整 PG 发布共用同一 Run 列校验口径：身份各自来自自己的证据，
+    // 比较的列、条件与失败码只有一个定义。
+    let (run_id, expected_spec, expected_result, expected_producers) =
+        if let Some(e) = plan.research_evidence() {
+            (
+                e.run_id().to_owned(),
+                e.specification_fingerprint().to_owned(),
+                e.research_result_fingerprint().to_owned(),
+                e.research_execution_evidence_fingerprints().to_vec(),
+            )
+        } else {
+            let e = plan.published_evidence().ok_or(FREEZE_CORRUPT)?;
+            (
+                e.run().run_id().to_owned(),
+                e.run().specification_fingerprint().to_owned(),
+                e.research_result_fingerprint().map_err(|_| FREEZE_CORRUPT)?,
+                e.execution_evidence_fingerprints().map_err(|_| FREEZE_CORRUPT)?,
+            )
+        };
+    let row=tx.query_opt("SELECT state,origin_kind,strategy_research_composition_fingerprint,specification_fingerprint,research_result_fingerprint,calculation_execution_evidence_fingerprints FROM public.research_run WHERE run_id=$1::pg_catalog.text::pg_catalog.uuid FOR SHARE",&[&run_id]).await.map_err(freeze_db)?.ok_or(FREEZE_CORRUPT)?;
     let origin: String = row.try_get("origin_kind").map_err(|_| FREEZE_CORRUPT)?;
     let state: String = row.try_get("state").map_err(|_| FREEZE_CORRUPT)?;
     let composition: Option<String> = row
@@ -1131,9 +1169,9 @@ async fn verify_freeze_plan(
     if origin != "PRIVATE_STRATEGY"
         || state != "COMPLETED"
         || !composition.as_deref().is_some_and(crate::is_sha256_hex)
-        || spec != e.specification_fingerprint()
-        || result.as_deref() != Some(e.research_result_fingerprint())
-        || producers.as_deref() != Some(e.research_execution_evidence_fingerprints())
+        || spec != expected_spec
+        || result.as_deref() != Some(expected_result.as_str())
+        || producers.as_deref() != Some(expected_producers.as_slice())
     {
         return Err(FREEZE_CORRUPT);
     }
@@ -1180,7 +1218,7 @@ pub(crate) async fn freeze_outcome(
         .await
         .map_err(freeze_db)?;
     freeze_transaction(&tx, namespace).await?;
-    let original = freeze_bound_read(&tx, command, actor, namespace, false).await?;
+    let original = freeze_bound_read(&tx, command, Some(actor), namespace, false).await?;
     let value = if let Some(original) = original {
         let request = original.request.view();
         let result=original.completion.as_ref().map(|completed|json!({"schema_version":1,"command_id":command.value(),"strategy_fingerprint":completed.strategy,"freeze_relation_fingerprint":completed.relation,"accepted_at":completed.completed.to_string(),"replayed":true}));
@@ -1197,12 +1235,12 @@ async fn freeze_bound(
     actor: &str,
     namespace: &SemanticStoreId,
 ) -> FreezeResult<Option<PreparedFreeze>> {
-    freeze_bound_read(tx, id, actor, namespace, true).await
+    freeze_bound_read(tx, id, Some(actor), namespace, true).await
 }
 async fn freeze_bound_read(
     tx: &Transaction<'_>,
     id: &CommandId,
-    actor: &str,
+    actor: Option<&str>,
     namespace: &SemanticStoreId,
     lock: bool,
 ) -> FreezeResult<Option<PreparedFreeze>> {
@@ -1277,7 +1315,7 @@ async fn freeze_bound_read(
     if fingerprint != request.fingerprint(&owner)? || *bound != request.admission(&owner)? {
         return Err(FREEZE_CORRUPT);
     }
-    if owner != actor {
+    if actor.is_some_and(|actor| owner != actor) {
         return Err(FREEZE_DENIED);
     }
     let prepared: SystemTime = row.try_get("prepared_at").map_err(|_| FREEZE_CORRUPT)?;
@@ -1339,15 +1377,23 @@ async fn freeze_bound_read(
     }))
 }
 
-/// Exact original Freeze commands supply read locators, never a second relation
-/// identity. A shared relation may have several scientifically identical Runs.
-pub(crate) async fn freeze_run_locators_in_transaction(
+#[derive(PartialEq, Eq)]
+pub(crate) struct ResearchFreezeLocator {
+    pub(crate) run_id: String,
+    pub(crate) owner: String,
+    pub(crate) candidate: String,
+}
+
+/// Exact original Freeze commands supply read locators. A shared relation may
+/// have several scientifically identical Runs. System reads use the verified
+/// command owner to reopen each Run; human reads still require that actor.
+pub(crate) async fn freeze_research_locators_in_transaction(
     tx: &Transaction<'_>,
     namespace: &SemanticStoreId,
-    actor: &str,
+    actor: Option<&str>,
     subject: &str,
     relation: &str,
-) -> FreezeResult<Vec<String>> {
+) -> FreezeResult<Vec<ResearchFreezeLocator>> {
     if !crate::is_sha256_hex(subject) || !crate::is_sha256_hex(relation) {
         return Err(FREEZE_INVALID);
     }
@@ -1356,7 +1402,7 @@ pub(crate) async fn freeze_run_locators_in_transaction(
     if rows.len() > 8192 {
         return Err(FREEZE_UNAVAILABLE);
     }
-    let mut runs = std::collections::BTreeSet::new();
+    let mut runs = std::collections::BTreeMap::new();
     for row in rows {
         let id = CommandId::new(&row.try_get::<_, String>(0).map_err(|_| FREEZE_CORRUPT)?)
             .map_err(|_| FREEZE_CORRUPT)?;
@@ -1367,9 +1413,16 @@ pub(crate) async fn freeze_run_locators_in_transaction(
         if completed.strategy != subject || completed.relation != relation {
             return Err(FREEZE_CORRUPT);
         }
-        if let FreezeOrigin::Research { run, .. } = original.request.origin {
-            runs.insert(run);
+        if let FreezeOrigin::Research { run, candidate } = original.request.origin {
+            let locator = ResearchFreezeLocator { run_id: run.clone(), owner: original.actor, candidate };
+            match runs.entry(run) {
+                std::collections::btree_map::Entry::Vacant(slot) => { slot.insert(locator); }
+                std::collections::btree_map::Entry::Occupied(slot) if slot.get() != &locator => {
+                    return Err(FREEZE_CORRUPT);
+                }
+                _ => {}
+            }
         }
     }
-    Ok(runs.into_iter().collect())
+    Ok(runs.into_values().collect())
 }

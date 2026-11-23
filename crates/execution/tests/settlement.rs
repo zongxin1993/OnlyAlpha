@@ -1,7 +1,9 @@
 const SETTLEMENT_FIXTURE: &str = include_str!("../../../test-data/settlement/common-v1.json");
 const FIXTURE: &str = include_str!("../../../test-data/execution/domain-inputs.json");
 mod support;
-use onlyalpha_execution::{Components, Record, coordinate, recover};
+use onlyalpha_execution::{
+    Components, Record, WorkingState, coordinate, digest, recover, verify_finite_backtest_result,
+};
 use serde_json::{Value, json};
 use support::*;
 #[test]
@@ -77,9 +79,14 @@ fn maturity(n: u64, id: &str, version: u64, day: &str) -> Value {
 #[test]
 fn deferred_asset_and_cash_are_released_once_with_exact_lifecycle() {
     let mut h = Harness::new(config()).unwrap();
-    apply(&mut h, &open(1, "BUY"));
-    apply(&mut h, &stage(2, 1, "UNKNOWN"));
-    apply(&mut h, &delayed(3, 1));
+    let mut inputs = Vec::new();
+    let mut record = |h: &mut Harness, input: Value| {
+        apply(h, &input);
+        inputs.push(input);
+    };
+    record(&mut h, open(1, "BUY"));
+    record(&mut h, stage(2, 1, "UNKNOWN"));
+    record(&mut h, delayed(3, 1));
     assert_eq!(
         h.state().unwrap()["position"]["accounts"][0]["snapshot"]["settled"],
         "0"
@@ -87,7 +94,7 @@ fn deferred_asset_and_cash_are_released_once_with_exact_lifecycle() {
     assert!(h.prepare(&open(4, "SELL")).is_err());
     let buy = instruction(&h, "trade-3");
     assert!(h.prepare(&maturity(4, &buy, 1, "2026-10-19")).is_err());
-    apply(&mut h, &maturity(4, &buy, 1, "2026-10-20"));
+    record(&mut h, maturity(4, &buy, 1, "2026-10-20"));
     assert_eq!(
         h.state().unwrap()["position"]["accounts"][0]["snapshot"]["settled"],
         "4"
@@ -95,21 +102,22 @@ fn deferred_asset_and_cash_are_released_once_with_exact_lifecycle() {
     let mut sell_order = open(5, "SELL");
     sell_order["trading_day"] = json!("2026-10-20");
     sell_order["day_index"] = json!(2);
-    apply(&mut h, &sell_order);
+    record(&mut h, sell_order);
     let mut submit = stage(6, 2, "UNKNOWN");
     submit["trading_day"] = json!("2026-10-20");
     submit["day_index"] = json!(2);
-    apply(&mut h, &submit);
+    record(&mut h, submit);
     let mut sell = delayed(7, 2);
     sell["trading_day"] = json!("2026-10-20");
     sell["day_index"] = json!(2);
-    apply(&mut h, &sell);
+    record(&mut h, sell);
     let sold = instruction(&h, "trade-7");
     let s = h.state().unwrap();
     assert_eq!(s["account"]["snapshot"]["cash"], "1006.00");
     assert_eq!(s["account"]["snapshot"]["withdrawable"], "959.00");
     assert_eq!(s["account"]["snapshot"]["unsettled"], "47.00");
-    let p = h.prepare(&maturity(8, &sold, 1, "2026-10-21")).unwrap();
+    let cash_maturity = maturity(8, &sold, 1, "2026-10-21");
+    let p = h.prepare(&cash_maturity).unwrap();
     coordinate(&mut h.store, &mut h.components, &p).unwrap();
     coordinate(&mut h.store, &mut h.components, &p).unwrap();
     assert_eq!(
@@ -118,7 +126,9 @@ fn deferred_asset_and_cash_are_released_once_with_exact_lifecycle() {
     );
     assert!(h.prepare(&maturity(9, &sold, 1, "2026-10-21")).is_err());
     // Legal completion cannot require the old Position still being open.
-    apply(&mut h, &maturity(9, &buy, 2, "2026-10-21"));
+    let legal_maturity = maturity(9, &buy, 2, "2026-10-21");
+    apply(&mut h, &legal_maturity);
+    inputs.extend([cash_maturity, legal_maturity]);
     let mut duplicate = maturity(10, &buy, 2, "2026-10-21");
     duplicate["time"] = json!(9);
     assert!(h.prepare(&duplicate).is_err());
@@ -137,6 +147,105 @@ fn deferred_asset_and_cash_are_released_once_with_exact_lifecycle() {
     assert_eq!(
         performance["performance"]["summary"]["final_equity"],
         "1006.00"
+    );
+
+    let configuration = config();
+    let kernel = "a".repeat(64);
+    let pin = "b".repeat(64);
+    let fingerprint = |value: &Value| digest(value.to_string().as_bytes());
+    let binding = json!({"configuration":fingerprint(&configuration),"kernel_artifact":kernel,"input_pin":pin});
+    let mut owner = WorkingState::new(configuration.clone()).unwrap();
+    for input in &inputs {
+        owner.apply(input).unwrap();
+    }
+    let completed = owner.finish(&inputs, &binding, 0, 9).unwrap();
+    let verify = |result: &Value| {
+        verify_finite_backtest_result(
+            result,
+            completed.account_checkpoint(),
+            &configuration,
+            &kernel,
+            &pin,
+            0,
+            9,
+        )
+    };
+    verify(completed.result()).unwrap();
+
+    for (admit, index, side, adverse_price) in [(0, 2, "BUY", "10.01"), (4, 6, "SELL", "11.99")] {
+        let mut changed = completed.result().clone();
+        let mut altered_inputs = inputs.clone();
+        let fill = &mut altered_inputs[index];
+        assert_eq!(fill["op"], "FILL");
+        assert_eq!(inputs[admit]["payload"]["request"]["side"], side);
+        assert_eq!(inputs[admit]["payload"]["order"], fill["payload"]["order"]);
+        let original = format!("ETX-{}", fingerprint(fill));
+        fill["payload"]["price"] = json!(adverse_price);
+        let altered = fingerprint(fill);
+        let fact = json!({"sequence":index + 1,"transaction":format!("ETX-{altered}"),"input":fill});
+        changed["manifest"]["inputs"][index] = json!(altered);
+        changed["facts"][index] = fact.clone();
+        *changed["trades"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|trade| trade["transaction"] == original)
+            .unwrap() = fact;
+        changed["source"]["inputs"] = json!(digest(&serde_json::to_vec(&altered_inputs).unwrap()));
+        assert_eq!(
+            verify(&changed).err().unwrap().0,
+            "EXECUTION_LIMIT_OR_POSITIVE",
+            "{side}"
+        );
+    }
+
+    let asset_cause = fingerprint(&inputs[3]);
+    for extra in [false, true] {
+        let mut changed = completed.result().clone();
+        let points = changed["cluster_equity_timelines"][0]["points"]
+            .as_array_mut()
+            .unwrap();
+        let index = points
+            .iter()
+            .position(|entry| entry["point"]["cause"] == asset_cause)
+            .unwrap();
+        if extra {
+            let last = &inputs[8];
+            let mut entry = points[index].clone();
+            entry["timeline_sequence"] = json!(points.len());
+            entry["point"]["sequence"] = json!(9 * 64);
+            entry["point"]["time"] = last["time"].clone();
+            entry["point"]["cause"] = json!(fingerprint(last));
+            entry["point"]["snapshot"] = points.last().unwrap()["point"]["snapshot"].clone();
+            entry["point"]["snapshot"]["runtime_sequence"] = json!(9 * 64);
+            entry["point"]["snapshot"]["trading_day"] = last["trading_day"].clone();
+            entry["point"]["snapshot"]["day_index"] = last["day_index"].clone();
+            points.push(entry);
+        } else {
+            points.remove(index);
+            for (ordinal, entry) in points.iter_mut().enumerate().skip(index) {
+                entry["timeline_sequence"] = json!(ordinal);
+            }
+        }
+        assert_eq!(
+            verify(&changed).err().unwrap().0,
+            "RESULT_FINITE_LEDGER_OCCURRENCES"
+        );
+    }
+
+    let mut changed = completed.result().clone();
+    let performance = &mut changed["runtime_performance"];
+    let timeline = performance["timeline"].as_array_mut().unwrap();
+    assert_eq!(timeline.pop().unwrap()["source"], "SETTLE");
+    let final_account = timeline.last().unwrap()["snapshot"].clone();
+    performance["summary"]["valuation_count"] = json!(timeline.len());
+    performance.as_object_mut().unwrap().remove("id");
+    performance["id"] = json!(format!("AP-{}", fingerprint(performance)));
+    changed["account_equity_timeline"] = performance["timeline"].clone();
+    changed["final_account"] = final_account;
+    assert_eq!(
+        verify(&changed).err().unwrap().0,
+        "RESULT_FINITE_ACCOUNT_OCCURRENCES"
     );
 }
 #[test]

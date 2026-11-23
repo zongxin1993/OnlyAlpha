@@ -13,8 +13,18 @@ pub(crate) mod backtest_service_tests;
 pub(crate) mod backtest_service;
 pub(crate) mod trading_program;
 
-pub mod backtest_terminal;
-
 pub(crate) mod backtest_worker;
 
 pub mod research_calculations;
+
+pub(crate) mod backtest_profile;
+
+pub mod factor_build;
+
+#[cfg(test)]
+#[path = "../tests/source_sessions_tests.rs"]
+mod source_sessions_tests;
+
+pub(crate) mod source_sessions;
+
+pub(crate) mod finite_research;

@@ -10,7 +10,7 @@ use crate::{
     persistence::{
         qualification_commands::{self, Qualifications},
         qualification_decision::{Store as Decisions, VerifiedDecision},
-        research_evidence::{Store as Evidence, VerifiedResearchCounts},
+        research_evidence::{VerifiedResearchCounts, read_published_strategy},
         research_submission,
         strategy_promotion::{self, Promotions, Request as PromotionRequest},
     },
@@ -71,25 +71,29 @@ impl Host {
         deadline(at)?;
         self.human_access.check_session(human)?;
         let actor = human.subject_id()?;
+        let namespace = self.inputs.namespace();
+        let mut facts = self.job_fact_reader().await?;
         let run = {
             let mut reader = self.reader.lock().await;
             let client = reader
                 .as_mut()
                 .ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-            research_submission::load(client, run_id, Some(actor))
+            research_submission::load(client, facts.client_mut().await?, namespace, run_id, Some(actor))
                 .await
                 .map_err(failed)?
         };
         run.strategy_specification().map_err(failed)?;
+        if !run.completed() {
+            return Err(failed("RESEARCH_OPERATIONAL_COMPLETION_REQUIRED"));
+        }
+        let publication = read_published_strategy(facts.client_mut().await?, namespace, &run)
+            .await
+            .map_err(|error| failed(error.code()))?;
         let (frozen, _, _) = self.qualification_stores()?;
-        let research = self.research_preparation_config.research_root.clone();
-        let runtime = self.research_preparation_config.runtime_root.clone();
         let selected = frozen.clone();
         let relation = relation.to_owned();
         let counts = tokio::task::spawn_blocking(move || {
-            Evidence::open(&research)?
-                .with_runtime_root(&runtime)?
-                .read_verified_counts(&run, &selected, &relation)
+            VerifiedResearchCounts::from_publication(publication, selected, &relation)
         })
         .await
         .map_err(|_| Failure::unavailable("QUALIFICATION_EVIDENCE_UNAVAILABLE"))?
@@ -140,6 +144,7 @@ impl Host {
         id: &str,
         human: &human_access::Session,
     ) -> Result<(QualificationRequest, Vec<String>)> {
+        let mut facts=self.job_fact_reader().await?;
         let mut reader = self.reader.lock().await;
         let client = reader
             .as_mut()
@@ -151,6 +156,8 @@ impl Host {
             .start()
             .await
             .map_err(|_| Failure::unavailable("QUALIFICATION_COMMAND_UNAVAILABLE"))?;
+        let facts_tx=facts.client_mut().await?.build_transaction().read_only(true).start().await.map_err(|_|Failure::unavailable("QUALIFICATION_COMMAND_UNAVAILABLE"))?;
+        let read_context=crate::persistence::build_fact_read::BuildFactRead::reader(&tx,&facts_tx,self.inputs.namespace()).await.map_err(|_|Failure::unavailable("QUALIFICATION_COMMAND_UNAVAILABLE"))?;
         let requests = qualification_commands::decision_requests_in_transaction(
             &tx,
             self.inputs.namespace(),
@@ -166,10 +173,10 @@ impl Host {
             if request.fingerprint().map_err(failed)? != first.fingerprint().map_err(failed)? {
                 return Err(failed("QUALIFICATION_COMMAND_CORRUPT"));
             }
-            for run_id in strategy_projection::freeze_run_locators_in_transaction(
+            for original in strategy_projection::freeze_research_locators_in_transaction(
                 &tx,
                 self.inputs.namespace(),
-                human.subject_id()?,
+                Some(human.subject_id()?),
                 request.subject(),
                 request.relation_fingerprint(),
             )
@@ -177,9 +184,9 @@ impl Host {
             .map_err(failed)?
             {
                 let run = research_submission::load_in_transaction(
-                    &tx,
-                    &run_id,
-                    Some(human.subject_id()?),
+                    &read_context,
+                    &original.run_id,
+                    Some(&original.owner),
                 )
                 .await
                 .map_err(failed)?;
@@ -191,12 +198,13 @@ impl Host {
                 {
                     return Err(failed("QUALIFICATION_COMMAND_CORRUPT"));
                 }
-                candidates.insert(run_id);
+                candidates.insert(original.run_id);
             }
         }
         deployment::verify_binding_in_transaction(&tx, self.inputs.namespace())
             .await
             .map_err(|e| failed(e.code()))?;
+        facts_tx.commit().await.map_err(|_|Failure::unavailable("QUALIFICATION_COMMAND_UNAVAILABLE"))?;
         tx.commit()
             .await
             .map_err(|_| Failure::unavailable("QUALIFICATION_COMMAND_UNAVAILABLE"))?;

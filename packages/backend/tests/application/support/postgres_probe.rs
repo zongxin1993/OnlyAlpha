@@ -2,6 +2,7 @@
 mod backtest_native_host;
 mod factor_studies_probe;
 mod integration_command_fixture;
+mod job_fact_connection;
 mod market_storage_probe;
 mod research_namespace_probe;
 mod strategy_authoring_probe;
@@ -664,102 +665,37 @@ async fn factor_authoring(request: &Value, client: &mut tokio_postgres::Client) 
     }
 }
 
-// Read-only technical observation of the original Web-created Run. The caller's
-// identity values are data; only the Runtime owner validates the complete source.
-fn read_backtest_runtime_source(request: &Value) -> Result<Value, Box<dyn StdError>> {
-    use onlyalpha_runtime::VerifiedReplaySnapshot;
-    use sha2::{Digest, Sha256};
-    use std::path::Path;
-    let run_id = request["run_id"].as_str().ok_or("run id")?;
-    if run_id.is_empty()
-        || run_id.len() > 256
-        || !run_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-    {
-        return Err("invalid run id".into());
-    }
-    let user_data = Path::new(request["user_data"].as_str().ok_or("user data")?);
-    if !user_data.is_absolute() || user_data.canonicalize()? != user_data {
-        return Err("noncanonical user data".into());
-    }
-    let root = user_data.join("backtest").join("runtime").join(run_id);
-    let configuration = request["configuration"].clone();
-    if configuration["runtime_kind"] != "BACKTEST" {
-        return Err("not a backtest runtime".into());
-    }
-    let snapshot = VerifiedReplaySnapshot::read(
-        &root,
-        configuration,
-        request["kernel_artifact"]
-            .as_str()
-            .ok_or("kernel artifact")?,
-    )?;
-    if snapshot.binding()["schema_version"] != 2 || snapshot.binding()["work_id"] != run_id {
-        return Err("foreign run binding".into());
-    }
-    if snapshot.records().is_empty()
-        || snapshot.refs().is_empty()
-        || snapshot.records().iter().any(|r| !r.ready())
-        || snapshot.refs().iter().any(|r| !r.ready())
-    {
-        return Err("nonempty complete Ready prefixes required".into());
-    }
-    let execution_prefix = snapshot
-        .records()
-        .iter()
-        .take(16)
-        .map(|record| {
-            Ok(json!({"sequence":record.prepared().sequence(),
-            "logical_digest":Sha256::digest(record.prepared().encode()?).iter().map(|byte|format!("{byte:02x}")).collect::<String>(),
-            "ready":record.ready()}))
-        })
-        .collect::<Result<Vec<Value>, onlyalpha_backtest::Error>>()?;
-    let mut steps = Vec::new();
-    let mut replay_prefix = Vec::new();
-    let mut state = Value::Null;
-    // Each kind and state comes from the actual fully decoded owning step,
-    // never a frame summary, database hint, trace log or terminal inference.
-    snapshot.for_each_step(|step, reference| {
-        if replay_prefix.len() < 16 {
-            replay_prefix.push(json!({"sequence":reference.index(),
-                "digest":reference.physical_fingerprint(),
-                "logical_digest":reference.logical_fingerprint(),"ready":reference.ready()}));
-        }
-        steps.push(json!({"sequence":reference.index(),
-            "digest":reference.physical_fingerprint(),
-            "logical_digest":reference.logical_fingerprint(),
-            "execution_start":reference.execution_start(),
-            "kind":step["cause"]["kind"],"status":step["state"]["status"],
-            "cursor":step["state"]["cursor"],
-            "input_finished":step["state"]["input_finished"],
-            // The formal Run state adds input_cancelled only at CANCEL_INPUT.
-            "input_cancelled":step["state"].get("input_cancelled").cloned().unwrap_or(json!(false))}));
-        state = step["state"].clone();
-        Ok(())
-    })?;
-    snapshot.verify_cut()?;
-    Ok(
-        json!({"schema_version":1,"run_id":run_id,"binding":snapshot.binding(),
-        "storage_version":snapshot.storage_version(),
-        "execution_sequence":snapshot.state()["execution_sequence"],
-        "execution_prefix":execution_prefix,"replay_prefix":replay_prefix,
-        "steps":steps,"state":state}),
-    )
-}
-
 pub fn main() -> Result<(), Box<dyn StdError>> {
     run_with_input(None)
 }
 
 pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
+    // The Host starts this same ELF as a private worker with an empty environment.
+    // Dispatch before database, runtime or ordinary probe input initialization.
+    if std::env::args_os().skip(1).eq(["--native-chart-worker"]) {
+        if onlyalpha_backend::application::chart::run_native_worker().is_err() {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+    let probe_started = std::time::Instant::now();
+    let preparation_diagnostics = std::env::var_os("ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS")
+        .as_deref()
+        == Some(std::ffi::OsStr::new("1"));
+    let startup_progress = |phase: &str| {
+        if preparation_diagnostics {
+            eprintln!(
+                "[probe-startup] phase={phase} elapsed_us={}",
+                probe_started.elapsed().as_micros()
+            );
+        }
+    };
+    startup_progress("process_entry");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    startup_progress("tokio_ready");
     runtime.block_on(async {
-  if std::env::args().skip(1).collect::<Vec<_>>()==["--read-native-backtest-terminal"] {
-    onlyalpha_backend::workers::backtest_terminal::run_stdio()?;return Ok(());
-  }
   if std::env::args().skip(1).collect::<Vec<_>>()==["--backtest-native-host"] {
     return backtest_native_host::serve().await;
   }
@@ -769,25 +705,25 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
   if std::env::args().any(|arg|arg=="--describe-research-runtime") {
     println!("{}",onlyalpha_backend::workers::algorithm::describe_research_runtime("0.11.1")?);return Ok(());
   }
-  if std::env::args().skip(1).collect::<Vec<_>>()==["--read-backtest-runtime-source"] {
-    let mut raw=String::new();io::stdin().read_to_string(&mut raw)?;
-    let request:Value=serde_json::from_str(&raw)?;
-    println!("{}",read_backtest_runtime_source(&request)?);return Ok(());
-  }
   let dsn=std::env::var("ONLYALPHA_POSTGRES_DSN")?;
   let mut config:tokio_postgres::Config=dsn.parse()?;
   if !config.get_dbname().is_some_and(|name|name.ends_with("_test")) { return Err("test database required".into()); }
   // The probe uses the one local canonical test DB. Production TLS is node-owned.
   config.connect_timeout(Duration::from_secs(5)).ssl_mode(tokio_postgres::config::SslMode::Disable).options("-c timezone=UTC -c statement_timeout=5000ms -c lock_timeout=2000ms");
+  startup_progress("pg_connect_begin");
   let (mut client,connection)=config.connect(tokio_postgres::NoTls).await?;
+  startup_progress("pg_connect_done");
   let driver=tokio::spawn(connection);
   if std::env::args().any(|arg|arg=="--pid-barrier") {let pid:i32=client.query_one("SELECT pg_backend_pid()",&[]).await?.get(0);println!("{}",json!({"ready":true,"backend_pid":pid}));io::stdout().flush()?;}
   else if std::env::args().any(|arg|arg=="--barrier") {println!("{}",json!({"ready":true}));io::stdout().flush()?;}
+  startup_progress("request_read_begin");
   let raw = if let Some(raw) = input { raw } else {
     let mut raw=String::new();io::stdin().take((8*1024*1024+4097) as u64).read_to_string(&mut raw)?; raw
   };
   if raw.len()>8*1024*1024+4096 {return Err("probe frame bound".into())}
+  startup_progress("request_read_done");
   let request:Value=serde_json::from_str(&raw)?;
+  startup_progress("request_decoded");
   // Factor Draft tests carry the 256 KiB Product input plus the probe envelope.
   // The Calculation ABI uses its explicit 8 MiB frame plus a bounded envelope.
   // All other probe operations retain their existing 128 KiB frame guard.
@@ -807,7 +743,7 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
    println!("{}",json!({"candidate":candidate,"draft":draft,"revision":revision}));
    drop(client);driver.await??;return Ok(());
   }
-  if request["op"]=="research-namespace" {let result=research_namespace_probe::run(&request,&mut client).await;println!("{result}");drop(client);driver.await??;return Ok(());}
+  if request["op"]=="research-namespace" {let mut session=onlyalpha_backend::persistence::authority_session::AuthoritySession::acquire(client,driver).await?;let result=research_namespace_probe::run(&request,&mut session).await;println!("{result}");session.close().await?;return Ok(());}
   if request["op"]=="factor-study" {let result=factor_studies_probe::run(&request,&mut client).await;println!("{result}");drop(client);driver.await??;return Ok(());}
   if request["op"]=="market-storage" {drop(client);driver.await??;let result=match market_storage_probe::run(&request["request"]).await{Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})};println!("{result}");return Ok(());}
   if request["op"]=="research-calculations" {
@@ -834,26 +770,33 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
    println!("{}",match result {Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})});return Ok(());
   }
   if request["op"]=="runtime-environment" {
-   let started=std::time::Instant::now();
+   let started=probe_started;
    let progress=|phase:&str|eprintln!("[runtime-environment] phase={phase} elapsed_ms={}",started.elapsed().as_millis());
-   use onlyalpha_backend::{application::research_factor,workers::research_environment,persistence::research_runtime::Registry};
+   use onlyalpha_backend::{workers::research_environment,persistence::research_runtime::Registry};
    use onlyalpha_calculation_bridge::ChartInstallation;
    use std::path::Path;
    progress("pg_drain_begin");
    drop(client);driver.await??;
    progress("pg_drain_done");
-   let result=(||->Result<Value,Box<dyn StdError>> {
-    progress("factor_compile_begin");
-    let factor=research_factor::compile(&request["factor"]["candidate"],&request["factor"]["draft"],&request["factor"]["revision"])?;
-    progress("factor_compile_done");
+   let diagnostics=if preparation_diagnostics {
+       progress("diagnostics_start");
+       match onlyalpha_observability::Session::new(
+           onlyalpha_observability::Config::new(onlyalpha_observability::Mode::Detail,format!("runtime-preparation-probe-{}",std::process::id()),128),
+           std::io::stderr(),
+       ) {
+           Ok(session)=>Some(session),
+           Err(_)=>{progress("diagnostics_unavailable");None}
+       }
+   } else {None};
+   let evaluate=||->Result<Value,Box<dyn StdError>> {
     let root=Path::new(request["release_root"].as_str().ok_or("release root")?);
     progress("installation_verify_begin");
     let installation=ChartInstallation::open(&root.join("algorithms"),request["algorithm_artifact"].as_str().ok_or("algorithm")?)?;
     progress("installation_verify_done");
     progress("prepare_begin");
     let prepared=match request["preparation_kind"].as_str() {
-      Some("STRATEGY")=>research_environment::prepare_strategy(&installation,root,&factor,&request["factor"]["revision"],"0.11.1")?,
-      None|Some("FACTOR")=>research_environment::prepare(&installation,root,&factor,&request["factor"]["revision"],"0.11.1")?,
+      Some("STRATEGY")=>research_environment::prepare_strategy(&installation,root,"0.11.1")?,
+      None|Some("FACTOR")=>research_environment::prepare(&installation,root,"0.11.1")?,
       _=>return Err("unsupported controlled preparation kind".into()),
     };
     progress("prepare_done");
@@ -862,7 +805,7 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
     let mut registry=if request["fresh"]==true {Registry::initialize_fresh(runtime)?} else {Registry::open_existing(runtime)?};
     progress("registry_open_done");
     progress("publication_begin");
-    prepared.publish(&mut registry,request["factor"]["revision"]["source_text"].as_str().ok_or("source")?.as_bytes(),"technical-fixture",request["at"].as_str().ok_or("at")?.parse()?)?;
+    prepared.publish(&mut registry,"technical-fixture",request["at"].as_str().ok_or("at")?.parse()?)?;
     progress("publication_done");
     if let Some(work)=request["bind_work"].as_str() {
       let generation=prepared.manifest()["runtime_generation_fingerprint"].as_str().ok_or("generation")?;
@@ -876,7 +819,12 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
       progress("work_binding_done");
     }
     Ok(json!({"manifest":prepared.manifest(),"proof":prepared.proof(),"snapshot":registry.snapshot()}))
-   })();
+   };
+   let result=if let Some(session)=&diagnostics {
+       progress("diagnostics_ready");
+       tracing::dispatcher::with_default(session.dispatch(),evaluate)
+   } else {evaluate()};
+   if let Some(session)=diagnostics {eprintln!("{}",session.close().record());}
    progress(if result.is_ok(){"request_done"}else{"request_error"});
    println!("{}",match result {Ok(v)=>v,Err(e)=>json!({"error":e.to_string()})});return Ok(());
   }

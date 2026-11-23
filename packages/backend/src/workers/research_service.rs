@@ -1,18 +1,15 @@
 //! Host-owned recovery/execution of accepted native Research Runs.
 //! Durable authorization is loaded from the original Run; no Human/Agent session is recreated.
+use super::source_sessions::SourceSessions;
 use crate::{
     application::{
-        research_admission::{self, PreparationError},
+        research_admission::PreparationError,
         research_run::{NativeSpecification, VerifiedRun},
     },
-    bootstrap::workstation_startup::ResearchConnection,
-    persistence::{
-        research_dataset::Store as Datasets, research_runtime::RuntimeInputHold,
-        research_submission, strategy_research::Composer,
-    },
-    workers::research::{self, Work},
+    bootstrap::workstation_startup::{JobReadConnections, ResearchConnection},
+    persistence::research_submission,
+    workers::research,
 };
-use onlyalpha_calculation_bridge::ChartInstallation;
 use onlyalpha_domain::time::OnlyUtcDateTime;
 use std::{
     path::PathBuf,
@@ -31,9 +28,7 @@ const UNKNOWN: &str = "RESEARCH_SERVICE_OUTCOME_UNKNOWN";
 #[derive(Clone)]
 pub(crate) struct Configuration {
     pub runtime_root: PathBuf,
-    pub research_root: PathBuf,
     pub algorithms: PathBuf,
-    pub native_version: String,
 }
 /// Observations only: the DB Run/Attempt and immutable stores remain authoritative.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,10 +85,15 @@ pub(crate) struct Service {
 impl Service {
     pub(crate) fn start(
         connection: ResearchConnection,
+        facts: ResearchConnection,
         writer: research::SharedAuthority,
+        sources: SourceSessions,
+        physical: Arc<crate::persistence::market_data::ClickHouse>,
         configuration: Configuration,
         clock: impl Fn() -> Result<OnlyUtcDateTime, PreparationError> + Send + Sync + 'static,
     ) -> Result<Self, &'static str> {
+        let connection =
+            JobReadConnections::new(connection, facts, physical).map_err(|_| UNAVAILABLE)?;
         if !connection.active() {
             return Err(UNAVAILABLE);
         }
@@ -109,6 +109,7 @@ impl Service {
             let result = serve(
                 &mut connection,
                 &writer,
+                &sources,
                 &configuration,
                 &selected,
                 &status,
@@ -173,8 +174,9 @@ impl Drop for Service {
     }
 }
 async fn serve(
-    connection: &mut Option<ResearchConnection>,
+    connection: &mut Option<JobReadConnections>,
     writer: &research::SharedAuthority,
+    sources: &SourceSessions,
     config: &Configuration,
     wake: &Wake,
     status: &watch::Sender<Status>,
@@ -199,81 +201,47 @@ async fn serve(
             if wake.stopped() {
                 return Ok(());
             }
-            let run = research_submission::load(
-                connection
-                    .as_mut()
-                    .ok_or(UNKNOWN)?
-                    .client_mut()
-                    .await
-                    .map_err(|_| UNAVAILABLE)?,
-                &id,
-                None,
-            )
-            .await?;
+            let original = connection.as_mut().ok_or(UNKNOWN)?;
+            let namespace = original.namespace().clone();
+            let (metadata, facts) = original.clients_mut().await.map_err(|_| UNAVAILABLE)?;
+            let run = research_submission::load(metadata, facts, &namespace, &id, None).await?;
             status.send_replace(Status::Running(id));
             // All cancellation, expiry and terminal projections use the same canonical
-            // protocol and original writer as run_owned, before any executable preparation.
+            // PG publication protocol and original writer, before executable preparation.
             // Admission covers the entire retained restoration + execution handoff.
             // Shutdown cannot pass this CAS then start a fresh preflight later.
             let result = handoff(wake, async {
                 clock()?;
                 let retained = run.clone();
-                let outcome = if let Some(outcome) = research::recover_owned(
-                    writer,
-                    &run,
-                    &config.research_root,
-                    &config.runtime_root,
-                    clock,
-                )
-                .await?
-                {
-                    outcome
-                } else {
-                    let configuration = config.clone();
-                    let worker = worker.to_owned();
-                    let attempt = uuid4()?;
-                    let runtime = tokio::runtime::Handle::current();
-                    let work = if matches!(run.specification(), NativeSpecification::Strategy(_)) {
-                        // Move the original read-only session, never the mutation
-                        // guard, through blocking SDK/artifact preparation. Its
-                        // same socket and driver return even on a known failure.
-                        let mut original = connection.take().ok_or(UNKNOWN)?;
-                        let (original, result) = tokio::task::spawn_blocking(move || {
-                            let result = runtime.block_on(async {
-                                let client = original
-                                    .client_mut()
-                                    .await
-                                    .map_err(|_| PreparationError::from(UNAVAILABLE))?;
-                                restore_work(run, &configuration, worker, attempt, Some(client))
-                                    .await
-                            });
-                            (original, result)
-                        })
-                        .await
-                        .map_err(|_| PreparationError::from(UNKNOWN))?;
-                        *connection = Some(original);
-                        result?
-                    } else {
-                        tokio::task::spawn_blocking(move || {
-                            runtime.block_on(restore_work(
-                                run,
-                                &configuration,
-                                worker,
-                                attempt,
-                                None,
-                            ))
-                        })
-                        .await
-                        .map_err(|_| PreparationError::from(UNKNOWN))??
-                    };
-                    research::run_owned(writer, work, clock).await?
-                };
-                if outcome.state.terminal() {
-                    // run_owned returned after its job/inputs/completion values
-                    // dropped. Only the Runtime owner can release this binding.
-                    release_terminal(&retained, config, wake, status, clock).await?;
+                if matches!(run.specification(), NativeSpecification::Strategy(_)) {
+                    let namespace = connection.as_ref().ok_or(UNKNOWN)?.namespace().clone();
+                    let outcome = super::finite_research::run(
+                        connection,
+                        writer,
+                        sources,
+                        run,
+                        config,
+                        worker,
+                        &uuid4()?,
+                        clock,
+                    )
+                    .await?;
+                    if outcome.state.terminal() {
+                        if !super::finite_research::terminal(
+                            writer,
+                            &namespace,
+                            &retained,
+                            clock()?,
+                        )
+                        .await?
+                        {
+                            return Err("RESEARCH_TERMINAL_PUBLICATION_UNRESOLVED".into());
+                        }
+                        release_terminal(&retained, config, wake, status, clock).await?;
+                    }
+                    return Ok(());
                 }
-                Ok(())
+                Err("RESEARCH_LEGACY_FACTOR_EXECUTION_UNSUPPORTED".into())
             })
             .await;
             let Some(result) = result else { return Ok(()) };
@@ -287,7 +255,7 @@ async fn serve(
                 }
                 return Err(code);
             }
-            if !connection.as_ref().is_some_and(ResearchConnection::active) {
+            if !connection.as_ref().is_some_and(JobReadConnections::active) {
                 return Err("RESEARCH_NODE_AUTHORITY_UNAVAILABLE");
             }
         }
@@ -300,7 +268,7 @@ async fn serve(
     }
 }
 async fn cleanup_terminal_bindings(
-    connection: &mut Option<ResearchConnection>,
+    connection: &mut Option<JobReadConnections>,
     writer: &research::SharedAuthority,
     config: &Configuration,
     wake: &Wake,
@@ -326,13 +294,13 @@ async fn cleanup_terminal_bindings(
         if reason != "research" {
             continue;
         }
-        let client = connection
-            .as_mut()
-            .ok_or(UNKNOWN)?
-            .client_mut()
+        let original = connection.as_mut().ok_or(UNKNOWN)?;
+        let namespace = original.namespace().clone();
+        let (client, facts) = original
+            .clients_mut()
             .await
             .map_err(|_| PreparationError::from(UNAVAILABLE))?;
-        let run = match research_submission::load(client, &work, None).await {
+        let run = match research_submission::load(client, facts, &namespace, &work, None).await {
             // Input preparation can own a future research binding before a Run
             // exists. That original preparation, not this scanner, owns it.
             Err("RESEARCH_RUN_NOT_FOUND") => continue,
@@ -352,16 +320,12 @@ async fn cleanup_terminal_bindings(
             continue;
         }
         let cleanup = handoff(wake, async {
-            research::recover_owned(
-                writer,
-                &run,
-                &config.research_root,
-                &config.runtime_root,
-                clock,
-            )
-            .await?
-            .filter(|value| value.state.terminal())
-            .ok_or("RESEARCH_TERMINAL_CLEANUP_CONFLICT")?;
+            if !matches!(run.specification(), NativeSpecification::Strategy(_)) {
+                return Err("RESEARCH_LEGACY_FACTOR_EXECUTION_UNSUPPORTED".into());
+            }
+            if !super::finite_research::terminal(writer, &namespace, &run, clock()?).await? {
+                return Err("RESEARCH_TERMINAL_CLEANUP_CONFLICT".into());
+            }
             release_terminal(&run, config, wake, status, clock).await
         })
         .await;
@@ -396,59 +360,6 @@ async fn handoff(
     Some(result)
 }
 
-async fn restore_work(
-    run: VerifiedRun,
-    config: &Configuration,
-    worker_id: String,
-    attempt_id: String,
-    client: Option<&mut tokio_postgres::Client>,
-) -> Result<Work, PreparationError> {
-    let owner = run.prepared_inputs["runtime_work_binding"]["reason"]
-        .as_str()
-        .ok_or("RESEARCH_RECOVERY_BINDING_INVALID")?;
-    let runtime = RuntimeInputHold::open(
-        &config.runtime_root,
-        run.run_id(),
-        owner,
-        run.runtime_generation_fingerprint()?,
-    )?;
-    let installation = ChartInstallation::open(
-        &config.algorithms,
-        run.specification().algorithm_artifact_fingerprint()?,
-    )
-    .map_err(|_| "RESEARCH_ALGORITHM_INSTALLATION_CHANGED")?;
-    let datasets = Datasets::open(
-        &config.research_root.join("datasets"),
-        8192,
-        8 * 1024 * 1024,
-    )?;
-    let inputs = match run.specification() {
-        NativeSpecification::Factor(_) => {
-            research_admission::restore(&run, runtime, &installation, &datasets)?
-        }
-        NativeSpecification::Strategy(_) => {
-            research_admission::restore_strategy(
-                &mut Composer::new(client.ok_or("RESEARCH_RECOVERY_READER_REQUIRED")?),
-                &run,
-                runtime,
-                &installation,
-                &datasets,
-            )
-            .await?
-        }
-    };
-    Ok(Work {
-        run,
-        inputs,
-        datasets,
-        installation,
-        runtime_root: config.runtime_root.clone(),
-        evidence_root: config.research_root.clone(),
-        native_version: config.native_version.clone(),
-        worker_id,
-        attempt_id,
-    })
-}
 async fn release_terminal(
     run: &VerifiedRun,
     config: &Configuration,
@@ -653,3 +564,7 @@ mod tests {
         assert!(service.task.is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/research_worker_tests.rs"]
+pub(crate) mod owner_tests;

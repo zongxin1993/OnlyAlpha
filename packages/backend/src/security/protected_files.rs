@@ -190,6 +190,8 @@ pub fn duplicate_directory(directory: BorrowedFd<'_>) -> Result<OwnedFd, ReadErr
     directory.try_clone_to_owned().map_err(ReadError::from)
 }
 
+pub(crate) const MAX_DIRECTORY_ENTRIES: usize = 4096;
+
 /// Enumerate a held history directory within the caller's cumulative work budget.
 pub(crate) fn directory_entries(
     directory: &impl AsFd,
@@ -206,7 +208,7 @@ pub(crate) fn directory_entries(
         *remaining = remaining
             .checked_sub(1 + raw.len())
             .ok_or(ReadError::Unavailable)?;
-        if result.len() >= 4096 {
+        if result.len() >= MAX_DIRECTORY_ENTRIES {
             return Err(ReadError::Unavailable);
         }
         result.push(OsStr::from_bytes(raw).to_owned());

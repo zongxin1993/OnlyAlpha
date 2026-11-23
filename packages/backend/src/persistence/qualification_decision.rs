@@ -1,5 +1,6 @@
 //! Immutable evaluator-owned Qualification Decision1 facts (ADR 0118).
 //! Publication never grants progression, Runtime admission or LIVE authority.
+use crate::persistence::build_fact_read::BuildFactRead;
 use crate::{
     application::{
         factor_content::hash,
@@ -15,6 +16,31 @@ type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "QUALIFICATION_DECISION_CORRUPT";
 const UNAVAILABLE: &str = "QUALIFICATION_DECISION_UNAVAILABLE";
 const WORK: usize = 64 * 1024 * 1024;
+
+// Pure extraction from an already authenticated owning record. These helpers
+// neither verify a PG proof nor manufacture a qualification/execution grant.
+fn decision_record(value: &Value) -> Result<&Value> {
+    if value["schema_version"] != 1
+        || !value["decision_graph"].is_object()
+        || !value["signal_semantics"].is_object()
+        || !value["decision_graph_fingerprint"]
+            .as_str()
+            .is_some_and(crate::is_sha256_hex)
+    {
+        return Err(INVALID);
+    }
+    Ok(value)
+}
+fn research_decision(prepared: &Value) -> Result<&Value> {
+    decision_record(&prepared["build_certification"]["context"]["decision"])
+}
+pub(super) fn manual_decision(prepared: &Value) -> Result<&Value> {
+    let decision = decision_record(&prepared["decision"])?;
+    if prepared.get("build_certification").is_some() && research_decision(prepared)? != decision {
+        return Err(INVALID);
+    }
+    Ok(decision)
+}
 
 /// Closed owning evidence set; no copied JSON can implement an approval source.
 #[derive(Clone)]
@@ -52,7 +78,7 @@ impl Evidence {
     }
     pub(crate) async fn require_running_parent_in_transaction(
         &self,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
         namespace: &crate::bootstrap::deployment::SemanticStoreId,
         actor: &str,
     ) -> Result<()> {
@@ -65,12 +91,13 @@ impl Evidence {
     }
     pub(crate) async fn verify_in_transaction(
         &self,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
         namespace: &crate::bootstrap::deployment::SemanticStoreId,
     ) -> Result<()> {
         self.verify_cut()?;
-        if let Self::Manual(v) = self {
-            v.verify_in_transaction(tx, namespace).await?;
+        match self {
+            Self::Research(v) => v.verify_in_transaction(tx, namespace).await?,
+            Self::Manual(v) => v.verify_in_transaction(tx, namespace).await?,
         }
         self.verify_cut()
     }
@@ -189,7 +216,7 @@ impl Store {
     /// Its immutable inventories are locators; the retained proof authenticates owners.
     pub(crate) async fn read_verified_in_transaction(
         self: &Arc<Self>,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
         namespace: &crate::bootstrap::deployment::SemanticStoreId,
         runtime_root: &Path,
         id: &str,
@@ -197,17 +224,11 @@ impl Store {
         if &self.namespace()? != namespace {
             return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");
         }
-        let evidence = super::research_evidence::Store::open(&self.research.path)?;
-        let mut locks = evidence
-            .locks()?
-            .into_iter()
-            .map(Arc::new)
-            .collect::<Vec<_>>();
-        locks.push(Arc::new(SourceLock::publication(&self.directory.path)?));
+        let locks = [Arc::new(SourceLock::publication(&self.directory.path)?)];
         let mut verification = super::research_evidence::SourceVerification::new(&locks)
             .with_runtime_root(Some(runtime_root.to_path_buf()));
         verification
-            .verify_qualification_in_transaction(&self.directory.path, id, tx)
+            .verify_qualification_in_transaction(&self.directory.path,id,tx)
             .await?;
         let decision = verification
             .qualification_cuts()
@@ -217,7 +238,7 @@ impl Store {
         if &decision.namespace()? != namespace {
             return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");
         }
-        decision.verify_in_transaction(tx, namespace).await?;
+        decision.verify_in_transaction(tx,namespace).await?;
         Ok(decision)
     }
     pub(crate) fn namespace(&self) -> Result<crate::bootstrap::deployment::SemanticStoreId> {
@@ -288,6 +309,15 @@ pub struct VerifiedDecision {
     evidence: Evidence,
 }
 impl VerifiedDecision {
+    /// Original mathematical decision selected by the closed evidence owner.
+    /// Research and manual validation retain deliberately different wire shapes.
+    pub(crate) fn validated_decision(&self) -> Result<&Value> {
+        self.verify_cut()?;
+        match &self.evidence {
+            Evidence::Research(v) => research_decision(v.validated_calculations()?),
+            Evidence::Manual(v) => manual_decision(v.validated_calculations()?),
+        }
+    }
     pub(crate) fn validated_calculations(&self) -> Result<&Value> {
         self.verify_cut()?;
         match &self.evidence {
@@ -338,14 +368,14 @@ impl VerifiedDecision {
     }
     pub(crate) async fn verify_in_transaction(
         &self,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
         namespace: &crate::bootstrap::deployment::SemanticStoreId,
     ) -> Result<()> {
         if &self.namespace()? != namespace {
             return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");
         }
         self.verify_cut()?;
-        self.evidence.verify_in_transaction(tx, namespace).await?;
+        self.evidence.verify_in_transaction(tx,namespace).await?;
         self.verify_cut()
     }
     pub(crate) fn namespace(&self) -> Result<crate::bootstrap::deployment::SemanticStoreId> {
@@ -356,6 +386,10 @@ impl VerifiedDecision {
         Ok(namespace)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/qualification_decision_inputs.rs"]
+mod decision_input_tests;
 
 #[cfg(test)]
 mod tests {

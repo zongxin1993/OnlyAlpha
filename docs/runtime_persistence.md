@@ -1,31 +1,29 @@
-# Runtime Persistence
+# Runtime 持久化边界
 
-`OnlyRuntimePersistenceStorePort` 是 Runtime 的统一持久化边界。Memory 与 SQLite 实现共享事务提交、投影进度、Outbox、检查点、幂等和错误契约；Runtime 只能装配一个 Store 实例，不能分别创建成交与检查点数据库。
+本页按已接受的[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)定义目标契约。完整值模型、接口与迁移映射见[有限作业契约](job-execution-contract.md)。当前只完成第一阶段定义，旧SQLite实现尚未退役，不能把本页当作已上线证明。
 
-同一 Transaction/Trade/Update 业务键且 `authority_hash` 相同时返回原 committed transaction；同一业务键指向不同 authority，或多个幂等索引指向不同事务时抛出 `OnlyRuntimeTransactionConflict`。I/O、SQLite lock/malformed/schema、非业务唯一约束、Outbox、序列化和损坏数据错误统一抛出 `OnlyRuntimePersistenceStoreError` 并保留 cause。
+## 唯一归属
 
-`ORDER_INTENT` 是 operation-neutral transaction vocabulary 的 universal operation。其确定性身份绑定 Runtime、Account、Cluster 与
-OrderRequestId，fact 保存完整 canonical Order、causal request reference 和 reservation identities，ordered projections 保存实际发生的
-Order/Account/Strategy Ledger/Position/Allocation/Reservation/Risk authority delta。commit 成功但 projection 未 Ready 时外部 dispatch
-保持为零，并由现有 tail recovery 向前恢复；相同身份不同 authority hash 按 transaction conflict fail closed。
+需要发布、控制和留存的业务事实属于PostgreSQL；K线实体属于ClickHouse。Runtime纯库不持有数据库客户端、连接串、权限或后端类型。Backend适配数据库，Runtime／Execution owner负责经济语义和确定性状态恢复。日志、文件或内存缓存不是第二份正式事实。
 
-SQLite Runtime Persistence schema v7 将 metadata、transactions、indexes、outbox、checkpoint headers/components 和 durable Timer
-occurrence journal 保存在同一数据库。事务、索引与 Outbox 使用同一 `BEGIN IMMEDIATE`；一个检查点的 header、全部 components
-和 retention 删除也使用单一原子事务。旧 Persistence schema 与历史 `execution_store_metadata` 布局均明确拒绝，
-不提供隐式迁移或 Memory fallback。Runtime Checkpoint envelope 使用独立 schema v5，不能与 Store schema 混为一谈。
+## 有限作业
 
-Runtime transaction envelope 继续使用 schema v7；`ORDER_INTENT` 使用显式 fact schema v1。Accepted/Fill/Terminal 的新 semantic
-identity 算法使用各自 v2 标识，新写记录不重写历史 identity string。Broker command evidence 使用 schema v3 增加 Runtime intent
-transaction/hash 引用，并兼容读取 schema v1/v2；未知 schema、损坏 hash 或不完整/冲突引用一律 fail closed。
+Research／Backtest的计算、滚动窗口、当前组件、未发布模拟历史留内存。PostgreSQL留存原Command／Run、冻结绑定、Attempt／lease／fence、取消／失败及最终完整结果。禁止逐Bar持久化过程历史，也不能把旧表行机械搬成每Bar完整checkpoint数组。
 
-Store 保存 canonical payload 与 SHA-256 hash，读取时重新验证。Outbox 在 Projection Ready 前不可见；Ready 后保留确定性 Event ID，并独立记录发布尝试与发布状态。检查点读取验证 Runtime/config/participant-registry 身份、连续序号、header hash、component hash、组件全集和 schema version。
+发布前中断先观察原发布和未解决事务；确证未发布且取得新Claim，才按原Run和冻结输入从头重算。不是续接最后一根Bar，也不是新建经济身份。已发布就复用原结果；输入／实现不可用则明确拒绝，不能用最新替换。
 
-Runtime 只通过窄 Port 使用成交、Outbox、Timer occurrence 与检查点能力。Store 不负责恢复 Manager；恢复由
-`OnlyRuntimeRecoveryOrchestrator` 分为 local durable bootstrap、driver-specific continuity completion 和 common verified finalization。
+## 持续交易
 
-Checkpoint 保存的是 proven canonical semantic boundary，不是 Python process snapshot。Streaming checkpoint 不包含 inbound queue、
-partial live Bar、subscription ID、线程、锁、socket 或 clock scheduler state。SIM durable product 只接受稳定 state root 下的 SQLite；
-相同 `engine_id/runtime_id/state_root` 自动恢复，identity/schema/fingerprint/hash/Timer authority/continuity 任一不一致即 fail closed。
-`OnlyRuntimeStateLease` 使用 OS advisory lock 提供单 writer authority，diagnostic metadata 不是 stale-lease 决策依据。
+正式ORDER_INTENT、资金／仓位因果事实、Outbox及场所观察逐步提交PostgreSQL，完成持久化及必要投影后才能获得派单许可。相同业务身份且相同内容幂等；同身份不同内容冲突。外部提交未知保留原订单继续观察／对账，禁止盲重试。
 
-Rust 的原生 Execution Store 与恢复会话由 Infrastructure 组件提供，边界见 [Rust Runtime Persistence / Recovery](rust-runtime-persistence.md)。它不改变本页 admitted Python Store 的 schema、历史 reader 或 Runtime 激活 Authority。
+Committed但投影未Ready按原事实／原计划恢复，不回滚外部事实、不根据历史行情重发真实订单。checkpoint只能是已证明的确定性状态边界，不含socket、线程、队列或隐含时钟。缓存丢失可以重建，正式成交与资金不能只在内存。
+
+## 原子性、权限与失败
+
+正式结果全成员、唯一发布记录和Run／Attempt终态在同一PostgreSQL事务提交。正式内容普通角色不得UPDATE／DELETE，控制状态由所属领域CAS演进。未知提交先观察原事务，不伪造FAILED；缺证、不可读、确定不匹配分别报告。
+
+CANCELLED不发布部分结果；迟到取消不撤销已完成发布。取消意图不能等同资源已经停止。业务SQLite、文件型journal、旧格式fallback均退役，不增设文件事实库或Source服务。后续schema通过前向迁移演进，不改已发布迁移字节。
+
+## 验证
+
+有限作业重算与原子发布、持续交易提交／投影／对账分别测试，纯对象重建、实际进程重启、服务重启和部署升级分别说明证据。数据库和运行中应用验证使用固定onlyalpha-dev；本阶段不创建新数据库schema或运行旧长Web取证。

@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
+from psycopg.conninfo import make_conninfo
 
 from packages.backend.tests.application.support.native_research_market_fixture import (
     ROOT,
@@ -100,13 +101,6 @@ def strategy_evidence_owner_binary() -> Path:
     return _build_strategy_evidence_owner_binary(release=True)
 
 
-@pytest.fixture(scope="session")
-def backtest_fault_probe() -> Path:
-    # The canonical lane compiles this exact target before launching pytest.
-    # The session fixture only resolves the already-built current frozen target.
-    return _build_strategy_evidence_owner_binary(release=True, target_name="backtest_owner_probe")
-
-
 @pytest.fixture(scope="module")
 def backtest_fault_environment(tmp_path_factory: pytest.TempPathFactory, backtest_fault_probe: Path) -> dict[str, Any]:
     from packages.backend.tests.application.test_manual_backtest_validation import _release
@@ -149,6 +143,168 @@ def owner(binary: Path, dsn: str, root: Path, phase: str, request: dict[str, Any
     ]
     assert len(values) == 1
     return values[0]
+
+
+def assert_run_transaction_resolved(
+    dsn: str,
+    phase: str,
+    run_id: str,
+    *,
+    command_ids: tuple[str, ...] = (),
+    closed_pids: tuple[int, ...] = (),
+) -> None:
+    """把"目标 Run 的事务已解决"归因到 Run 自身的正式锁身份，而不是整库 advisory 快照。
+
+    正式实现的 Run 认领锁是 `research_run` 行锁（`lock_run` 用 `FOR UPDATE` /
+    `FOR UPDATE SKIP LOCKED`），提交命令的事务护栏是
+    `pg_advisory_xact_lock(hashtextextended(command,0))`。所以本观察只用这两个正式
+    身份：NOWAIT 取得该 Run 的行锁证明没有未决事务仍持有它；逐命令 try-lock 证明命令
+    护栏已随事务结束释放；原提交会话必须已不在 pg_stat_activity 中。三项都是单次有界
+    观察，不是按超时猜测。同库其他 backend 的锁与本 Run 身份无关，因此不做整库断言。
+    """
+    with psycopg.connect(dsn, autocommit=True) as observer:
+        for pid in closed_pids:
+            assert observer.execute(
+                "SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity WHERE pid=%s)",
+                (int(pid),),
+            ).fetchone()[0], f"{phase}: 原提交后端会话 {pid} 仍存活，事务结果未知"
+        for command_id in command_ids:
+            assert observer.execute(
+                "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))", (str(command_id),)
+            ).fetchone()[0], f"{phase}: 提交命令 {command_id} 的事务护栏仍被持有"
+        try:
+            observer.execute(
+                "SELECT 1 FROM research_run WHERE run_id=%s::text::uuid FOR UPDATE NOWAIT",
+                (str(UUID(run_id)),),
+            )
+        except psycopg.errors.LockNotAvailable as error:
+            raise AssertionError(f"{phase}: 目标 Run 的行锁仍被未决事务持有") from error
+
+
+def assert_run_guard_attribution(dsn: str, run_id: str, command_id: str) -> None:
+    """两连接对照：证明上面的命令护栏观察确实按精确键判定，而不是无条件放行。
+
+    另一会话持有不同键时目标必须判定为已释放；持有目标精确键时必须判定为仍被持有；
+    释放后必须恢复为已释放。全部使用真实 PostgreSQL advisory 锁，不读文件也不造数据。
+    """
+    other = str(uuid4())
+    holder = psycopg.connect(dsn, autocommit=True)
+    try:
+        assert holder.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))", (other,)
+        ).fetchone()[0]
+        assert_run_transaction_resolved(dsn, "对照：其他键被持有", run_id, command_ids=(command_id,))
+        assert holder.execute(
+            "SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (other,)
+        ).fetchone()[0]
+        assert holder.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))", (command_id,)
+        ).fetchone()[0]
+        with pytest.raises(AssertionError, match="事务护栏仍被持有"):
+            assert_run_transaction_resolved(
+                dsn, "对照：目标键被持有", run_id, command_ids=(command_id,)
+            )
+        assert holder.execute(
+            "SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (command_id,)
+        ).fetchone()[0]
+        assert_run_transaction_resolved(dsn, "对照：目标键已释放", run_id, command_ids=(command_id,))
+    finally:
+        holder.rollback()
+        holder.close()
+
+
+def assert_run_row_lock_attribution(dsn: str, run_id: str) -> None:
+    """两连接对照：另一会话真的持有该 Run 行锁时，终态观察必须判定为未解决。"""
+    holder = psycopg.connect(dsn)
+    observer = psycopg.connect(dsn, autocommit=True)
+    try:
+        assert holder.execute(
+            "SELECT 1 FROM research_run WHERE run_id=%s::text::uuid FOR UPDATE",
+            (str(UUID(run_id)),),
+        ).fetchone() == (1,)
+        assert observer.execute(
+            "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))",
+            (str(uuid4()),),
+        ).fetchone()[0]
+        with pytest.raises(AssertionError, match="行锁仍被未决事务持有"):
+            assert_run_transaction_resolved(dsn, "对照：Run 行锁被持有", run_id)
+        holder.rollback()
+        assert_run_transaction_resolved(dsn, "对照：Run 行锁已释放", run_id)
+    finally:
+        holder.rollback()
+        holder.close()
+        observer.close()
+
+
+def file_tree_digest(root: Path) -> dict[str, str]:
+    """目录树的确定性指纹：相对路径 -> 内容 sha256，用于证明一段执行没有在该树内留下任何文件。"""
+    if not root.exists():
+        return {}
+    return {
+        str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def http_json(
+    http: Any, method: str, path: str, body: dict[str, Any] | None, headers: dict[str, str]
+) -> tuple[int, dict[str, Any]]:
+    """对正式 Host 发起一次真实请求，返回实际状态码与解析后的正文。
+
+    失败时保留生产返回的原始错误正文，测试不伪造错误码，也不得用 HTTP 断言
+    代替对生产语义的观察；日志只允许落盘已脱敏的本机地址与业务字段。
+    """
+    from urllib.error import HTTPError
+    from urllib.request import Request
+
+    payload = None if body is None else json.dumps(body).encode()
+    request = Request(
+        f"http://127.0.0.1:5173{path}",
+        data=payload,
+        headers={"Origin": "http://127.0.0.1:5173", "Accept": "application/json", **headers},
+        method=method,
+    )
+    try:
+        with http.open(request, timeout=60) as response:
+            return response.status, json.loads(response.read(1024 * 1024))
+    except HTTPError as failure:
+        raw = failure.read(1024 * 1024)
+        try:
+            return failure.code, json.loads(raw)
+        except json.JSONDecodeError:
+            return failure.code, {"raw": raw.decode(errors="replace")}
+
+
+def formal_strategy_freeze(
+    http: Any, run_id: str, candidate: str, idempotency_key: str
+) -> dict[str, Any]:
+    """以当前已授权 Human 会话调用唯一正式入口 POST /api/v2/strategy-freezes。
+
+    请求体是公开契约 `StrategyFreezeInput` 的三个字段；命令身份由服务端生成，
+    测试不得自带命令身份。真实 POST 之后用同一会话 GET
+    /api/v2/strategy-freezes/commands/{command_id} 观察原命令，不重发 POST 制造结果。
+    Idempotency-Key 在一次用例内生成一次并保留，供失败归因与幂等重放观察。
+    """
+    status, view = http_json(
+        http,
+        "POST",
+        "/api/v2/strategy-freezes",
+        {"research_run_id": str(run_id), "candidate_fingerprint": candidate, "comment": None},
+        {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotency_key,
+        },
+    )
+    observed = {"status": status, "view": view, "idempotency_key": idempotency_key}
+    command_id = view.get("command_id") if isinstance(view, dict) else None
+    if isinstance(command_id, str) and command_id:
+        outcome_status, outcome = http_json(
+            http, "GET", f"/api/v2/strategy-freezes/commands/{command_id}", None, {}
+        )
+        observed["outcome_status"] = outcome_status
+        observed["outcome"] = outcome
+    return observed
 
 
 def scientific_snapshot(root: Path) -> dict[str, tuple[int, bytes]]:
@@ -834,34 +990,111 @@ def verify_public_science_rejects_rebound_facts(root: Path, report: dict[str, An
         "worker-deferred-guard",
         "qualification-product",
         "backtest-native",
-        "backtest-owner:full-interval-evidence",
-        "backtest-owner:pause-cancel",
+        "backtest-owner:memory-completion",
         "backtest-owner:queued-cancel",
         "backtest-owner:shutdown-resume",
+        "backtest-owner:attempts-exhausted",
+        "backtest-owner:expiry-before-finalization",
+        "backtest-owner:expiry-before-recovery-publication",
         "backtest-owner:running-cancel",
         "backtest-owner:crash-recover",
         "backtest-owner:lost-guard",
         "backtest-owner:cleanup-busy",
         "backtest-owner:windows",
+        "backtest-owner:worker-exit",
+        "backtest-owner:worker-exit-before-claim",
+        "backtest-owner:worker-exit-during-execution",
+        "backtest-owner:worker-exit-after-candidate",
+        "backtest-owner:worker-exit-during-insert",
+        "backtest-owner:recover-cancel",
+        "backtest-owner:missing-program",
+        "backtest-owner:missing-market-seal",
+        "backtest-owner:missing-market-row",
     ],
 )
 def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
-    native_environment_case: dict[str, Any],
-    market_probe: Path,
     database: Any,
     postgres_dsn: str,
-    strategy_evidence_owner_binary: Path,
     tmp_path: Path,
     mode: str,
     request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from packages.backend.tests.application.backtest_native_host import (
+        dump_stages,
+        reset_stages,
+        set_stage_sink,
+        stage,
+    )
     from packages.backend.tests.postgres_link import wait_no_advisory_locks
+
+    # 每条业务链路一张绝对时刻表。顺序固定：先把上一链路快照写回它自己的文件，再切换
+    # 到本案的追加文件，最后记 case-begin。外层整案预算把 pytest 截杀时 stdout 缓冲会丢，
+    # 但已真实发生的边界仍能从 stage-timings.jsonl 逐行读出。
+    reset_stages(mode)
+    set_stage_sink(tmp_path / "stage-timings.jsonl")
+    stage("case-begin")
 
     if mode.startswith("backtest-owner:"):
         native_environment_case = request.getfixturevalue("backtest_fault_environment")
         market_probe = native_environment_case["executable"]
-        strategy_evidence_owner_binary = native_environment_case["executable"]
+        strategy_evidence_owner_binary = market_probe
+    else:
+        native_environment_case = request.getfixturevalue("native_environment_case")
+        market_probe = request.getfixturevalue("market_probe")
+        strategy_evidence_owner_binary = request.getfixturevalue("strategy_evidence_owner_binary")
 
+    if mode == "backtest-native" or mode.startswith("backtest-owner:"):
+        from scripts.factor_build_database import prepare
+
+        # Match the existing contained-development transport contract and the
+        # native Web harness: NoTls is permitted only with explicit Disable.
+        postgres_dsn = make_conninfo(postgres_dsn, sslmode="disable")
+        monkeypatch.setenv("ONLYALPHA_POSTGRES_DSN", postgres_dsn)
+        monkeypatch.setenv("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN", prepare(postgres_dsn, test=True))
+    finite_research = mode in {
+        "backtest-owner:finite-publication",
+        "backtest-owner:queued-cancel",
+        "backtest-owner:running-cancel",
+        "backtest-owner:shutdown-resume",
+        "backtest-owner:attempts-exhausted",
+        "backtest-owner:expiry-before-finalization",
+        "backtest-owner:expiry-before-recovery-publication",
+        "backtest-owner:crash-recover",
+        "backtest-owner:lost-guard",
+        "backtest-owner:worker-exit",
+        "backtest-owner:worker-exit-before-claim",
+        "backtest-owner:worker-exit-during-execution",
+        "backtest-owner:worker-exit-after-candidate",
+        "backtest-owner:worker-exit-during-insert",
+        "backtest-owner:recover-cancel",
+        "backtest-owner:missing-program",
+        "backtest-owner:missing-market-seal",
+        "backtest-owner:missing-market-row",
+    }
+    memory_completion = finite_research or mode == "backtest-owner:memory-completion"
+    if memory_completion:
+        from copy import deepcopy
+
+        from packages.backend.tests.application.test_finite_job_completion import prepare_runtime_login
+
+        native_environment_case = deepcopy(native_environment_case)
+        reference = subprocess.run(
+            [str(market_probe)],
+            input=json.dumps(
+                {
+                    "op": "factor-reference",
+                    "candidate": native_environment_case["vector"]["candidate"],
+                    "factor_id": "private.factor.stage5_backtest_" + uuid4().hex,
+                }
+            ),
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=20,
+        )
+        native_environment_case["vector"] = json.loads(reference.stdout)
+        prepare_runtime_login(postgres_dsn)
     command = str(uuid4())
     digest = bytearray(
         hashlib.sha256(b"ONLYALPHA_NOVELTY_GATED_RESEARCH_RUN_ID_V4\x1f" + command.encode()).digest()[:16]
@@ -891,6 +1124,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         runtime_root=semantic / "runtime" if mode == "backtest-native" or mode.startswith("backtest-owner:") else None,
         first_bar_start=datetime(2025, 1, 2, 11, 39, tzinfo=UTC),
         fresh_runtime=mode != "backtest-native" and not mode.startswith("backtest-owner:"),
+        coherent_backtest=mode == "backtest-native" or mode.startswith("backtest-owner:"),
     )
     expected_first = int(datetime(2025, 1, 2, 11, 40, tzinfo=UTC).timestamp()) * 1_000_000_000
     assert case["axis_ns"] == [expected_first + minute * 60_000_000_000 for minute in range(740)]
@@ -909,9 +1143,28 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         strategy_evaluation=False,
         strategy_evidence=True,
     )
+    if memory_completion:
+        built = probe(
+            executable,
+            database,
+            "strategy-evidence-phase",
+            **arguments,
+            evidence_phase="memory-build",
+            build_instances=[
+                {
+                    "factor_id": case["vector"]["revision"]["factor_id"],
+                    "revision": case["vector"]["revision"]["revision_fingerprint"],
+                    "parameters": {"literal_1": "1"},
+                }
+            ],
+        )
+        assert "error" not in built, built
+    # 研究提交窗口：Run 建立 + 输入准备，是「研究实际执行」之前的独立阶段。
+    stage("research-submit-begin")
     submitted = probe(executable, database, "dataset-strategy-prepare", **arguments)
     assert "error" not in submitted, submitted
     assert submitted["run_id"] == run_id
+    stage("research-submit-end")
     common = {
         **arguments,
         "run_id": run_id,
@@ -920,6 +1173,8 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         "at": "2026-11-02T00:00:00Z",
         "replay_at": "2026-11-02T00:00:10Z",
     }
+    # 研究实际执行窗口：worker/execute 真实计算与统计，先于任何发布读回与 Freeze 准入。
+    stage("research-execution-begin")
     if mode == "worker":
         inventory = owner(strategy_evidence_owner_binary, postgres_dsn, research, "runtime-work-inventory", common)
         binding = [run_id, submitted["prepared_inputs"]["runtime_generation_fingerprint"], "research"]
@@ -1015,6 +1270,109 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
     elif mode == "worker":
         executed = probe(executable, database, "strategy-worker-phase", **common, evidence_phase="worker")
         assert executed.get("actual_worker") is True, executed
+    elif finite_research:
+        # The Run created by this case's own submitted command stays QUEUED until the
+        # actual finite worker publication path publishes it through the publisher role
+        # inside its own transaction. The legacy file-completion owner is removed for
+        # this mode before the worker is invoked, so no file completion can be reached.
+        with psycopg.connect(postgres_dsn) as db:
+            assert db.execute("SELECT state FROM research_run WHERE run_id=%s", (run_id,)).fetchone() == ("QUEUED",)
+        # The submitting probe process already exited. This Run's advisory locks live in
+        # this test database only, so one bounded observation of that namespace proves
+        # there is neither another live backend nor a Run lock before the worker claims it.
+        assert_run_transaction_resolved(
+            postgres_dsn, "有限 worker 认领前", run_id, command_ids=(command,)
+        )
+        owner_request = semantic / "research-owner-request.json"
+        owner_request.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "mode": "complete",
+                    "database": database.config.database,
+                    "url": database.config.url,
+                    "at": datetime.now(UTC).isoformat(),
+                    "runtime_root": str(semantic / "runtime"),
+                    "algorithm_root": arguments["algorithm_root"],
+                    "research_root": str(semantic / "research"),
+                }
+            )
+        )
+        # 认领前的 results 树快照：closed-cuts 源切账本与 .source-cut.lock 等既有产物
+        # 都在此记录，worker 之后必须逐字节不变，任何本 Run 的文件结果都会显形。
+        results_before = file_tree_digest(research / "results")
+        legacy_results = research / "results"
+        unavailable_results = research / "use_test_results_unavailable"
+        renamed = legacy_results.exists()
+        if renamed:
+            legacy_results.rename(unavailable_results)
+        try:
+            worker = subprocess.run(
+                [str(executable), "--exact", "actual_command_boundary", "--nocapture"],
+                env={
+                    **os.environ,
+                    "ONLYALPHA_POSTGRES_DSN": postgres_dsn,
+                    "ONLYALPHA_FREEZE_TEST_ROOT": str(semantic),
+                    "ONLYALPHA_FREEZE_TEST_PHASE": "research-owner:complete",
+                    "ONLYALPHA_RESEARCH_OWNER_REQUEST": str(owner_request),
+                    "ONLYALPHA_CLICKHOUSE_USER": database.config.user,
+                    "ONLYALPHA_CLICKHOUSE_PASSWORD": database.config.password,
+                },
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            assert not legacy_results.exists(), "the scheduler must not recreate a retired result owner"
+        finally:
+            if renamed:
+                unavailable_results.rename(legacy_results)
+        worker_log = worker.stdout + worker.stderr
+        (tmp_path / "research-worker.log").write_text(worker_log)
+        assert worker.returncode == 0, worker_log
+        values = [
+            json.loads(line.removeprefix("RESEARCH_WORKER_VALUE "))
+            for line in worker.stdout.splitlines()
+            if line.startswith("RESEARCH_WORKER_VALUE ")
+        ]
+        assert len(values) == 1, worker_log
+        owner_value = values[0]
+        assert owner_value["state"] == "COMPLETED", owner_value
+        assert owner_value["run_id"] == run_id and owner_value["members"] == 5, owner_value
+        assert owner_value["report_reads"] == 2 and owner_value["execution_count"] == 1, owner_value
+        with psycopg.connect(postgres_dsn) as db:
+            # 方案A 身份收敛：worker 报出的 publication 是发布身份，落库到 artifact_content_fingerprint；
+            # research_result_fingerprint 是生产方在同一成员表示上由科学域公式推导的科学结果身份，
+            # 与文件证据轨道同一定义，两者相互独立（Constitution §4.1）。
+            state, result_column, artifact_column = db.execute(
+                "SELECT state,research_result_fingerprint,artifact_content_fingerprint FROM research_run WHERE run_id=%s",
+                (run_id,),
+            ).fetchone()
+            assert state == "COMPLETED" and artifact_column == owner_value["publication"], (
+                run_id, state, artifact_column, owner_value,
+            )
+            assert result_column != artifact_column and all(
+                len(value) == 64 and value == value.lower() and all(ch in "0123456789abcdef" for ch in value)
+                for value in (result_column, artifact_column)
+            ), (result_column, artifact_column)
+            assert db.execute(
+                "SELECT state,attempt_number FROM research_run_attempt WHERE run_id=%s ORDER BY attempt_number",
+                (run_id,),
+            ).fetchall() == [("SUCCEEDED", 1)]
+            assert db.execute(
+                "SELECT count(*) FROM job_result_member WHERE job_kind='RESEARCH' AND run_id=%s",
+                (run_id,),
+            ).fetchone() == (5,)
+        # 有限 worker 进程已以 0 退出，它自己的 backend 会话随之结束；此处只用 Run 自身的
+        # 正式锁身份做有界观察：提交命令的 xact 护栏可重新取得，说明该事务已解决（结合上面
+        # 已断言的 COMPLETED 终态与恰好一次发布，可判定为提交而非中止）；Run 行锁可 NOWAIT
+        # 取得，说明没有任何未决事务仍持有该 Run。随后两组两连接对照证明这两项判定确实按
+        # 精确身份生效：不同键/无持有者不误报，真实持有目标键或目标行时必须判定为未解决。
+        assert_run_transaction_resolved(
+            postgres_dsn, "有限 worker 发布之后", run_id, command_ids=(command,)
+        )
+        assert_run_guard_attribution(postgres_dsn, run_id, command)
+        assert_run_row_lock_attribution(postgres_dsn, run_id)
+        executed = {**owner_value}
     else:
         # This technical operation performs two complete observations before
         # concurrent publication. Give each the ordinary probe's 30-second
@@ -1023,8 +1381,21 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
             executable, database, "strategy-evidence-phase", process_timeout=2 * 30, **common, evidence_phase="execute"
         )
         assert executed.get("semantic_replay") is True and executed.get("concurrent_publication") is True, executed
-    assert "error" not in executed and executed["state"] == "COMPLETED", executed
-    wait_no_advisory_locks(postgres_dsn, executed["backend_pid"])
+    assert "error" not in executed, executed
+    assert executed["state"] == "COMPLETED", executed
+    stage("research-execution-end")
+    stage("research-drain-begin")
+    if finite_research:
+        # 本模式的 owner 是已经返回的有限 worker 进程，终态复核同样只用 Run 自身的锁身份：
+        # 命令护栏与 Run 行锁都必须已随事务解决而释放。
+        assert_run_transaction_resolved(
+            postgres_dsn, "有限 worker 终态复核", run_id, command_ids=(command,)
+        )
+    else:
+        # Every other mode owns a still-live backend inside the probe, so the original
+        # per-backend drain stays mandatory: a missing pid here is a failure, not a skip.
+        wait_no_advisory_locks(postgres_dsn, executed["backend_pid"])
+    stage("research-drain-end")
     if mode == "worker":
         inventory = owner(strategy_evidence_owner_binary, postgres_dsn, research, "runtime-work-inventory", common)
         assert inventory["read_only"] is True and binding not in inventory["bindings"], (
@@ -1043,64 +1414,175 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         assert db.execute(
             "SELECT state FROM research_run_attempt WHERE run_id=%s ORDER BY attempt_number", (run_id,)
         ).fetchall() == ([("EXPIRED",), ("SUCCEEDED",)] if mode == "commit-crash" else [("SUCCEEDED",)])
-    report_path = research / "artifacts/research-strategy-v1/runs" / run_id / "manifest.json"
-    report = json.loads(report_path.read_text())
-    assert report_path.read_text() == only_canonical_json(report)
-    assert report["artifact_content_fingerprint"] == row[2]
-    assert report["run_id"] == run_id and report["specification_fingerprint"] == row[3]
-    assert report["scientific_specification_fingerprint"] == submitted["scientific_specification_fingerprint"]
-    assert report["prepared_inputs"] == submitted["prepared_inputs"]
-    assert report["candidate_fingerprint"] == submitted["candidate_fingerprint"]
-    assert (
-        report["observation"]["producer"]["native_image"]["artifact"]
-        == submitted["prepared_inputs"]["execution_binding"]["executor_artifact_sha256"]
-    )
-    result, evidence_paths = verify_public_science(research, report)
-    if mode == "normal":
-        verify_public_science_rejects_rebound_facts(research, report)
-    # Different current code image and unavailable installed SDK cannot erase
-    # verified historical bytes or grant the released work for execution.
-    different = tmp_path / "use_test_other_current_image"
-    shutil.copyfile(executable, different)
-    different.write_bytes(different.read_bytes() + b"\n# different current image\n")
-    different.chmod(0o500)
-    algorithm = Path(arguments["algorithm_root"])
-    unavailable = algorithm.with_name("use_test_historical_algorithm_unavailable")
-    algorithm.rename(unavailable)
-    try:
-        inspected = probe(different, database, "strategy-evidence-phase", **common, evidence_phase="inspect")
-    finally:
-        unavailable.rename(algorithm)
-    assert "error" not in inspected and inspected["report"] == report, inspected
-    wait_no_advisory_locks(postgres_dsn, inspected["backend_pid"])
-    missing_runtime = probe(
-        different,
-        database,
-        "strategy-evidence-phase",
-        **{**common, "runtime_root": str(tmp_path / "use_test_missing_runtime")},
-        evidence_phase="inspect",
-    )
-    assert "error" in missing_runtime and not (tmp_path / "use_test_missing_runtime").exists()
-    projection = json.loads(
-        (
-            research
-            / "experiment-memory/revisions/sha256"
-            / inspected["projection"][:2]
-            / inspected["projection"]
-            / "projection.json"
-        ).read_text()
-    )
-    evaluation = [r for r in projection["records"] if r["kind"] == "EvaluationProjectionRecord"]
-    assert any(
-        run_id in r["facets"]["research_run_refs"]
-        and submitted["scientific_specification_fingerprint"] in r["facets"]["specification_refs"]
-        for r in evaluation
-    )
-    freeze_request = {**common, "freeze_command": str(uuid4())}
-    frozen = owner(strategy_evidence_owner_binary, postgres_dsn, research, "freeze", freeze_request)
-    assert frozen["result"] == row[1] and frozen["candidate"] == report["candidate_fingerprint"]
-    assert frozen["equivalence"] == report["equivalence_evidence_fingerprints"]
-    assert frozen["counts"] == [2, 2]
+    if finite_research:
+        # 有限 worker 只通过 Run 自己的正式 PG 发布交付事实：必须没有 Run 目录、文件清单
+        # 与任何文件结果；发布身份、成员集合与执行证据一律取自发布表本身，
+        # 冻结语义身份留给唯一生产入口 POST /api/v2/strategy-freezes 现场证明。
+        run_dir = research / "artifacts/research-strategy-v1/runs" / run_id
+        assert not run_dir.exists(), f"有限模式不得留下 Run 目录：{run_dir}"
+        # research/results 下的 closed-cuts 是提交阶段按内容寻址的源切账本，与本 Run 的
+        # 交付无关；本 Run 的文件结果 owner 已退役，因此 results 里既不能有 Run 目录，
+        # 也不能出现任何以 Run ID 命名的产物，只允许 closed-cuts 这一类既有源切证据。
+        results = research / "results"
+        run_files = sorted(str(q.relative_to(results)) for q in results.rglob("*") if run_id in q.parts or q.name == str(run_id))
+        assert run_files == [], f"有限模式不得留下本 Run 的文件结果：{run_files}"
+        assert file_tree_digest(results) == results_before, (
+            "有限 worker 只能在自身事务内写正式 PG 发布，results 树必须逐字节不变："
+            f"{sorted(set(file_tree_digest(results)) ^ set(results_before))}"
+        )
+        # 发布读回窗口：正式 PG 发布、冻结绑定与成员集合，全部在同一个连接事务外读取。
+        stage("research-publication-read-begin")
+        with psycopg.connect(postgres_dsn) as db:
+            publications = db.execute(
+                "SELECT run_id::text,publication_fingerprint,binding_fingerprint,manifest_payload "
+                "FROM job_publication WHERE job_kind='RESEARCH'"
+            ).fetchall()
+            bindings = db.execute(
+                "SELECT binding_fingerprint,payload FROM job_frozen_binding "
+                "WHERE job_kind='RESEARCH' AND run_id=%s",
+                (run_id,),
+            ).fetchall()
+            members = db.execute(
+                "SELECT member_key,descriptor,content_fingerprint FROM job_result_member "
+                "WHERE job_kind='RESEARCH' AND run_id=%s ORDER BY member_key",
+                (run_id,),
+            ).fetchall()
+            producer = db.execute(
+                "SELECT calculation_execution_evidence_fingerprints,research_result_fingerprint,"
+                "artifact_content_fingerprint FROM research_run WHERE run_id=%s",
+                (run_id,),
+            ).fetchone()
+        assert len(publications) == 1 and publications[0][0] == run_id, publications
+        assert len(bindings) == 1 and bindings[0][0] == publications[0][2], (
+            "发布必须绑定提交时冻结的同一结果计划，而不是 worker 自行拟定的计划",
+            bindings,
+            publications,
+        )
+        planned = {item["key"]: item for item in json.loads(bindings[0][1])["result_plan"]["members"]}
+        published = {item["key"]: item for item in json.loads(publications[0][3])["members"]}
+        assert len(planned) == 5 and sorted(planned) == sorted(published) == sorted(m[0] for m in members), {
+            "frozen_plan": sorted(planned),
+            "publication_manifest": sorted(published),
+            "materialised_members": sorted(m[0] for m in members),
+        }
+        for key, descriptor, content_fingerprint in members:
+            # 落库成员的描述符必须逐字段等于冻结计划的成员条目，发布清单引用的内容摘要
+            # 必须就是该成员的实际内容摘要；否则发布只是自报计数。
+            assert json.loads(descriptor) == planned[key], (key, descriptor, planned[key])
+            assert published[key]["content_fingerprint"] == content_fingerprint, (
+                key,
+                published[key],
+                content_fingerprint,
+            )
+        kinds = sorted({json.loads(item[1])["kind"] for item in members})
+        causal = sorted({item[2] for item in members if json.loads(item[1])["kind"] == "CAUSAL_EVIDENCE"})
+        assert causal and list(producer[0]) == causal, {
+            "producer_column": producer[0],
+            "causal_members": causal,
+            "member_kinds": kinds,
+        }
+        # 方案A 身份收敛：发布身份（publication_fingerprint）三处相等——Run 的 artifact 列、
+        # job_publication.publication_fingerprint、worker 报出的 publication；科学结果身份独立，
+        # 落库在 Run 的 research_result_fingerprint 列，由读取方在成员正文上重算核对（§4.1/§4.5）。
+        assert producer[2] == row[2] == publications[0][1] == executed["publication"], (
+            producer, row, publications, executed,
+        )
+        assert producer[1] == row[1], (producer, row)
+        assert producer[1] != producer[2] and len(producer[1]) == 64, producer
+        stage("research-publication-read-end")
+        report = {
+            "run_id": run_id,
+            "specification_fingerprint": row[3],
+            "scientific_specification_fingerprint": submitted["scientific_specification_fingerprint"],
+            "prepared_inputs": submitted["prepared_inputs"],
+            # 候选身份由策略规格决定，与发布指纹是两个独立身份；正式 Freeze 入口会自行
+            # 从发布重算候选并要求一致，因此这里必须提交准入时的候选，不能拿发布指纹顶替。
+            "candidate_fingerprint": submitted["candidate_fingerprint"],
+            # 方案A：科学结果身份取自 Run 的 research_result_fingerprint 列（生产方在成员正文上
+            # 由科学域公式推导，读取方重算核对），发布身份落在 artifact_content_fingerprint 列，两者不再混同。
+            "research_result_fingerprint": producer[1],
+            "artifact_content_fingerprint": producer[2],
+        }
+        result = {"research_result_fingerprint": producer[1]}
+        evidence_paths = []
+        # 冻结必须由已授权 Human 会话经正式入口在生产路径上完成，不在测试内直接调用 Freeze。
+        # 这里只传 PG 侧已经证明的正式身份，供生产 Freeze 之后做语义身份交叉核对；
+        # 冻结自身的语义身份必须由生产入口现场给出，不能由本用例预先写入。
+        frozen = {
+            "publication": {
+                "run_id": run_id,
+                "candidate_fingerprint": report["candidate_fingerprint"],
+                "publication_fingerprint": publications[0][1],
+                "research_result_fingerprint": report["research_result_fingerprint"],
+                "artifact_content_fingerprint": report["artifact_content_fingerprint"],
+                "execution_evidence_fingerprints": causal,
+            }
+        }
+    else:
+        # 文件泳道同一逻辑阶段：读回发布清单并做公开科学证据核验，独立可归因窗口。
+        stage("research-publication-read-begin")
+        report_path = research / "artifacts/research-strategy-v1/runs" / run_id / "manifest.json"
+        report = json.loads(report_path.read_text())
+        assert report_path.read_text() == only_canonical_json(report)
+        assert report["artifact_content_fingerprint"] == row[2]
+        assert report["run_id"] == run_id and report["specification_fingerprint"] == row[3]
+        assert report["scientific_specification_fingerprint"] == submitted["scientific_specification_fingerprint"]
+        assert report["prepared_inputs"] == submitted["prepared_inputs"]
+        assert report["candidate_fingerprint"] == submitted["candidate_fingerprint"]
+        assert (
+            report["observation"]["producer"]["native_image"]["artifact"]
+            == submitted["prepared_inputs"]["execution_binding"]["executor_artifact_sha256"]
+        )
+        result, evidence_paths = verify_public_science(research, report)
+        if mode == "normal":
+            verify_public_science_rejects_rebound_facts(research, report)
+        # Different current code image and unavailable installed SDK cannot erase
+        # verified historical bytes or grant the released work for execution.
+        different = tmp_path / "use_test_other_current_image"
+        shutil.copyfile(executable, different)
+        different.write_bytes(different.read_bytes() + b"\n# different current image\n")
+        different.chmod(0o500)
+        algorithm = Path(arguments["algorithm_root"])
+        unavailable = algorithm.with_name("use_test_historical_algorithm_unavailable")
+        algorithm.rename(unavailable)
+        try:
+            inspected = probe(different, database, "strategy-evidence-phase", **common, evidence_phase="inspect")
+        finally:
+            unavailable.rename(algorithm)
+        assert "error" not in inspected and inspected["report"] == report, inspected
+        wait_no_advisory_locks(postgres_dsn, inspected["backend_pid"])
+        missing_runtime = probe(
+            different,
+            database,
+            "strategy-evidence-phase",
+            **{**common, "runtime_root": str(tmp_path / "use_test_missing_runtime")},
+            evidence_phase="inspect",
+        )
+        assert "error" in missing_runtime and not (tmp_path / "use_test_missing_runtime").exists()
+        projection = json.loads(
+            (
+                research
+                / "experiment-memory/revisions/sha256"
+                / inspected["projection"][:2]
+                / inspected["projection"]
+                / "projection.json"
+            ).read_text()
+        )
+        evaluation = [r for r in projection["records"] if r["kind"] == "EvaluationProjectionRecord"]
+        assert any(
+            run_id in r["facets"]["research_run_refs"]
+            and submitted["scientific_specification_fingerprint"] in r["facets"]["specification_refs"]
+            for r in evaluation
+        )
+        stage("research-publication-read-end")
+        # Freeze 可见性窗口：文件泳道由 owner 走生产 Freeze 读取语义身份。
+        stage("research-freeze-begin")
+        freeze_request = {**common, "freeze_command": str(uuid4())}
+        frozen = owner(strategy_evidence_owner_binary, postgres_dsn, research, "freeze", freeze_request)
+        assert frozen["result"] == row[1] and frozen["candidate"] == report["candidate_fingerprint"]
+        assert frozen["equivalence"] == report["equivalence_evidence_fingerprints"]
+        assert frozen["counts"] == [2, 2]
+        stage("research-freeze-end")
     if mode == "normal":
         retained = owner(
             strategy_evidence_owner_binary,
@@ -1232,7 +1714,12 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         )
     if mode == "backtest-native" or mode.startswith("backtest-owner:"):
         from packages.backend.tests.application.backtest_native_host import exercise_native_backtest_host
+        from scripts.node_database import prepare as prepare_node
 
+        # Test setup retains the separate operator connection. The actual Host
+        # receives only the approved ordinary Node login; no administrator fallback.
+        monkeypatch.setenv("ONLYALPHA_HOST_POSTGRES_DSN", prepare_node(postgres_dsn, test=True))
+        stage("native-dispatch-begin")
         exercise_native_backtest_host(
             strategy_evidence_owner_binary,
             postgres_dsn,
@@ -1244,9 +1731,14 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
             database,
             tmp_path / "use_test_backtest_native",
             owner_fault=mode.removeprefix("backtest-owner:") if mode.startswith("backtest-owner:") else None,
+            web_assets=request.getfixturevalue("backtest_web_assets") if mode.startswith("backtest-owner:") else None,
         )
+        stage("native-dispatch-end")
     if mode == "qualification-product":
         from packages.backend.tests.application.qualification_product_owner import exercise_qualification_product
 
         exercise_qualification_product(strategy_evidence_owner_binary, postgres_dsn, research, common, frozen)
     assert result["research_result_fingerprint"] == report["research_result_fingerprint"]
+    stage("case-end")
+    # 每案一份完整绝对时刻表：未到达的键保持缺失，即「未达到」而不是「耗时 0」。
+    dump_stages(mode)

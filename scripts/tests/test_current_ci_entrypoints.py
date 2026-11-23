@@ -780,76 +780,103 @@ def test_nightly_mutation_guard_and_campaign_use_the_same_fixed_environment():
     assert "COPY --from=rust-tools /usr/local/cargo /usr/local/cargo" in dockerfile
 
 
-def _paused_backtest_observation():
+def _active_backtest_observation():
     return {
-        "run_id": "00000000-0000-4000-8000-000000000001",
-        "binding": {"work_id": "00000000-0000-4000-8000-000000000001"},
-        "execution_prefix": [{"sequence": 1, "logical_digest": "a" * 64, "ready": True}],
-        "replay_prefix": [{"sequence": 1, "digest": "b" * 64, "logical_digest": "c" * 64, "ready": True}],
-        "steps": [
-            {"sequence": 1, "kind": "PAUSE", "status": "PAUSED", "input_finished": False, "input_cancelled": False}
-        ],
-        "state": {"status": "PAUSED", "input_finished": False, "outcome": None},
+        "run": {
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "state": "RUNNING",
+            "specification_fingerprint": "1" * 64,
+            "admission_resolution_fingerprint": "2" * 64,
+            "queued_at": "2026-11-20T00:00:00+00:00",
+            "started_at": "2026-11-20T00:00:01+00:00",
+            "cancel_requested_at": None,
+        },
+        "binding": '{"scope":{"namespace":"test"}}',
+        "binding_fingerprint": "3" * 64,
+        "observed_at": "2026-11-20T00:00:02+00:00",
+        "attempts": [{
+            "attempt_id": "first-attempt",
+            "attempt_number": 1,
+            "worker_instance_id": "initial-host",
+            "fencing_token": 1,
+            "state": "ACTIVE",
+            "claimed_at": "2026-11-20T00:00:01+00:00",
+            "lease_expires_at": "2026-11-20T00:02:01+00:00",
+        }],
+        "receipts": {"CREATE_BACKTEST_RUN": [{"command_id": "create-command"}]},
+        "publication": None,
+        "members": [],
     }
 
 
-@pytest.mark.parametrize(
-    "invalid", ["none", "completed", "finished", "cancelled", "no-execution", "no-replay", "outcome"]
-)
-def test_running_web_recovery_requires_actual_drained_pause_instead_of_natural_completion(invalid):
-    from scripts.native_web_e2e import require_paused_backtest
+@pytest.mark.parametrize("invalid", [None, "completed", "expired", "cancelled", "published", "orphan-member"])
+def test_running_web_recovery_requires_the_original_active_attempt_after_host_drain(invalid):
+    from copy import deepcopy
 
-    observed = _paused_backtest_observation()
+    from scripts.native_web_backtest import require_stopped_backtest
+
+    before = _active_backtest_observation()
+    after = deepcopy(before)
     if invalid == "completed":
-        observed["steps"][-1].update(kind="TERMINATE", status="TERMINATED")
-        observed["state"].update(status="TERMINATED", outcome={"status": "COMPLETED"})
-    elif invalid == "finished":
-        observed["steps"][-1]["input_finished"] = True
+        after["run"]["state"] = "COMPLETED"
+    elif invalid == "expired":
+        after["observed_at"] = before["attempts"][0]["lease_expires_at"]
     elif invalid == "cancelled":
-        observed["steps"][-1]["input_cancelled"] = True
-    elif invalid == "no-execution":
-        observed["execution_prefix"] = []
-    elif invalid == "no-replay":
-        observed["replay_prefix"] = []
-    elif invalid == "outcome":
-        observed["state"]["outcome"] = {"status": "COMPLETED"}
-    if invalid == "none":
-        require_paused_backtest(observed)
+        after["run"]["cancel_requested_at"] = after["observed_at"]
+    elif invalid == "published":
+        after["publication"] = {"attempt_id": "first-attempt"}
+    elif invalid == "orphan-member":
+        after["members"] = ["causal_evidence"]
+    if invalid is None:
+        require_stopped_backtest(before, after)
     else:
         with pytest.raises(AssertionError):
-            require_paused_backtest(observed)
+            require_stopped_backtest(before, after)
 
 
 @pytest.mark.parametrize(
-    "invalid", ["none", "run", "binding", "execution", "replay", "old-step", "no-resume", "failed"]
+    "invalid", [None, "run", "binding", "renewed", "early-claim", "reused-fence", "wrong-winner", "missing-member"]
 )
-def test_running_web_recovery_retains_original_prefix_and_requires_actual_resume_then_completion(invalid):
-    import copy
+def test_running_web_recovery_requires_expiry_and_publication_by_a_fresh_claim(invalid):
+    from copy import deepcopy
 
-    from scripts.native_web_e2e import require_resumed_backtest
+    from scripts.native_web_backtest import MEMBERS, require_resumed_backtest
 
-    before = _paused_backtest_observation()
-    after = copy.deepcopy(before)
-    after["steps"] += [
-        {"sequence": 2, "kind": "RESUME", "status": "RUNNING"},
-        {"sequence": 3, "kind": "TERMINATE", "status": "TERMINATED"},
-    ]
-    after["state"] = {"outcome": {"status": "COMPLETED"}}
+    before = _active_backtest_observation()
+    after = deepcopy(before)
+    completed = "4" * 64
+    after["run"].update(
+        state="COMPLETED", evidence_fingerprint=completed, result_fingerprint=completed,
+        determinism_fingerprint=completed,
+    )
+    after["attempts"][0].update(
+        state="EXPIRED", failure_code="LEASE_EXPIRED", finished_at="2026-11-20T00:02:02+00:00"
+    )
+    after["attempts"].append({
+        "attempt_id": "second-attempt", "attempt_number": 2, "worker_instance_id": "cold-host",
+        "fencing_token": 2, "state": "SUCCEEDED", "claimed_at": "2026-11-20T00:02:03+00:00",
+    })
+    after["publication"] = {
+        "attempt_id": "second-attempt", "attempt_number": 2, "worker_id": "cold-host", "fence": 2,
+        "binding_fingerprint": before["binding_fingerprint"], "publication_fingerprint": completed,
+    }
+    after["members"] = list(MEMBERS)
     if invalid == "run":
-        after["run_id"] = "00000000-0000-4000-8000-000000000002"
+        after["run"]["run_id"] = "00000000-0000-4000-8000-000000000002"
     elif invalid == "binding":
-        after["binding"]["work_id"] = "foreign"
-    elif invalid == "execution":
-        after["execution_prefix"][0]["logical_digest"] = "d" * 64
-    elif invalid == "replay":
-        after["replay_prefix"][0]["digest"] = "d" * 64
-    elif invalid == "old-step":
-        after["steps"][0]["status"] = "RUNNING"
-    elif invalid == "no-resume":
-        after["steps"].pop(1)
-    elif invalid == "failed":
-        after["state"]["outcome"]["status"] = "FAILED"
-    if invalid == "none":
+        after["binding"] = '{}'
+    elif invalid == "renewed":
+        after["attempts"][0]["lease_expires_at"] = "2026-11-20T00:02:02+00:00"
+    elif invalid == "early-claim":
+        after["attempts"][1]["claimed_at"] = "2026-11-20T00:02:01+00:00"
+    elif invalid == "reused-fence":
+        after["attempts"][1]["fencing_token"] = 1
+        after["publication"]["fence"] = 1
+    elif invalid == "wrong-winner":
+        after["publication"]["attempt_id"] = "first-attempt"
+    elif invalid == "missing-member":
+        after["members"].pop()
+    if invalid is None:
         require_resumed_backtest(before, after)
     else:
         with pytest.raises(AssertionError):

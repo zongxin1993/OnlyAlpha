@@ -6,6 +6,8 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +36,12 @@ def native_environment_case(tmp_path_factory: pytest.TempPathFactory, native_rel
     from scripts.dev_verification import source_inputs
     from scripts.embed_build_provenance import resolve_build_provenance_bytes
 
+    started=time.monotonic_ns()
     temporary = tmp_path_factory.mktemp("native-environment")
     root, runtime = temporary / "release", temporary / "runtime"
     root.mkdir()
     artifact = install(root / "wheels", root / "algorithms")
+    print(f"[research-fixture] phase=sdk-installed elapsed_us={(time.monotonic_ns()-started)//1000}",file=sys.stderr,flush=True)
     (root / "bin").mkdir()
     executable = root / "bin/onlyalpha-backend"
     shutil.copyfile(native_release_probe, executable)
@@ -61,8 +65,9 @@ def native_environment_case(tmp_path_factory: pytest.TempPathFactory, native_rel
             }
         )
     )
-    # Keep the original immutable Factor source/revision fixture, including its
-    # own semantic version. Rust independently derives the current native graph.
+    print(f"[research-fixture] phase=release-sealed elapsed_us={(time.monotonic_ns()-started)//1000}",file=sys.stderr,flush=True)
+    # New development fixtures use the current Factor API and exact reference
+    # identities. Rust independently verifies this current native graph.
     vector = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())
     return {
         "root": root,

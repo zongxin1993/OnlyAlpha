@@ -1,5 +1,6 @@
 //! Immutable native Research publication in the existing semantic owners.
 //! Execution produces numbers; verified reads validate stored facts and exact relations.
+mod publication;
 pub(crate) mod strategy;
 use crate::application::{
     factor_content::hash,
@@ -12,6 +13,9 @@ use crate::application::{
 use crate::security::{
     immutable_json::{Directory, SourceLock, inspect_source_layout, put},
     protected_files::{self as files, ReadError},
+};
+pub use publication::{
+    ResearchPublication, read_published_strategy, read_published_strategy_if_present,
 };
 use rustix::fs;
 use serde_json::{Value, json};
@@ -981,7 +985,7 @@ impl<'cut> SourceVerification<'cut> {
         owner_root: &Path,
         family: &str,
         locator: &str,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
     ) -> Result<(String, Value)> {
         let key = (owner_root.to_path_buf(), locator.to_owned());
         if let Some(value) = self.facts.get(&key) {
@@ -1099,7 +1103,7 @@ impl<'cut> SourceVerification<'cut> {
         &mut self,
         owner_root: &Path,
         locator: &str,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
     ) -> Result<(String, Value)> {
         use super::qualification_decision::Store as Decisions;
         use crate::application::{
@@ -1225,79 +1229,42 @@ impl<'cut> SourceVerification<'cut> {
         let plan = pin(evidence, "locator_fingerprint")?;
         let relation_id = pin(evidence, "subject_binding_fingerprint")?;
         let subject = pin(&candidate, "subject_strategy_fingerprint")?;
-        let runtime = self
-            .runtime_root
-            .as_deref()
-            .ok_or("NOVELTY_PROOF_UNAVAILABLE")?;
-        let store = Store::open_for_source(research)?.with_runtime_root(runtime)?;
-        let (result_id, _) = self
-            .verify_in_transaction(&research.join("results"), "RESEARCH_RESULT", plan, tx)
-            .await?;
-        if result_id != result {
+        let namespace = decisions.namespace()?;
+        let original = crate::application::strategy_projection::freeze_research_locators_in_transaction(
+            tx, &namespace, None, subject, relation_id,
+        )
+        .await?
+        .into_iter()
+        .next()
+        .ok_or("NOVELTY_PROOF_UNAVAILABLE")?;
+        let run = super::research_submission::load_in_transaction(
+            tx, &original.run_id, Some(&original.owner),
+        ).await?;
+        if !run.completed() {
+            return Err("RESEARCH_OPERATIONAL_COMPLETION_REQUIRED");
+        }
+        let published = tx.read_research_publication(&namespace, &run).await
+            .map_err(super::job_publication::PublicationError::code)?;
+        let publication = ResearchPublication::from_published(&run, published)
+            .map_err(super::job_publication::PublicationError::code)?;
+        if publication.candidate_fingerprint() != original.candidate {
             return Err(INVALID);
         }
-        let frozen = FrozenStore::open(store.root.fd.as_fd()).map_err(|_| INVALID)?;
-        // This new source reader uses the existing Qualification/Frozen inventory
-        // work allowance. Counts keeps its owning verification/budgets unchanged.
-        let relation = frozen
-            .load_relation_verified(relation_id, 64 * 1024 * 1024)
-            .map_err(|_| INVALID)?;
-        let binding = relation.to_record();
-        if relation.strategy_fingerprint() != subject
-            || binding["research_result_fingerprint"] != result
+        let root = Directory::open(research)?;
+        let frozen = Arc::new(FrozenStore::open(root.fd.as_fd()).map_err(|error| error.code())?);
+        let counts = Arc::new(VerifiedResearchCounts::from_publication(publication, frozen, relation_id)?);
+        if counts.subject_strategy_fingerprint() != subject
+            || counts.research_result_fingerprint() != result
+            || counts.research_result_plan_fingerprint() != plan
+            || counts.freeze_relation_fingerprint() != relation_id
         {
             return Err(INVALID);
         }
-        let policies = Arc::new(Policies::open(store.root.fd.as_fd()).map_err(|_| INVALID)?);
-        // The immutable report inventory is only a locator selection. Take a
-        // completed exact original occurrence in stable order; once selected,
-        // any corrupt owning input fails rather than searching for a substitute.
-        let mut verified = None;
-        for id in store.strategy_report_ids()? {
-            let report = store.strategy_source_candidate(&id)?;
-            if report["research_result_plan_fingerprint"] != plan
-                || report["research_result_fingerprint"] != result
-                || report["candidate_fingerprint"] != binding["candidate_fingerprint"]
-                || report["source_revision"]["strategy_fingerprint"] != subject
-            {
-                continue;
-            }
-            let run = super::research_submission::load_in_transaction(tx, &id, None).await?;
-            if !run.completed() {
-                continue;
-            }
-            if !matches!(
-                run.specification(),
-                crate::application::research_run::NativeSpecification::Strategy(_)
-            ) {
-                return Err(INVALID);
-            }
-            let counts = Arc::new(store.read_verified_counts_captured(
-                &run,
-                &frozen,
-                relation_id,
-                self.locks.to_vec(),
-            )?);
-            if counts.subject_strategy_fingerprint() != subject
-                || counts.research_result_fingerprint() != result
-                || counts.research_result_plan_fingerprint() != plan
-                || counts.freeze_relation_fingerprint() != relation_id
-            {
-                return Err(INVALID);
-            }
-            let decision = Arc::new(decisions.load_verified_captured(
-                policies.clone(),
-                &counts,
-                locator,
-                source.clone(),
-            )?);
-            if decision.record() != &candidate {
-                return Err(INVALID);
-            }
-            verified = Some(decision);
-            break;
+        let policies = Arc::new(Policies::open(root.fd.as_fd()).map_err(|error| error.code())?);
+        let decision = Arc::new(decisions.load_verified_captured(policies, &counts, locator, source)?);
+        if decision.record() != &candidate {
+            return Err(INVALID);
         }
-        let decision = verified.ok_or("NOVELTY_PROOF_UNAVAILABLE")?;
         decision.verify_cut()?;
         let record = (locator.to_owned(), decision.record().clone());
         self.bytes = self
@@ -1633,33 +1600,118 @@ pub struct VerifiedResearchCounts {
     freeze_relation_fingerprint: String,
     statistics_result_count: u64,
     calculation_result_count: u64,
-    validated_calculations: Option<Value>,
-    source_locks: Vec<Arc<SourceLock>>,
-    strategy_cut: Option<Arc<StrategyReadCut>>,
+    evidence: ResearchCountsEvidence,
 }
+
+enum ResearchCountsEvidence {
+    Files {
+        prepared_inputs: Value,
+        cut: Arc<StrategyReadCut>,
+    },
+    Published {
+        publication: Box<ResearchPublication>,
+        frozen: Arc<crate::application::frozen_strategy::FrozenStore>,
+        relation: crate::application::frozen_strategy::FreezeRelation,
+    },
+    #[cfg(test)]
+    Test(Option<Arc<SourceLock>>),
+}
+
 impl VerifiedResearchCounts {
-    /// Original installed definitions/implementations from the actual report,
-    /// retained under its owning cut. Unit count vectors supply no provenance.
+    pub(crate) fn from_publication(
+        publication: ResearchPublication,
+        frozen: Arc<crate::application::frozen_strategy::FrozenStore>,
+        relation_id: &str,
+    ) -> Result<Self> {
+        use crate::application::frozen_strategy::FrozenPlan;
+        use super::job_publication::PublicationError;
+        let relation = FrozenPlan::from_published(&publication)
+            .map_err(|error| error.code())?
+            .relation()
+            .clone();
+        if relation.fingerprint() != relation_id {
+            return Err("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH");
+        }
+        let science = pin(&relation.to_record(), "research_result_fingerprint")?.to_owned();
+        let (result, artifact, references) = publication.run().completion.as_ref()
+            .ok_or("RESEARCH_OPERATIONAL_COMPLETION_REQUIRED")?;
+        if result != &science
+            || artifact != publication.publication().fingerprint()
+            || references != &publication.execution_evidence_fingerprints().map_err(PublicationError::code)?
+        {
+            return Err("JOB_RESULT_MISMATCH");
+        }
+        let spec = publication.run().strategy_specification()?;
+        let counts = Self {
+            subject_strategy_fingerprint: relation.strategy_fingerprint().into(),
+            research_result_fingerprint: science,
+            research_result_plan_fingerprint: hash(&spec.result_plan()?)?,
+            freeze_relation_fingerprint: relation_id.into(),
+            statistics_result_count: spec.statistics_intents()?.len() as u64,
+            calculation_result_count: spec.calculation_graphs().count() as u64,
+            evidence: ResearchCountsEvidence::Published {
+                publication: Box::new(publication),
+                frozen,
+                relation,
+            },
+        };
+        counts.verify_cut()?;
+        Ok(counts)
+    }
+
     pub(crate) fn validated_calculations(&self) -> Result<&Value> {
         self.verify_cut()?;
-        self.validated_calculations
-            .as_ref()
-            .ok_or("QUALIFICATION_VALIDATED_CALCULATIONS_REQUIRED")
+        match &self.evidence {
+            ResearchCountsEvidence::Files { prepared_inputs, .. } => Ok(prepared_inputs),
+            ResearchCountsEvidence::Published { publication, .. } => Ok(&publication.run().prepared_inputs),
+            #[cfg(test)]
+            ResearchCountsEvidence::Test(_) => Err("QUALIFICATION_VALIDATED_CALCULATIONS_REQUIRED"),
+        }
     }
     pub(crate) fn verify_cut(&self) -> Result<()> {
-        if self.source_locks.is_empty() {
-            return Err("QUALIFICATION_RESEARCH_CUT_REQUIRED");
+        match &self.evidence {
+            ResearchCountsEvidence::Files { cut, .. } => cut.verify(),
+            ResearchCountsEvidence::Published { publication, frozen, relation } => {
+                let namespace = frozen.namespace().map_err(|error| error.code())?;
+                if publication.publication().binding().namespace() != namespace.value() {
+                    return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");
+                }
+                if &frozen.load_relation_verified(relation.fingerprint(), 64 * 1024 * 1024)
+                    .map_err(|error| error.code())? != relation
+                {
+                    return Err("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH");
+                }
+                Ok(())
+            }
+            #[cfg(test)]
+            ResearchCountsEvidence::Test(cut) => cut.as_ref()
+                .ok_or("QUALIFICATION_RESEARCH_CUT_REQUIRED")?.verify(),
         }
-        if let Some(cut) = &self.strategy_cut {
-            cut.verify()?;
+    }
+    pub(crate) async fn verify_in_transaction(
+        &self,
+        tx: &super::build_fact_read::BuildFactRead<'_, '_>,
+        namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    ) -> Result<()> {
+        if let ResearchCountsEvidence::Published { publication, .. } = &self.evidence {
+            let actual = tx.read_research_publication(namespace, publication.run())
+                .await.map_err(super::job_publication::PublicationError::code)?;
+            let original = publication.publication();
+            if actual.fingerprint() != original.fingerprint()
+                || actual.research_result_column() != original.research_result_column()
+            {
+                return Err("JOB_RESULT_MISMATCH");
+            }
         }
-        for lock in &self.source_locks {
-            lock.verify()?;
-        }
-        Ok(())
+        self.verify_cut()
     }
     pub(crate) fn source_locks(&self) -> Vec<Arc<SourceLock>> {
-        self.source_locks.clone()
+        match &self.evidence {
+            ResearchCountsEvidence::Files { cut, .. } => cut.locks.clone(),
+            ResearchCountsEvidence::Published { .. } => Vec::new(),
+            #[cfg(test)]
+            ResearchCountsEvidence::Test(cut) => cut.iter().cloned().collect(),
+        }
     }
     pub(crate) fn subject_strategy_fingerprint(&self) -> &str {
         &self.subject_strategy_fingerprint
@@ -1699,9 +1751,7 @@ impl VerifiedResearchCounts {
             freeze_relation_fingerprint,
             statistics_result_count,
             calculation_result_count,
-            validated_calculations: None,
-            source_locks: vec![],
-            strategy_cut: None,
+            evidence: ResearchCountsEvidence::Test(None),
         }
     }
     #[allow(clippy::too_many_arguments)]
@@ -1716,7 +1766,7 @@ impl VerifiedResearchCounts {
     ) -> Self {
         let mut value =
             Self::for_value_test(subject, result, plan, relation, statistics, calculations);
-        value.source_locks = vec![cut];
+        value.evidence = ResearchCountsEvidence::Test(Some(cut));
         value
     }
 }

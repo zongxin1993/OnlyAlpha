@@ -29,6 +29,7 @@ impl Host {
         let path = request.uri().path().to_owned();
         let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
         let method = request.method().clone();
+        let mutated = method != Method::GET;
         let result = if method == Method::GET {
             let mut read = self.reader.lock().await;
             if Instant::now() >= deadline {
@@ -129,6 +130,9 @@ impl Host {
                 _ => return Err(invalid()),
             }
         };
+        if mutated && let Some(wake) = self.factor_build_wake.get() {
+            wake.notify();
+        }
         session.check_active()?;
         Ok(ingress::attach(
             Json(result).into_response(),

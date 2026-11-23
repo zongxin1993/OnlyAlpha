@@ -45,7 +45,6 @@ pub enum Directory {
     Research,
     Secrets,
     Artifacts,
-    BacktestEvidence,
     Datasets,
     EconomicBindings,
 }
@@ -56,7 +55,6 @@ pub struct StorageRoots {
     research: OwnedFd,
     secrets: OwnedFd,
     artifacts: OwnedFd,
-    backtest_evidence: OwnedFd,
     datasets: OwnedFd,
     economic_bindings: OwnedFd,
 }
@@ -73,11 +71,6 @@ impl StorageRoots {
         let economic_bindings =
             protected_files::open_directory_at(&research, OsStr::new("dataset-economic-bindings"))
                 .map_err(required)?;
-        let backtest = protected_files::open_directory_at(&user_data, OsStr::new("backtest"))
-            .map_err(required)?;
-        let backtest_evidence =
-            protected_files::open_directory_at(&backtest, OsStr::new("evidence"))
-                .map_err(required)?;
         let secrets = protected_files::open_directory_at(&user_data, OsStr::new("secrets"))
             .map_err(|e| {
                 Error::MasterKey(if e == ReadError::Missing {
@@ -91,7 +84,6 @@ impl StorageRoots {
         for directory in [
             &user_data,
             &artifacts,
-            &backtest_evidence,
             &datasets,
             &economic_bindings,
         ] {
@@ -108,7 +100,6 @@ impl StorageRoots {
             research,
             secrets,
             artifacts,
-            backtest_evidence,
             datasets,
             economic_bindings,
         })
@@ -119,7 +110,6 @@ impl StorageRoots {
             Directory::Research => &self.research,
             Directory::Secrets => &self.secrets,
             Directory::Artifacts => &self.artifacts,
-            Directory::BacktestEvidence => &self.backtest_evidence,
             Directory::Datasets => &self.datasets,
             Directory::EconomicBindings => &self.economic_bindings,
         }

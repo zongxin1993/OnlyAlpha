@@ -27,10 +27,117 @@ fn decode(raw: Option<String>) -> Result<Value> {
 }
 pub struct Composer<'a> {
     client: &'a mut Client,
+    fact_reader: Option<&'a mut Client>,
+    builder: Option<&'a mut Client>,
 }
 impl<'a> Composer<'a> {
     pub fn new(client: &'a mut Client) -> Self {
-        Self { client }
+        Self { client, fact_reader:None, builder:None }
+    }
+    /// Control-only composition needs no program reader. Execution preparation
+    /// must supply the separate owning reader connection; there is no fallback
+    /// to control privileges and this capability never authorizes construction.
+    pub fn with_fact_reader(mut self, reader:&'a mut Client) -> Self {
+        self.fact_reader=Some(reader);
+        self
+    }
+    /// Only explicit preparation is given a construction connection. Recovery
+    /// and claimed execution have no builder capability to repair missing facts.
+    pub fn with_builder(mut self, builder:&'a mut Client) -> Self {
+        self.builder=Some(builder);
+        self
+    }
+    fn facts(&mut self) -> Result<&mut Client> {
+        self.fact_reader.as_deref_mut().ok_or("PRIVATE_STRATEGY_BUILD_READER_REQUIRED")
+    }
+    pub(crate) async fn verify_finite_run(
+        &mut self,
+        run: &crate::application::research_run::VerifiedRun,
+        binding: &crate::application::job_contract::FrozenJobBinding,
+    ) -> Result<()> {
+        let namespace = crate::bootstrap::deployment::SemanticStoreId::new(binding.namespace())
+            .map_err(|_| INVALID)?;
+        crate::bootstrap::deployment::verify_binding(self.client, &namespace)
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+        let facts=self.fact_reader.as_deref_mut().ok_or("PRIVATE_STRATEGY_BUILD_READER_REQUIRED")?;
+        let original = crate::persistence::research_submission::load(
+            self.client,
+            facts,
+            &namespace,
+            run.run_id(),
+            Some(binding.owner()),
+        )
+        .await?;
+        if original.specification_fingerprint() != run.specification_fingerprint()
+            || original.admission_resolution_fingerprint() != run.admission_resolution_fingerprint()
+            || original.prepared_inputs != run.prepared_inputs
+        {
+            return Err(CORRUPT);
+        }
+        let failure=|error|match error {
+            crate::persistence::job_publication::PublicationError::MissingEvidence=>"RESEARCH_INPUT_BINDING_MISSING",
+            crate::persistence::job_publication::PublicationError::Unavailable|crate::persistence::job_publication::PublicationError::OwnershipLost=>UNAVAILABLE,
+            crate::persistence::job_publication::PublicationError::OutcomeUnknown=>"RESEARCH_PREPARATION_OUTCOME_UNKNOWN",
+            crate::persistence::job_publication::PublicationError::BudgetExceeded=>"RESEARCH_INPUT_BINDING_BUDGET_EXCEEDED",
+            crate::persistence::job_publication::PublicationError::Denied=>"PRIVATE_STRATEGY_BUILD_READER_DENIED",
+            _=>CORRUPT,
+        };
+        let key=crate::persistence::job_publication::RunLocator::new(crate::application::job_contract::JobKind::Research,run.run_id()).map_err(failure)?;
+        let frozen=crate::persistence::job_publication::PublicationRepository::new(facts,&namespace,run.owner()).await.map_err(failure)?
+            .frozen_binding(&key).await.map_err(failure)?;
+        if frozen.record()!=binding.record() { return Err("FINITE_JOB_BINDING_MISMATCH"); }
+        Ok(())
+    }
+    /// Authenticate an original immutable build fact before any retained READY
+    /// inputs are resolved. This read cannot construct or repair the fact.
+    pub(crate) async fn verify_calculation_build(&mut self, proof: &Value) -> Result<()> {
+        let tx = self.facts()?
+            .build_transaction()
+            .read_only(true)
+            .start()
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+        bounds(&tx).await.map_err(|_| UNAVAILABLE)?;
+        crate::application::calculation_build::verify_fact(&tx, proof).await?;
+        tx.commit().await.map_err(|_| UNAVAILABLE)?;
+        Ok(())
+    }
+    pub(crate) async fn prepare_calculation_build(
+        &mut self,
+        inputs: crate::application::calculation_build::Inputs,
+        allow_build: bool,
+    ) -> std::result::Result<Value, crate::application::research_admission::PreparationError> {
+        let client = if allow_build {
+            self.builder.as_deref_mut().ok_or("PRIVATE_STRATEGY_BUILD_WRITER_REQUIRED")?
+        } else { self.facts()? };
+        crate::application::calculation_build::prepare(client, inputs, allow_build).await
+    }
+    async fn ready_programs(
+        &mut self,
+        strategy: &Value,
+        factors: &BTreeMap<String, Value>,
+        installation: &onlyalpha_calculation_bridge::ChartInstallation,
+    ) -> std::result::Result<
+        BTreeMap<String, crate::application::factor_build::ReadyFactorBinding>,
+        crate::application::research_admission::PreparationError,
+    > {
+        let environment = crate::application::factor_build::ReadEnvironment::selected(installation)
+            .map_err(|_| "PRIVATE_STRATEGY_PROGRAM_ENVIRONMENT_UNAVAILABLE")?;
+        let tx = self.facts()?
+            .build_transaction()
+            .read_only(true)
+            .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
+            .start()
+            .await
+            .map_err(|_| UNAVAILABLE)?;
+        bounds(&tx).await.map_err(|_| UNAVAILABLE)?;
+        let programs =
+            crate::application::factor_build::read_instances(&tx, &environment, strategy, factors)
+                .await
+                .map_err(crate::application::factor_build::preparation_error)?;
+        tx.commit().await.map_err(|_| UNAVAILABLE)?;
+        Ok(programs)
     }
     /// Mathematical resolution retains exact original work, not a new Run grant.
     pub async fn resolve(
@@ -47,6 +154,9 @@ impl<'a> Composer<'a> {
         let (composition, strategy, factors) = self
             .compose_inputs(id, revision, context, &mut runtime)
             .await?;
+        let programs = self
+            .ready_programs(&strategy, &factors, installation)
+            .await?;
         ResolvedCalculations::resolve(
             runtime,
             installation,
@@ -54,6 +164,7 @@ impl<'a> Composer<'a> {
             context,
             &factors,
             &composition,
+            programs,
         )
     }
     /// Re-anchor every immutable input through its owner in one consistent DB
@@ -95,6 +206,9 @@ impl<'a> Composer<'a> {
         runtime.verify_artifacts()?;
         let (composition, strategy, factors, context) =
             self.retained_inputs(composition, &runtime).await?;
+        let programs = self
+            .ready_programs(&strategy, &factors, installation)
+            .await?;
         let resolved = ResolvedCalculations::resolve(
             runtime,
             installation,
@@ -102,6 +216,7 @@ impl<'a> Composer<'a> {
             &context,
             &factors,
             &composition,
+            programs,
         )?;
         Ok((resolved, context))
     }

@@ -25,7 +25,6 @@ impl Root {
         let r = Self(path);
         for name in [
             "data/research/artifacts",
-            "data/backtest/evidence",
             "data/research/datasets",
             "data/research/dataset-economic-bindings",
             "data/secrets",
@@ -90,7 +89,6 @@ fn complete_inputs_retain_the_selected_namespace_key_and_actual_directory_capabi
         (Directory::Research, "data/research"),
         (Directory::Secrets, "data/secrets"),
         (Directory::Artifacts, "data/research/artifacts"),
-        (Directory::BacktestEvidence, "data/backtest/evidence"),
         (Directory::Datasets, "data/research/datasets"),
         (
             Directory::EconomicBindings,
@@ -144,7 +142,6 @@ fn replacing_the_original_path_after_selection_cannot_rebind_key_namespace_or_ro
 fn missing_or_unsafe_required_directories_do_not_initialize_repair_or_accept_partial_inputs() {
     for relative in [
         "research/artifacts",
-        "backtest/evidence",
         "research/datasets",
         "research/dataset-economic-bindings",
     ] {
@@ -215,7 +212,6 @@ fn readable_directory_without_search_permission_cannot_satisfy_required_roots() 
     for relative in [
         ".",
         "research/artifacts",
-        "backtest/evidence",
         "research/datasets",
         "research/dataset-economic-bindings",
     ] {

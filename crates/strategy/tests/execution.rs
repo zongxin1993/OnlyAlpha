@@ -32,6 +32,113 @@ fn revision_records_are_exact_and_explicitly_schema_two() {
     }
 }
 #[test]
+fn retained_program_requires_exact_scope_and_node_bindings() {
+    let program = program();
+    let record = program.to_record();
+    assert_eq!(Program::from_record(&record).unwrap(), program);
+    for field in [
+        "schema_version",
+        "scope",
+        "bindings",
+        "generation",
+        "source",
+        "artifact",
+    ] {
+        let mut changed = record.clone();
+        match field {
+            "schema_version" => changed[field] = json!(2),
+            "scope" => changed[field]["cluster"] = json!("other"),
+            "bindings" => changed[field].as_array_mut().unwrap().reverse(),
+            _ => changed[field] = json!("f".repeat(64)),
+        }
+        assert!(Program::from_record(&changed).is_err(), "{field}");
+    }
+}
+
+#[test]
+fn finite_completion_requires_the_entire_original_causal_prefix() {
+    let mut owner = SignalExecution::new(executor());
+    let bars: Vec<_> = (1..=4).map(bar).collect();
+    let mut outcomes = Vec::new();
+    let mut receipts = Vec::new();
+    let mut earlier = Value::Null;
+    for (index, bar) in bars.iter().enumerate() {
+        outcomes.push(owner.process(bar).unwrap().to_record());
+        receipts.push(owner.receipts().clone());
+        if index == 2 {
+            earlier = owner.finish_barrier().unwrap();
+        }
+    }
+    let end = owner.finish_barrier().unwrap();
+    let program = Program::from_record(&owner.program().to_record()).unwrap();
+    assert_eq!(outcomes[0]["status"], "BLOCKED");
+    assert_eq!(outcomes[2]["status"], "READY");
+    assert!(receipts[0].as_array().unwrap().iter().any(Value::is_null));
+    program
+        .verify_finite_completion(&bars, &outcomes, &receipts, &end)
+        .unwrap();
+    for (name, sequence) in [
+        ("missing", vec![&bars[0], &bars[2], &bars[3]]),
+        (
+            "extra",
+            vec![&bars[0], &bars[1], &bars[2], &bars[3], &bars[3]],
+        ),
+        ("unordered", vec![&bars[1], &bars[0], &bars[2], &bars[3]]),
+        ("duplicate", vec![&bars[0], &bars[0], &bars[2], &bars[3]]),
+    ] {
+        assert!(
+            program
+                .verify_finite_completion(sequence, &outcomes, &receipts, &end)
+                .is_err(),
+            "{name}"
+        );
+    }
+    assert!(
+        program
+            .verify_finite_completion(&bars, &outcomes, &receipts, &earlier)
+            .is_err()
+    );
+    assert!(
+        program
+            .verify_finite_completion(&bars, &outcomes, &receipts[..3], &end)
+            .is_err()
+    );
+    let mut changed = outcomes.clone();
+    changed[2]["decision"]["entry"] = json!(false);
+    assert!(
+        program
+            .verify_finite_completion(&bars, &changed, &receipts, &end)
+            .is_err()
+    );
+    let mut spliced = receipts.clone();
+    spliced[2] = receipts[3].clone();
+    assert!(
+        program
+            .verify_finite_completion(&bars, &outcomes, &spliced, &end)
+            .is_err()
+    );
+
+    for field in [
+        "accepted",
+        "states",
+        "requests",
+        "commitments",
+        "port",
+        "chain",
+    ] {
+        let mut changed = end.clone();
+        changed[field] = earlier[field].clone();
+        changed["component_bindings"][field] = json!(record_fingerprint(&changed[field]));
+        assert!(
+            program
+                .verify_finite_completion(&bars, &outcomes, &receipts, &changed)
+                .is_err(),
+            "{field}"
+        );
+    }
+}
+
+#[test]
 fn independent_vector_warmup_and_ready_decisions() {
     let mut e = executor();
     for line in CORPUS.lines().skip(1) {

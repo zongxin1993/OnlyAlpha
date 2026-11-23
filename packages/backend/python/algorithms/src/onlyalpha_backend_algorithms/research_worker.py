@@ -137,7 +137,13 @@ def serve(root: Path, generation: str, artifact: str) -> None:
             elif sequence == 2 and operation == "research_prepare":
                 from onlyalpha_backend_algorithms.research_preparation import prepare
 
-                result = prepare(json.loads(request.research_prepare.request_json), artifact)
+                payload = json.loads(request.research_prepare.request_json)
+                if payload.get("contract") == "ONLYALPHA_FACTOR_PROGRAM_COMPILE_V1":
+                    from onlyalpha_backend_algorithms.factor_build import compile_request
+
+                    result = compile_request(payload)
+                else:
+                    result = prepare(payload, artifact)
             elif sequence >= 3 and session is not None and operation == "research_resolve":
                 result = session.resolve(json.loads(request.research_resolve.request_json))
             elif sequence >= 3 and session is not None and operation == "research_evaluate":

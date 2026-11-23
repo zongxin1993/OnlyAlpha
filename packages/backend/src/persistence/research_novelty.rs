@@ -21,6 +21,11 @@ use std::{
     sync::Arc,
 };
 use tokio_postgres::{Client, Transaction};
+use super::{build_fact_read::BuildFactRead,authority_session::{ControlRoleOwner,AuthoritySession}};
+enum SnapshotFacts<'a> {
+    Control(&'a ControlRoleOwner),
+    Reader(&'a mut Client),
+}
 type CapturedLocks = (BTreeMap<String, Arc<SourceLock>>, Vec<Arc<SourceLock>>);
 
 const MAX_ENTRIES: usize = 32768;
@@ -170,7 +175,17 @@ impl Authority {
     }
     /// Native owner capture, exact source-cut publication and immutable projection.
     /// It has no model call, scientific calculation or Research execution effect.
-    pub async fn refresh_projection(&self, client: &mut Client) -> Result<String> {
+    pub async fn refresh_projection(&self, session: &mut AuthoritySession) -> Result<String> {
+        let mut owned=session.take_ownership();
+        let roles=owned.control_roles().map_err(io)?;
+        let result=self.refresh_projection_control((owned.client_mut().await.map_err(io)?,&roles),).await;
+        if result.as_ref().err()==Some(&UNAVAILABLE) {return result;}
+        owned.verify().await.map_err(io)?;
+        session.restore_ownership(owned);
+        result
+    }
+    pub(crate) async fn refresh_projection_control(&self, control: (&mut Client, &ControlRoleOwner)) -> Result<String> {
+        let (client,roles)=control;
         let (by_family, locks) = self.locks(None, true)?;
         let mut verified =
             SourceVerification::new(&locks).with_runtime_root(self.runtime_root.clone());
@@ -179,7 +194,8 @@ impl Authority {
             .await
             .map_err(io)?;
         let frontier = frontier(&tx, true).await?;
-        let events = history(&tx, 0, frontier).await?;
+        let facts=BuildFactRead::control(&tx,roles);
+        let events = history(&facts, 0, frontier).await?;
         let mut cuts = Vec::new();
         let mut observations = Vec::new();
         for family in FAMILIES {
@@ -191,7 +207,7 @@ impl Authority {
                 (cut, members)
             } else {
                 let source = by_family.get(family).ok_or(INVALID)?;
-                let (cut, members) = self.file_cut(family, source, &mut verified, &tx).await?;
+                let (cut, members) = self.file_cut(family, source, &mut verified, &facts).await?;
                 let fingerprint = text(&cut, "cut_fingerprint")?;
                 put(
                     &source.directory,
@@ -230,13 +246,31 @@ impl Authority {
     /// of a sealed command preserves its original decision-time evidence.
     pub async fn seal(
         &self,
-        client: &mut Client,
+        session: &mut AuthoritySession,
         command: &CommandId,
         subjects: &[Subject],
         policy_id: &str,
         policy_version: &str,
         projection_fp: &str,
     ) -> Result<Value> {
+        let mut owned=session.take_ownership();
+        let roles=owned.control_roles().map_err(io)?;
+        let result=self.seal_control((owned.client_mut().await.map_err(io)?,&roles),command,subjects,policy_id,policy_version,projection_fp,).await;
+        if result.as_ref().err()==Some(&UNAVAILABLE) {return result;}
+        owned.verify().await.map_err(io)?;
+        session.restore_ownership(owned);
+        result
+    }
+    pub(crate) async fn seal_control(
+        &self,
+        control: (&mut Client, &ControlRoleOwner),
+        command: &CommandId,
+        subjects: &[Subject],
+        policy_id: &str,
+        policy_version: &str,
+        projection_fp: &str,
+    ) -> Result<Value> {
+        let (client,roles)=control;
         n::subject_set(subjects)?;
         validate_policy_reference(policy_id, policy_version)?;
         let lock_root = self
@@ -277,7 +311,7 @@ impl Authority {
         if let Some(group) = self.load_group_optional(command)? {
             let snapshot = self
                 .snapshot(
-                    client,
+                    client, SnapshotFacts::Control(roles),
                     text(
                         &group["members"][0]["witness"],
                         "projection_revision_fingerprint",
@@ -291,7 +325,7 @@ impl Authority {
             }
             return Ok(group);
         }
-        let snapshot = self.snapshot(client, projection_fp, false).await?;
+        let snapshot = self.snapshot(client, SnapshotFacts::Control(roles), projection_fp, false).await?;
         let group = make_group(command, subjects, &policy, &snapshot)?;
         lock_root.verify()?;
         let actual =
@@ -311,12 +345,13 @@ impl Authority {
     /// No current projection head or current Source permission is selected.
     pub(crate) async fn retained_group(
         &self,
-        client: &mut Client,
+        clients: (&mut Client, &mut Client),
         command: &CommandId,
         subjects: &[Subject],
         policy_id: &str,
         policy_version: &str,
     ) -> Result<Value> {
+        let (client,facts)=clients;
         let group = self.retained_group_record(command)?;
         let policy = self.load_policy(policy_id, policy_version)?;
         let members = group["members"].as_array().ok_or(INVALID)?;
@@ -325,7 +360,7 @@ impl Authority {
         }
         let snapshot = self
             .snapshot(
-                client,
+                client, SnapshotFacts::Reader(facts),
                 text(&members[0]["witness"], "projection_revision_fingerprint")?,
                 false,
             )
@@ -338,11 +373,27 @@ impl Authority {
     /// Re-prove from exact fresh sources. Only this reader can create ActionProof.
     pub async fn authorize_action(
         &self,
-        client: &mut Client,
+        session: &mut AuthoritySession,
         command: &CommandId,
         subjects: &[Subject],
         fresh_projection_fp: &str,
     ) -> Result<ActionProof> {
+        let mut owned=session.take_ownership();
+        let roles=owned.control_roles().map_err(io)?;
+        let result=self.authorize_action_control((owned.client_mut().await.map_err(io)?,&roles),command,subjects,fresh_projection_fp,).await;
+        if result.as_ref().err()==Some(&UNAVAILABLE) {return result;}
+        owned.verify().await.map_err(io)?;
+        session.restore_ownership(owned);
+        result
+    }
+    pub(crate) async fn authorize_action_control(
+        &self,
+        control: (&mut Client, &ControlRoleOwner),
+        command: &CommandId,
+        subjects: &[Subject],
+        fresh_projection_fp: &str,
+    ) -> Result<ActionProof> {
+        let (client,roles)=control;
         n::subject_set(subjects)?;
         let group = self
             .load_group_optional(command)?
@@ -351,7 +402,7 @@ impl Authority {
         let policy = self.load_policy(text(first, "policy_id")?, text(first, "policy_version")?)?;
         let original = self
             .snapshot(
-                client,
+                client, SnapshotFacts::Control(roles),
                 text(first, "projection_revision_fingerprint")?,
                 false,
             )
@@ -363,7 +414,7 @@ impl Authority {
         if group["disposition"] != "ACTIONABLE" {
             return Err("NOVELTY_DECISION_NOT_ADMIT");
         }
-        let snapshot = self.snapshot(client, fresh_projection_fp, true).await?;
+        let snapshot = self.snapshot(client, SnapshotFacts::Control(roles), fresh_projection_fp, true).await?;
         let mut members = Vec::new();
         for (ordinal, (subject, bundle)) in subjects
             .iter()
@@ -453,7 +504,7 @@ impl Authority {
         family: &str,
         source: &SourceLock,
         verified: &mut SourceVerification<'_>,
-        tx: &Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
     ) -> Result<(Value, Vec<Observation>)> {
         source.verify()?;
         let entries = inventory(&source.directory)?;
@@ -493,7 +544,7 @@ impl Authority {
         root: &Directory,
         locator: &str,
         verified: &mut SourceVerification<'_>,
-        tx: &Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
     ) -> Result<Option<(String, Value)>> {
         if !crate::is_sha256_hex(locator) {
             return Err(UNAVAILABLE);
@@ -543,6 +594,7 @@ impl Authority {
     async fn snapshot(
         &self,
         client: &mut Client,
+        fact_source: SnapshotFacts<'_>,
         projection_fp: &str,
         current: bool,
     ) -> Result<Snapshot> {
@@ -562,11 +614,20 @@ impl Authority {
         let mut verified =
             SourceVerification::new(&locks).with_runtime_root(self.runtime_root.clone());
         let tx = client.transaction().await.map_err(io)?;
+        let mut facts_tx=None;
+        let namespace=crate::bootstrap::deployment::load_semantic_store_id(&self.semantic_root.path.join("research/.onlyalpha-semantic-store.json")).map_err(io)?;
+        let facts=match fact_source {
+            SnapshotFacts::Control(owner)=>BuildFactRead::control(&tx,owner),
+            SnapshotFacts::Reader(client)=>{
+                facts_tx=Some(client.build_transaction().read_only(true).start().await.map_err(io)?);
+                BuildFactRead::reader(&tx,facts_tx.as_ref().ok_or(UNAVAILABLE)?,&namespace).await.map_err(io)?
+            }
+        };
         crate::persistence::postgres::bounds(&tx)
             .await
             .map_err(io)?;
         let current_frontier = frontier(&tx, false).await?;
-        let events = history(&tx, 0, current_frontier).await?;
+        let events = history(&facts, 0, current_frontier).await?;
         let mut observations = Vec::new();
         let mut selected_frontier = None;
         let mut remaining = LIMIT;
@@ -623,7 +684,7 @@ impl Authority {
                         source.as_ref()
                     };
                     if self
-                        .file_cut(family, current_source, &mut verified, &tx)
+                        .file_cut(family, current_source, &mut verified, &facts)
                         .await?
                         .0
                         != cut
@@ -634,7 +695,7 @@ impl Authority {
                 for entry in cut["entries"].as_array().ok_or(INVALID)? {
                     let locator = text(entry, "locator")?;
                     let (identity, payload) = self
-                        .file_observation(family, &source.directory, locator, &mut verified, &tx)
+                        .file_observation(family, &source.directory, locator, &mut verified, &facts)
                         .await?
                         .ok_or(INVALID)?;
                     if entry["identity"] != identity
@@ -662,6 +723,7 @@ impl Authority {
         let strategy_cuts = verified.strategy_cuts();
         let qualification_cuts = verified.qualification_cuts();
         drop(verified);
+        if let Some(facts_tx)=facts_tx { facts_tx.commit().await.map_err(io)?; }
         tx.commit().await.map_err(io)?;
         Ok(Snapshot {
             projection,
@@ -742,7 +804,7 @@ impl ActionProof {
         Ok(())
     }
     /// Must run inside the same short transaction that writes Run+Admission+Receipt.
-    pub async fn recheck_in_transaction(&self, tx: &Transaction<'_>) -> Result<()> {
+    pub(crate) async fn recheck_in_transaction(&self, tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>) -> Result<()> {
         self.verify_cut()?;
         for lock in &self.locks {
             lock.verify()?;
@@ -812,7 +874,7 @@ impl ActionProof {
     }
 }
 
-async fn admitted_subjects(tx: &Transaction<'_>, command: &str) -> Result<Vec<String>> {
+async fn admitted_subjects(tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>, command: &str) -> Result<Vec<String>> {
     CommandId::new(command).map_err(|_| INVALID)?;
     let parent=tx.query_opt("SELECT row_to_json(a)::text FROM research_novelty_admission a WHERE command_id=$1::text::uuid",&[&command]).await.map_err(io)?.ok_or(UNAVAILABLE)?;
     let raw: String = parent.try_get(0).map_err(io)?;
@@ -1085,7 +1147,7 @@ async fn frontier(tx: &Transaction<'_>, locked: bool) -> Result<i64> {
     }
     Ok(frontier)
 }
-async fn history(tx: &Transaction<'_>, after: i64, end: i64) -> Result<Vec<Value>> {
+async fn history(tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>, after: i64, end: i64) -> Result<Vec<Value>> {
     let budget=tx.query_one("SELECT COALESCE(sum(octet_length(source_row::text)),0)::bigint FROM research_source_history WHERE event_index>$1 AND event_index<=$2",&[&after,&end]).await.map_err(io)?;
     let bytes: i64 = budget.try_get(0).map_err(io)?;
     if bytes < 0 || bytes as u64 > LIMIT as u64 {

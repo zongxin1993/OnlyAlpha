@@ -42,12 +42,14 @@ SDK = (
     "algorithm/__init__.py",
     "algorithm/batch.py",
     "algorithm/private_factor.py",
+    "algorithm/factor_program.py",
     "calculation/registry.py",
     "quant_assets/private_factor_provider_snapshot.py",
     "algorithm/codec.py",
     "algorithm/type_declaration.py",
 )
 WORKER = (
+    "factor_build.py",
     "chart_isolation.py",
     "worker_io.py",
     "research_worker.py",

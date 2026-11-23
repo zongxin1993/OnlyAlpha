@@ -67,30 +67,23 @@ impl FeeFold {
         if input["op"] != "FILL" {
             return Ok(());
         }
-        let mut native_input;
-        let input = if input["payload"]["schema_version"] == 2
-            && input["payload"]["broker"].is_object()
-        {
+        // Only native broker fills need their original fee-assessment owner.
+        // Ordinary fills remain completely described by the validated header.
+        let (row, duplicate) = if uses_native_fee_assessment(input) {
+            let meta = &record.prepared().value()["projections"][5]["result"]["perpetual"];
             let id = text(&input["payload"]["broker"]["id"])?;
-            let row = &record.prepared().value()["projections"][5]["result"]["perpetual"]["broker_facts"]
-                [id];
-            if row["broker"] != input["payload"]["broker"] {
-                return Err(err("RECONCILIATION_BROKER_SOURCE"));
-            }
-            if record.prepared().value()["projections"][5]["result"]["perpetual"]["last_disposition"]
-                == "DUPLICATE"
-            {
-                return Ok(());
-            }
-            native_input = input.clone();
-            native_input["assessment"] = row["fee_assessment"].clone();
-            native_input["payload"]["trade"] =
-                input["payload"]["broker"]["record"]["payload"]["fill"]["trade_id"]["value"]
-                    .clone();
-            &native_input
+            (
+                &meta["broker_facts"][id],
+                meta["last_disposition"] == "DUPLICATE",
+            )
         } else {
-            input
+            (&Value::Null, false)
         };
+        let canonical = canonical_fee_input(input, row, duplicate)?;
+        let Some(input) = canonical.as_ref() else {
+            return Ok(());
+        };
+        let input = input.as_ref();
         if let Some(cached) = &self.cached {
             if cached.inputs.get(self.matched) == Some(input) {
                 self.matched += 1;
@@ -314,8 +307,36 @@ impl Components {
     }
 }
 
+fn uses_native_fee_assessment(input: &Value) -> bool {
+    input["op"] == "FILL"
+        && input["payload"]["schema_version"] == 2
+        && input["payload"]["broker"].is_object()
+}
 // Reuse the owning Fee reducer: cumulative targets are not incremental Trade fees.
-fn record_fee_input(
+// Share the exact native fee assessment selection across retained and finite
+// owners. The source row is an actual accepted economic owner projection.
+pub(crate) fn canonical_fee_input<'a>(
+    input: &'a Value,
+    row: &Value,
+    duplicate: bool,
+) -> Result<Option<std::borrow::Cow<'a, Value>>, Error> {
+    if uses_native_fee_assessment(input) {
+        if row["broker"] != input["payload"]["broker"] {
+            return Err(err("RECONCILIATION_BROKER_SOURCE"));
+        }
+        if duplicate {
+            return Ok(None);
+        }
+        let mut native = input.clone();
+        native["assessment"] = row["fee_assessment"].clone();
+        native["payload"]["trade"] =
+            input["payload"]["broker"]["record"]["payload"]["fill"]["trade_id"]["value"].clone();
+        Ok(Some(std::borrow::Cow::Owned(native)))
+    } else {
+        Ok(Some(std::borrow::Cow::Borrowed(input)))
+    }
+}
+pub(crate) fn record_fee_input(
     input: &Value,
     owner: &mut onlyalpha_fee::Manager,
     expected: &mut BTreeMap<String, Value>,
@@ -332,25 +353,28 @@ fn record_fee_input(
         boundary(owner.apply_admitted_target(&input["payload"]["fees"]))?
     }
     .record();
-    let trade = text(&application["trade"])?;
-    if application["subject"]["cluster"] != cluster
-        || application["order"] != input["payload"]["order"]
-        || application["trade"] != input["payload"]["trade"]
-    {
-        return Err(err("RECONCILIATION_FEE_RELATION"));
-    }
-    if expected
-        .insert(
-            trade.into(),
-            json!({"cluster":cluster,"entry":{
-            "trade":trade,"order":application["order"],"fee_instruction":application["id"],
-            "charges":application["charges"],"rebates":application["rebates"]}}),
-        )
-        .is_some()
-    {
+    let trade = id(&input["payload"]["trade"])?;
+    let entry = fee_application_entry(&application, cluster, id(&input["payload"]["order"])?, trade)?;
+    if expected.insert(trade.into(), json!({"cluster":cluster,"entry":entry})).is_some() {
         return Err(err("RECONCILIATION_DUPLICATE_TRADE"));
     }
     Ok(())
+}
+
+pub(crate) fn fee_application_entry(
+    application: &Value,
+    cluster: &str,
+    order: &str,
+    trade: &str,
+) -> Result<Value, Error> {
+    if application["subject"]["cluster"] != cluster
+        || application["order"] != order
+        || application["trade"] != trade
+    {
+        return Err(err("RECONCILIATION_FEE_RELATION"));
+    }
+    Ok(json!({"trade":trade,"order":order,"fee_instruction":application["id"],
+        "charges":application["charges"],"rebates":application["rebates"]}))
 }
 
 fn array(v: &Value) -> Result<&Vec<Value>, Error> {
@@ -375,8 +399,43 @@ fn fee_entry(payload: &Value) -> Result<Value, Error> {
     )
 }
 
+pub(crate) fn compare_snapshot_totals<'a>(
+    initial: &Value,
+    account: &Value,
+    ledgers: impl Iterator<Item = &'a Value> + Clone,
+    clusters: &[String],
+    precision: u8,
+) -> Result<(Value, Vec<Value>), Error> {
+    let mut totals = json!({});
+    let mut differences = Vec::new();
+    for (field, account_value, ledger_field) in [
+        ("initial_equity", initial, "initial_capital"),
+        ("ledger_cash", &account["cash"], "cash"),
+        ("position_market_value", &account["market_value"], "market_value"),
+        ("realized_pnl", &account["realized_pnl"], "realized_pnl"),
+        ("unrealized_pnl", &account["unrealized_pnl"], "unrealized_pnl"),
+        ("fees", &account["fees"], "fees"),
+        ("equity", &account["equity"], "equity"),
+    ] {
+        let a = exact(account_value)?;
+        let mut total = BigDecimal::zero();
+        for ledger in ledgers.clone() {
+            total += exact(&ledger[ledger_field])?;
+        }
+        let delta = &a - &total;
+        let values = json!({"account_value":exact_record(&a,precision),"ledger_total":exact_record(&total,precision),"difference":exact_record(&delta,precision)});
+        totals[field] = values.clone();
+        if !delta.is_zero() {
+            differences.push(
+                json!({"kind":"AGGREGATE","field":field,"values":values,"cluster_ids":clusters}),
+            );
+        }
+    }
+    Ok((totals, differences))
+}
+
 // Private comparison: raw snapshots never constitute a public proof-authoring API.
-fn compare(
+pub(crate) fn compare(
     config: &Value,
     account: &Value,
     ledger: &Value,
@@ -446,43 +505,13 @@ fn compare(
         return Err(err("RECONCILIATION_OWNER_CONFIGURATION"));
     }
 
-    let mut totals = json!({});
-    let mut differences = vec![];
-    for (field, account_value, ledger_field) in [
-        (
-            "initial_equity",
-            &account["config"]["initial_cash"],
-            "initial_capital",
-        ),
-        ("ledger_cash", &snapshot["cash"], "cash"),
-        (
-            "position_market_value",
-            &snapshot["market_value"],
-            "market_value",
-        ),
-        ("realized_pnl", &snapshot["realized_pnl"], "realized_pnl"),
-        (
-            "unrealized_pnl",
-            &snapshot["unrealized_pnl"],
-            "unrealized_pnl",
-        ),
-        ("fees", &snapshot["fees"], "fees"),
-        ("equity", &snapshot["equity"], "equity"),
-    ] {
-        let a = exact(account_value)?;
-        let mut total = BigDecimal::zero();
-        for row in ledgers.values() {
-            total += exact(&row["snapshot"][ledger_field])?;
-        }
-        let delta = &a - &total;
-        let values = json!({"account_value":exact_record(&a,precision),"ledger_total":exact_record(&total,precision),"difference":exact_record(&delta,precision)});
-        totals[field] = values.clone();
-        if !delta.is_zero() {
-            differences.push(
-                json!({"kind":"AGGREGATE","field":field,"values":values,"cluster_ids":clusters}),
-            );
-        }
-    }
+    let (totals, mut differences) = compare_snapshot_totals(
+        &account["config"]["initial_cash"],
+        snapshot,
+        ledgers.values().map(|row| &row["snapshot"]),
+        &clusters,
+        precision,
+    )?;
     let mut source_fees = BigDecimal::zero();
     for e in expected.values() {
         source_fees += exact(&e["entry"]["charges"])? - exact(&e["entry"]["rebates"])?;

@@ -22,9 +22,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio_postgres::{Client, Transaction};
+use super::authority_session::{AuthoritySession,ControlRoleOwner};
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "RESEARCH_SUBMISSION_INVALID";
 const UNAVAILABLE: &str = "RESEARCH_SUBMISSION_UNAVAILABLE";
+async fn finish_control<T>(session:&mut AuthoritySession,mut owned:AuthoritySession,result:Result<T>) -> Result<T> {
+    if result.as_ref().err().is_some_and(|code|matches!(*code,UNAVAILABLE|"RESEARCH_COMMAND_OUTCOME_UNKNOWN")) {
+        return result;
+    }
+    owned.verify().await.map_err(|e|e.code())?;
+    session.restore_ownership(owned);
+    result
+}
 fn db(_: impl std::fmt::Debug) -> &'static str {
     UNAVAILABLE
 }
@@ -191,7 +200,7 @@ fn check_source(context: &Context<'_>, spec: &Specification, datasets: &Datasets
 /// This slice consumes an already materialized Dataset and an existing eligible Runtime.
 /// It never acquires/widens data or creates/activates a Generation while staging.
 pub async fn prepare_study(
-    client: &mut Client,
+    session: &mut AuthoritySession,
     authority: &Authority,
     context: &Context<'_>,
     command: CommandId,
@@ -199,6 +208,21 @@ pub async fn prepare_study(
     inputs: &PreparedInputs,
     datasets: &Datasets,
 ) -> Result<StudyPreparationOutcome> {
+    let mut owned=session.take_ownership();
+    let roles=owned.control_roles().map_err(|e|e.code())?;
+    let result=prepare_study_owned((owned.client_mut().await.map_err(|e|e.code())?,&roles),authority,context,command,request,inputs,datasets).await;
+    finish_control(session,owned,result).await
+}
+async fn prepare_study_owned(
+    control: (&mut Client,&ControlRoleOwner),
+    authority: &Authority,
+    context: &Context<'_>,
+    command: CommandId,
+    request: Request,
+    inputs: &PreparedInputs,
+    datasets: &Datasets,
+) -> Result<StudyPreparationOutcome> {
+    let (client,roles)=control;
     let owner = context.owner()?.to_owned();
     check_inputs(&request, &command, inputs)?;
     check_source(context, &request.specification, datasets)?;
@@ -213,10 +237,10 @@ pub async fn prepare_study(
     .await?;
     content(&accepted, &request.specification)?;
     tx.commit().await.map_err(db)?;
-    let projection = authority.refresh_projection(client).await?;
+    let projection = authority.refresh_projection_control((&mut *client,roles)).await?;
     let group = authority
-        .seal(
-            client,
+        .seal_control(
+            (&mut *client,roles),
             &command,
             &[request.specification.subject()?],
             &request.policy_id,
@@ -252,7 +276,7 @@ fn content(accepted: &Value, spec: &Specification) -> Result<()> {
 /// Explicit second Human confirmation. All durable operational effects share one commit.
 /// The hosting ingress retains its physical write gate and deadline around this call.
 pub async fn submit(
-    client: &mut Client,
+    session: &mut AuthoritySession,
     authority: &Authority,
     context: &Context<'_>,
     selection: (&PreparedStudy, &str),
@@ -261,7 +285,7 @@ pub async fn submit(
     at: OnlyUtcDateTime,
 ) -> Result<VerifiedRun> {
     submit_checked(
-        client,
+        session,
         authority,
         context,
         (selection.0, selection.1, None),
@@ -272,7 +296,7 @@ pub async fn submit(
     .await
 }
 pub(crate) async fn submit_prepared(
-    client: &mut Client,
+    session: &mut AuthoritySession,
     authority: &Authority,
     context: &Context<'_>,
     selection: (
@@ -285,14 +309,15 @@ pub(crate) async fn submit_prepared(
     at: OnlyUtcDateTime,
 ) -> Result<VerifiedRun> {
     let preparation = selection.2;
-    if preparation.request.research_command() != selection.0.command.value()
+    if preparation.source()?.selection()? != *context.selection
+        || preparation.request.research_command() != selection.0.command.value()
         || preparation.outputs["ready"]["prepared_study"] != selection.0.record()?
         || preparation.outputs["ready"]["prepared_inputs"] != *inputs.record()
     {
         return Err("RESEARCH_PREPARATION_STALE");
     }
     submit_checked(
-        client,
+        session,
         authority,
         context,
         (selection.0, selection.1, Some(preparation)),
@@ -303,7 +328,7 @@ pub(crate) async fn submit_prepared(
     .await
 }
 async fn submit_checked(
-    client: &mut Client,
+    session: &mut AuthoritySession,
     authority: &Authority,
     context: &Context<'_>,
     selection: (
@@ -315,6 +340,25 @@ async fn submit_checked(
     datasets: &Datasets,
     at: OnlyUtcDateTime,
 ) -> Result<VerifiedRun> {
+    let mut owned=session.take_ownership();
+    let roles=owned.control_roles().map_err(|e|e.code())?;
+    let result=submit_checked_owned((owned.client_mut().await.map_err(|e|e.code())?,&roles),authority,context,selection,inputs,datasets,at).await;
+    finish_control(session,owned,result).await
+}
+async fn submit_checked_owned(
+    control: (&mut Client,&ControlRoleOwner),
+    authority: &Authority,
+    context: &Context<'_>,
+    selection: (
+        &PreparedStudy,
+        &str,
+        Option<&crate::persistence::research_preparation::Operation>,
+    ),
+    inputs: &PreparedInputs,
+    datasets: &Datasets,
+    at: OnlyUtcDateTime,
+) -> Result<VerifiedRun> {
+    let (client,roles)=control;
     let (proposal, expected_proposal_fingerprint, preparation) = selection;
     let owner = context.owner()?;
     if owner != proposal.owner || proposal.fingerprint()? != expected_proposal_fingerprint {
@@ -341,7 +385,7 @@ async fn submit_checked(
                 {
                     return Err("RESEARCH_COMMAND_CONFLICT");
                 }
-                let result = load_in_transaction(&tx, r.outcome().id(), Some(owner)).await?;
+                let result = load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,roles), r.outcome().id(), Some(owner)).await?;
                 tx.commit().await.map_err(db)?;
                 return Ok(result);
             }
@@ -352,10 +396,10 @@ async fn submit_checked(
     }
     check_inputs(request, command, inputs)?;
     check_source(context, &request.specification, datasets)?;
-    let projection = authority.refresh_projection(client).await?;
+    let projection = authority.refresh_projection_control((&mut *client,roles)).await?;
     let action = authority
-        .authorize_action(
-            client,
+        .authorize_action_control(
+            (&mut *client,roles),
             command,
             &[request.specification.subject()?],
             &projection,
@@ -380,7 +424,7 @@ async fn submit_checked(
         {
             return Err("RESEARCH_COMMAND_CONFLICT");
         }
-        let result = load_in_transaction(&tx, receipt.outcome().id(), Some(owner)).await?;
+        let result = load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,roles), receipt.outcome().id(), Some(owner)).await?;
         tx.commit().await.map_err(db)?;
         return Ok(result);
     }
@@ -392,7 +436,7 @@ async fn submit_checked(
         )
         .await?;
     }
-    action.recheck_in_transaction(&tx).await?;
+    action.recheck_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,roles)).await?;
     let accepted =
         proposals::confirmed_research_input(&tx, &request.factor_proposal_fingerprint, owner, true)
             .await?;
@@ -439,11 +483,11 @@ async fn submit_checked(
     let mut prior_ids = Vec::new();
     for row in prior {
         let id: String = row.try_get(0).map_err(db)?;
-        load_in_transaction(&tx, &id, Some(owner)).await?;
+        load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,roles), &id, Some(owner)).await?;
         prior_ids.push(id);
     }
     if let Some(previous) = &request.parent_run_id {
-        let previous = load_in_transaction(&tx, previous, Some(owner)).await?;
+        let previous = load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,roles), previous, Some(owner)).await?;
         if previous.run_id() == expected_run
             || previous.factor_specification()?.revision["factor_id"]
                 != request.specification.revision["factor_id"]
@@ -454,7 +498,7 @@ async fn submit_checked(
     }
     let snapshot = json!({"factor_name":state["display"]["display_name"],"usage_summary":state["display"]["usage_summary"],
         "display_version":state["revisions"].as_array().ok_or(INVALID)?.iter().find(|r|r["revision"]==request.specification.revision).ok_or(INVALID)?["display_version"]});
-    let authorization = json!({"schema_version":1,"contract":"ONLYALPHA_FACTOR_RESEARCH_AUTHORIZATION_V1","actor_id":owner,
+    let authorization = json!({"schema_version":1,"contract":"ONLYALPHA_FACTOR_RESEARCH_AUTHORIZATION_V1","actor_id":owner,"source_selection":context.selection.record(),
         "command_id":command.value(),"command_fingerprint":command_fp,"run_id":expected_run,"factor_id":id,
         "factor_proposal_fingerprint":request.factor_proposal_fingerprint,
         "factor_confirmation_command_id":accepted["confirmation_command_id"],"factor_revision_fingerprint":request.specification.revision["revision_fingerprint"],
@@ -487,7 +531,7 @@ async fn submit_checked(
         .map_err(|_| "RESEARCH_HUMAN_AUTHORIZATION_REQUIRED")?;
     context.source()?;
     inputs.verify_runtime()?;
-    let verified = load_in_transaction(&tx, &expected_run, Some(owner)).await?;
+    let verified = load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,roles), &expected_run, Some(owner)).await?;
     // A lost commit acknowledgement is UNKNOWN. Same Command queries the original outcome.
     tx.commit()
         .await
@@ -510,15 +554,24 @@ async fn insert_action(tx: &Transaction<'_>, parent: &Value, action: &ActionProo
     }
     Ok(())
 }
-pub async fn load(client: &mut Client, id: &str, owner: Option<&str>) -> Result<VerifiedRun> {
-    let tx = client.transaction().await.map_err(db)?;
+pub async fn load(
+    client: &mut Client,
+    facts: &mut Client,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
+    id: &str,
+    owner: Option<&str>,
+) -> Result<VerifiedRun> {
+    let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.map_err(db)?;
     bounds(&tx).await.map_err(db)?;
-    let run = load_in_transaction(&tx, id, owner).await?;
+    let facts_tx=facts.build_transaction().read_only(true).start().await.map_err(db)?;
+    let context=crate::persistence::build_fact_read::BuildFactRead::reader(&tx,&facts_tx,namespace).await.map_err(db)?;
+    let run=load_in_transaction(&context,id,owner).await?;
+    facts_tx.commit().await.map_err(db)?;
     tx.commit().await.map_err(db)?;
     Ok(run)
 }
 pub(crate) async fn load_in_transaction(
-    tx: &Transaction<'_>,
+    tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
     id: &str,
     owner: Option<&str>,
 ) -> Result<VerifiedRun> {
@@ -558,6 +611,13 @@ pub(crate) async fn load_in_transaction(
     let spec = crate::application::research_run::NativeSpecification::from_record(
         &serde_json::from_str(&payload).map_err(db)?,
     )?;
+    if matches!(
+        spec,
+        crate::application::research_run::NativeSpecification::Strategy(_)
+    ) && let Some(proof) = auth["prepared_inputs"].get("build_certification")
+    {
+        tx.verify_calculation(proof).await?;
+    }
     // The immutable member set was verified above, including its Admission V2 hash.
     // Carry its exact original leaves into the read composition, not a copied Group claim.
     let command = CommandId::new(text(&auth, "command_id")?).map_err(db)?;
@@ -573,6 +633,8 @@ pub(crate) async fn load_in_transaction(
     )?;
     Ok(VerifiedRun {
         run_id: id.into(),
+        owner: text(&auth, "actor_id")?.into(),
+        source_selection: Selection::from_record(&auth["source_selection"]).map_err(|_| "RESEARCH_AUTHORIZATION_CORRUPT")?,
         payload,
         specification: spec,
         specification_fingerprint: text(&row, "specification_fingerprint")?.into(),
@@ -614,6 +676,7 @@ async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Resul
         "schema_version",
         "contract",
         "actor_id",
+        "source_selection",
         "command_id",
         "command_fingerprint",
         "run_id",
@@ -640,6 +703,7 @@ async fn verify_authorization_record(tx: &Transaction<'_>, row: &Value) -> Resul
     {
         return Err("RESEARCH_AUTHORIZATION_CORRUPT");
     }
+    Selection::from_record(&v["source_selection"]).map_err(|_| "RESEARCH_AUTHORIZATION_CORRUPT")?;
     let req: Request = serde_json::from_value(v["request"].clone()).map_err(db)?;
     req.validate()?;
     if v["parent_run_id"] != json!(req.parent_run_id)
@@ -818,12 +882,25 @@ pub fn restore_study(
 
 /// Human cancellation is an idempotent global Command, never an Agent write or new Run.
 pub async fn cancel(
-    client: &mut Client,
+    session: &mut AuthoritySession,
     human: (&human_access::Access, &human_access::Session),
     command: CommandId,
     id: &str,
     at: OnlyUtcDateTime,
 ) -> Result<VerifiedRun> {
+    let mut owned=session.take_ownership();
+    let roles=owned.control_roles().map_err(|e|e.code())?;
+    let result=cancel_owned((owned.client_mut().await.map_err(|e|e.code())?,&roles),human,command,id,at).await;
+    finish_control(session,owned,result).await
+}
+async fn cancel_owned(
+    control: (&mut Client,&ControlRoleOwner),
+    human: (&human_access::Access, &human_access::Session),
+    command: CommandId,
+    id: &str,
+    at: OnlyUtcDateTime,
+) -> Result<VerifiedRun> {
+    let (client,roles)=control;
     human
         .0
         .check_session(human.1)
@@ -841,7 +918,7 @@ pub async fn cancel(
     let tx = client.transaction().await.map_err(db)?;
     bounds(&tx).await.map_err(db)?;
     Commands::lock_command(&tx, &command).await.map_err(db)?;
-    let run = load_in_transaction(&tx, id, Some(owner)).await?;
+    let run = load_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,roles), id, Some(owner)).await?;
     run.factor_specification()?;
     match Commands::verify_binding_in_transaction(&tx, &command)
         .await
@@ -891,6 +968,8 @@ pub enum SubmissionOutcome {
 /// Source grant or mutable authoring head. Missing completion never triggers a retry.
 pub async fn submission_outcome(
     client: &mut Client,
+    facts: &mut Client,
+    namespace: &crate::bootstrap::deployment::SemanticStoreId,
     context: &Context<'_>,
     proposal: &PreparedStudy,
 ) -> Result<SubmissionOutcome> {
@@ -906,11 +985,11 @@ pub async fn submission_outcome(
             .command_fingerprint(owner, &proposal.group)?,
     )
     .map_err(db)?;
-    let tx = client.transaction().await.map_err(db)?;
+    let tx=client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.map_err(db)?;
+    let facts_tx=facts.build_transaction().read_only(true).start().await.map_err(db)?;
+    let read_context=crate::persistence::build_fact_read::BuildFactRead::reader(&tx,&facts_tx,namespace).await.map_err(db)?;
     bounds(&tx).await.map_err(db)?;
-    Commands::lock_command(&tx, &proposal.command)
-        .await
-        .map_err(db)?;
+
     let outcome = match Commands::verify_binding_in_transaction(&tx, &proposal.command)
         .await
         .map_err(db)?
@@ -943,17 +1022,18 @@ pub async fn submission_outcome(
                 return Err("RESEARCH_COMMAND_CONFLICT");
             }
             SubmissionOutcome::Accepted(Box::new(
-                load_in_transaction(&tx, r.outcome().id(), Some(owner)).await?,
+                load_in_transaction(&read_context, r.outcome().id(), Some(owner)).await?,
             ))
         }
     };
+    facts_tx.commit().await.map_err(db)?;
     tx.commit().await.map_err(db)?;
     Ok(outcome)
 }
 
 /// Complete trial occurrence relation, bounded to the retained same-factor prefix.
 /// Each predecessor is verified once; its ancestor list is not recursively traversed.
-pub(crate) async fn verify_authorization(tx: &Transaction<'_>, row: &Value) -> Result<Value> {
+pub(crate) async fn verify_authorization(tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>, row: &Value) -> Result<Value> {
     if row["specification_schema_version"] == 5 {
         return strategy::verify_authorization(tx, row).await;
     }

@@ -165,3 +165,12 @@ Funding 的经济边界筛选与签发时的完整成交 lineage 是两条关系
 资金费事务保留原来源绑定、首个闭合步序号、原步摘要和可见经济时钟。结算后新的 ADMIT 必须晚于该经济边界。已准入订单在场所时钟追平成交准入时刻后可正常派发，未知结果继续按原命令观察。
 
 配置 3 的 FundingDraft 只表达经济计算值和来源候选。被动行的 ProjectionData::transcript 返回 TranscriptDraft，提供可比较的来源、统计和明细。原 Run 在持久 Ready 前缀上确认封存与结果身份。通用 coordinate、recover、投影安装与 Ready 查询遇到 Funding 或已含 Funding 的前缀时要求原持久化 owner。Runtime 从实际 Run、冻结市场来源和原场所/协议两条历史准备，按同一目的前驱提交，且在自己的持锁介质上确认六组投影和 Ready。
+
+### 单次来源验证中的准入复算基线
+
+`AdmissionPreview` 只复用同一完整 checkpoint 冷恢复得到的组件数据。每个输入仍在独立候选上执行
+原 scope、序号、别名、风控和账户容量校验；不得将前一个输入的拒绝结果用于新输入。
+调用方持有实际原始来源并逐次证明 checkpoint 的配置和精确前缀。完整内容变化时丢弃旧基线，
+恢复失败不使用旧来源继续判断。上下文不得跨 Run、来源验证调用、进程或历史工件使用。
+它不替代 Store/Ready/当前来源证明，也不生成提交资格。任意字节的 `Components::restore` 和
+`Components::admission_rejection` 继续执行完整冷恢复，不以序号、摘要或之前的成功替代恢复校验。

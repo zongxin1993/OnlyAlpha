@@ -1,6 +1,23 @@
 use crate::model::*;
 use bigdecimal::Zero;
 use serde_json::{Value, json};
+
+pub fn realized_rounding_delta(
+    perpetual: bool,
+    buy: bool,
+    cost_delta: &Decimal,
+    notional: &Decimal,
+    realized_delta: &Decimal,
+) -> Decimal {
+    if perpetual {
+        Decimal::zero()
+    } else if buy {
+        cost_delta - notional
+    } else {
+        notional + cost_delta - realized_delta
+    }
+}
+
 impl Ledger {
     pub(crate) fn entry(
         &mut self,
@@ -128,14 +145,13 @@ impl Ledger {
             }
             self.cash += &notional - &fee;
         }
-        // Residual is accumulated from validated trade deltas, independently of the equity invariant.
-        self.rounding_residual += if perpetual {
-            Decimal::zero()
-        } else if buy {
-            (&cost - &existing.cost) * &cost_factor - &notional
-        } else {
-            &notional - (&existing.cost - &cost) - &rd
-        };
+        self.rounding_residual += realized_rounding_delta(
+            perpetual,
+            buy,
+            &(&cost - &existing.cost),
+            &notional,
+            &rd,
+        );
         self.realized += rd;
         self.fees += &fee;
         self.trade_sequence = Some(uint(&p["source_sequence"])?);

@@ -14,6 +14,12 @@ use serde_json::{Value, json};
 /// Implementations must derive their outputs from these explicit inputs and immutable binding.
 pub trait NextOpenPolicy {
     fn binding(&self) -> Value;
+    fn analytical_entry_quote(
+        &self,
+        price: &OnlyPrice,
+        quantity: &OnlyQuantity,
+        context: &Value,
+    ) -> Result<Value, Error>;
     fn admission(
         &self,
         order: &Value,
@@ -35,7 +41,6 @@ pub(crate) trait NativeExecution {
     fn configuration(&self) -> &Value;
     fn state(&self) -> Result<Value, Error>;
     fn position_order_view(&self) -> Result<Value, Error>;
-    fn checkpoint(&self) -> Result<Value, Error>;
     fn sequence(&self) -> usize;
     fn order(&self, cluster: &str, order: &str) -> Result<Value, Error>;
     fn fee_order_preview(&self, cluster: &str, request: &Value, at: u64) -> Result<Value, Error>;
@@ -50,9 +55,6 @@ impl NativeExecution for Candidate {
     }
     fn position_order_view(&self) -> Result<Value, Error> {
         self.position_order_view()
-    }
-    fn checkpoint(&self) -> Result<Value, Error> {
-        self.checkpoint()
     }
     fn sequence(&self) -> usize {
         self.records().len()
@@ -69,18 +71,22 @@ impl NativeExecution for Candidate {
 }
 
 pub(crate) struct NativeReplay {
-    configuration: Value,
-    policy_settings: Value,
-    calendar: Value,
-    cluster: String,
-    revision: Value,
-    binding: Value,
+    model: NextOpenModel,
     resolver: Box<dyn NextOpenPolicy>,
     pending: Value,
     last: Value,
     finished: bool,
-    start: BigInt,
-    end: BigInt,
+}
+
+pub(crate) struct NextOpenModel {
+    configuration: Value,
+    policy_settings: Value,
+    calendar: Value,
+    pub(crate) cluster: String,
+    revision: Value,
+    binding: Value,
+    pub(crate) start: BigInt,
+    pub(crate) end: BigInt,
     quantity: OnlyQuantity,
     buy_multiplier: OnlyDecimal,
     sell_multiplier: OnlyDecimal,
@@ -125,10 +131,10 @@ pub(crate) fn context(identity: &str, time: BigInt, day: &Value) -> Result<Value
         json!({"schema_version":1,"time":nanos,"day_index":ordinal,"trading_day":day,"cause":identity}),
     )
 }
-impl NativeReplay {
+impl NextOpenModel {
     pub(crate) fn new(
         settings: &Value,
-        resolver: Box<dyn NextOpenPolicy>,
+        binding: Value,
         initial_ns: BigInt,
         cluster: &str,
     ) -> Result<Self, Error> {
@@ -147,7 +153,6 @@ impl NativeReplay {
         )?;
         let configuration = settings["execution"].clone();
         let revision = configuration["profiles"][cluster]["revision"].clone();
-        let binding = resolver.binding();
         if p["schema_version"] != 1
             || p["kind"] != "NEXT_OPEN_LONG_ONLY_V1"
             || configuration["runtime_kind"] != "BACKTEST"
@@ -156,6 +161,7 @@ impl NativeReplay {
             || binding["configuration"] != hash(&configuration)
             || binding["reference_policy"] != "MODEL_NEXT_OPEN"
             || binding["kind"].as_str().is_none_or(str::is_empty)
+            || !binding["settlement_policy"].is_object()
         {
             return Err(err("NEXT_OPEN_BINDING"));
         }
@@ -184,10 +190,6 @@ impl NativeReplay {
             cluster: cluster.into(),
             revision,
             binding,
-            resolver,
-            pending: Value::Null,
-            last: Value::Null,
-            finished: false,
             start,
             end,
             quantity,
@@ -205,8 +207,318 @@ impl NativeReplay {
         value["execution_model"] = self.execution_model();
         value
     }
+    pub(crate) fn verify_settlement_policy(&self, evidence: &Value) -> Result<(), Error> {
+        if evidence["settlement_policy"] != self.binding["settlement_policy"] {
+            return Err(err("MODEL_SETTLEMENT_POLICY"));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn verify_notional(&self, price: &OnlyPrice, value: &Value) -> Result<(), Error> {
+        use onlyalpha_domain::{
+            numeric::only_quantize,
+            value::{OnlyCurrency, OnlyMoney},
+        };
+        let currency = boundary(OnlyCurrency::from_record(&self.configuration["currency"]))?;
+        let exact = boundary(only_multiply(price.value(), self.quantity.value()))?;
+        let quantum = boundary(format!("1e-{}", currency.precision()).parse())?;
+        let expected = boundary(OnlyMoney::new(
+            boundary(only_quantize(&exact, &quantum))?,
+            currency,
+        ))?;
+        let money = boundary(OnlyMoney::from_record(value))?;
+        if money.to_record() != *value || money != expected {
+            return Err(err("MODEL_NOTIONAL"));
+        }
+        Ok(())
+    }
+
+    fn baseline_entry(&self, first: &MarketInput) -> Result<(OnlyPrice, Value), Error> {
+        let opening = first.opening();
+        let price = self.execution_price(&opening, "BUY")?;
+        let cause = hash(
+            &json!({"kind":"ANALYTICAL_ESTIMATE","input":first.identity(),"policy":self.binding}),
+        );
+        let context = context(&cause, opening.event_ns(), &opening.record()["trading_day"])?;
+        Ok((price, context))
+    }
+
+    pub(crate) fn retained_baseline(
+        &self,
+        first: &MarketInput,
+        last: &MarketInput,
+        quote: &Value,
+    ) -> Result<Value, Error> {
+        let (price, context) = self.baseline_entry(first)?;
+        self.baseline_from_quote(first, last, &price, &context, quote)
+    }
+
+    fn baseline_from_quote(
+        &self,
+        first: &MarketInput,
+        last: &MarketInput,
+        price: &OnlyPrice,
+        context: &Value,
+        quote: &Value,
+    ) -> Result<Value, Error> {
+        use onlyalpha_domain::{
+            numeric::{only_quantize, only_subtract},
+            value::{OnlyCurrency, OnlyMoney},
+        };
+        if quote["schema_version"] != 1
+            || quote["kind"] != "ANALYTICAL_ESTIMATE"
+            || quote["reference_policy"] != "MODEL_NEXT_OPEN"
+            || quote["venue_acceptance_proven"] != false
+            || quote["policy_fingerprint"] != hash(&self.binding)
+            || quote["execution_price"] != price.to_record()
+            || quote["quantity"] != self.quantity.to_record()
+            || quote["context"] != *context
+        {
+            return Err(err("BASELINE_QUOTE"));
+        }
+        let currency = boundary(OnlyCurrency::from_record(&self.configuration["currency"]))?;
+        let money = |v: &Value| -> Result<OnlyDecimal, Error> {
+            let value = boundary(OnlyMoney::from_record(v))?;
+            if value.to_record() != *v || value.currency() != &currency {
+                return Err(err("BASELINE_CURRENCY"));
+            }
+            Ok(value.amount().clone())
+        };
+        let initial = decimal(&self.configuration["initial_cash"])?;
+        let gross = money(&quote["gross_notional"])?;
+        let charges = money(&quote["charges"])?;
+        let rebates = money(&quote["rebates"])?;
+        let quantum: OnlyDecimal = boundary(format!("1e-{}", currency.precision()).parse())?;
+        let entry_notional = boundary(only_multiply(price.value(), self.quantity.value()))?;
+        if gross != boundary(only_quantize(&entry_notional, &quantum))?
+            || charges.is_negative()
+            || rebates.is_negative()
+        {
+            return Err(err("BASELINE_QUOTE_AMOUNT"));
+        }
+        let cash = boundary(only_add(
+            &boundary(only_subtract(
+                &boundary(only_subtract(&initial, &gross))?,
+                &charges,
+            ))?,
+            &rebates,
+        ))?;
+        let marked = boundary(only_multiply(
+            last.bar().close().value(),
+            self.quantity.value(),
+        ))?;
+        let equity = boundary(only_add(
+            &cash,
+            &boundary(only_quantize(&marked, &quantum))?,
+        ))?;
+        let equity = boundary(OnlyMoney::new(equity, currency))?.to_record()["amount"].clone();
+        Ok(
+            json!({"kind":"ANALYTICAL_ESTIMATE","entry_at_ns":first.opening().event_ns().to_string(),"valuation_at_ns":last.event_ns().to_string(),"entry_price":price.to_record(),"quantity":self.quantity.to_record(),"entry_fee_quote":quote,"initial_equity":self.configuration["initial_cash"],"final_equity":equity}),
+        )
+    }
+    fn execution_price(&self, input: &OpeningInput, side: &str) -> Result<OnlyPrice, Error> {
+        let multiplier = match side {
+            "BUY" => &self.buy_multiplier,
+            "SELL" => &self.sell_multiplier,
+            _ => return Err(err("SIGNAL_SIDE")),
+        };
+        let exact = boundary(only_multiply(input.price().value(), multiplier))?;
+        let precision =
+            u8::try_from(exact.fractional_precision().max(0)).map_err(|_| err("FILL_PRECISION"))?;
+        boundary(OnlyPrice::new(exact, precision))
+    }
+
+    pub(crate) fn opening_terms(
+        &self,
+        input: &OpeningInput,
+        signal: &Value,
+    ) -> Result<(OnlyPrice, Value), Error> {
+        if input.event_ns() < self.start || input.event_ns() >= self.end {
+            return Err(err("POLICY_SAMPLE_BOUND"));
+        }
+        if signal["source"] != input.source()
+            || signal["source_sequence"]
+                .as_u64()
+                .and_then(|n| n.checked_add(1))
+                != Some(input.sequence())
+            || instant(&signal["signal_time"])? > input.event_ns()
+        {
+            return Err(err("NEXT_OPEN_CAUSALITY"));
+        }
+        let price = self.execution_price(
+            input,
+            signal["side"].as_str().ok_or_else(|| err("SIGNAL_SIDE"))?,
+        )?;
+        let cause = hash(&json!([signal, input.record(), self.binding]));
+        let ctx = context(&cause, input.event_ns(), &input.record()["trading_day"])?;
+        Ok((price, ctx))
+    }
+
+    pub(crate) fn order_request(
+        &self,
+        input: &OpeningInput,
+        signal: &Value,
+        cause: &str,
+    ) -> Result<Value, Error> {
+        let side = &signal["side"];
+        let request = json!({"schema_version":1,"request_id":{"schema_version":1,"value":format!("NEXT-{cause}")},"instrument_id":input.instrument_id().to_record(),"side":side,"order_type":"MARKET","quantity":self.quantity.to_record(),"time_in_force":"GTC","account_id":null,"offset":if side=="BUY"{"NONE"}else{"CLOSE"},"price":null,"stop_price":null,"expire_time":null,"tags":[],"metadata":{"replay_policy":hash(&self.binding),"signal":signal["decision_identity"]},"execution_intent":{"schema_version":2,"side":side,"position_side":"LONG","position_effect":if side=="BUY"{"OPEN"}else{"CLOSE"},"position_mode":"NETTING","close_scope":"ANY","exposure_constraint":"NONE"}});
+        Ok(boundary(OnlyOrderRequest::from_record(&request))?.to_record())
+    }
+
+    pub(crate) fn request(
+        &self,
+        n: u64,
+        identity: &str,
+        ctx: &Value,
+        op: &str,
+        payload: Value,
+    ) -> Value {
+        let e = &self.configuration;
+        let id = format!(
+            "REPLAY-{}",
+            hash(
+                &json!({"market":identity,"cause":ctx["cause"],"sequence":n,"op":op,"payload":payload,"policy":self.binding})
+            )
+        );
+        json!({"schema_version":1,"engine":e["engine"],"runtime":e["runtime"],"account":e["account"],"gateway":e["gateway"],"generation":e["generation"],"runtime_kind":"BACKTEST","cluster":self.cluster,"revision":self.revision,"input_id":id,"source_ref":format!("CAUSE-{}",hash(&json!([identity,ctx["cause"],n,op]))),"time":ctx["time"],"runtime_sequence":n,"trading_day":ctx["trading_day"],"day_index":ctx["day_index"],"op":op,"payload":payload})
+    }
+
+    pub(crate) fn admit_payload(
+        &self,
+        request: &Value,
+        order: &str,
+        cause: &str,
+        price: &OnlyPrice,
+        admission: &Value,
+    ) -> Value {
+        let model = self.execution_model();
+        let fill_contract = json!({"schema_version":1,"kind":"BACKTEST_WHOLE_FILL","maximum_fill_count":1,"model_fingerprint":hash(&model),"model":model,"fee_estimate_assumptions_fingerprint":admission["contract"]["estimate"]["assumptions_fingerprint"]});
+        json!({"schema_version":2,"request":request,"fee_contract":admission["contract"],"fee_budget":admission["fee_budget"],"settlement_fill_contract":fill_contract,"market":{"schema_version":1,"verdict":"ACCEPT","source_ref":format!("MODEL-MARKET-{cause}"),"request_digest":hash(request),"reference_price":price.to_record(),"notional":admission["notional"],"rounding":"HALF_EVEN"},"order":order,"collateral":no_collateral()})
+    }
+
+    pub(crate) fn admission_rejection(
+        &self,
+        result: Result<(), Error>,
+        side: &Value,
+        admission: &Value,
+        state: impl FnOnce() -> Result<Value, Error>,
+    ) -> Result<Option<&'static str>, Error> {
+        match result {
+            Ok(()) => Ok(None),
+            Err(error) if error.0 == "EXECUTION_ACCOUNT_CAPACITY_DENIED" => {
+                Ok(Some("ACCOUNT_JOURNAL_BOUND"))
+            }
+            Err(error) if error.0 == "EXECUTION_RISK_DENIED" => {
+                let before = state()?;
+                let principal =
+                    decimal(&admission["contract"]["funding"]["principal_reservation"]["amount"])?;
+                let fee = decimal(&admission["fee_budget"])?;
+                let required = boundary(only_add(&principal, &fee))?;
+                let available = decimal(&before["account"]["snapshot"]["trade_available"])?;
+                let ledger_available =
+                    decimal(&before["ledger"]["ledgers"][&self.cluster]["snapshot"]["available"])?;
+                Ok(Some(if side == "BUY" && (available < required || ledger_available < required) {
+                    "INSUFFICIENT_FUNDS"
+                } else {
+                    "RISK_DENIED"
+                }))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(crate) fn fill_payload(
+        &self,
+        input: &OpeningInput,
+        price: &OnlyPrice,
+        fill_context: &Value,
+        admitted: &Value,
+        evidence: &Value,
+        n: u64,
+    ) -> Result<Value, Error> {
+        self.verify_settlement_policy(evidence)?;
+        let cause = fill_context["cause"]
+            .as_str()
+            .ok_or_else(|| err("FILL_CAUSE"))?;
+        let trade = &fill_context["trade"];
+        let order = &admitted["order"];
+        let request = &admitted["request"];
+        let scope = json!({"schema_version":1,"engine":self.configuration["engine"],"runtime":self.configuration["runtime"],"account":self.configuration["account"],"gateway":self.configuration["gateway"],"generation":self.configuration["generation"],"runtime_kind":"BACKTEST","cluster":self.cluster,"revision":self.revision,"instrument":input.instrument_id().to_string(),"request":request["request_id"]["value"]});
+        let mut fee = json!({"schema_version":1,"instruction":format!("MODEL-FEE-{cause}"),"source_ref":format!("MODEL-FEE-{cause}"),"policy":admitted["fee_contract"]["binding"]["fingerprint"],"order":order,"trade":trade,"currency":self.configuration["currency"],"charge_target":evidence["charge_target"],"rebate_target":evidence["rebate_target"]});
+        let mut settlement = json!({"schema_version":1,"instruction":format!("MODEL-SET-{cause}"),"source_ref":format!("MODEL-SET-{cause}"),"order":order,"trade":trade,"currency":self.configuration["currency"],"model":"CASH_SETTLEMENT","calendar":self.calendar,"policy":self.binding["settlement_policy"],"gross_notional":evidence["gross_notional"],"rounding":"HALF_EVEN"});
+        let mut valuation = json!({"schema_version":1,"source_ref":format!("MODEL-VAL-{cause}"),"currency":self.configuration["currency"],"mark":input.price().value().to_string()});
+        for (proof, family) in [
+            (&mut fee, "ORDER_FEE_ACCRUAL"),
+            (&mut settlement, "SETTLEMENT"),
+            (&mut valuation, "VALUATION"),
+        ] {
+            proof["scope"] = scope.clone();
+            proof["family"] = json!(family);
+            proof["version"] = json!(n);
+            proof["as_of_sequence"] = json!(n);
+            proof["source_digest"] = json!(hash(proof));
+        }
+        Ok(
+            json!({"schema_version":1,"order":order,"trade":trade,"venue_trade":format!("MODEL-VENUE-{cause}"),"venue_order":format!("MODEL-ORDER-{cause}"),"quantity":self.quantity.value().to_string(),"price":price.value().to_string(),"price_precision":price.precision(),"fees":fee,"settlement":settlement,"valuation":valuation,"collateral":no_collateral()}),
+        )
+    }
+}
+
+fn no_collateral() -> Value {
+    json!({"schema_version":1,"kind":"NONE","instruction":null,"close_allocation":null})
+}
+
+pub(crate) fn signal_at_close(input: &MarketInput, outcome: &Value, held: bool) -> Value {
+    if outcome["status"] != "READY" || outcome["decision"]["eligibility"] != true {
+        return json!({"status":"INELIGIBLE"});
+    }
+    let decision = &outcome["decision"];
+    let side = if !held && decision["entry"] == true {
+        "BUY"
+    } else if held && decision["exit"] == true {
+        "SELL"
+    } else {
+        return json!({"status":"NO_SIGNAL"});
+    };
+    let signal = json!({"schema_version":1,"side":side,"decision":decision,"decision_identity":hash(decision),"source":input.source(),"source_sequence":input.sequence(),"signal_input":input.identity(),"signal_time":input.event_ns().to_string()});
+    json!({"status":"PENDING","signal":signal})
+}
+
+impl NativeReplay {
+    pub(crate) fn new(
+        settings: &Value,
+        resolver: Box<dyn NextOpenPolicy>,
+        initial_ns: BigInt,
+        cluster: &str,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            model: NextOpenModel::new(settings, resolver.binding(), initial_ns, cluster)?,
+            resolver,
+            pending: Value::Null,
+            last: Value::Null,
+            finished: false,
+        })
+    }
+
+    pub(crate) fn binding(&self) -> Value {
+        self.model.binding()
+    }
+
+    pub(crate) fn analytical_baseline(
+        &self,
+        first: &MarketInput,
+        last: &MarketInput,
+    ) -> Result<Value, Error> {
+        let (price, context) = self.model.baseline_entry(first)?;
+        let quote = self
+            .resolver
+            .analytical_entry_quote(&price, &self.model.quantity, &context)?;
+        self.model
+            .baseline_from_quote(first, last, &price, &context, &quote)
+    }
+
     pub(crate) fn capture(&self) -> Value {
-        json!({"schema_version":2,"binding":hash(&json!([self.binding,self.policy_settings])),"execution_model":self.execution_model(),"pending":self.pending,"last":self.last,"finished":self.finished})
+        json!({"schema_version":2,"binding":hash(&json!([self.model.binding,self.model.policy_settings])),"execution_model":self.model.execution_model(),"pending":self.pending,"last":self.last,"finished":self.finished})
     }
     /// Read-only validation of this owner's retained checkpoint profile. No
     /// resolver, SDK factory, admission or Fill operation is invoked.
@@ -262,7 +574,7 @@ impl NativeReplay {
             ],
         )?;
         if v["schema_version"] != 2
-            || v["execution_model"] != self.execution_model()
+            || v["execution_model"] != self.model.execution_model()
             || v["binding"] != self.capture()["binding"]
             || !v["finished"].is_boolean()
             || (!v["pending"].is_null() && !v["pending"].is_object())
@@ -328,8 +640,8 @@ impl NativeReplay {
             || p["decision_identity"] != hash(&p["decision"])
             || p["decision"]["eligibility"] != true
             || p["decision"][role] != true
-            || signal_time <= self.start
-            || signal_time > self.end
+            || signal_time <= self.model.start
+            || signal_time > self.model.end
             || signal_time != BigInt::from(last_time)
             || self.last["identity"] != p["signal_input"]
             || *last_context != expected_context
@@ -342,7 +654,7 @@ impl NativeReplay {
         self.pending.is_null() && self.last.is_null() && !self.finished
     }
     pub(crate) fn validate_execution(&self, c: &impl NativeExecution) -> Result<(), Error> {
-        if c.configuration() != &self.configuration {
+        if c.configuration() != &self.model.configuration {
             return Err(err("PENDING_EXECUTION_CONFIG"));
         }
         let (active, held) = self.book(c)?;
@@ -369,7 +681,7 @@ impl NativeReplay {
             return Err(err("ORDER_PROOF"));
         }
         for relation in relations.values() {
-            if relation["cluster"] != self.cluster {
+            if relation["cluster"] != self.model.cluster {
                 return Err(err("ORDER_SCOPE"));
             }
         }
@@ -389,8 +701,8 @@ impl NativeReplay {
             .as_array()
             .ok_or_else(|| err("POSITION_PROOF"))?
         {
-            if allocation["cluster"] != self.cluster
-                || allocation["instrument"] != self.configuration["instruments"][0]["id"]
+            if allocation["cluster"] != self.model.cluster
+                || allocation["instrument"] != self.model.configuration["instruments"][0]["id"]
             {
                 return Err(err("POSITION_SCOPE"));
             }
@@ -399,7 +711,7 @@ impl NativeReplay {
                 &decimal(&allocation["snapshot"]["quantity"])?,
             ))?;
         }
-        if !quantity.is_zero() && &quantity != self.quantity.value() {
+        if !quantity.is_zero() && &quantity != self.model.quantity.value() {
             return Err(err("POLICY_POSITION_SHAPE"));
         }
         Ok((active, quantity))
@@ -410,12 +722,12 @@ impl NativeReplay {
         processing: &Value,
         c: &impl NativeExecution,
     ) -> Result<Value, Error> {
-        if self.finished || input.event_ns() > self.end {
+        if self.finished || input.event_ns() > self.model.end {
             return Err(err("POLICY_SAMPLE_BOUND"));
         }
         let raw = input.bar().to_record();
         self.last = json!({"identity":input.identity(),"context":context(&input.identity(),input.event_ns(),&raw["trading_day"])?});
-        if input.opening().event_ns() < self.start {
+        if input.opening().event_ns() < self.model.start {
             return Ok(json!({"status":"WARMUP"}));
         }
         if !self.pending.is_null() {
@@ -435,16 +747,9 @@ impl NativeReplay {
         if active {
             return Ok(json!({"status":"ORDER_PENDING"}));
         }
-        let d = &outcome["decision"];
-        let side = if quantity.is_zero() && d["entry"] == true {
-            "BUY"
-        } else if !quantity.is_zero() && d["exit"] == true {
-            "SELL"
-        } else {
-            return Ok(json!({"status":"NO_SIGNAL"}));
-        };
-        self.pending = json!({"schema_version":1,"side":side,"decision":d,"decision_identity":hash(d),"source":input.source(),"source_sequence":input.sequence(),"signal_input":input.identity(),"signal_time":input.event_ns().to_string()});
-        Ok(json!({"status":"PENDING","signal":self.pending}))
+        let policy = signal_at_close(input, outcome, !quantity.is_zero());
+        self.pending = policy["signal"].clone();
+        Ok(policy)
     }
     fn request(
         &self,
@@ -454,15 +759,8 @@ impl NativeReplay {
         op: &str,
         payload: Value,
     ) -> Value {
-        let e = &self.configuration;
-        let n = c.sequence() as u64 + 1;
-        let id = format!(
-            "REPLAY-{}",
-            hash(
-                &json!({"market":identity,"cause":ctx["cause"],"sequence":n,"op":op,"payload":payload,"policy":self.binding})
-            )
-        );
-        json!({"schema_version":1,"engine":e["engine"],"runtime":e["runtime"],"account":e["account"],"gateway":e["gateway"],"generation":e["generation"],"runtime_kind":"BACKTEST","cluster":self.cluster,"revision":self.revision,"input_id":id,"source_ref":format!("CAUSE-{}",hash(&json!([identity,ctx["cause"],n,op]))),"time":ctx["time"],"runtime_sequence":n,"trading_day":ctx["trading_day"],"day_index":ctx["day_index"],"op":op,"payload":payload})
+        self.model
+            .request(c.sequence() as u64 + 1, identity, ctx, op, payload)
     }
     pub(crate) fn opening(
         &mut self,
@@ -475,40 +773,18 @@ impl NativeReplay {
         if self.pending.is_null() {
             return Ok(json!({"status":"NO_PENDING"}));
         }
-        if input.event_ns() < self.start || input.event_ns() >= self.end {
-            return Err(err("POLICY_SAMPLE_BOUND"));
-        }
         let signal = self.pending.clone();
-        if signal["source"] != input.source()
-            || signal["source_sequence"]
-                .as_u64()
-                .and_then(|n| n.checked_add(1))
-                != Some(input.sequence())
-            || instant(&signal["signal_time"])? > input.event_ns()
-        {
-            return Err(err("NEXT_OPEN_CAUSALITY"));
-        }
+        let (price, ctx) = self.model.opening_terms(input, &signal)?;
         let side = signal["side"].as_str().ok_or_else(|| err("SIGNAL_SIDE"))?;
         let (active, held) = self.book(c)?;
         if active || (side == "BUY" && !held.is_zero()) || (side == "SELL" && held.is_zero()) {
             return Err(err("SIGNAL_POSITION_CONFLICT"));
         }
-        let multiplier = match side {
-            "BUY" => &self.buy_multiplier,
-            "SELL" => &self.sell_multiplier,
-            _ => return Err(err("SIGNAL_SIDE")),
-        };
-        let exact = boundary(only_multiply(input.price().value(), multiplier))?;
-        let precision =
-            u8::try_from(exact.fractional_precision().max(0)).map_err(|_| err("FILL_PRECISION"))?;
-        let price = boundary(OnlyPrice::new(exact, precision))?;
         let identity = input.identity();
-        let cause = hash(&json!([signal, input.record(), self.binding]));
-        let ctx = context(&cause, input.event_ns(), &input.record()["trading_day"])?;
-        let request = json!({"schema_version":1,"request_id":{"schema_version":1,"value":format!("NEXT-{}",cause)},"instrument_id":input.instrument_id().to_record(),"side":side,"order_type":"MARKET","quantity":self.quantity.to_record(),"time_in_force":"GTC","account_id":null,"offset":if side=="BUY"{"NONE"}else{"CLOSE"},"price":null,"stop_price":null,"expire_time":null,"tags":[],"metadata":{"replay_policy":hash(&self.binding),"signal":signal["decision_identity"]},"execution_intent":{"schema_version":2,"side":side,"position_side":"LONG","position_effect":if side=="BUY"{"OPEN"}else{"CLOSE"},"position_mode":"NETTING","close_scope":"ANY","exposure_constraint":"NONE"}});
-        let request = boundary(OnlyOrderRequest::from_record(&request))?.to_record();
+        let cause = ctx["cause"].as_str().expect("derived");
+        let request = self.model.order_request(input, &signal, cause)?;
         let at = ctx["time"].as_u64().expect("derived");
-        let preview = c.fee_order_preview(&self.cluster, &request, at)?;
+        let preview = c.fee_order_preview(&self.model.cluster, &request, at)?;
         let admission = self.resolver.admission(&preview, &price, &ctx)?;
         if admission["schema_version"] != 1
             || !admission["accepted"].is_boolean()
@@ -533,45 +809,24 @@ impl NativeReplay {
         if admission["market_provenance"]["verdict"] != "MODEL_ACCEPT" {
             return Err(err("MODEL_ADMISSION_PROOF"));
         }
+        self.model.verify_settlement_policy(&admission)?;
         let order = preview["order_id"]["value"]
             .as_str()
             .ok_or_else(|| err("ORDER"))?
             .to_owned();
-        let collateral =
-            json!({"schema_version":1,"kind":"NONE","instruction":null,"close_allocation":null});
-        let model = self.execution_model();
-        let fill_contract = json!({"schema_version":1,"kind":"BACKTEST_WHOLE_FILL","maximum_fill_count":1,"model_fingerprint":hash(&model),"model":model,"fee_estimate_assumptions_fingerprint":admission["contract"]["estimate"]["assumptions_fingerprint"]});
-        let payload = json!({"schema_version":2,"request":request,"fee_contract":admission["contract"],"fee_budget":admission["fee_budget"],"settlement_fill_contract":fill_contract,"market":{"schema_version":1,"verdict":"ACCEPT","source_ref":format!("MODEL-MARKET-{cause}"),"request_digest":hash(&request),"reference_price":price.to_record(),"notional":admission["notional"],"rounding":"HALF_EVEN"},"order":order,"collateral":collateral});
-        let command = self.request(c, &identity, &ctx, "ADMIT", payload);
-        match c.apply(&command) {
-            Ok(()) => (),
-            Err(e) if e.0 == "EXECUTION_ACCOUNT_CAPACITY_DENIED" => {
-                output["status"] = json!("REJECTED");
-                output["reason"] = json!("ACCOUNT_JOURNAL_BOUND");
-                self.pending = Value::Null;
-                return Ok(output);
-            }
-            Err(e) if e.0 == "EXECUTION_RISK_DENIED" => {
-                let before = c.state()?;
-                let principal =
-                    decimal(&admission["contract"]["funding"]["principal_reservation"]["amount"])?;
-                let fee = decimal(&admission["fee_budget"])?;
-                let required = boundary(only_add(&principal, &fee))?;
-                let available = decimal(&before["account"]["snapshot"]["trade_available"])?;
-                let ledger_available =
-                    decimal(&before["ledger"]["ledgers"][&self.cluster]["snapshot"]["available"])?;
-                output["status"] = json!("REJECTED");
-                output["reason"] = json!(if side == "BUY"
-                    && (available < required || ledger_available < required)
-                {
-                    "INSUFFICIENT_FUNDS"
-                } else {
-                    "RISK_DENIED"
-                });
-                self.pending = Value::Null;
-                return Ok(output);
-            }
-            Err(e) => return Err(e),
+        let admitted = self
+            .model
+            .admit_payload(&request, &order, cause, &price, &admission);
+        let command = self.request(c, &identity, &ctx, "ADMIT", admitted);
+        let verdict = c.apply(&command);
+        if let Some(reason) = self
+            .model
+            .admission_rejection(verdict, &signal["side"], &admission, || c.state())?
+        {
+            output["status"] = json!("REJECTED");
+            output["reason"] = json!(reason);
+            self.pending = Value::Null;
+            return Ok(output);
         }
         c.apply(&self.request(
             c,
@@ -589,29 +844,24 @@ impl NativeReplay {
             json!({"schema_version":1,"order":order,"venue_order":venue_order}),
         ))?;
         let trade = format!("MODEL-TRADE-{cause}");
-        let snapshot = c.order(&self.cluster, &order)?;
+        let snapshot = c.order(&self.model.cluster, &order)?;
+        if snapshot["fee_policy_binding"] != command["payload"]["fee_contract"]["binding"] {
+            return Err(err("FILL_FEE_BINDING"));
+        }
         let mut fill_context = ctx.clone();
         fill_context["trade"] = json!(trade);
-        let evidence = self
-            .resolver
-            .fill(&snapshot, &price, &self.quantity, &fill_context)?;
+        let evidence =
+            self.resolver
+                .fill(&snapshot, &price, &self.model.quantity, &fill_context)?;
         let n = c.sequence() as u64 + 1;
-        let scope = json!({"schema_version":1,"engine":self.configuration["engine"],"runtime":self.configuration["runtime"],"account":self.configuration["account"],"gateway":self.configuration["gateway"],"generation":self.configuration["generation"],"runtime_kind":"BACKTEST","cluster":self.cluster,"revision":self.revision,"instrument":input.instrument_id().to_string(),"request":request["request_id"]["value"]});
-        let mut fee = json!({"schema_version":1,"instruction":format!("MODEL-FEE-{cause}"),"source_ref":format!("MODEL-FEE-{cause}"),"policy":snapshot["fee_policy_binding"]["fingerprint"],"order":order,"trade":trade,"currency":self.configuration["currency"],"charge_target":evidence["charge_target"],"rebate_target":evidence["rebate_target"]});
-        let mut settlement = json!({"schema_version":1,"instruction":format!("MODEL-SET-{cause}"),"source_ref":format!("MODEL-SET-{cause}"),"order":order,"trade":trade,"currency":self.configuration["currency"],"model":"CASH_SETTLEMENT","calendar":self.calendar,"policy":evidence["settlement_policy"],"gross_notional":evidence["gross_notional"],"rounding":"HALF_EVEN"});
-        let mut valuation = json!({"schema_version":1,"source_ref":format!("MODEL-VAL-{cause}"),"currency":self.configuration["currency"],"mark":input.price().value().to_string()});
-        for (proof, family) in [
-            (&mut fee, "ORDER_FEE_ACCRUAL"),
-            (&mut settlement, "SETTLEMENT"),
-            (&mut valuation, "VALUATION"),
-        ] {
-            proof["scope"] = scope.clone();
-            proof["family"] = json!(family);
-            proof["version"] = json!(n);
-            proof["as_of_sequence"] = json!(n);
-            proof["source_digest"] = json!(hash(proof));
-        }
-        let payload = json!({"schema_version":1,"order":order,"trade":trade,"venue_trade":format!("MODEL-VENUE-{cause}"),"venue_order":venue_order,"quantity":self.quantity.value().to_string(),"price":price.value().to_string(),"price_precision":price.precision(),"fees":fee,"settlement":settlement,"valuation":valuation,"collateral":collateral});
+        let payload = self.model.fill_payload(
+            input,
+            &price,
+            &fill_context,
+            &command["payload"],
+            &evidence,
+            n,
+        )?;
         c.apply(&self.request(c, &identity, &ctx, "FILL", payload))?;
         self.pending = Value::Null;
         output["status"] = json!("FILLED");
@@ -636,14 +886,16 @@ impl NativeReplay {
             .as_object()
             .ok_or_else(|| err("ORDER_PROOF"))?
         {
-            let order = c.order(&self.cluster, id)?;
+            let order = c.order(&self.model.cluster, id)?;
             if matches!(
                 order["status"].as_str(),
                 Some("FILLED" | "CANCELLED" | "REJECTED" | "EXPIRED" | "FAILED")
             ) {
                 continue;
             }
-            if order["metadata"]["replay_policy"] != hash(&self.binding) || self.last.is_null() {
+            if order["metadata"]["replay_policy"] != hash(&self.model.binding)
+                || self.last.is_null()
+            {
                 return Err(err("END_ORDER_SCOPE"));
             }
             let identity = self.last["identity"]
@@ -653,12 +905,15 @@ impl NativeReplay {
             if order["status"] != "PENDING_CANCEL" {
                 let (request_id, message) = if reason == "INPUT_EXHAUSTED" {
                     (
-                        format!("END-CANCEL-{}", hash(&json!([id, self.binding]))),
+                        format!("END-CANCEL-{}", hash(&json!([id, self.model.binding]))),
                         "finite model input exhausted",
                     )
                 } else {
                     (
-                        format!("USER-CANCEL-{}", hash(&json!([id, self.binding, reason]))),
+                        format!(
+                            "USER-CANCEL-{}",
+                            hash(&json!([id, self.model.binding, reason]))
+                        ),
                         "user cancelled finite model input",
                     )
                 };

@@ -39,10 +39,13 @@ def migrate(backend: Path, dsn: str, root: Path) -> subprocess.CompletedProcess[
 
 
 @pytest.fixture
-def schema_db(postgres_dsn: str, migration_backend: Path) -> str:
+def schema_db(postgres_dsn: str, migration_backend: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     result = migrate(migration_backend, postgres_dsn, DEFAULT_MIGRATION_ROOT)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"applied": [item[0] for item in request()["migrations"]]}
+    from scripts.factor_build_database import prepare
+
+    monkeypatch.setenv("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN", prepare(postgres_dsn, test=True))
     return postgres_dsn
 
 

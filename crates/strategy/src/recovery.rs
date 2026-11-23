@@ -6,7 +6,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     panic::{AssertUnwindSafe, catch_unwind},
 };
-const MAX_CHECKPOINT: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_CHECKPOINT: usize = 64 * 1024 * 1024;
 fn integer(v: &Value) -> StrategyResult<u64> {
     v.as_u64().ok_or_else(bad)
 }
@@ -30,14 +30,87 @@ fn pairs(v: &Value) -> StrategyResult<BTreeMap<String, Value>> {
     }
     Ok(m)
 }
+pub(crate) fn checkpoint_header(program: &Program, v: &Value) -> StrategyResult<()> {
+    let (program_key, expected_program) = match v["schema_version"].as_u64() {
+        Some(1) => ("program", program.to_record()),
+        Some(2) => ("program_fingerprint", json!(program.fingerprint())),
+        _ => return Err(bad()),
+    };
+    object(
+        v,
+        &[
+            "schema_version",
+            program_key,
+            "processed",
+            "chain",
+            "last_init_ns",
+            "states",
+            "requests",
+            "commitments",
+            "accepted",
+            "port",
+            "component_bindings",
+        ],
+    )?;
+    if v[program_key] != expected_program || v["component_bindings"] != manifest(v)? {
+        return Err(bad());
+    }
+    Ok(())
+}
+pub(crate) fn native_nodes(port: &Value) -> StrategyResult<BTreeMap<String, Value>> {
+    object(port, &["schema_version", "nodes"])?;
+    if port["schema_version"] != 1 {
+        return Err(bad());
+    }
+    pairs(&port["nodes"])
+}
+pub(crate) fn check_native_node(
+    descriptor: &NodeDescriptor,
+    state: &CalculationState,
+    captured: &Value,
+    native: &Value,
+) -> StrategyResult<()> {
+    object(
+        native,
+        &[
+            "schema_version",
+            "binding",
+            "cursor",
+            "receipt",
+            "plugin_state",
+            "state_fingerprint",
+            "state_capability",
+            "checkpoint_schema_version",
+            "definition_fingerprint",
+        ],
+    )?;
+    if native["schema_version"] != 1
+        || native["binding"] != state.cursor().binding().to_record()
+        || native["cursor"] != captured["cursor"]
+        || native["receipt"] != captured["receipt"]
+        || native["state_capability"] != descriptor.state_capability
+        || native["checkpoint_schema_version"] != json!(descriptor.checkpoint_schema)
+        || native["definition_fingerprint"] != descriptor.definition.fingerprint()
+        || !matches!(
+            state.snapshot().outcome(),
+            StateOutcome::Uninitialized | StateOutcome::Warming | StateOutcome::Ready
+        )
+        || state.cursor().revision() != state.cursor().samples()
+        || native["state_fingerprint"] != record_fingerprint(&native["plugin_state"])
+    {
+        return Err(bad());
+    }
+    Ok(())
+}
+impl Accepted {
+    pub(crate) fn to_record(&self, instrument: &str) -> Value {
+        json!({"instrument":instrument,"bar":self.bar.to_record(),"init_ns":self.init.unix_nanos().to_string(),"parent":self.parent,"previous":self.previous,"count":self.count,"outcome":self.outcome.record,"calls":self.calls})
+    }
+}
 impl<C: NodePort> Executor<C> {
     fn validate_components(&self, port: &Value) -> StrategyResult<()> {
         same_bindings(&self.program, &self.port)?;
-        object(port, &["schema_version", "nodes"])?;
-        if port["schema_version"] != 1 {
-            return Err(bad());
-        }
-        let native = pairs(&port["nodes"])?;
+        let native = native_nodes(port)?;
         if native.keys().ne(self.states.keys())
             || self.states.keys().ne(self.program.bindings.keys())
         {
@@ -47,41 +120,8 @@ impl<C: NodePort> Executor<C> {
             let binding = &self.program.bindings[scope];
             let n = &native[scope];
             let captured = state.capture();
-            object(
-                n,
-                &[
-                    "schema_version",
-                    "binding",
-                    "cursor",
-                    "receipt",
-                    "plugin_state",
-                    "state_fingerprint",
-                    "state_capability",
-                    "checkpoint_schema_version",
-                    "definition_fingerprint",
-                ],
-            )?;
             let d = &self.program.revision.descriptors[&binding.digests()[2]];
-            if n["schema_version"] != 1
-                || n["binding"] != binding.to_record()
-                || n["cursor"] != captured["cursor"]
-                || n["receipt"] != captured["receipt"]
-                || n["state_capability"] != d.state_capability
-                || n["checkpoint_schema_version"] != json!(d.checkpoint_schema)
-                || n["definition_fingerprint"] != d.definition.fingerprint()
-                || !matches!(
-                    state.snapshot().outcome(),
-                    StateOutcome::Uninitialized | StateOutcome::Warming | StateOutcome::Ready
-                )
-            {
-                return Err(bad());
-            }
-            if state.cursor().revision() != state.cursor().samples() {
-                return Err(bad());
-            }
-            if n["state_fingerprint"] != record_fingerprint(&n["plugin_state"]) {
-                return Err(bad());
-            }
+            check_native_node(d, state, &captured, n)?;
             if state.cursor().samples() == 0 {
                 if self.requests.contains_key(scope) || self.commitments.contains_key(scope) {
                     return Err(bad());
@@ -312,7 +352,7 @@ impl<C: NodePort> Executor<C> {
         }
         self.failed = true;
         let result=catch_unwind(AssertUnwindSafe(||{let port=self.port.capture().map_err(|_|bad())?;self.validate_components(&port)?;
-   let mut v=json!({"schema_version":2,"program_fingerprint":self.program.fingerprint(),"processed":self.processed,"chain":self.chain,"last_init_ns":self.last_init.as_ref().map(|t|t.unix_nanos().to_string()),"states":self.states.iter().map(|(k,s)|json!([k,s.capture()])).collect::<Vec<_>>(),"commitments":self.commitments.iter().map(|(k,v)|json!([k,v])).collect::<Vec<_>>(),"requests":self.requests.iter().map(|(k,v)|json!([k,v])).collect::<Vec<_>>(),"accepted":self.accepted.iter().map(|(k,a)|json!({"instrument":k,"bar":a.bar.to_record(),"init_ns":a.init.unix_nanos().to_string(),"parent":a.parent,"previous":a.previous,"count":a.count,"outcome":a.outcome.to_record(),"calls":a.calls})).collect::<Vec<_>>(),"port":port});
+   let mut v=json!({"schema_version":2,"program_fingerprint":self.program.fingerprint(),"processed":self.processed,"chain":self.chain,"last_init_ns":self.last_init.as_ref().map(|t|t.unix_nanos().to_string()),"states":self.states.iter().map(|(k,s)|json!([k,s.capture()])).collect::<Vec<_>>(),"commitments":self.commitments.iter().map(|(k,v)|json!([k,v])).collect::<Vec<_>>(),"requests":self.requests.iter().map(|(k,v)|json!([k,v])).collect::<Vec<_>>(),"accepted":self.accepted.iter().map(|(k,a)|a.to_record(k)).collect::<Vec<_>>(),"port":port});
    v["component_bindings"]=manifest(&v)?;if v.to_string().len()>MAX_CHECKPOINT{return Err(bad());}Ok(v)
   })).unwrap_or(Err(StrategyError("STRATEGY_PRODUCER_PANIC")));
         if result.is_ok() {
@@ -328,30 +368,7 @@ impl<C: NodePort> Executor<C> {
         if v.to_string().as_bytes() != bytes || record_fingerprint(&v) != expected {
             return Err(bad());
         }
-        let (program_key, expected_program) = match v["schema_version"].as_u64() {
-            Some(1) => ("program", self.program.to_record()),
-            Some(2) => ("program_fingerprint", json!(self.program.fingerprint())),
-            _ => return Err(bad()),
-        };
-        object(
-            &v,
-            &[
-                "schema_version",
-                program_key,
-                "processed",
-                "chain",
-                "last_init_ns",
-                "states",
-                "requests",
-                "commitments",
-                "accepted",
-                "port",
-                "component_bindings",
-            ],
-        )?;
-        if v[program_key] != expected_program || v["component_bindings"] != manifest(&v)? {
-            return Err(bad());
-        }
+        checkpoint_header(&self.program, &v)?;
         // Decode all semantic state before invoking the producer's fresh restore boundary.
         let mut states = BTreeMap::new();
         for (scope, row) in pairs(&v["states"])? {

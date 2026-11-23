@@ -54,13 +54,44 @@ impl Components {
             }
         }
         let position = self.position.current_exposure();
-        let ledger = self.ledger.valuation_view();
+        self.value_ledgers(input, p, &position)?;
+        let c = self.command(input, "VALUATION", Value::Null, 0);
+        if boundary(Arc::make_mut(&mut self.account).apply_valuation(&c, &effect))?.status
+            != onlyalpha_account::Status::Applied
+        {
+            return Err(err("EXECUTION_VALUATION_NOT_APPLIED"));
+        }
+        for m in p["marks"].as_array().expect("validated marks") {
+            let i = text(&m["instrument"])?;
+            Arc::make_mut(&mut self.meta)["valuation_marks"][i] = m.clone();
+            Arc::make_mut(&mut self.meta)["valuation_sources"][text(&m["source_ref"])?] =
+                json!(hash(m));
+            // Keep fill consumers' cached marks aligned with this account-wide valuation.
+            let marks = Arc::make_mut(&mut self.meta)["marks"]
+                .as_object_mut()
+                .expect("marks");
+            for cluster in marks.values_mut() {
+                if !cluster[i].is_null() {
+                    cluster[i] = m["mark"].clone();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn value_ledgers(
+        &mut self,
+        input: &Value,
+        valuation: &Value,
+        position: &Value,
+    ) -> Result<(), Error> {
         let clusters: Vec<_> = self.config["profiles"]
             .as_object()
             .expect("profiles")
             .keys()
             .cloned()
             .collect();
+        let ledger = self.ledger.valuation_view();
         for (ordinal, cluster) in clusters.iter().enumerate() {
             let rows = &ledger[cluster]["lines"];
             let mut lines = vec![];
@@ -75,9 +106,9 @@ impl Components {
                 if line["allocation"] != witness {
                     return Err(err("EXECUTION_VALUATION_ALLOCATION_RELATION"));
                 }
-                let mark = p["marks"]
+                let mark = valuation["marks"]
                     .as_array()
-                    .expect("validated marks")
+                    .ok_or_else(|| err("EXECUTION_VALUATION_MARKS"))?
                     .iter()
                     .find(|m| m["instrument"] == i)
                     .ok_or_else(|| err("EXECUTION_VALUATION_MARK_REQUIRED"))?;
@@ -86,27 +117,9 @@ impl Components {
             if rows.as_object().map_or(0, |m| m.len()) != lines.len() {
                 return Err(err("EXECUTION_VALUATION_ALLOCATION_COMPLETENESS"));
             }
-            let mut c=self.ledger_command(input,"VALUATION",json!({"schema_version":1,"valuation":format!("VAL-{}",hash(&json!([input["engine"],input["runtime"],input["account"],input["generation"],p["valuation"],cluster]))),"economic_version":ledger[cluster]["economic_version"],"version":p["version"],"lines":lines}),ordinal as u64+1);
-            c["cluster"] = json!(cluster);
-            self.ledger_apply(&c)?;
-        }
-        let c = self.command(input, "VALUATION", Value::Null, 0);
-        if boundary(Arc::make_mut(&mut self.account).apply_valuation(&c, &effect))?.status
-            != onlyalpha_account::Status::Applied
-        {
-            return Err(err("EXECUTION_VALUATION_NOT_APPLIED"));
-        }
-        for m in p["marks"].as_array().expect("validated marks") {
-            let i = text(&m["instrument"])?;
-            Arc::make_mut(&mut self.meta)["valuation_marks"][i] = m.clone();
-            Arc::make_mut(&mut self.meta)["valuation_sources"][text(&m["source_ref"])?] =
-                json!(hash(m));
-            // Keep fill consumers' cached marks aligned with this account-wide valuation.
-            for cluster in &clusters {
-                if !self.meta["marks"][cluster][i].is_null() {
-                    Arc::make_mut(&mut self.meta)["marks"][cluster][i] = m["mark"].clone();
-                }
-            }
+            let mut command = self.ledger_command(input,"VALUATION",json!({"schema_version":1,"valuation":format!("VAL-{}",hash(&json!([input["engine"],input["runtime"],input["account"],input["generation"],valuation["valuation"],cluster]))),"economic_version":ledger[cluster]["economic_version"],"version":valuation["version"],"lines":lines}),ordinal as u64+1);
+            command["cluster"] = json!(cluster);
+            self.ledger_apply(&command)?;
         }
         Ok(())
     }

@@ -2,16 +2,16 @@
 //! No claim of actual Freeze/Qualification/Runtime admission or Shipping acceptance.
 use crate::{
     application::{
-        backtest_run::{
-            CancelRequest, Context, CreateRequest, Inputs, Specification, VerifiedCompletion,
-        },
+        backtest_run::{CancelRequest, Context, CreateRequest, Inputs, Specification, VerifiedRun},
         command::{CommandId, OutcomeKind},
+        job_contract::JobKind,
         source_access::{Authority, Grant, Permission, Reference, Selection},
     },
     bootstrap::deployment::SemanticStoreId,
     persistence::{
-        authority_session::AuthoritySession, backtest_evidence::CompletionProof,
-        backtest_run::Backtests,
+        authority_session::AuthoritySession,
+        backtest_run::{Backtests, RunState, pending_native_run_ids},
+        job_publication::{JobRole, PublicationObservation, PublicationRepository, RunLocator, with_job_role},
     },
     security::{
         human_access::{Access, Session},
@@ -25,11 +25,13 @@ const RUN: &str = "00000000-0000-4000-8000-000000000802";
 const CANCEL: &str = "00000000-0000-4000-8000-000000000803";
 const WORKER: &str = "00000000-0000-4000-8000-000000000804";
 const ATTEMPT1: &str = "00000000-0000-4000-8000-000000000805";
-const ATTEMPT2: &str = "00000000-0000-4000-8000-000000000806";
 fn at(second: u32) -> onlyalpha_domain::time::OnlyUtcDateTime {
     format!("2026-11-01T00:01:{second:02}Z").parse().unwrap()
 }
 fn value_inputs(namespace: &SemanticStoreId, root: &Path) -> Inputs<'static> {
+    value_inputs_bound(namespace, root, RUN, COMMAND)
+}
+fn value_inputs_bound(namespace: &SemanticStoreId, root: &Path, run: &str, command: &str) -> Inputs<'static> {
     let prepared = crate::workers::backtest::tests::prepared();
     let preparation = prepared.record();
     let preparation_fp = crate::application::factor_content::hash(&preparation).unwrap();
@@ -41,7 +43,7 @@ fn value_inputs(namespace: &SemanticStoreId, root: &Path) -> Inputs<'static> {
     // production Inputs constructor must instead hold all actual owning readers.
     let resolution = json!({"schema_version":2,"kind":"BTC_SPOT_NEXT_OPEN_ADMISSION","owner":"local-developer","semantic_store_id":namespace.value(),"strategy_fingerprint":strategy,"freeze_relation_fingerprint":"f".repeat(64),"qualification_decision_fingerprint":"8".repeat(64),"promotion_fingerprint":"9".repeat(64),"dataset_snapshot_fingerprint":source["snapshot"],"dataset_binding_fingerprint":source["dataset_binding"],"runtime_generation_fingerprint":generation,"preparation_fingerprint":preparation_fp,"preparation":preparation,
         "dataset_materialization":{"schema_version":1,"materialization_id":"controlled-existing-materialization","dataset_snapshot_fingerprint":source["snapshot"]},
-        "runtime_work_binding":{"schema_version":1,"kind":"RuntimeWorkBound","work_id":RUN,"generation_fingerprint":generation,"reason":COMMAND},
+        "runtime_work_binding":{"schema_version":1,"kind":"RuntimeWorkBound","work_id":run,"generation_fingerprint":generation,"reason":command},
         "backtest_binding":{"executor_manifest_fingerprint":"5".repeat(64),"executor_artifact_sha256":"6".repeat(64),"executor_version":env!("CARGO_PKG_VERSION"),"core_execution_fingerprint":"7".repeat(64),"protocol":"onlyalpha.backtest.executor/1"},
         "source_selection":{"integration_id":"controlled-market","revision_fingerprint":"a".repeat(64),"expected_type_id":"controlled.spot","source_id":"BINANCE_SPOT","environment":"LIVE"}});
     Inputs::for_value_test(
@@ -52,23 +54,139 @@ fn value_inputs(namespace: &SemanticStoreId, root: &Path) -> Inputs<'static> {
     )
     .unwrap()
 }
-fn completion(
-    run: &crate::application::backtest_run::VerifiedRun,
-    status: &str,
+async fn register_control_fixture(session: &mut AuthoritySession, run: &VerifiedRun, attempt: &str) {
+    let mut fixture = crate::persistence::job_publication::fixture::fixture(
+        JobKind::Backtest, (run.namespace().value(), run.owner()), run.run_id(), attempt, WORKER, 1, 32,
+    );
+    fixture.bind_original_run(run.specification_fingerprint(), run.admission_resolution_fingerprint());
+    with_job_role(session, JobRole::Publisher, async |client| {
+        PublicationRepository::new(client, run.namespace(), run.owner()).await?
+            .register(&fixture.registration).await
+    }).await.unwrap();
+}
+
+/// Original operational Run/Attempt CAS only; synthetic frozen input metadata
+/// is a storage-test precondition, never actual factor/market certification.
+pub async fn finite_recovery(
+    session: &mut AuthoritySession,
+    namespace: &SemanticStoreId,
+    human_authority: &Access,
+    human: &Session,
     root: &Path,
-) -> VerifiedCompletion {
-    // Root-owned semantic producer seal exists only under cfg(test) for this
-    // persistence proof. No portable fingerprint DTO is accepted in production.
-    let proof = CompletionProof::for_value_test(
-        run,
-        status,
-        &"1".repeat(64),
-        &"2".repeat(64),
-        &"3".repeat(64),
-        Arc::new(SourceLock::publication(root).unwrap()),
-    )
-    .unwrap();
-    VerifiedCompletion::from_proof(proof).unwrap()
+) {
+    use crate::application::job_recovery::{JobRecovery, RecoveryDecision, RecoveryRefusal, RetryBudget};
+    let run_id = "00000000-0000-4000-8000-000000000851";
+    let command = "00000000-0000-4000-8000-000000000852";
+    let selection = Selection::new(Reference::new("controlled-market",&"a".repeat(64),Some("controlled.spot")).unwrap(),"BINANCE_SPOT","LIVE").unwrap();
+    let source_authority = Authority::new("local-developer","add5b41fc5a881fc87ef4640581ed5ff7fe5eab39640b3a3e6e8b90f0aa71730",vec![Grant::new(selection.clone(),vec![Permission::ClosedHistory]).unwrap()]).unwrap();
+    let source = source_authority.authenticate(&format!("Bearer {}","e".repeat(64))).unwrap();
+    let context = Context { human_authority, human, source_authority:&source_authority, source:&source, selection:&selection };
+    let inputs = value_inputs_bound(namespace,root,run_id,command);
+    let request = CreateRequest::new(CommandId::new(command).unwrap(),run_id,inputs.specification().clone()).unwrap();
+    {
+        let roles=session.control_roles().unwrap();
+        let tx = session.client_mut().await.unwrap().transaction().await.unwrap();
+        assert!(crate::persistence::job_publication::FrozenBindingRegistration::from_backtest(
+            &crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),&inputs,&request,&context,
+        ).await.is_err(),"value-only control fixtures cannot authenticate frozen inputs");
+        tx.rollback().await.unwrap();
+    }
+    let run = Backtests::new(session,namespace).create(&request,&context,&inputs,at(0)).await.unwrap();
+    register_control_fixture(session, &run, ATTEMPT1).await;
+    let key = RunLocator::new(JobKind::Backtest,run_id).unwrap();
+    let mut previous_execution = None;
+    for number in 1..=3 {
+        let decision = with_job_role(session,JobRole::Publisher,async |client| {
+            JobRecovery::resolve(&mut PublicationRepository::new(client,namespace,"local-developer").await?,&key,RetryBudget::finite_job()).await
+        }).await.unwrap();
+        let RecoveryDecision::RecomputeWithNewClaim(proof) = decision else { panic!("expected bounded recompute") };
+        let attempt = format!("00000000-0000-4000-8000-{:012}",852+number);
+        let mut claim = Backtests::new(session,namespace).claim_recompute(&run,&proof,WORKER,&attempt,at(number as u32 * 2)).await.unwrap().unwrap();
+        assert_eq!(claim.attempt_number(),number);
+        assert_eq!(claim.fencing_token(),i64::from(number));
+        assert_eq!(claim.run_id(),run_id);
+        let publication_claim = crate::persistence::job_publication::AttemptClaim::from_backtest(&claim);
+        let execution = crate::persistence::job_publication::AttemptExecutionBinding::capture(&publication_claim).unwrap();
+        assert!(execution.matches(&publication_claim));
+        crate::persistence::job_publication::fixture::assert_execution_association(&publication_claim);
+        if let Some(previous) = previous_execution {
+            let previous: crate::persistence::job_publication::AttemptExecutionBinding = previous;
+            assert!(!previous.matches(&publication_claim), "old execution cannot publish under a new Attempt");
+        }
+        previous_execution = Some(execution);
+        assert!(Backtests::new(session,namespace).claim_recompute(&run,&proof,WORKER,"00000000-0000-4000-8000-000000000859",at(number as u32 * 2)).await.unwrap().is_none(),"stale observation must not create a second owner");
+        assert!(Backtests::new(session, namespace).heartbeat(&mut claim).await.unwrap().is_some());
+        assert!(claim.ownership_certain());
+        // Existing deterministic clock fault, on an explicit test admin socket;
+        // ordinary Node receives no permission to rewrite claimed_at.
+        let (admin,driver) = tokio_postgres::connect(&std::env::var("ONLYALPHA_POSTGRES_DSN").unwrap(),tokio_postgres::NoTls).await.unwrap();
+        let driver = tokio::spawn(driver);
+        let expired = admin.execute("UPDATE backtest_run_attempt SET claimed_at=clock_timestamp()-interval '3 seconds',last_heartbeat_at=clock_timestamp()-interval '2 seconds',lease_expires_at=clock_timestamp()-interval '1 second' WHERE attempt_id=$1::text::uuid",&[&attempt]).await;
+        driver.abort();
+        assert_eq!(expired.unwrap(),1);
+        Backtests::new(session,namespace).expire(&run,at(number as u32 * 2+1)).await.unwrap().unwrap();
+        assert!(Backtests::new(session, namespace).heartbeat(&mut claim).await.unwrap().is_none());
+        assert!(!claim.ownership_certain());
+    }
+    let decision = with_job_role(session,JobRole::Publisher,async |client| {
+        JobRecovery::resolve(&mut PublicationRepository::new(client,namespace,"local-developer").await?,&key,RetryBudget::finite_job()).await
+    }).await.unwrap();
+    let RecoveryDecision::Refused(RecoveryRefusal::RetryExhausted, proof) = decision else { panic!("expected original exhausted unpublished Run") };
+    assert_eq!(proof.binding().run_id(), run.run_id());
+    assert_eq!(proof.attempts(),3);
+    assert_eq!(proof.active_attempts(),0);
+    assert!(Backtests::new(session,namespace).claim_recompute(&run,&proof,WORKER,"00000000-0000-4000-8000-000000000859",at(9)).await.unwrap().is_none(),"claim CAS must independently enforce the limit");
+    // A different original Run is cancelled after its only Attempt has ceased.
+    // No Source grant is required to settle this absence proof.
+    let cancelled_run = "00000000-0000-4000-8000-000000000861";
+    let cancelled_command = "00000000-0000-4000-8000-000000000862";
+    let cancelled_attempt = "00000000-0000-4000-8000-000000000863";
+    let cancelled_inputs = value_inputs_bound(namespace,root,cancelled_run,cancelled_command);
+    let cancelled_request = CreateRequest::new(CommandId::new(cancelled_command).unwrap(),cancelled_run,cancelled_inputs.specification().clone()).unwrap();
+    let cancellation = Backtests::new(session,namespace).create(&cancelled_request,&context,&cancelled_inputs,at(0)).await.unwrap();
+    register_control_fixture(session, &cancellation, cancelled_attempt).await;
+    let cancelled_key = RunLocator::new(JobKind::Backtest,cancelled_run).unwrap();
+    let observed = with_job_role(session,JobRole::Publisher,async |client| { PublicationRepository::new(client,namespace,"local-developer").await?.observe(&cancelled_key).await }).await.unwrap();
+    let PublicationObservation::ConfirmedUnpublished(initial) = observed else { panic!("unpublished cancellation fixture") };
+    let _claim = Backtests::new(session,namespace).claim_recompute(&cancellation,&initial,WORKER,cancelled_attempt,at(1)).await.unwrap().unwrap();
+    source_authority.withdraw();
+    Backtests::new(session,namespace).request_cancel(&CancelRequest::new(CommandId::new("00000000-0000-4000-8000-000000000864").unwrap(),cancelled_run).unwrap(),&context,at(2)).await.unwrap();
+    let observed = with_job_role(session,JobRole::Publisher,async |client| { PublicationRepository::new(client,namespace,"local-developer").await?.observe(&cancelled_key).await }).await.unwrap();
+    let PublicationObservation::ConfirmedUnpublished(active) = observed else { panic!("unpublished active cancellation") };
+    assert!(Backtests::new(session,namespace).finish_cancelled_unpublished(&cancellation,&active,at(3)).await.unwrap().is_none(), "an active owner must drain before cancellation");
+    let (admin,driver) = tokio_postgres::connect(&std::env::var("ONLYALPHA_POSTGRES_DSN").unwrap(),tokio_postgres::NoTls).await.unwrap();
+    let driver = tokio::spawn(driver);
+    assert_eq!(admin.execute("UPDATE backtest_run_attempt SET claimed_at=clock_timestamp()-interval '3 seconds',last_heartbeat_at=clock_timestamp()-interval '2 seconds',lease_expires_at=clock_timestamp()-interval '1 second' WHERE attempt_id=$1::text::uuid",&[&cancelled_attempt]).await.unwrap(),1);
+    drop(admin); driver.await.unwrap().unwrap();
+    Backtests::new(session,namespace).expire(&cancellation,at(4)).await.unwrap().unwrap();
+    let observed = with_job_role(session,JobRole::Publisher,async |client| { PublicationRepository::new(client,namespace,"local-developer").await?.observe(&cancelled_key).await }).await.unwrap();
+    let PublicationObservation::ConfirmedUnpublished(inactive) = observed else { panic!("unpublished inactive cancellation") };
+    assert!(Backtests::new(session,namespace).finish_cancelled_unpublished(&cancellation,&proof,at(5)).await.unwrap().is_none(), "another Run absence proof cannot finalize cancellation");
+    let cancelled = Backtests::new(session,namespace).finish_cancelled_unpublished(&cancellation,&inactive,at(5)).await.unwrap().unwrap();
+    assert_eq!(cancelled.state,RunState::Cancelled);
+    assert!(Backtests::new(session,namespace).finish_cancelled_unpublished(&cancellation,&inactive,at(6)).await.unwrap().is_none());
+    let row=with_job_role(session,JobRole::Reader,async |client| { client.query_one("SELECT (SELECT count(*) FROM backtest_run_attempt WHERE run_id=$1::text::uuid),(SELECT count(*) FROM job_publication WHERE run_id=$1::text::uuid),(SELECT count(*) FROM job_result_member WHERE run_id=$1::text::uuid)",&[&cancelled_run]).await.map_err(|_|crate::persistence::job_publication::PublicationError::Unavailable) }).await.unwrap();
+    assert_eq!((row.get::<_,i64>(0),row.get::<_,i64>(1),row.get::<_,i64>(2)),(1,0,0));
+    source_authority.withdraw();
+    assert!(Backtests::new(session,namespace).finish_exhausted(&run,&inactive,at(10)).await.unwrap().is_none(), "another Run absence proof cannot finalize exhaustion");
+    let (admin,driver) = tokio_postgres::connect(&std::env::var("ONLYALPHA_POSTGRES_DSN").unwrap(),tokio_postgres::NoTls).await.unwrap();
+    let driver = tokio::spawn(driver);
+    admin.batch_execute("CREATE FUNCTION use_test_terminal_attempt() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ BEGIN INSERT INTO public.backtest_run_attempt(attempt_id,run_id,attempt_number,state,worker_instance_id,fencing_token,claimed_at,last_heartbeat_at,lease_expires_at) VALUES('00000000-0000-4000-8000-000000000865',NEW.run_id,4,'ACTIVE','00000000-0000-4000-8000-000000000804',4,clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '120 seconds'); RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER use_test_terminal_attempt AFTER UPDATE ON public.backtest_run DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='FAILED' AND OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION use_test_terminal_attempt()").await.unwrap();
+    let polluted = Backtests::new(session,namespace).finish_exhausted(&run,&proof,at(10)).await;
+    admin.batch_execute("DROP TRIGGER use_test_terminal_attempt ON public.backtest_run; DROP FUNCTION use_test_terminal_attempt()").await.unwrap();
+    let row = admin.query_one("SELECT r.state,(SELECT max(attempt_number) FROM public.backtest_run_attempt a WHERE a.run_id=r.run_id),(SELECT count(*) FROM public.backtest_run_attempt a WHERE a.run_id=r.run_id AND a.state='ACTIVE') FROM public.backtest_run r WHERE r.run_id=$1::text::uuid",&[&run_id]).await.unwrap();
+    drop(admin); driver.await.unwrap().unwrap();
+    assert!(polluted.is_err(), "deferred creation of a fourth active owner must roll back the terminal mutation");
+    assert_eq!((row.get::<_,String>(0),row.get::<_,i32>(1),row.get::<_,i64>(2)),("RUNNING".into(),3,0));
+    let failed = Backtests::new(session,namespace).finish_exhausted(&run,&proof,at(10)).await.unwrap().unwrap();
+    assert_eq!(failed.state, RunState::Failed);
+    assert!(Backtests::new(session,namespace).finish_exhausted(&run,&proof,at(11)).await.unwrap().is_none(), "stale absence observation cannot change a terminal Run");
+    let finished = Backtests::new(session,namespace).load(run_id).await.unwrap();
+    assert_eq!(finished.run_id(),run_id);
+    assert_eq!(finished.completion_fingerprints(),None);
+    let row=with_job_role(session,JobRole::Reader,async |client| { client.query_one("SELECT (SELECT count(*) FROM backtest_run_attempt WHERE run_id=$1::text::uuid),(SELECT count(*) FROM job_publication WHERE run_id=$1::text::uuid),(SELECT count(*) FROM job_result_member WHERE run_id=$1::text::uuid)",&[&run_id]).await.map_err(|_|crate::persistence::job_publication::PublicationError::Unavailable) }).await.unwrap();
+    assert_eq!((row.get::<_,i64>(0),row.get::<_,i64>(1),row.get::<_,i64>(2)),(3,0,0));
+
 }
 pub async fn run_phase(
     session: &mut AuthoritySession,
@@ -172,83 +290,10 @@ pub async fn run_phase(
         );
         return;
     }
-    if phase == "scheduler-inventory" {
-        let client = session.client_mut().await.unwrap();
-        assert_eq!(
-            crate::persistence::backtest_run::pending_native_run_ids(client, namespace)
-                .await
-                .unwrap(),
-            vec![RUN.to_owned()]
-        );
-        assert_eq!(
-            crate::persistence::backtest_run::pending_native_run_ids(client, namespace)
-                .await
-                .unwrap(),
-            vec![RUN.to_owned()]
-        );
-        let mut store = Backtests::new(session, namespace);
-        let mut claim = store
-            .claim(&run, WORKER, ATTEMPT1, at(1))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            crate::persistence::backtest_run::pending_native_run_ids(
-                session.client_mut().await.unwrap(),
-                namespace
-            )
-            .await
-            .unwrap(),
-            vec![RUN.to_owned()]
-        );
-        Backtests::new(session, namespace)
-            .complete(&mut claim, &completion(&run, "COMPLETED", root), at(2))
-            .await
-            .unwrap();
-        assert!(
-            crate::persistence::backtest_run::pending_native_run_ids(
-                session.client_mut().await.unwrap(),
-                namespace
-            )
-            .await
-            .unwrap()
-            .is_empty()
-        );
-        return;
-    }
-    if phase == "scheduler-queued-cancel" {
-        let request = CancelRequest::new(CommandId::new(CANCEL).unwrap(), RUN).unwrap();
-        store
-            .request_cancel(&request, &context, at(1))
-            .await
-            .unwrap();
-        assert!(
-            crate::persistence::backtest_run::pending_native_run_ids(
-                session.client_mut().await.unwrap(),
-                namespace
-            )
-            .await
-            .unwrap()
-            .is_empty()
-        );
-        assert_eq!(
-            session
-                .client_mut()
-                .await
-                .unwrap()
-                .query_one(
-                    "SELECT count(*) FROM backtest_run_attempt WHERE run_id=$1::text::uuid",
-                    &[&RUN]
-                )
-                .await
-                .unwrap()
-                .get::<_, i64>(0),
-            0
-        );
-        assert!(!root.join("backtest/runtime").exists());
-        return;
-    }
     if phase == "queued-cancel" {
+        let pending = pending_native_run_ids(session.client_mut().await.unwrap(), namespace).await.unwrap();
+        assert!(pending.iter().any(|id| id == RUN));
+        let mut store = Backtests::new(session, namespace);
         let request = CancelRequest::new(CommandId::new(CANCEL).unwrap(), RUN).unwrap();
         let receipt = store
             .request_cancel(&request, &context, at(1))
@@ -272,13 +317,20 @@ pub async fn run_phase(
             immutable_admission,
             "mutable read metadata is excluded from the original admission record"
         );
+        let pending = pending_native_run_ids(session.client_mut().await.unwrap(), namespace).await.unwrap();
+        assert!(!pending.iter().any(|id| id == RUN));
         return;
     }
     if phase == "deferred-claim-guard" {
+        register_control_fixture(session, &run, ATTEMPT1).await;
+        let observed = Backtests::new(session, namespace).observe_publication(&run).await.unwrap();
+        let PublicationObservation::ConfirmedUnpublished(proof) = observed else {
+            panic!("queued Run must be unpublished: {observed:?}");
+        };
         session.client_mut().await.unwrap().batch_execute("CREATE FUNCTION backtest_test_deferred() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_unlock(1329199301,5); RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER backtest_test_deferred_guard AFTER INSERT ON backtest_run_attempt DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION backtest_test_deferred()").await.unwrap();
         assert!(
             Backtests::new(session, namespace)
-                .claim(&run, WORKER, ATTEMPT1, at(1))
+                .claim_recompute(&run, &proof, WORKER, ATTEMPT1, at(1))
                 .await
                 .is_err(),
             "no token may escape the original physical guard"
@@ -286,172 +338,5 @@ pub async fn run_phase(
         assert!(session.client_mut().await.is_err());
         return;
     }
-    let mut first = store
-        .claim(&run, WORKER, ATTEMPT1, at(1))
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(first.ownership_certain());
-    assert_eq!(first.attempt_number(), 1);
-    assert_eq!(first.fencing_token(), 1);
-    assert!(
-        store
-            .claim(&run, WORKER, ATTEMPT2, at(2))
-            .await
-            .unwrap()
-            .is_none()
-    );
-    if matches!(
-        phase,
-        "deferred-finalize-guard" | "deferred-finalize-result"
-    ) {
-        let statement = if phase == "deferred-finalize-guard" {
-            "CREATE FUNCTION backtest_test_deferred() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_unlock(1329199301,5); RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER backtest_test_deferred_guard AFTER UPDATE ON backtest_run DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='COMPLETED' AND OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION backtest_test_deferred()"
-        } else {
-            "CREATE FUNCTION backtest_test_deferred() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE backtest_run SET result_fingerprint=repeat('4',64) WHERE run_id=NEW.run_id; RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER backtest_test_deferred_guard AFTER UPDATE ON backtest_run DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='COMPLETED' AND OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION backtest_test_deferred()"
-        };
-        session
-            .client_mut()
-            .await
-            .unwrap()
-            .batch_execute(statement)
-            .await
-            .unwrap();
-        assert!(
-            Backtests::new(session, namespace)
-                .complete(&mut first, &completion(&run, "COMPLETED", root), at(3))
-                .await
-                .is_err()
-        );
-        assert!(!first.ownership_certain());
-        if phase == "deferred-finalize-guard" {
-            assert!(session.client_mut().await.is_err());
-        }
-        return;
-    }
-    if phase == "complete" {
-        let proof = completion(&run, "COMPLETED", root);
-        let status = store.complete(&mut first, &proof, at(3)).await.unwrap();
-        assert_eq!(status.state.as_str(), "COMPLETED");
-        // The Claim still owns its original QUEUED snapshot. State/pin read
-        // metadata must never enter the immutable lineage equality or fence.
-        assert_eq!(run.state().as_str(), "QUEUED");
-        assert_eq!(run.completion_fingerprints(), None);
-        let terminal = store.load(RUN).await.unwrap();
-        let (e, r, d) = ("1".repeat(64), "2".repeat(64), "3".repeat(64));
-        assert_eq!(terminal.state().as_str(), "COMPLETED");
-        assert!(terminal.was_started());
-        assert_eq!(
-            terminal.completion_fingerprints(),
-            Some((e.as_str(), r.as_str(), d.as_str()))
-        );
-        assert_eq!(
-            terminal.record(),
-            immutable_admission,
-            "new readonly metadata cannot change Spec3, Resolution2 or original Run identity bytes"
-        );
-        assert!(
-            store
-                .claim(&run, WORKER, ATTEMPT2, at(4))
-                .await
-                .unwrap()
-                .is_none()
-        );
-        return;
-    }
-    if phase == "trigger" {
-        let client = session.client_mut().await.unwrap();
-        let pid: i32 = client
-            .query_one("SELECT pg_backend_pid()", &[])
-            .await
-            .unwrap()
-            .get(0);
-        client.batch_execute(&format!("CREATE FUNCTION backtest_test_terminate_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_terminate_backend({pid}); RETURN NEW; END $$; CREATE TRIGGER backtest_test_finalization_guard BEFORE UPDATE ON backtest_run FOR EACH ROW WHEN (NEW.state='COMPLETED') EXECUTE FUNCTION backtest_test_terminate_guard()" )).await.unwrap();
-        let proof = completion(&run, "COMPLETED", root);
-        let result = Backtests::new(session, namespace)
-            .complete(&mut first, &proof, at(3))
-            .await;
-        assert!(result.is_err());
-        assert!(!first.ownership_certain());
-        assert!(session.client_mut().await.is_err());
-        return;
-    }
-    if phase == "scheduler-expiry" {
-        // Model actual Host shutdown: the Attempt remains ACTIVE; no failure,
-        // cancellation, fictitious completion or early expiry is written.
-        let row=session.client_mut().await.unwrap().query_one("SELECT state,failure_code,finished_at FROM backtest_run_attempt WHERE attempt_id=$1::text::uuid",&[&ATTEMPT1]).await.unwrap();
-        assert_eq!(row.get::<_, &str>(0), "ACTIVE");
-        assert!(row.get::<_, Option<String>>(1).is_none());
-        assert!(row.get::<_, Option<std::time::SystemTime>>(2).is_none());
-        assert!(
-            Backtests::new(session, namespace)
-                .expire(&run, at(3))
-                .await
-                .unwrap()
-                .is_none()
-        );
-        session.client_mut().await.unwrap().execute("UPDATE backtest_run_attempt SET claimed_at=clock_timestamp()-interval '3 seconds',last_heartbeat_at=clock_timestamp()-interval '2 seconds',lease_expires_at=clock_timestamp()-interval '1 second' WHERE attempt_id=$1::text::uuid",&[&ATTEMPT1]).await.unwrap();
-        let mut store = Backtests::new(session, namespace);
-        store.expire(&run, at(3)).await.unwrap().unwrap();
-        let mut second = store
-            .claim(&run, WORKER, ATTEMPT2, at(4))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(second.attempt_number(), 2);
-        assert_eq!(second.fencing_token(), 2);
-        assert!(store.heartbeat(&mut first).await.is_err());
-        assert!(!first.ownership_certain());
-        store
-            .complete(&mut second, &completion(&run, "COMPLETED", root), at(5))
-            .await
-            .unwrap();
-        assert_eq!(store.load(RUN).await.unwrap().record(), immutable_admission);
-        return;
-    }
-    assert_eq!(phase, "fence-cancel");
-    // Explicit deterministic expiration in the guarded disposable DB, no sleep.
-    session.client_mut().await.unwrap().execute("UPDATE backtest_run_attempt SET claimed_at=clock_timestamp()-interval '3 seconds',last_heartbeat_at=clock_timestamp()-interval '2 seconds',lease_expires_at=clock_timestamp()-interval '1 second' WHERE attempt_id=$1::text::uuid",&[&ATTEMPT1]).await.unwrap();
-    let mut store = Backtests::new(session, namespace);
-    store.expire(&run, at(3)).await.unwrap();
-    let mut second = store
-        .claim(&run, WORKER, ATTEMPT2, at(4))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(second.attempt_number(), 2);
-    assert_eq!(second.fencing_token(), 2);
-    assert!(store.heartbeat(&mut first).await.is_err());
-    assert!(!first.ownership_certain());
-    let request = CancelRequest::new(CommandId::new(CANCEL).unwrap(), RUN).unwrap();
-    store
-        .request_cancel(&request, &context, at(5))
-        .await
-        .unwrap();
-    assert_eq!(
-        store.observe(&run).await.unwrap().state.as_str(),
-        "CANCEL_REQUESTED"
-    );
-    assert!(
-        store
-            .complete(&mut first, &completion(&run, "COMPLETED", root), at(6))
-            .await
-            .is_err()
-    );
-    let status = store
-        .cancel(&mut second, &completion(&run, "CANCELLED", root), at(7))
-        .await
-        .unwrap();
-    assert_eq!(status.state.as_str(), "CANCELLED");
-    let terminal = store.load(RUN).await.unwrap();
-    let (e, r, d) = ("1".repeat(64), "2".repeat(64), "3".repeat(64));
-    assert_eq!(terminal.state().as_str(), "CANCELLED");
-    assert!(terminal.was_started());
-    assert_eq!(
-        terminal.completion_fingerprints(),
-        Some((e.as_str(), r.as_str(), d.as_str())),
-        "the explicit sealed CANCELLED proof must retain its exact three published references"
-    );
-    assert_eq!(terminal.record(), immutable_admission);
-    assert!(store.heartbeat(&mut second).await.is_err());
+    panic!("unknown Backtest lifecycle phase {phase}");
 }

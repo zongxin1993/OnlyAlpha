@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 import base64
-import functools
 import hashlib
 import json
 import os
-import platform
 import re
 import shutil
 import socket
 import struct
 import subprocess
 import threading
-import tomllib
 import urllib.parse
 import urllib.request
 import uuid
@@ -28,6 +25,8 @@ from typing import Any, cast
 
 import psycopg
 import pytest
+
+from packages.backend.tests.application.support.native_probe import build_native_probe as _build_market_probe
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
 
 from packages.backend.tests.application.support.native_research_market_fixture import (
@@ -46,38 +45,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickho
 AT = datetime(2026, 10, 22, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[4]
 
-
-@functools.cache
-def _build_market_probe(*, release: bool = False) -> Path:
-    # A formal frozen-source process can prepare this producer before pytest's
-    # scenario budget, then reuse that same build. Never reuse a persisted binary.
-    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
-
-    target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
-    output = ROOT / "test-results/rust-kernel/target"
-    env = compiler_environment(os.environ, output)
-    env["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
-    prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
-    subprocess.run(
-        [
-            "cargo",
-            "build",
-            "--frozen",
-            "--offline",
-            *(["--release"] if release else []),
-            "--target",
-            target,
-            "-j1",
-            "-p",
-            "onlyalpha-backend",
-            "--example",
-            "command-postgres-probe",
-        ],
-        cwd=ROOT,
-        env=env,
-        check=True,
-    )
-    return output / target / ("release" if release else "debug") / "examples/command-postgres-probe"
 
 
 @pytest.fixture(scope="session")
@@ -489,6 +456,7 @@ def test_retained_source_fixture_prepares_only_declared_market_inputs(
         market_probe,
         database,
         "retained-source-prerequisite",
+        fixture_capture_id=str(uuid.uuid4()),
         user_data=str(tmp_path / "user-data"),
         selected_backend=str(native),
         selected_backend_sha256=hashlib.sha256(native.read_bytes()).hexdigest(),
@@ -958,7 +926,11 @@ def test_selected_owner_and_relation_mutations_fail_closed(
             c.execute(
                 "UPDATE market_data_revision SET scope=jsonb_set(scope,'{end_ns}',to_jsonb((scope->>'end_ns')::bigint+60000000000))"
             )
-    assert "error" in probe(market_probe, database, "read", id=rid)
+    rejected = probe(market_probe, database, "read", id=rid)
+    if case == "missing-proof":
+        assert rejected == {"error": "MARKET_DATA_EVIDENCE_MISSING"}
+    else:
+        assert "error" in rejected
     scope = _scope_payload(segment)
     range_result = probe(market_probe, database, "range", scope=scope, intervals=[[scope["start_ns"], scope["end_ns"]]])
     assert "error" in range_result
@@ -1163,7 +1135,7 @@ def test_operation_cumulative_budget_fails_before_dispatch_and_does_not_certify_
         assert result == {"error": "MARKET_DATA_RECOVERY_STOPPED"}
     request: dict[str, Any] = dict(root=str(tmp_path), ids=[a["segment_id"], b["segment_id"]], scope=_scope_payload(a))
     assert probe(market_probe, database, "drain", max_bytes=budget, **request) == {
-        "error": "MARKET_DATA_STORE_UNAVAILABLE"
+        "error": "MARKET_DATA_READ_BUDGET_EXCEEDED"
     }
     with psycopg.connect(postgres_dsn) as c:
         assert c.execute("SELECT count(*) FROM market_recovery_event").fetchone() == (0,)
@@ -1172,7 +1144,7 @@ def test_operation_cumulative_budget_fails_before_dispatch_and_does_not_certify_
     result = probe(market_probe, database, "drain", **request)
     assert result["revision"] is not None
     assert probe(market_probe, database, "read", id=result["revision"]["revision_id"], max_bytes=budget) == {
-        "error": "MARKET_DATA_STORE_UNAVAILABLE"
+        "error": "MARKET_DATA_READ_BUDGET_EXCEEDED"
     }
 
 
@@ -1233,7 +1205,7 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
         "error": "MARKET_DATA_EVIDENCE_UNPROVABLE"
     }
     assert probe(market_probe, database, "compose", scope=scope, refs=references, max_bytes=2000) == {
-        "error": "MARKET_DATA_STORE_UNAVAILABLE"
+        "error": "MARKET_DATA_READ_BUDGET_EXCEEDED"
     }
     foreign_wal, foreign = retained(tmp_path / "foreign", "TRADE", index=10, segment_id="foreign")
     drain(market_probe, database, foreign_wal, foreign)
@@ -1248,7 +1220,7 @@ def test_old_gc_history_and_current_binding_gap_compose_exact_success_without_pr
         )
         c.execute("DELETE FROM market_segment_physical_proof WHERE segment_id=%s", (old["segment_id"],))
     assert probe(market_probe, database, "compose", scope=scope, refs=references) == {
-        "error": "MARKET_DATA_EVIDENCE_UNPROVABLE"
+        "error": "MARKET_DATA_EVIDENCE_MISSING"
     }
     with psycopg.connect(postgres_dsn) as c:
         assert c.execute("SELECT count(*) FROM market_data_revision").fetchone() == count
@@ -2170,6 +2142,9 @@ def test_strategy_submission_reuses_original_command_and_run_with_physical_sessi
     postgres_dsn: str,
     tmp_path: Path,
     mode: str,
+    *,
+    build_programs: bool = False,
+    frozen_faults: bool = False,
 ) -> None:
     from uuid import uuid4
 
@@ -2197,6 +2172,107 @@ def test_strategy_submission_reuses_original_command_and_run_with_physical_sessi
         initialize_evidence=False,
         review_file=str(review_file),
     )
+    if build_programs:
+        from packages.backend.tests.application.test_finite_job_completion import prepare_runtime_login
+
+        prepare_runtime_login(postgres_dsn)
+        built = probe(
+            selected,
+            database,
+            "strategy-evidence-phase",
+            **arguments,
+            evidence_phase="memory-build",
+            build_instances=[{
+                "factor_id": native_environment_case["vector"]["revision"]["factor_id"],
+                "revision": native_environment_case["vector"]["revision"]["revision_fingerprint"],
+                "parameters": {"literal_1": "1"},
+            }],
+        )
+        assert "error" not in built and len(built["bindings"]) == 1, built
+    if mode in {"finite-service","finite-service-cancel-preparing","finite-service-cancel-child","finite-service-cancel-finished","finite-service-cancel-after-complete","finite-service-recompute"}:
+        from packages.backend.tests.postgres_link import wait_no_advisory_locks
+
+        original=probe(selected,database,"dataset-strategy-prepare",**{**arguments,"submission_mode":"finite-service"})
+        expected="COMPLETED" if mode in {"finite-service","finite-service-cancel-after-complete","finite-service-recompute"} else "CANCELLED"
+        worker_mode="complete" if mode=="finite-service" else mode.removeprefix("finite-service-")
+        assert original["state"]=="QUEUED" and original["run_id"]==work_id,original
+        wait_no_advisory_locks(postgres_dsn,original["backend_pid"])
+        request_path=tmp_path/"research-worker-request.json"
+        request_path.write_text(json.dumps({"run_id":work_id,"research_root":str(research),
+            "runtime_root":arguments["runtime_root"],"algorithm_root":arguments["algorithm_root"],
+            "at":AT.isoformat(),"database":database.config.database,"url":database.config.url,"mode":worker_mode}))
+        legacy=research/"results"
+        unavailable=research/"use_test_results_unavailable"
+        legacy.rename(unavailable)
+        try:
+            worker=subprocess.run([str(selected),"--exact","actual_command_boundary","--nocapture"],
+                env={**os.environ,"ONLYALPHA_POSTGRES_DSN":postgres_dsn,"ONLYALPHA_FREEZE_TEST_ROOT":str(semantic),
+                    "ONLYALPHA_FREEZE_TEST_PHASE":"research-owner:complete","ONLYALPHA_RESEARCH_OWNER_REQUEST":str(request_path),
+                    "ONLYALPHA_CLICKHOUSE_USER":database.config.user,"ONLYALPHA_CLICKHOUSE_PASSWORD":database.config.password},
+                capture_output=True,text=True,timeout=30)
+            assert not legacy.exists(),"the scheduler must not recreate a retired result owner"
+        finally:
+            unavailable.rename(legacy)
+        (tmp_path/"research-worker.log").write_text(worker.stdout+worker.stderr)
+        assert worker.returncode==0,worker.stdout+worker.stderr
+        values=[json.loads(line.removeprefix("RESEARCH_WORKER_VALUE ")) for line in worker.stdout.splitlines() if line.startswith("RESEARCH_WORKER_VALUE ")]
+        assert len(values)==1 and values[0]["state"]==expected and values[0]["run_id"]==work_id and values[0]["members"]==(5 if expected=="COMPLETED" else 0),values
+        if expected=="COMPLETED":
+            assert values[0]["report_reads"]==2 and values[0]["execution_count"]==(2 if mode=="finite-service-recompute" else 1),values
+        print({"research_worker":values[0]},flush=True)
+        with psycopg.connect(postgres_dsn) as conn:
+            # 方案A：worker 的 publication 是发布身份，落 artifact 列；科学身份是独立 SHA-256，落 result 列。
+            state, result_col, artifact_col = conn.execute(
+                "SELECT state,research_result_fingerprint,artifact_content_fingerprint FROM research_run WHERE run_id=%s",
+                (work_id,),
+            ).fetchone()
+            assert state == expected, (work_id, state, values[0])
+            if expected == "COMPLETED":
+                assert artifact_col == values[0].get("publication"), (work_id, artifact_col, values[0])
+                assert result_col is not None and re.fullmatch(r"[0-9a-f]{64}", result_col), (result_col,)
+                assert result_col != artifact_col, (result_col, artifact_col)
+            else:
+                # 取消的 Run 从不发布，两列都为空（旧断言用 publication=None 覆盖 result 列，此处补齐两列）。
+                assert result_col is None and artifact_col is None, (work_id, result_col, artifact_col)
+            attempts=conn.execute("SELECT state,attempt_number FROM research_run_attempt WHERE run_id=%s ORDER BY attempt_number",(work_id,)).fetchall()
+            assert attempts==([("EXPIRED",1),("SUCCEEDED",2)] if mode=="finite-service-recompute" else [("SUCCEEDED" if expected=="COMPLETED" else "CANCELLED",1)]),attempts
+            assert conn.execute("SELECT count(*) FROM job_result_member WHERE job_kind='RESEARCH' AND run_id=%s",(work_id,)).fetchone()==(5 if expected=="COMPLETED" else 0,)
+        return
+    if mode in {"finite-recovery-cancel", "finite-recovery-exhausted"}:
+        from packages.backend.tests.postgres_link import wait_no_advisory_locks
+
+        original = probe(selected, database, "dataset-strategy-prepare", **{**arguments, "submission_mode": "finite-orphan"})
+        assert original["state"] == "RUNNING" and original["run_id"] == work_id, original
+        wait_no_advisory_locks(postgres_dsn, original["backend_pid"])
+        with psycopg.connect(postgres_dsn) as conn:
+            frozen = conn.execute("SELECT binding_fingerprint,payload FROM job_frozen_binding WHERE job_kind='RESEARCH' AND run_id=%s", (work_id,)).fetchone()
+        runtime = Path(arguments["runtime_root"])
+        unavailable = runtime.with_name("use_test_recovery_runtime_unavailable")
+        runtime.rename(unavailable)
+        try:
+            maximum = 1 if mode == "finite-recovery-cancel" else 3
+            for number in range(1, maximum + 1):
+                with psycopg.connect(postgres_dsn) as conn:
+                    # Controlled lease expiry, not a production threshold change.
+                    assert conn.execute("SELECT count(*) FROM research_run_attempt WHERE run_id=%s AND state='ACTIVE'", (work_id,)).fetchone() == (1,)
+                    conn.execute("UPDATE research_run_attempt SET claimed_at=clock_timestamp()-interval '3 seconds',last_heartbeat_at=clock_timestamp()-interval '2 seconds',lease_expires_at=clock_timestamp()-interval '1 second' WHERE run_id=%s AND state='ACTIVE'", (work_id,))
+                recovered = probe(selected, database, "research-finite-recovery", research_root=str(research), run_id=work_id,
+                    request_cancel=mode == "finite-recovery-cancel", claim=number < maximum, attempt_id=str(uuid4()))
+                assert recovered == {"state": "CLAIMED" if number < maximum else "CANCELLED" if mode == "finite-recovery-cancel" else "FAILED", "run_id": work_id}
+            # Repeated recovery must retain the original terminal fact and never
+            # mint a fourth Attempt or require Runtime, Source or executable bytes.
+            assert probe(selected, database, "research-finite-recovery", research_root=str(research), run_id=work_id,
+                claim=True, attempt_id=str(uuid4())) == recovered
+        finally:
+            unavailable.rename(runtime)
+        with psycopg.connect(postgres_dsn) as conn:
+            assert conn.execute("SELECT binding_fingerprint,payload FROM job_frozen_binding WHERE job_kind='RESEARCH' AND run_id=%s", (work_id,)).fetchone() == frozen
+            assert conn.execute("SELECT state,attempt_number FROM research_run_attempt WHERE run_id=%s ORDER BY attempt_number", (work_id,)).fetchall() == [("EXPIRED", number) for number in range(1, maximum + 1)]
+            for table in ("job_result_member", "job_publication"):
+                assert conn.execute(f"SELECT count(*) FROM {table} WHERE run_id=%s", (work_id,)).fetchone() == (0,)
+            if maximum == 3:
+                assert conn.execute("SELECT failure_code FROM research_run WHERE run_id=%s", (work_id,)).fetchone() == ("ATTEMPT_LIMIT_EXHAUSTED",)
+        return
     if mode == "commit-no-reply":
         payload = {
             "op": "dataset-strategy-prepare",
@@ -2221,9 +2297,62 @@ def test_strategy_submission_reuses_original_command_and_run_with_physical_sessi
         assert crashed.returncode == 86, crashed.stdout + crashed.stderr
         review = json.loads(review_file.read_text())
         actual = {"run_id": work_id, **review}
+    elif mode == "heartbeat-guard-loss":
+        from packages.backend.tests.postgres_link import wait_no_advisory_locks
+        # The operator injects a deferred fault into this exact Run only. Node
+        # privileges and the actual owning Claim/AuthoritySession stay unchanged.
+        with psycopg.connect(postgres_dsn) as conn:
+            assert conn.info.dbname.endswith("_test")
+            conn.execute("CREATE FUNCTION public.heartbeat_guard_loss_fixture() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ BEGIN IF NEW.run_id=%s::uuid THEN PERFORM pg_catalog.pg_advisory_unlock(1329199301,5); END IF; RETURN NEW; END $$".replace("%s", "'" + str(uuid.UUID(work_id)) + "'"))
+            conn.execute("CREATE CONSTRAINT TRIGGER heartbeat_guard_loss_fixture AFTER UPDATE ON public.research_run_attempt DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.heartbeat_guard_loss_fixture()")
+        try:
+            actual = probe(selected, database, "dataset-strategy-prepare", **arguments)
+            assert actual["refused"] is True, actual
+            wait_no_advisory_locks(postgres_dsn, actual["backend_pid"])
+            with psycopg.connect(postgres_dsn) as conn:
+                assert conn.execute("SELECT state FROM research_run WHERE run_id=%s", (work_id,)).fetchone() == ("RUNNING",)
+                assert conn.execute("SELECT state FROM research_run_attempt WHERE run_id=%s", (work_id,)).fetchall() == [("ACTIVE",)]
+                for table in ("job_result_member", "job_publication"):
+                    assert conn.execute(f"SELECT count(*) FROM {table} WHERE run_id=%s", (work_id,)).fetchone() == (0,)
+        finally:
+            with psycopg.connect(postgres_dsn) as conn:
+                conn.execute("DROP TRIGGER heartbeat_guard_loss_fixture ON public.research_run_attempt")
+                conn.execute("DROP FUNCTION public.heartbeat_guard_loss_fixture()")
+        return
+    elif mode == "binding-denied":
+        # This guarded test database operator injects a publisher storage fault.
+        # The Node keeps its ordinary privileges; failed registration must roll
+        # back the original Run, receipt, authorization and Novelty admission.
+        with psycopg.connect(postgres_dsn) as conn:
+            assert conn.info.dbname.endswith("_test")
+            assert conn.execute("SELECT has_table_privilege('onlyalpha_job_publisher','public.job_frozen_binding','INSERT')").fetchone() == (True,)
+            conn.execute("REVOKE INSERT ON public.job_frozen_binding FROM onlyalpha_job_publisher")
+        try:
+            actual = probe(selected, database, "dataset-strategy-prepare", **arguments)
+            assert actual == {"error": "RESEARCH_INPUT_BINDING_ACCESS_DENIED"}
+            with psycopg.connect(postgres_dsn) as conn:
+                for table in ("research_run", "research_strategy_study_authorization", "research_novelty_admission", "job_frozen_binding"):
+                    assert conn.execute(f"SELECT count(*) FROM {table} WHERE run_id=%s", (work_id,)).fetchone() == (0,)
+                for table in ("product_command_admission", "product_command_receipt"):
+                    assert conn.execute(f"SELECT count(*) FROM {table} WHERE command_id=%s", (command,)).fetchone() == (0,)
+        finally:
+            with psycopg.connect(postgres_dsn) as conn:
+                conn.execute("GRANT INSERT ON public.job_frozen_binding TO onlyalpha_job_publisher")
+        return
     else:
         actual = probe(selected, database, "dataset-strategy-prepare", **arguments)
         assert "error" not in actual, actual
+    if mode == "finite-complete":
+        metrics = dict(actual["publication"])
+        measured = sum(metrics[key] for key in ("input_ns", "restore_ns", "compute_join_ns", "publish_ns", "two_reads_ns"))
+        assert metrics["rows"] > 0 and metrics["total_ns"] >= measured
+        metrics["unattributed_ns"] = metrics["total_ns"] - measured
+        (tmp_path / "claimed-research-publication.json").write_text(json.dumps({
+            "run_id": work_id,
+            "probe_sha256": hashlib.sha256(selected.read_bytes()).hexdigest(),
+            "profile": metrics,
+            "method": "single controlled Research sample; caches not cleared; no formal Web or Backtest throughput claim",
+        }, indent=2, sort_keys=True))
     from packages.backend.tests.postgres_link import wait_no_advisory_locks
 
     wait_no_advisory_locks(postgres_dsn, actual["backend_pid"])
@@ -2268,7 +2397,7 @@ def test_strategy_submission_reuses_original_command_and_run_with_physical_sessi
         attempts = conn.execute(
             "SELECT state,attempt_number FROM research_run_attempt WHERE run_id=%s", (work_id,)
         ).fetchall()
-        assert attempts == ([] if mode == "commit-no-reply" else [("CANCELLED", 1)])
+        assert attempts == ([] if mode == "commit-no-reply" else [("SUCCEEDED", 1)] if mode == "finite-complete" else [("CANCELLED", 1)])
     # A fresh process only asks for the original accepted Command. It cannot
     # depend on an available Runtime, current Source permission or mutable head.
     runtime = Path(arguments["runtime_root"])
@@ -2285,7 +2414,7 @@ def test_strategy_submission_reuses_original_command_and_run_with_physical_sessi
         )
         assert recovered == {
             "run_id": work_id,
-            "state": "QUEUED" if mode == "commit-no-reply" else "CANCELLED",
+            "state": "QUEUED" if mode == "commit-no-reply" else "COMPLETED" if mode == "finite-complete" else "CANCELLED",
             "specification_fingerprint": row[3],
             "scientific_specification_fingerprint": science,
         }
@@ -2303,6 +2432,46 @@ def test_strategy_submission_reuses_original_command_and_run_with_physical_sessi
                 )
                 conn.execute("SET CONSTRAINTS ALL IMMEDIATE")
         assert conn.execute("SELECT count(*) FROM research_run WHERE run_id=%s", (work_id,)).fetchone() == (1,)
+    if frozen_faults:
+        # A real relation lock reaches the existing 2-second SQL lock budget.
+        # Failed role restoration revokes that connection and remains unknown;
+        # it must not assert that the original committed binding is corrupt.
+        with psycopg.connect(postgres_dsn) as blocked:
+            assert blocked.info.dbname.endswith("_test")
+            blocked.execute("LOCK TABLE public.job_frozen_binding IN ACCESS EXCLUSIVE MODE")
+            unreadable = probe(
+                selected, database, "strategy-submission-outcome", scope=arguments["scope"],
+                study=actual["study"], study_fingerprint=actual["study_fingerprint"],
+            )
+            assert unreadable == {"error": "RESEARCH_COMMAND_OUTCOME_UNKNOWN"}
+        # Operator-only controlled corruption. The original Node must observe
+        # missing evidence and must never reconstruct it from current inputs.
+        with psycopg.connect(postgres_dsn) as conn:
+            assert conn.info.dbname.endswith("_test")
+            retained = conn.execute(
+                "SELECT job_kind,run_id,namespace_id,owner_id,specification_fingerprint,admission_fingerprint,binding_fingerprint,payload FROM job_frozen_binding WHERE job_kind='RESEARCH' AND run_id=%s",
+                (work_id,),
+            ).fetchone()
+            assert retained is not None
+            conn.execute("ALTER TABLE job_frozen_binding DISABLE TRIGGER job_frozen_binding_immutable")
+            conn.execute("DELETE FROM job_frozen_binding WHERE job_kind='RESEARCH' AND run_id=%s", (work_id,))
+            conn.execute("ALTER TABLE job_frozen_binding ENABLE TRIGGER job_frozen_binding_immutable")
+        try:
+            missing = probe(
+                selected, database, "strategy-submission-outcome", scope=arguments["scope"],
+                study=actual["study"], study_fingerprint=actual["study_fingerprint"],
+            )
+            assert missing == {"error": "RESEARCH_INPUT_BINDING_MISSING"}
+            with psycopg.connect(postgres_dsn) as conn:
+                assert conn.execute("SELECT count(*) FROM job_frozen_binding WHERE job_kind='RESEARCH' AND run_id=%s", (work_id,)).fetchone() == (0,)
+                assert conn.execute("SELECT count(*) FROM research_run WHERE run_id=%s", (work_id,)).fetchone() == (1,)
+                assert conn.execute("SELECT count(*) FROM product_command_receipt WHERE command_id=%s", (command,)).fetchone() == (1,)
+        finally:
+            with psycopg.connect(postgres_dsn) as conn:
+                conn.execute(
+                    "INSERT INTO job_frozen_binding(job_kind,run_id,namespace_id,owner_id,specification_fingerprint,admission_fingerprint,binding_fingerprint,payload) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)", retained,
+                )
+
     # An internally consistent hash over a corrupted authorization is still not
     # its original scientific proof. Recovery refuses it without healing facts.
     from onlyalpha.canonical import only_canonical_json
@@ -2504,3 +2673,23 @@ def test_runtime_evidence_reads_original_released_generation_without_execution_o
         stream.write(bytes([last[0] ^ 1]))
     retained_elf.chmod(0o500)
     assert "error" in call("runtime-evidence-read"), "retained physical bytes are mandatory even after release"
+
+
+def test_multiple_segments_cumulative_fact_rows_exhaust_exact_budget_without_publication(
+    market_probe: Path, database: ClickHouseObservations, postgres_dsn: str, tmp_path: Path
+) -> None:
+    references = []
+    segments = []
+    for name, indices in (("first", (0, 1)), ("second", (2, 3))):
+        wal, segment = retained(tmp_path / name, "BAR", segment_id=name, updates=[{"index": i} for i in indices])
+        assert "error" not in drain(market_probe, database, wal, segment)
+        references.append([segment["segment_id"], segment["content_hash"]])
+        segments.append(segment)
+    scope = _scope_payload({**segments[0], "end_ns": segments[-1]["end_ns"]})
+    with psycopg.connect(postgres_dsn) as connection:
+        before = connection.execute("SELECT count(*) FROM market_data_revision").fetchone()
+    assert probe(market_probe, database, "compose", scope=scope, refs=sorted(references), storage_limit=2) == {
+        "error": "MARKET_DATA_READ_BUDGET_EXCEEDED"
+    }
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM market_data_revision").fetchone() == before

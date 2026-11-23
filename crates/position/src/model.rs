@@ -159,7 +159,23 @@ pub(crate) fn ratio(n: &D, d: &D, scale: i64) -> Result<D, Error> {
     }
     Ok(D::new(q, scale))
 }
-pub(crate) fn release_cost(cost: &D, qty: &D, fill: &D, qp: u8) -> Result<D, Error> {
+pub fn average_cost(cost: &D, quantity: &D, price_precision: u8) -> Result<Option<String>, Error> {
+    if price_precision > 18 {
+        return Err(err("POSITION_PRECISION"));
+    }
+    if quantity.is_zero() {
+        return Ok(None);
+    }
+    Ok(Some(ratio(cost, quantity, i64::from(price_precision))?.to_plain_string()))
+}
+
+pub fn release_cost(cost: &D, qty: &D, fill: &D, qp: u8) -> Result<D, Error> {
+    bounded(cost, false)?;
+    bounded(qty, false)?;
+    bounded(fill, false)?;
+    if qp > 18 || cost.is_negative() || fill <= &D::zero() || fill > qty {
+        return Err(err("POSITION_RATIO_INVALID"));
+    }
     if fill == qty {
         return Ok(cost.clone());
     }
@@ -265,11 +281,7 @@ impl Book {
         }
     }
     pub fn record(&self, spec: &Instrument, available: D, blocked: bool) -> Result<Value, Error> {
-        let average = if self.qty.is_zero() {
-            Value::Null
-        } else {
-            json!(ratio(&self.cost, &self.qty, i64::from(spec.pp))?.to_plain_string())
-        };
+        let average = average_cost(&self.cost, &self.qty, spec.pp)?;
         Ok(
             json!({"id":self.id,"quantity":number(&self.qty),"settled":number(&self.settled),"unsettled":number(&(&self.qty-&self.settled)),"cost":number(&self.cost),"average":average,"realized_pnl":number(&self.realized),"realized_exact":number(&self.realized_exact),"fees":number(&self.fees),"cycle":self.cycle,"version":self.version,"opened":self.opened.to_string(),"updated":self.updated.to_string(),"closed":self.closed.as_ref().map(ToString::to_string),"status":if self.qty.is_zero(){"CLOSED"}else if blocked{"RECONCILING"}else{"OPEN"},"available":number(&available)}),
         )

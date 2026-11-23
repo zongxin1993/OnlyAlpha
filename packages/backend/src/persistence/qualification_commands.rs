@@ -186,6 +186,7 @@ impl<'a> Qualifications<'a> {
         evidence: Evidence,
         at: OnlyUtcDateTime,
     ) -> Work<Arc<VerifiedDecision>> {
+        let roles=owned.control_roles().map_err(db)?;
         let admission = Admission::new(
             request.command_id().clone(),
             CommandKind::EvaluateQualification,
@@ -204,7 +205,7 @@ impl<'a> Qualifications<'a> {
                 .map_err(db)?;
             transaction(&tx, self.namespace).await?;
             evidence
-                .verify_in_transaction(&tx, self.namespace)
+                .verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace)
                 .await
                 .map_err(proof)?;
             Commands::lock_command(&tx, request.command_id())
@@ -217,7 +218,7 @@ impl<'a> Qualifications<'a> {
                 None => {
                     evidence
                         .require_running_parent_in_transaction(
-                            &tx,
+                            &crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),
                             self.namespace,
                             self.human
                                 .subject_id()
@@ -259,7 +260,7 @@ impl<'a> Qualifications<'a> {
             if new_admission {
                 evidence
                     .require_running_parent_in_transaction(
-                        &tx,
+                        &crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),
                         self.namespace,
                         self.human
                             .subject_id()
@@ -270,7 +271,7 @@ impl<'a> Qualifications<'a> {
             }
             self.files(request, &evidence)?;
             evidence
-                .verify_in_transaction(&tx, self.namespace)
+                .verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace)
                 .await
                 .map_err(proof)?;
             self.human()?;
@@ -324,7 +325,7 @@ impl<'a> Qualifications<'a> {
             .map_err(db)?;
         transaction(&tx, self.namespace).await?;
         evidence
-            .verify_in_transaction(&tx, self.namespace)
+            .verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace)
             .await
             .map_err(proof)?;
         Commands::lock_command(&tx, request.command_id())
@@ -373,7 +374,7 @@ impl<'a> Qualifications<'a> {
         catalog(&tx, self.namespace, request.subject()).await?;
         self.files(request, &evidence)?;
         decision
-            .verify_in_transaction(&tx, self.namespace)
+            .verify_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace)
             .await
             .map_err(proof)?;
         self.human()?;

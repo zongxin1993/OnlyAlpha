@@ -839,77 +839,45 @@ impl ResearchProcess {
             json!({"schema_version":1,"contract":"ONLYALPHA_CALCULATION_NODE_PROFILE_OBSERVATION_V1","nodes":result}),
         )
     }
+    /// A dedicated compiler operation, never Research certification-on-load.
+    pub fn compile_factor(&mut self, request: Value, deadline: Duration) -> Result<Value> {
+        self.begin(deadline)?;
+        if self.session.is_some()
+            || request["contract"] != "ONLYALPHA_FACTOR_PROGRAM_COMPILE_V1"
+            || request.to_string().len() > WORK
+        {
+            return Err(WorkerError::Invalid);
+        }
+        self.worker
+            .prepare_research(request, self.remaining(deadline)?)
+    }
     pub fn prepare_research(&mut self, mut request: Value, deadline: Duration) -> Result<Value> {
         self.begin(deadline)?;
         if self.session.is_some()
             || request.to_string().len() > WORK
             || request["schema_version"].as_u64() != Some(1)
+            || request["contract"] != "ONLYALPHA_INSTALLED_CALCULATION_ENVIRONMENT_V1"
             || request["operator_artifact"]["sha256"] != self.image
         {
             return Err(WorkerError::Invalid);
         }
-        if request["contract"] == "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1" {
-            exact(
-                &request,
-                &[
-                    "schema_version",
-                    "contract",
-                    "source",
-                    "graph",
-                    "core_artifact",
-                    "operator_artifact",
-                    "target_artifact",
-                ],
-            )?;
-        } else {
-            exact(
-                &request,
-                &[
-                    "schema_version",
-                    "source",
-                    "graph",
-                    "core_artifact",
-                    "operator_artifact",
-                ],
-            )?;
+        let mut fields = vec![
+            "schema_version",
+            "contract",
+            "core_artifact",
+            "operator_artifact",
+        ];
+        if request.get("target_artifact").is_some() {
+            fields.push("target_artifact");
         }
+        exact(&request, &fields)?;
         request
             .as_object_mut()
             .ok_or(WorkerError::Invalid)?
             .remove("operator_artifact");
-        let graph = Graph::from_record(&request["graph"], WORK).map_err(invalid)?;
-        let mut native = Vec::new();
-        for definition in graph.ordered_nodes() {
-            let d = definition.to_record();
-            if self.native(&d) {
-                let node = OperatorCalculation::from_record(&d).map_err(invalid)?;
-                native.push(
-                    node.implementation_manifest("RESEARCH", &self.image)
-                        .map_err(invalid)?,
-                );
-                if node.state_capability() != "RESEARCH_ONLY" {
-                    native.push(
-                        node.implementation_manifest("TRADING", &self.image)
-                            .map_err(invalid)?,
-                    );
-                }
-            }
-        }
         let mut result = self
             .worker
             .prepare_research(request, self.remaining(deadline)?)?;
-        let mut implementations = rows(&result["implementations"])?
-            .iter()
-            .cloned()
-            .chain(native)
-            .map(|i| Ok((text(&i["implementation_fingerprint"])?.to_owned(), i)))
-            .collect::<Result<BTreeMap<_, _>>>()?;
-        result["implementations"] = json!(
-            implementations
-                .values_mut()
-                .map(|i| i.clone())
-                .collect::<Vec<_>>()
-        );
         let provider = onlyalpha_calculation_bridge::native_operators::provider_record(
             &self.image,
             &self.version,

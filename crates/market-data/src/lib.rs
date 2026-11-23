@@ -7,4 +7,5 @@ pub use pipeline::*;
 
 pub use onlyalpha_market_data_construction as construction;
 pub mod delivery;
+pub mod finite_input;
 pub mod state;

@@ -1,11 +1,7 @@
 //! Exact installed Research inputs, reconstructed by the native backend.
 //! No Human consent, activation or Run is inferred from mathematical ABI observations.
 use crate::{
-    application::{
-        factor_content::hash,
-        research_admission::{PreparationError, check_binding},
-        research_factor::CompiledFactor,
-    },
+    application::{factor_content::hash, research_admission::PreparationError},
     persistence::research_runtime::Registry,
     security::{
         immutable_json::Directory,
@@ -15,6 +11,7 @@ use crate::{
 };
 use onlyalpha_calculation_bridge::ChartInstallation;
 use onlyalpha_domain::time::OnlyUtcDateTime;
+use onlyalpha_observability::{Correlation, measure};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -24,6 +21,10 @@ use std::{
 };
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "RESEARCH_ENVIRONMENT_INPUT_MISMATCH";
+
+#[cfg(test)]
+#[path = "../tests/research_environment_diagnostics_tests.rs"]
+mod diagnostics_tests;
 fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
@@ -120,8 +121,6 @@ impl Release {
 /// A manifest supplied by a client cannot construct this value.
 pub struct PreparedGeneration {
     manifest: Value,
-    runtime: Value,
-    vectors: Value,
     artifacts: Vec<(Value, Vec<u8>)>,
     proof: Value,
 }
@@ -132,21 +131,10 @@ impl PreparedGeneration {
     pub fn proof(&self) -> &Value {
         &self.proof
     }
-    pub fn publish(
-        &self,
-        registry: &mut Registry,
-        source: &[u8],
-        actor: &str,
-        at: OnlyUtcDateTime,
-    ) -> Result<()> {
+    pub fn publish(&self, registry: &mut Registry, actor: &str, at: OnlyUtcDateTime) -> Result<()> {
         for (manifest, bytes) in &self.artifacts {
             registry.install_artifact(manifest, bytes)?;
         }
-        registry.install_private_factor(&self.runtime, source)?;
-        registry.retain_abi_vectors(
-            &self.vectors,
-            &self.runtime["equivalence_evidence"]["test_vector_set_fingerprint"],
-        )?;
         registry.retain_installed_proof(&self.manifest, &self.proof)?;
         registry.prepare_generation(&self.manifest, actor, at)?;
         Ok(())
@@ -157,323 +145,362 @@ impl PreparedGeneration {
 pub fn prepare(
     installation: &ChartInstallation,
     release_root: &Path,
-    factor: &CompiledFactor,
-    revision: &Value,
     version: &str,
 ) -> std::result::Result<PreparedGeneration, PreparationError> {
-    prepare_installed(installation, release_root, factor, revision, version, false)
+    prepare_installed(installation, release_root, version, false)
 }
-/// Explicit complete-Strategy preparation adds the actual installed RESEARCH
-/// Target library. It does not manufacture a Quant Asset Provider or TRADING Target.
+/// Qualify the actual installed Target library independently of signal programs.
 pub fn prepare_strategy(
     installation: &ChartInstallation,
     release_root: &Path,
-    factor: &CompiledFactor,
-    revision: &Value,
     version: &str,
 ) -> std::result::Result<PreparedGeneration, PreparationError> {
-    prepare_installed(installation, release_root, factor, revision, version, true)
+    prepare_installed(installation, release_root, version, true)
 }
 fn prepare_installed(
     installation: &ChartInstallation,
     release_root: &Path,
-    factor: &CompiledFactor,
-    revision: &Value,
     version: &str,
     with_targets: bool,
 ) -> std::result::Result<PreparedGeneration, PreparationError> {
-    crate::application::private_assets::authoring::validate_revision(revision)
-        .map_err(|_| INVALID)?;
-    if revision["revision_fingerprint"] != factor.revision_fingerprint() {
-        return Err(INVALID.into());
-    }
-    installation.verify().map_err(|_| INVALID)?;
-    let release = Release::open(release_root, installation, version)?;
-    let provenance: Value = serde_json::from_slice(&release.read("source-provenance.json", false)?)
-        .map_err(|_| INVALID)?;
-    if provenance["schema_version"] != 1
-        || provenance["source_provenance_authority"] != "ONLYALPHA_GIT"
-        || provenance["source_repository"] != "OnlyAlpha"
-    {
-        return Err(INVALID.into());
-    }
-    let core_version = installation
-        .installed_distribution_version("onlyalpha")
-        .map_err(|_| INVALID)?;
-    let provider_version = version;
-    let (core_name, core_bytes) = release.wheel("onlyalpha", &core_version)?;
-    let target_wheel = if with_targets {
-        let version = installation
-            .installed_distribution_version("onlyalpha-backend-algorithms")
+    measure(
+        "backend",
+        "runtime.prepare.all",
+        Correlation::default(),
+        || {
+            measure(
+                "backend",
+                "runtime.prepare.installation_verify",
+                Correlation::default(),
+                || installation.verify(),
+            )
             .map_err(|_| INVALID)?;
-        let (name, bytes) = release.wheel("onlyalpha-backend-algorithms", &version)?;
-        Some((version, name, bytes))
-    } else {
-        None
-    };
-    let native = release.read("bin/onlyalpha-backend", true)?;
-    let native_descriptor = describe_native_runtime(version).map_err(|_| INVALID)?;
-    let descriptor = native_descriptor["image"].clone();
-    if descriptor["artifact"] != sha(&native)
-        || descriptor["version"] != version
-        || descriptor["protocol"] != "onlyalpha.research.executor/1"
-    {
-        return Err(INVALID.into());
-    }
-    let core = json!({"schema_version":1,"distribution_name":"onlyalpha","distribution_version":core_version,"artifact_sha256":sha(&core_bytes)});
-    let core_pin = hash(&core).map_err(|_| INVALID)?;
-    let source = revision
-        .as_object()
-        .ok_or(INVALID)?
-        .iter()
-        .filter(|(k, _)| {
-            [
-                "factor_id",
-                "semantic_version",
-                "revision_fingerprint",
-                "source_text",
-                "source_sha256",
-                "factor_api_version",
-                "factor_api_contract_fingerprint",
-                "input_contract",
-                "parameter_contract",
-                "output_contract",
-            ]
-            .contains(&k.as_str())
-        })
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect::<serde_json::Map<_, _>>();
-    let artifact = |name: &str, bytes: &[u8], version: &str| json!({"path":release_root.join("wheels").join(name),"sha256":sha(bytes),"size":bytes.len(),"distribution_version":version});
-    let mut request = json!({"schema_version":1,"source":source,"graph":factor.graph().to_record(),"core_artifact":artifact(&core_name,&core_bytes,&core_version),"operator_artifact":{"sha256":descriptor["artifact"],"distribution_version":version}});
-    if let Some((version, name, bytes)) = &target_wheel {
-        request["contract"] = json!("ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1");
-        request["target_artifact"] = artifact(name, bytes, version);
-    }
-    let mut worker =
-        AlgorithmProcess::research_resolution(installation, factor.fingerprint(), Box::new(()))
-            .map_err(|_| "RESEARCH_ALGORITHM_UNAVAILABLE")?;
-    let owner = worker
-        .cancellation()
-        .map_err(|_| "RESEARCH_ALGORITHM_UNAVAILABLE")?;
-    let deadline = Duration::from_secs(10);
-    worker
-        .handshake_research(deadline)
-        .map_err(|e| PreparationError::worker(e, owner.clone()))?;
-    let observation = worker
-        .prepare_research(request.clone(), deadline)
-        .map_err(|e| PreparationError::worker(e, owner.clone()))?;
-    worker
-        .terminate()
-        .map_err(|e| PreparationError::worker(e, owner))?;
-    installation.verify().map_err(|_| INVALID)?;
-    release.verify()?;
-    if observation["schema_version"] != 1
-        || observation["contract"]
-            != if with_targets {
-                "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1"
-            } else {
-                "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
-            }
-        || observation["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
-        || observation["algorithm_artifact"] != installation.artifact_fingerprint()
-        || observation["source_projection_fingerprint"]
-            != hash(&request["source"]).map_err(|_| INVALID)?
-        || observation["graph"] != request["graph"]
-        || observation["factor_revision_fingerprint"] != revision["revision_fingerprint"]
-        || observation["core_artifact_sha256"] != core["artifact_sha256"]
-        || observation["operator_artifact_sha256"] != sha(&native)
-        || observation["certification_policy"] != "ONLYALPHA_PRIVATE_FACTOR_ABI_VECTORS_V1"
-    {
-        return Err(INVALID.into());
-    }
-    for key in [
-        "core_resources_fingerprint",
-        "operator_resources_fingerprint",
-    ] {
-        if !observation[key].as_str().is_some_and(crate::is_sha256_hex) {
-            return Err(INVALID.into());
-        }
-    }
-    let target_implementations = if let Some((_, _, bytes)) = &target_wheel {
-        let fields = [
-            "schema_version",
-            "contract",
-            "algorithm_artifact",
-            "factor_revision_fingerprint",
-            "source_artifact",
-            "validation_evidence",
-            "graph",
-            "implementations",
-            "private_calculations",
-            "source_projection_fingerprint",
-            "core_artifact_sha256",
-            "core_resources_fingerprint",
-            "isolation",
-            "equivalence_evidence",
-            "provider_snapshot",
-            "certification_policy",
-            "certification_vectors",
-            "operator_provider_manifest",
-            "operator_calculations",
-            "operator_artifact_sha256",
-            "operator_resources_fingerprint",
-            "target_artifact_sha256",
-            "target_resources_fingerprint",
-            "target_calculations",
-        ];
-        let record = observation.as_object().ok_or(INVALID)?;
-        if record.len() != fields.len()
-            || fields.iter().any(|k| !record.contains_key(*k))
-            || observation["target_artifact_sha256"] != sha(bytes)
-            || !observation["target_resources_fingerprint"]
-                .as_str()
-                .is_some_and(crate::is_sha256_hex)
-        {
-            return Err(INVALID.into());
-        }
-        let targets = observation["target_calculations"]
-            .as_array()
-            .filter(|r| !r.is_empty())
-            .ok_or(INVALID)?;
-        let mut identities = BTreeSet::new();
-        for target in targets {
-            let reference = &target["type"];
-            if reference["kind"] != "TARGET"
-                || target["backend"] != "RESEARCH"
-                || !target["state_capability"].is_null()
-                || !target["checkpoint_schema_version"].is_null()
-                || !identities.insert(
-                    ["kind", "type_id", "semantic_version"]
-                        .map(|k| reference[k].as_str().unwrap_or("").to_owned()),
-                )
+            let release = measure(
+                "backend",
+                "runtime.prepare.release_open",
+                Correlation::default(),
+                || Release::open(release_root, installation, version),
+            )?;
+            let provenance: Value = measure(
+                "backend",
+                "runtime.prepare.provenance_read",
+                Correlation::default(),
+                || {
+                    serde_json::from_slice(&release.read("source-provenance.json", false)?)
+                        .map_err(|_| INVALID)
+                },
+            )?;
+            if provenance["schema_version"] != 1
+                || provenance["source_provenance_authority"] != "ONLYALPHA_GIT"
+                || provenance["source_repository"] != "OnlyAlpha"
             {
                 return Err(INVALID.into());
             }
-        }
-        let mut projected = implementations(&observation["target_calculations"])?;
-        sort_implementations(&mut projected);
-        projected
-    } else {
-        Vec::new()
-    };
-    let vectors = observation["certification_vectors"].clone();
-    if hash(&vectors).map_err(|_| INVALID)?
-        != observation["equivalence_evidence"]["test_vector_set_fingerprint"]
-        || vectors["vectors"].as_array().map(Vec::len) != Some(8)
-    {
-        return Err(INVALID.into());
-    }
-    let base = provider(
-        &observation["operator_provider_manifest"],
-        &observation["operator_calculations"],
-        Value::Null,
-    )?;
-    if base["manifest"]["source"]
-        != json!({"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":provider_version})
-    {
-        return Err(INVALID.into());
-    }
-    let snapshot = &observation["provider_snapshot"];
-    let private_manifest = json!({"schema_version":1,"provider_id":format!("private.research.{}",sha(revision["factor_id"].as_str().ok_or(INVALID)?.as_bytes())),"provider_version":revision["revision_fingerprint"],"kind":"FACTOR","source":{"kind":"PRIVATE_FACTOR_SNAPSHOT","private_factor_provider_snapshot_fingerprint":snapshot["snapshot_fingerprint"]}});
-    let private = provider(
-        &private_manifest,
-        &observation["private_calculations"],
-        snapshot.clone(),
-    )?;
-    let mut metadata = revision.clone();
-    metadata
-        .as_object_mut()
-        .ok_or(INVALID)?
-        .remove("source_text");
-    let mut runtime = json!({"schema_version":1,"revision_metadata":metadata,"source_artifact":observation["source_artifact"],"equivalence_evidence":observation["equivalence_evidence"],"provider_snapshot":snapshot,"provider":private});
-    runtime["runtime_artifact_fingerprint"] = hash(&runtime).map_err(|_| INVALID)?.into();
-    let binding = json!({"provider_snapshot_fingerprint":snapshot["snapshot_fingerprint"],"runtime_artifact_fingerprint":runtime["runtime_artifact_fingerprint"],"entry":snapshot["entries"][0]});
-    let core_artifact = distribution(
-        "CORE",
-        ("onlyalpha", &core_version),
-        &core_name,
-        &core_bytes,
-        &provenance,
-        Value::Null,
-        None,
-    )?;
-    let target = descriptor["target"].as_str().ok_or(INVALID)?;
-    let mut native_implementations = native_descriptor["implementations"]
-        .as_array()
-        .ok_or(INVALID)?
-        .iter()
-        .map(crate::application::research_admission::implementation_projection)
-        .collect::<Result<Vec<_>>>()?;
-    sort_implementations(&mut native_implementations);
-    let mut native_artifact = distribution(
-        "BACKEND_RUNTIME",
-        ("onlyalpha-backend", version),
-        &format!("onlyalpha_backend-{version}-{target}.elf"),
-        &native,
-        &provenance,
-        core_pin.clone().into(),
-        Some(&base),
-    )?;
-    native_artifact
-        .as_object_mut()
-        .ok_or(INVALID)?
-        .remove("manifest_fingerprint");
-    native_artifact["schema_version"] = json!(3);
-    native_artifact["execution_capabilities"] = native_descriptor["execution_capabilities"].clone();
-    native_artifact["implementations"] = json!(native_implementations);
-    native_artifact["manifest_fingerprint"] = hash(&native_artifact).map_err(|_| INVALID)?.into();
-    let mut artifacts = vec![(core_artifact, core_bytes), (native_artifact, native)];
-    if let Some((version, name, bytes)) = target_wheel {
-        let mut target_artifact = distribution(
-            "CALCULATION",
-            ("onlyalpha-backend-algorithms", &version),
-            &name,
-            &bytes,
-            &provenance,
-            core_pin.into(),
-            None,
-        )?;
-        target_artifact
-            .as_object_mut()
-            .ok_or(INVALID)?
-            .remove("manifest_fingerprint");
-        target_artifact["implementations"] = json!(target_implementations);
-        target_artifact["manifest_fingerprint"] =
-            hash(&target_artifact).map_err(|_| INVALID)?.into();
-        artifacts.push((target_artifact, bytes));
-    }
-    let mut all_implementations = implementations(&observation["private_calculations"])?;
-    all_implementations.extend(native_implementations);
-    all_implementations.extend(target_implementations);
-    sort_implementations(&mut all_implementations);
-    let mut providers = vec![base.clone(), private];
-    providers.sort_by_key(|p| {
-        (
-            p["manifest"]["kind"].as_str().unwrap_or("").to_owned(),
-            p["manifest"]["provider_id"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            p["manifest"]["provider_version"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-        )
-    });
-    let catalog = json!({"schema_version":1,"providers":providers});
-    let mut manifest = json!({"schema_version":1,"core_execution":core,"artifact_manifest_fingerprints":artifacts.iter().map(|(m,_)|m["manifest_fingerprint"].as_str().unwrap_or("").to_owned()).collect::<BTreeSet<_>>(),"artifact_sha256s":artifacts.iter().map(|(m,_)|m["artifact_sha256"].as_str().unwrap_or("").to_owned()).collect::<BTreeSet<_>>(),"providers":[{"provider_id":base["manifest"]["provider_id"],"provider_version":base["manifest"]["provider_version"],"provider_content_fingerprint":base["content_fingerprint"],"artifact_sha256":artifacts[1].0["artifact_sha256"]}],"catalog_generation_fingerprint":hash(&catalog).map_err(|_|INVALID)?,"implementations":all_implementations,"private_factor_bindings":[binding]});
-    manifest["runtime_generation_fingerprint"] = hash(&manifest).map_err(|_| INVALID)?.into();
-    check_binding(&observation, &runtime, &binding, &manifest)?;
-    let mut proof = json!({"schema_version":2,"contract":"ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2","runtime_generation_fingerprint":manifest["runtime_generation_fingerprint"],"algorithm_artifact":installation.artifact_fingerprint(),"release_manifest_sha256":sha(&release.raw),"source_inputs":release.manifest["source_inputs"],"source_provenance":provenance,"native_descriptor":native_descriptor,"algorithm_observation":observation,"catalog":catalog});
-    proof["installed_proof_fingerprint"] = hash(&proof).map_err(|_| INVALID)?.into();
-    Ok(PreparedGeneration {
-        manifest,
-        runtime,
-        vectors,
-        artifacts,
-        proof,
-    })
+            let core_version = measure(
+                "backend",
+                "runtime.prepare.core_version",
+                Correlation::default(),
+                || installation.installed_distribution_version("onlyalpha"),
+            )
+            .map_err(|_| INVALID)?;
+            let provider_version = version;
+            let (core_name, core_bytes) = measure(
+                "backend",
+                "runtime.prepare.core_wheel",
+                Correlation::default(),
+                || release.wheel("onlyalpha", &core_version),
+            )?;
+            let target_wheel = if with_targets {
+                let version = measure(
+                    "backend",
+                    "runtime.prepare.target_version",
+                    Correlation::default(),
+                    || installation.installed_distribution_version("onlyalpha-backend-algorithms"),
+                )
+                .map_err(|_| INVALID)?;
+                let (name, bytes) = measure(
+                    "backend",
+                    "runtime.prepare.target_wheel",
+                    Correlation::default(),
+                    || release.wheel("onlyalpha-backend-algorithms", &version),
+                )?;
+                Some((version, name, bytes))
+            } else {
+                None
+            };
+            let native = measure(
+                "backend",
+                "runtime.prepare.native_read",
+                Correlation::default(),
+                || release.read("bin/onlyalpha-backend", true),
+            )?;
+            let native_descriptor = measure(
+                "backend",
+                "runtime.prepare.native_inventory",
+                Correlation::default(),
+                || describe_native_runtime(version),
+            )
+            .map_err(|_| INVALID)?;
+            let descriptor = native_descriptor["image"].clone();
+            measure(
+                "backend",
+                "runtime.prepare.native_binding",
+                Correlation::default(),
+                || {
+                    if descriptor["artifact"] != sha(&native)
+                        || descriptor["version"] != version
+                        || descriptor["protocol"] != "onlyalpha.research.executor/1"
+                    {
+                        Err(INVALID)
+                    } else {
+                        Ok(())
+                    }
+                },
+            )?;
+            let core = json!({"schema_version":1,"distribution_name":"onlyalpha","distribution_version":core_version,"artifact_sha256":sha(&core_bytes)});
+            let core_pin = hash(&core).map_err(|_| INVALID)?;
+            let artifact = |name: &str, bytes: &[u8], version: &str| json!({"path":release_root.join("wheels").join(name),"sha256":sha(bytes),"size":bytes.len(),"distribution_version":version});
+            let mut request = json!({"schema_version":1,"contract":"ONLYALPHA_INSTALLED_CALCULATION_ENVIRONMENT_V1","core_artifact":artifact(&core_name,&core_bytes,&core_version),"operator_artifact":{"sha256":descriptor["artifact"],"distribution_version":version}});
+            if let Some((version, name, bytes)) = &target_wheel {
+                request["target_artifact"] = artifact(name, bytes, version);
+            }
+            let preparation_identity = hash(&request).map_err(|_| INVALID)?;
+            let mut worker = measure(
+                "backend",
+                "runtime.prepare.worker_create",
+                Correlation::default(),
+                || {
+                    AlgorithmProcess::research_resolution(
+                        installation,
+                        &preparation_identity,
+                        Box::new(()),
+                    )
+                },
+            )
+            .map_err(|_| "RESEARCH_ALGORITHM_UNAVAILABLE")?;
+            let owner = worker
+                .cancellation()
+                .map_err(|_| "RESEARCH_ALGORITHM_UNAVAILABLE")?;
+            let deadline = Duration::from_secs(10);
+            measure(
+                "backend",
+                "runtime.prepare.worker_handshake",
+                Correlation::default(),
+                || worker.handshake_research(deadline),
+            )
+            .map_err(|e| PreparationError::worker(e, owner.clone()))?;
+            let observation = measure(
+                "backend",
+                "runtime.prepare.worker_prepare",
+                Correlation::default(),
+                || worker.prepare_research(request.clone(), deadline),
+            )
+            .map_err(|e| PreparationError::worker(e, owner.clone()))?;
+            measure(
+                "backend",
+                "runtime.prepare.worker_drain",
+                Correlation::default(),
+                || worker.terminate(),
+            )
+            .map_err(|e| PreparationError::worker(e, owner))?;
+            measure(
+                "backend",
+                "runtime.prepare.installation_verify_final",
+                Correlation::default(),
+                || installation.verify(),
+            )
+            .map_err(|_| INVALID)?;
+            measure(
+                "backend",
+                "runtime.prepare.release_verify_final",
+                Correlation::default(),
+                || release.verify(),
+            )?;
+            measure(
+                "backend",
+                "runtime.prepare.proof_build",
+                Correlation::default(),
+                || {
+                    if observation["schema_version"] != 1
+                        || observation["contract"]
+                            != "ONLYALPHA_INSTALLED_CALCULATION_ENVIRONMENT_V1"
+                        || observation["isolation"] != "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
+                        || observation["algorithm_artifact"] != installation.artifact_fingerprint()
+                        || observation["core_artifact_sha256"] != core["artifact_sha256"]
+                        || observation["operator_artifact_sha256"] != sha(&native)
+                        || observation["implementations"] != json!([])
+                    {
+                        return Err(INVALID.into());
+                    }
+                    let mut fields = vec![
+                        "schema_version",
+                        "contract",
+                        "algorithm_artifact",
+                        "core_artifact_sha256",
+                        "core_resources_fingerprint",
+                        "isolation",
+                        "implementations",
+                        "operator_provider_manifest",
+                        "operator_calculations",
+                        "operator_artifact_sha256",
+                        "operator_resources_fingerprint",
+                    ];
+                    if target_wheel.is_some() {
+                        fields.extend([
+                            "target_artifact_sha256",
+                            "target_resources_fingerprint",
+                            "target_calculations",
+                        ]);
+                    }
+                    if observation.as_object().is_none_or(|record| {
+                        record.len() != fields.len()
+                            || fields.iter().any(|key| !record.contains_key(*key))
+                    }) {
+                        return Err(INVALID.into());
+                    }
+                    for key in [
+                        "core_resources_fingerprint",
+                        "operator_resources_fingerprint",
+                    ] {
+                        if !observation[key].as_str().is_some_and(crate::is_sha256_hex) {
+                            return Err(INVALID.into());
+                        }
+                    }
+                    let target_implementations = if let Some((_, _, bytes)) = &target_wheel {
+                        if observation["target_artifact_sha256"] != sha(bytes)
+                            || !observation["target_resources_fingerprint"]
+                                .as_str()
+                                .is_some_and(crate::is_sha256_hex)
+                        {
+                            return Err(INVALID.into());
+                        }
+                        let targets = observation["target_calculations"]
+                            .as_array()
+                            .filter(|r| !r.is_empty())
+                            .ok_or(INVALID)?;
+                        let mut identities = BTreeSet::new();
+                        for target in targets {
+                            let reference = &target["type"];
+                            if reference["kind"] != "TARGET"
+                                || target["backend"] != "RESEARCH"
+                                || !target["state_capability"].is_null()
+                                || !target["checkpoint_schema_version"].is_null()
+                                || !identities.insert(
+                                    ["kind", "type_id", "semantic_version"]
+                                        .map(|k| reference[k].as_str().unwrap_or("").to_owned()),
+                                )
+                            {
+                                return Err(INVALID.into());
+                            }
+                        }
+                        let mut projected = implementations(&observation["target_calculations"])?;
+                        sort_implementations(&mut projected);
+                        projected
+                    } else {
+                        Vec::new()
+                    };
+                    let base = provider(
+                        &observation["operator_provider_manifest"],
+                        &observation["operator_calculations"],
+                        Value::Null,
+                    )?;
+                    if base["manifest"]["source"]
+                        != json!({"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":provider_version})
+                    {
+                        return Err(INVALID.into());
+                    }
+                    let core_artifact = distribution(
+                        "CORE",
+                        ("onlyalpha", &core_version),
+                        &core_name,
+                        &core_bytes,
+                        &provenance,
+                        Value::Null,
+                        None,
+                    )?;
+                    let target = descriptor["target"].as_str().ok_or(INVALID)?;
+                    let mut native_implementations = native_descriptor["implementations"]
+                        .as_array()
+                        .ok_or(INVALID)?
+                        .iter()
+                        .map(crate::application::research_admission::implementation_projection)
+                        .collect::<Result<Vec<_>>>()?;
+                    sort_implementations(&mut native_implementations);
+                    let mut native_artifact = distribution(
+                        "BACKEND_RUNTIME",
+                        ("onlyalpha-backend", version),
+                        &format!("onlyalpha_backend-{version}-{target}.elf"),
+                        &native,
+                        &provenance,
+                        core_pin.clone().into(),
+                        Some(&base),
+                    )?;
+                    native_artifact
+                        .as_object_mut()
+                        .ok_or(INVALID)?
+                        .remove("manifest_fingerprint");
+                    native_artifact["schema_version"] = json!(3);
+                    native_artifact["execution_capabilities"] =
+                        native_descriptor["execution_capabilities"].clone();
+                    native_artifact["implementations"] = json!(native_implementations);
+                    native_artifact["manifest_fingerprint"] =
+                        hash(&native_artifact).map_err(|_| INVALID)?.into();
+                    let mut artifacts =
+                        vec![(core_artifact, core_bytes), (native_artifact, native)];
+                    if let Some((version, name, bytes)) = target_wheel {
+                        let mut target_artifact = distribution(
+                            "CALCULATION",
+                            ("onlyalpha-backend-algorithms", &version),
+                            &name,
+                            &bytes,
+                            &provenance,
+                            core_pin.into(),
+                            None,
+                        )?;
+                        target_artifact
+                            .as_object_mut()
+                            .ok_or(INVALID)?
+                            .remove("manifest_fingerprint");
+                        target_artifact["implementations"] = json!(target_implementations);
+                        target_artifact["manifest_fingerprint"] =
+                            hash(&target_artifact).map_err(|_| INVALID)?.into();
+                        artifacts.push((target_artifact, bytes));
+                    }
+                    let mut all_implementations = native_implementations;
+                    all_implementations.extend(target_implementations);
+                    sort_implementations(&mut all_implementations);
+                    let mut providers = vec![base.clone()];
+                    providers.sort_by_key(|p| {
+                        (
+                            p["manifest"]["kind"].as_str().unwrap_or("").to_owned(),
+                            p["manifest"]["provider_id"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_owned(),
+                            p["manifest"]["provider_version"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_owned(),
+                        )
+                    });
+                    let catalog = json!({"schema_version":1,"providers":providers});
+                    let mut manifest = json!({"schema_version":1,"core_execution":core,"artifact_manifest_fingerprints":artifacts.iter().map(|(m,_)|m["manifest_fingerprint"].as_str().unwrap_or("").to_owned()).collect::<BTreeSet<_>>(),"artifact_sha256s":artifacts.iter().map(|(m,_)|m["artifact_sha256"].as_str().unwrap_or("").to_owned()).collect::<BTreeSet<_>>(),"providers":[{"provider_id":base["manifest"]["provider_id"],"provider_version":base["manifest"]["provider_version"],"provider_content_fingerprint":base["content_fingerprint"],"artifact_sha256":artifacts[1].0["artifact_sha256"]}],"catalog_generation_fingerprint":hash(&catalog).map_err(|_|INVALID)?,"implementations":all_implementations,"private_factor_bindings":[]});
+                    manifest["runtime_generation_fingerprint"] =
+                        hash(&manifest).map_err(|_| INVALID)?.into();
+                    let mut proof = json!({"schema_version":2,"contract":"ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2","runtime_generation_fingerprint":manifest["runtime_generation_fingerprint"],"algorithm_artifact":installation.artifact_fingerprint(),"release_manifest_sha256":sha(&release.raw),"source_inputs":release.manifest["source_inputs"],"source_provenance":provenance,"native_descriptor":native_descriptor,"algorithm_observation":observation,"catalog":catalog});
+                    proof["installed_proof_fingerprint"] =
+                        hash(&proof).map_err(|_| INVALID)?.into();
+                    Ok(PreparedGeneration {
+                        manifest,
+                        artifacts,
+                        proof,
+                    })
+                },
+            )
+        },
+    )
 }
+
 fn provider(manifest: &Value, calculations: &Value, snapshot: Value) -> Result<Value> {
     let content = json!({"kind":manifest["kind"],"calculations":calculations,"private_factor_snapshot":snapshot});
     Ok(

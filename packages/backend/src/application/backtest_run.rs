@@ -9,7 +9,6 @@ use crate::{
     },
     bootstrap::deployment::SemanticStoreId,
     persistence::{
-        backtest_evidence::CompletionProof,
         research_dataset::Store,
         research_evidence::strategy::physical::{Witness, capture_dataset},
         research_preparation::{self, Operation},
@@ -167,8 +166,9 @@ impl Context<'_> {
             .map_err(|_| "BACKTEST_SOURCE_ACCESS_DENIED")
     }
 }
+mod frozen;
 fn selection_record(selection: &Selection) -> Value {
-    json!({"integration_id":selection.reference().integration_id(),"revision_fingerprint":selection.reference().revision(),"expected_type_id":selection.reference().expected_type_id(),"source_id":selection.source_id(),"environment":selection.environment()})
+    selection.record()
 }
 enum Holds<'a> {
     Owners {
@@ -309,7 +309,7 @@ impl<'a> Inputs<'a> {
     }
     pub(crate) async fn verify_transaction(
         &self,
-        tx: &tokio_postgres::Transaction<'_>,
+        tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>,
         namespace: &SemanticStoreId,
     ) -> Result<()> {
         match &self.holds {
@@ -328,7 +328,7 @@ impl<'a> Inputs<'a> {
                 )
                 .await?;
                 if let Some(validation) = validation {
-                    validation.verify_in_transaction(tx, namespace).await?;
+                    validation.verify_in_transaction(tx,namespace).await?;
                 }
                 self.verify_cut()
             }
@@ -489,11 +489,12 @@ pub(crate) fn validate_resolution(
             "source_selection",
         ],
     )?;
-    if value["schema_version"] != 2
-        || value["kind"] != "BTC_SPOT_NEXT_OPEN_ADMISSION"
-        || value["semantic_store_id"] != namespace.value()
-    {
+    if value["schema_version"] != 2 || value["kind"] != "BTC_SPOT_NEXT_OPEN_ADMISSION" {
         return Err(INVALID);
+    }
+    let store = SemanticStoreId::new(text(value, "semantic_store_id")?).map_err(|_| INVALID)?;
+    if &store != namespace {
+        return Err(MISMATCH);
     }
     text(value, "owner")?;
     for key in [
@@ -613,6 +614,9 @@ impl VerifiedRun {
     pub fn was_started(&self) -> bool {
         self.binding.was_started()
     }
+    pub(crate) fn cancel_requested_at(&self) -> Option<std::time::SystemTime> {
+        self.binding.cancel_requested_at()
+    }
     pub fn completion_fingerprints(&self) -> Option<(&str, &str, &str)> {
         self.binding.completion_fingerprints()
     }
@@ -642,32 +646,6 @@ impl VerifiedRun {
     }
     pub fn record(&self) -> Value {
         self.binding.record()
-    }
-}
-pub struct VerifiedCompletion {
-    proof: CompletionProof,
-}
-impl VerifiedCompletion {
-    pub fn from_proof(proof: CompletionProof) -> Result<Self> {
-        proof.verify_cut()?;
-        if !command::uuid4(proof.run_id())
-            || !matches!(proof.status(), "COMPLETED" | "CANCELLED")
-            || [
-                proof.specification_fingerprint(),
-                proof.admission_resolution_fingerprint(),
-                proof.evidence_fingerprint(),
-                proof.result_fingerprint(),
-                proof.determinism_fingerprint(),
-            ]
-            .iter()
-            .any(|p| !crate::is_sha256_hex(p))
-        {
-            return Err(MISMATCH);
-        }
-        Ok(Self { proof })
-    }
-    pub(crate) fn proof(&self) -> &CompletionProof {
-        &self.proof
     }
 }
 // Test-first: values below prove the new specification language, never admission.

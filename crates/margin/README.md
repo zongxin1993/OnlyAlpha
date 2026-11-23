@@ -53,3 +53,5 @@ cargo doc -p onlyalpha-margin --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 Manager::new 的显式 BACKTEST 配置可含正整数 observation_capacity，不能超过传入的生命周期容量。该格式生成 schema 2 检查点，observation_capacity_reached 读取历史计算额度。尖峰时 MARK_MAINTENANCE 不占用预留的成交、释放槽；额度用尽后新风险被拒绝，首次无法更新已开仓维护额使用 MARK_UNAVAILABLE 保留原始证据。一次连续缺证仅记录一个起点。带 model_notional_limit 的生产配置使用 covers_open_notional 按真实已开仓量核对最新单位合约名义，有限模型以外的欠证记录为 MARK_OUTSIDE_MODEL。新事实回到已知档、还有观测额度时才能确认新的完整维护额；反复退出并恢复模型的次数受同一额度约束。未选择此配置的原现金历史使用 schema 1。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

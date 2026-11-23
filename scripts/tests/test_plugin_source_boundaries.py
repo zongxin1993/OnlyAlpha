@@ -138,18 +138,22 @@ def test_current_financial_owner_dependencies_have_their_exact_declared_kind():
 
 
 @pytest.mark.parametrize(
-    "manifest, dependency, directory",
-    [("runtime", "onlyalpha-broker", "broker"), ("strategy-ledger", "onlyalpha-position", "position")],
+    "manifest, dependency, path",
+    [
+        ("crates/runtime", "onlyalpha-broker", "../broker"),
+        ("crates/strategy-ledger", "onlyalpha-position", "../position"),
+        ("packages/backend", "onlyalpha-execution", "../../crates/execution"),
+    ],
 )
 @pytest.mark.parametrize("mutation", ["alias", "features", "registry", "dev"])
 def test_financial_producer_edges_reject_aliases_options_registry_and_wrong_kind(
-    monkeypatch, manifest, dependency, directory, mutation
+    monkeypatch, manifest, dependency, path, mutation
 ):
     from scripts.rust_kernel_check import validate_workspace
 
     original = Path.read_text
-    target = ROOT / "crates" / manifest / "Cargo.toml"
-    declaration = f'{dependency} = {{ path = "../{directory}" }}'
+    target = ROOT / manifest / "Cargo.toml"
+    declaration = f'{dependency} = {{ path = "{path}" }}'
 
     def read(path, *args, **kwargs):
         content = original(path, *args, **kwargs)
@@ -163,8 +167,8 @@ def test_financial_producer_edges_reject_aliases_options_registry_and_wrong_kind
                 return content.replace(heading, heading + declaration + "\n", 1)
             return content + "\n" + heading + declaration + "\n"
         replacement = {
-            "alias": f'producer = {{ package = "{dependency}", path = "../{directory}" }}',
-            "features": f'{dependency} = {{ path = "../{directory}", features = ["unapproved"] }}',
+            "alias": f'producer = {{ package = "{dependency}", path = "{path}" }}',
+            "features": f'{dependency} = {{ path = "{path}", features = ["unapproved"] }}',
             "registry": f'{dependency} = {{ version = "=0.11.1" }}',
         }[mutation]
         return content.replace(declaration, replacement, 1)
@@ -451,3 +455,26 @@ def test_cash_consumer_filesystem_capability_stays_in_linux_tests(monkeypatch, m
     monkeypatch.setattr(Path, "read_text", read)
     with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
         validate_infrastructure_sources(ROOT)
+
+
+@pytest.mark.parametrize(
+    "owner",
+    [
+        "isolated_runtime_persistence",
+        "isolated_backtest",
+        "isolated_backend",
+        "isolated_plugin_binance",
+        "isolated_broker_binance",
+    ],
+)
+def test_runtime_consumers_copy_their_complete_declared_local_dependency_closure(tmp_path, owner):
+    from scripts import rust_kernel_check
+
+    manifest = getattr(rust_kernel_check, owner)(ROOT, tmp_path / "workspace")
+    isolated = manifest.parent
+    for member in tomllib.loads(manifest.read_text())["workspace"]["members"]:
+        package = isolated / member / "Cargo.toml"
+        for section in ("dependencies", "dev-dependencies", "build-dependencies"):
+            for name, dependency in tomllib.loads(package.read_text()).get(section, {}).items():
+                if isinstance(dependency, dict) and "path" in dependency:
+                    assert (package.parent / dependency["path"] / "Cargo.toml").is_file(), (owner, member, name)

@@ -3,8 +3,148 @@ use bigdecimal::{BigDecimal, Zero};
 use onlyalpha_domain::{base::OnlyDomainModel, execution::OnlyOrderRequest, value::OnlyPrice};
 use serde_json::{Value, json};
 use std::sync::Arc;
+
+pub(crate) fn checked_admission_request(record: &Value) -> Result<OnlyOrderRequest, Error> {
+    bound_decimal_leaves(record)?;
+    let request = OnlyOrderRequest::from_record(record)?;
+    if request.to_record() != *record {
+        return Err(err("EXECUTION_REQUEST_CANONICAL"));
+    }
+    Ok(request)
+}
+
+pub(crate) fn validate_admission_intent(request: &Value, side: &str) -> Result<(), Error> {
+    let intent = &request["execution_intent"];
+    if !matches!(request["order_type"].as_str(), Some("MARKET" | "LIMIT"))
+        || intent["position_side"] != "LONG"
+        || intent["position_mode"] != "NETTING"
+        || intent["side"] != side
+        || intent["position_effect"] != if side == "BUY" { "OPEN" } else { "CLOSE" }
+        || !matches!(side, "BUY" | "SELL")
+    {
+        return Err(err("EXECUTION_UNSUPPORTED_SHAPE"));
+    }
+    Ok(())
+}
+
+pub(crate) fn admission_quantity_precision(spec: &Value, request: &Value) -> Result<u8, Error> {
+    if (request["order_type"] != "MARKET"
+        && request["price"]["precision"] != spec["price_precision"])
+        || request["quantity"]["precision"] != spec["quantity_precision"]
+    {
+        return Err(err("EXECUTION_INSTRUMENT_PRECISION"));
+    }
+    u8::try_from(uint(&spec["quantity_precision"])?).map_err(|_| err("EXECUTION_QUANTITY_PRECISION"))
+}
+
+pub(crate) fn validate_fill_price(
+    order: &Value,
+    price: &BigDecimal,
+    quantity: &BigDecimal,
+) -> Result<(), Error> {
+    if price <= &0 || quantity <= &0 {
+        return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
+    }
+    if order["order_type"] != "MARKET" {
+        let limit = dec(&order["price"]["value"])?;
+        if (order["side"] == "BUY" && price > &limit)
+            || (order["side"] == "SELL" && price < &limit)
+        {
+            return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
+        }
+    }
+    Ok(())
+}
+
+fn external_rejection(broker_record: &Value) -> Value {
+    let reason = broker_record["payload"]["reason"]
+        .as_str()
+        .unwrap_or("explicit external rejection");
+    json!({"schema_version":1,"code":"EXTERNAL_REJECTION","message":reason})
+}
+
+/// 单次只读验证中的准入复算基线；不授予 Store、Ready、运行或提交资格。
+/// 调用方仍须逐次证明 checkpoint 来自本次验证的确切原始前缀。
+/// 完整 checkpoint 改变时冷恢复；每个输入从独立候选执行，不保留拒绝结果。
+#[derive(Default)]
+pub struct AdmissionPreview {
+    baseline: Option<(Value, Components)>,
+    #[cfg(test)]
+    restores: usize,
+}
+impl AdmissionPreview {
+    /// 检查本次确切 checkpoint 和输入；返回 Some 仅表示重新推导出的业务拒绝。
+    /// None 不证明缺失的原始 ADMIT 事实存在；错误仍按原准入/恢复契约传播。
+    pub fn check(
+        &mut self,
+        configuration: &Value,
+        checkpoint: &Value,
+        input: &Value,
+    ) -> Result<Option<Error>, Error> {
+        if self.baseline.as_ref().is_some_and(|(original, baseline)| {
+            original != checkpoint || baseline.configuration() != configuration
+        }) {
+            // 来源内容或配置变化，即使新输入 scope 无效也不保留旧基线。
+            self.baseline = None;
+        }
+        if input["op"] != "ADMIT" || checkpoint["config"] != *configuration {
+            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+        }
+        for field in [
+            "engine",
+            "runtime",
+            "account",
+            "gateway",
+            "generation",
+            "runtime_kind",
+        ] {
+            if input[field] != configuration[field] {
+                return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+            }
+        }
+        let cluster = text(&input["cluster"])?;
+        if input["revision"] != configuration["profiles"][cluster]["revision"]
+            || input["revision"].is_null()
+        {
+            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
+        }
+        if self.baseline.is_none() {
+            let mut baseline = Components::new(configuration.clone())?;
+            baseline.restore(checkpoint, &hash(checkpoint))?;
+            self.baseline = Some((checkpoint.clone(), baseline));
+            #[cfg(test)]
+            {
+                self.restores += 1;
+            }
+        }
+        let mut candidate = self
+            .baseline
+            .as_ref()
+            .expect("restored exact checkpoint")
+            .1
+            .clone_data();
+        if candidate.pending.is_some() {
+            return Err(err("EXECUTION_PENDING"));
+        }
+        candidate.validate_planning_input(input)?;
+        candidate.invalidate_payloads();
+        match candidate.apply_operation(input) {
+            Ok(()) => Ok(None),
+            Err(error)
+                if matches!(
+                    error.0.as_str(),
+                    "EXECUTION_RISK_DENIED" | "EXECUTION_ACCOUNT_CAPACITY_DENIED"
+                ) =>
+            {
+                Ok(Some(error))
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
 impl Components {
-    fn validate_planning_input(&self, input: &Value) -> Result<u64, Error> {
+    pub(crate) fn validate_planning_input(&self, input: &Value) -> Result<u64, Error> {
         row(
             input,
             &[
@@ -67,6 +207,10 @@ impl Components {
         Ok(n)
     }
     pub fn prepare<S: crate::Store>(&self, store: &S, input: &Value) -> Result<Prepared, Error> {
+        self.require_original_evidence(input)?;
+        self.prepare_input(store, input)
+    }
+    pub(crate) fn require_original_evidence(&self, input: &Value) -> Result<(), Error> {
         if self.config["schema_version"] == 3
             && matches!(
                 input["op"].as_str(),
@@ -75,7 +219,7 @@ impl Components {
         {
             return Err(err("EXECUTION_ORIGINAL_EVIDENCE_REQUIRED"));
         }
-        self.prepare_input(store, input)
+        Ok(())
     }
     pub(crate) fn prepare_input<S: crate::Store>(
         &self,
@@ -136,7 +280,7 @@ impl Components {
         body["projections"] = Value::Array(projections);
         Prepared::new_with_typed_after(body, candidate)
     }
-    fn apply_operation(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn apply_operation(&mut self, input: &Value) -> Result<(), Error> {
         if self.config["schema_version"] == 3 {
             return self.perpetual_operation(input);
         }
@@ -188,6 +332,30 @@ impl Components {
     fn order_local(&self, input: &Value, op: &str, order: &str) -> Value {
         json!({"schema_version":1,"op":op,"cluster_id":input["cluster"],"order_id":order,"at":input["time"]})
     }
+    fn order_creation(input: &Value) -> Value {
+        json!({"schema_version":1,"op":"CREATE","cluster_id":input["cluster"],"account_id":input["account"],"request":input["payload"]["request"],"cause":super::perpetual::cause(input),"at":input["time"]})
+    }
+    fn order_fee(&self, input: &Value, order: &str, contract: &Value) -> Value {
+        let mut command = self.order_local(input, "FEE", order);
+        command["contract"] = contract.clone();
+        command["contract"]["schema_version"] = json!(1);
+        command
+    }
+    pub(crate) fn create_order(&mut self, input: &Value, order: &str) -> Result<(), Error> {
+        let created = self.order_apply(&Self::order_creation(input))?;
+        if created["order_id"]["value"] != order {
+            return Err(err("EXECUTION_ORDER_IDENTITY"));
+        }
+        Ok(())
+    }
+    pub(crate) fn bind_order_fee(&mut self, input: &Value, order: &str, contract: &Value) -> Result<(), Error> {
+        self.order_apply(&self.order_fee(input, order, contract))?;
+        Ok(())
+    }
+    pub(crate) fn begin_order_submission(&mut self, input: &Value, order: &str) -> Result<(), Error> {
+        self.order_apply(&self.order_local(input, "BEGIN_SUBMIT", order))?;
+        Ok(())
+    }
     fn external(&self, input: &Value, op: &str, order: &str) -> Value {
         let mut c = self.order_local(input, op, order);
         c["runtime_id"] = input["runtime"].clone();
@@ -197,18 +365,39 @@ impl Components {
         c["event_at"] = input["time"].clone();
         c["event_id"] = input["source_ref"].clone();
         c["sequence"] = input["runtime_sequence"].clone();
-        if let Some(b) = input.get("broker_record") {
-            c["at"] = b["ts_init"].clone();
-            c["event_at"] = b["ts_event"].clone();
-            c["event_id"] = b["update_id"].clone();
-            c["sequence"] = b["source_sequence"].clone();
-            if op == "FILL" {
-                let f = &b["payload"]["fill"];
-                c["event_id"] = f["external_event_id"].clone();
-                c["sequence"] = f["external_sequence"].clone();
-            }
-        }
         c
+    }
+    pub(crate) fn apply_native_order_fact(
+        &mut self,
+        input: &Value,
+        order: &str,
+        broker: &Value,
+    ) -> Result<Value, Error> {
+        let kind = text(&broker["kind"])?;
+        let op = match kind {
+            "ACCEPTED" => "ACCEPT",
+            "TRADE" => "FILL",
+            "REJECTED" | "EXPIRED" | "CANCELLED" => kind,
+            _ => return Err(err("EXECUTION_BROKER_KIND")),
+        };
+        let payload = &broker["payload"];
+        let mut command = self.external(input, op, order);
+        command["at"] = broker["ts_init"].clone();
+        command["event_at"] = broker["ts_event"].clone();
+        command["event_id"] = broker["update_id"].clone();
+        command["sequence"] = broker["source_sequence"].clone();
+        match op {
+            "ACCEPT" => command["venue_order_id"] = payload["venue"].clone(),
+            "REJECTED" => command["rejection"] = external_rejection(broker),
+            "FILL" => {
+                let fill = &payload["fill"];
+                command["event_id"] = fill["external_event_id"].clone();
+                command["sequence"] = fill["external_sequence"].clone();
+                command["fill"] = fill.clone();
+            }
+            _ => {}
+        }
+        self.order_apply(&command)
     }
     fn order_apply(&mut self, c: &Value) -> Result<Value, Error> {
         let o = boundary(Arc::make_mut(&mut self.order).apply(c))?;
@@ -233,12 +422,75 @@ impl Components {
         }
         Ok(())
     }
-    fn position_apply(&mut self, c: &Value) -> Result<Value, Error> {
+    pub(crate) fn position_apply(&mut self, c: &Value) -> Result<Value, Error> {
         let o = boundary(Arc::make_mut(&mut self.position).apply(c))?;
         if o.status != onlyalpha_position::Status::Applied {
             return Err(err("EXECUTION_POSITION_NOT_APPLIED"));
         }
         Ok(o.fact.unwrap_or(Value::Null))
+    }
+    pub(crate) fn reserve_position(
+        &mut self,
+        input: &Value,
+        instrument: &str,
+    ) -> Result<(), Error> {
+        let payload = &input["payload"];
+        let quantity = nonnegative(&payload["request"]["quantity"]["value"])?;
+        self.position_apply(&self.command(input,"RESERVE",json!({"schema_version":1,"instrument":instrument,"cluster":input["cluster"],"order":payload["order"],"quantity":quantity.to_plain_string()}),2))?;
+        Ok(())
+    }
+    pub(crate) fn stage_position(
+        &mut self,
+        input: &Value,
+        stage: &str,
+        suffix: u64,
+    ) -> Result<(), Error> {
+        self.position_apply(&self.command(input,"STAGE",json!({"schema_version":1,"order":input["payload"]["order"],"cluster":input["cluster"],"stage":stage}),suffix))?;
+        Ok(())
+    }
+    pub(crate) fn release_position(
+        &mut self,
+        input: &Value,
+        broker_confirmed: bool,
+    ) -> Result<(), Error> {
+        self.position_apply(&self.command(input,"RELEASE",json!({"schema_version":1,"order":input["payload"]["order"],"cluster":input["cluster"],"broker_confirmed":broker_confirmed}),0))?;
+        Ok(())
+    }
+    pub(crate) fn position_trade_command(
+        &self,
+        input: &Value,
+        instrument: &str,
+        request: &Value,
+        fee: &Value,
+        bucket: &str,
+        terminal: bool,
+    ) -> Result<Value, Error> {
+        let payload = &input["payload"];
+        let is_market = request["order_type"] == "MARKET";
+        let mut trade = json!({"schema_version":if is_market {2} else {1},"instrument":instrument,"cluster":input["cluster"],"order":payload["order"],"trade":payload["trade"],"venue_trade":payload["venue_trade"],"execution":format!("ETX-{}",super::perpetual::cause(input)),"sequence":input["runtime_sequence"],"side":request["side"],"position_side":"LONG","position_mode":"NETTING","price":payload["price"],"quantity":payload["quantity"],"fee":fee["charges"],"bucket":bucket,"terminal_fill":terminal});
+        if is_market {
+            trade["price_precision"] = payload["price_precision"].clone();
+        }
+        if self.config["schema_version"] == 3 {
+            let broker = input
+                .get("broker_record")
+                .unwrap_or(&payload["broker"]["record"]);
+            let fill = &broker["payload"]["fill"];
+            trade["schema_version"] = json!(3);
+            trade["trade"] = fill["trade_id"]["value"].clone();
+            trade["venue_trade"] = fill["venue_trade_id"]["value"].clone();
+            trade["price"] = fill["price"]["value"].clone();
+            trade["quantity"] = fill["quantity"]["value"].clone();
+            trade["economic_time"] = broker["ts_event"].clone();
+            trade["broker_record_digest"] = json!(hash(broker));
+            trade["rebates"] = fee["rebates"].clone();
+        }
+        let mut command = self.command(input, "TRADE", trade, 0);
+        if self.config["schema_version"] == 3 {
+            command["payload"]["trade_evidence"] =
+                json!(boundary(self.position.trade_input_digest(&command))?);
+        }
+        Ok(command)
     }
     fn risk_apply(&mut self, c: &Value) -> Result<Option<Value>, Error> {
         let o = boundary(Arc::make_mut(&mut self.risk).apply(c))?;
@@ -326,46 +578,7 @@ impl Components {
         checkpoint: &Value,
         input: &Value,
     ) -> Result<Option<Error>, Error> {
-        if input["op"] != "ADMIT" || checkpoint["config"] != *configuration {
-            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
-        }
-        for field in [
-            "engine",
-            "runtime",
-            "account",
-            "gateway",
-            "generation",
-            "runtime_kind",
-        ] {
-            if input[field] != configuration[field] {
-                return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
-            }
-        }
-        let cluster = text(&input["cluster"])?;
-        if input["revision"] != configuration["profiles"][cluster]["revision"]
-            || input["revision"].is_null()
-        {
-            return Err(err("EXECUTION_ADMISSION_PREVIEW_SCOPE"));
-        }
-        let mut candidate = Self::new(configuration.clone())?;
-        candidate.restore(checkpoint, &hash(checkpoint))?;
-        if candidate.pending.is_some() {
-            return Err(err("EXECUTION_PENDING"));
-        }
-        candidate.validate_planning_input(input)?;
-        candidate.invalidate_payloads();
-        match candidate.apply_operation(input) {
-            Ok(()) => Ok(None),
-            Err(error)
-                if matches!(
-                    error.0.as_str(),
-                    "EXECUTION_RISK_DENIED" | "EXECUTION_ACCOUNT_CAPACITY_DENIED"
-                ) =>
-            {
-                Ok(Some(error))
-            }
-            Err(error) => Err(error),
-        }
+        AdmissionPreview::default().check(configuration, checkpoint, input)
     }
     pub(crate) fn admit(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
@@ -388,29 +601,16 @@ impl Components {
         let mut shape = p.clone();
         shape["schema_version"] = json!(1);
         row(&shape, &fields)?;
-        bound_decimal_leaves(&p["request"])?;
         bound_decimal_leaves(&p["fee_contract"])?;
-        let request = OnlyOrderRequest::from_record(&p["request"])?;
-        if request.to_record() != p["request"] {
-            return Err(err("EXECUTION_REQUEST_CANONICAL"));
-        }
         let r = &p["request"];
+        let request = checked_admission_request(r)?;
         let side = text(&r["side"])?;
         let buy = side == "BUY";
         if buy {
             boundary(self.position.admit_new_risk())?;
         }
-        let intent = &r["execution_intent"];
+        validate_admission_intent(r, side)?;
         let is_market = r["order_type"] == "MARKET";
-        if (!is_market && r["order_type"] != "LIMIT")
-            || intent["position_side"] != "LONG"
-            || intent["position_mode"] != "NETTING"
-            || intent["side"] != r["side"]
-            || intent["position_effect"] != if buy { "OPEN" } else { "CLOSE" }
-            || !matches!(side, "BUY" | "SELL")
-        {
-            return Err(err("EXECUTION_UNSUPPORTED_SHAPE"));
-        }
         let cluster = text(&input["cluster"])?;
         let inst = request.instrument_id().to_string();
         let mut market_fields = vec![
@@ -485,51 +685,34 @@ impl Components {
             .iter()
             .find(|i| i["id"] == inst)
             .ok_or_else(|| err("EXECUTION_INSTRUMENT"))?;
-        if (!is_market && r["price"]["precision"] != spec["price_precision"])
-            || r["quantity"]["precision"] != spec["quantity_precision"]
-        {
-            return Err(err("EXECUTION_INSTRUMENT_PRECISION"));
-        }
+        let quantity_precision = admission_quantity_precision(spec, r)?;
         id(&p["market"]["source_ref"])?;
         if p["market"]["verdict"] != "ACCEPT" || p["market"]["request_digest"] != hash(r) {
             return Err(err("EXECUTION_MARKET_ADMISSION"));
         }
         let mut settlement_owner = self.settlement_owner()?;
-        let settlement_scope = json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"runtime_kind":input["runtime_kind"],"cluster":input["cluster"],"revision":input["revision"],"instrument":inst,"request":r["request_id"]["value"]});
-        let quantity_precision = u8::try_from(uint(&spec["quantity_precision"])?)
-            .map_err(|_| err("EXECUTION_QUANTITY_PRECISION"))?;
-        if whole_fill {
-            self.validate_whole_fill_contract(
-                r,
-                &p["fee_contract"],
-                &p["settlement_fill_contract"],
-            )?;
-            boundary(settlement_owner.admit_whole_fill_order(
-                settlement_scope,
-                order,
-                side,
-                text(&r["quantity"]["value"])?,
-                quantity_precision,
-                &p["settlement_fill_contract"],
-            ))?;
-        } else {
-            boundary(settlement_owner.admit_order(
-                settlement_scope,
-                order,
-                side,
-                text(&r["quantity"]["value"])?,
-                quantity_precision,
-            ))?;
+        self.admit_settlement_order(&mut settlement_owner, input, &inst, quantity_precision)?;
+        let market_source = id(&p["market"]["source_ref"])?;
+        if self.meta["markets"].get(market_source).is_some() {
+            return Err(err("EXECUTION_ECONOMIC_SOURCE_ALIAS"));
         }
-        Arc::make_mut(&mut self.meta)["settlement_authority"] = settlement_owner.checkpoint();
-        self.economic_source("markets", &p["market"])?;
+        // Only the first activation needs a prospective Ledger owner; an active
+        // Ledger is read directly. No Account/Position/Order/history fork.
+        let mut activated = None;
         if boundary(self.ledger.snapshot(cluster))?["status"] == "CREATED" {
-            self.ledger_apply(&self.ledger_command(
+            let mut ledger = self.ledger.as_ref().clone();
+            if boundary(ledger.apply(&self.ledger_command(
                 input,
                 "ACTIVATE",
                 json!({"schema_version":1}),
                 0,
-            ))?;
+            )))?
+            .status
+                != onlyalpha_strategy_ledger::Status::Applied
+            {
+                return Err(err("EXECUTION_LEDGER_NOT_APPLIED"));
+            }
+            activated = Some(ledger);
         }
         let risk_cash = if self.config["schema_version"] == 3 {
             nonnegative(&p["collateral"]["instruction"]["amount"])?
@@ -546,7 +729,12 @@ impl Components {
         let envelope = |family: &str, data: Value| json!({"schema_version":1,"family":family,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"generation":input["generation"],"cluster":cluster,"instrument":inst,"revision":input["revision"],"source_ref":format!("{}-{family}",input["input_id"].as_str().expect("validated")),"version":n,"as_of_sequence":n,"source_digest":hash(&data),"data":data});
         // These owners contain only this composition's holds. Gross cash is BEFORE those same-owner holds.
         let account = self.account.snapshot();
-        let ledger = boundary(self.ledger.snapshot(cluster))?;
+        let ledger = boundary(
+            activated
+                .as_ref()
+                .unwrap_or(self.ledger.as_ref())
+                .snapshot(cluster),
+        )?;
         let (aq, cq) = if buy {
             ("0".to_owned(), "0".to_owned())
         } else {
@@ -575,40 +763,68 @@ impl Components {
             "cash"
         };
         let views = json!({"schema_version":1,"account":envelope("ACCOUNT",json!({"schema_version":1,"status":account["status"],"cash":account[cash_field]})),"ledger":envelope("LEDGER",json!({"schema_version":1,"status":ledger["status"],"cash":ledger[cash_field]})),"position":envelope("POSITION",json!({"schema_version":1,"account_available":aq,"allocation_available":cq,"position_side":"LONG","position_mode":"NETTING"})),"market":envelope("MARKET",json!({"schema_version":1,"request_digest":hash(&req),"verdict":"ACCEPT","code":"OK"}))});
-        let decision = self
-            .risk_apply(&self.risk_command(
-                input,
-                "EVALUATE",
-                json!({"schema_version":1,"request":req,"views":views}),
-                1,
-            ))?
+        let mut risk = self.risk.as_ref().clone();
+        let evaluated = boundary(risk.apply(&self.risk_command(
+            input,
+            "EVALUATE",
+            json!({"schema_version":1,"request":req,"views":views}),
+            1,
+        )))?;
+        if evaluated.status != onlyalpha_risk::Status::Applied {
+            return Err(err("EXECUTION_RISK_NOT_APPLIED"));
+        }
+        let decision = evaluated
+            .decision
             .ok_or_else(|| err("EXECUTION_RISK_DECISION"))?;
         if decision["outcome"] != "ACCEPT" {
             return Err(err("EXECUTION_RISK_DENIED"));
         }
-        let created=self.order_apply(&json!({"schema_version":1,"op":"CREATE","cluster_id":cluster,"account_id":input["account"],"request":r,"cause":super::perpetual::cause(input),"at":input["time"]}))?;
-        if created["order_id"]["value"] != order {
-            return Err(err("EXECUTION_ORDER_IDENTITY"));
-        }
-        let mut fc = self.order_local(input, "FEE", order);
-        fc["contract"] = p["fee_contract"].clone();
-        fc["contract"]["schema_version"] = json!(1);
-        self.order_apply(&fc)?;
         let reserve = json!({"schema_version":1,"reservation":order,"order":order,"amount":money(&(&cash_requirement+&fee),self.precision)?});
+        if buy
+            && let Err(error) = self.account.check_new_reservation_capacity(&self.command(
+                input,
+                "RESERVE",
+                reserve.clone(),
+                2,
+            ))
+        {
+            if error.0 != "ACCOUNT_JOURNAL_BOUND" {
+                return Err(Error(error.0));
+            }
+            // Preserve the old failure order: a malformed proposed Order/fee
+            // contract is an error even when Account has no admission capacity.
+            let mut order_owner = self.order.as_ref().clone();
+            let created = boundary(order_owner.apply(&Self::order_creation(input)))?;
+            if created.result != onlyalpha_order::ApplyResult::Applied
+                || created.snapshot.as_ref().map(|s| s.order_id().value()) != Some(order)
+            {
+                return Err(err("EXECUTION_ORDER_IDENTITY"));
+            }
+            let fee = self.order_fee(input, order, &p["fee_contract"]);
+            if boundary(order_owner.apply(&fee))?.result != onlyalpha_order::ApplyResult::Applied {
+                return Err(err("EXECUTION_ORDER_NOT_APPLIED"));
+            }
+            return Err(err("EXECUTION_ACCOUNT_CAPACITY_DENIED"));
+        }
+        // Both ordinary rejections are settled before any owning mutation.
+        Arc::make_mut(&mut self.meta)["settlement_authority"] = settlement_owner.checkpoint();
+        self.economic_source("markets", &p["market"])?;
+        if let Some(ledger) = activated {
+            self.ledger = Arc::new(ledger);
+        }
+        self.risk = Arc::new(risk);
+        self.create_order(input, order)?;
+        self.bind_order_fee(input, order, &p["fee_contract"])?;
+
         if buy {
             // Only this actual new-risk RESERVE can produce the distinct
             // Execution rejection. Source/restore/codec errors retain their codes.
-            self.account_apply(&self.command(input, "RESERVE", reserve.clone(), 2))
-                .map_err(|error| {
-                    if error.0 == "ACCOUNT_JOURNAL_BOUND" {
-                        err("EXECUTION_ACCOUNT_CAPACITY_DENIED")
-                    } else {
-                        error
-                    }
-                })?;
+            // A capacity error after the exact preflight is unexpected and
+            // poisons unpublished work; it is never a normal rollback result.
+            self.account_apply(&self.command(input, "RESERVE", reserve.clone(), 2))?;
             self.ledger_apply(&self.ledger_command(input, "RESERVE", reserve, 2))?;
         } else {
-            self.position_apply(&self.command(input,"RESERVE",json!({"schema_version":1,"instrument":inst,"cluster":cluster,"order":order,"quantity":quantity.to_plain_string()}),2))?;
+            self.reserve_position(input, &inst)?;
         }
         self.risk_apply(&self.risk_command(
             input,
@@ -616,13 +832,13 @@ impl Components {
             json!({"schema_version":1,"request_id":r["request_id"]["value"],"order":order}),
             2,
         ))?;
-        self.order_apply(&self.order_local(input, "BEGIN_SUBMIT", order))?;
+        self.begin_order_submission(input, order)?;
         if buy {
             let stage = json!({"schema_version":1,"reservation":order,"stage":"SENT_TO_BROKER"});
             self.account_apply(&self.command(input, "STAGE", stage.clone(), 3))?;
             self.ledger_apply(&self.ledger_command(input, "STAGE", stage, 3))?;
         } else {
-            self.position_apply(&self.command(input,"STAGE",json!({"schema_version":1,"order":order,"cluster":cluster,"stage":"SENT_TO_BROKER"}),3))?;
+            self.stage_position(input, "SENT_TO_BROKER", 3)?;
         }
         self.risk_apply(&self.risk_command(
             input,
@@ -638,23 +854,26 @@ impl Components {
         self.admit_collateral(input)?;
         Ok(())
     }
+    pub(crate) fn apply_order_submission(&mut self, input: &Value) -> Result<(), Error> {
+        let p = &input["payload"];
+        row(p, &["order", "outcome"])?;
+        let order = text(&p["order"])?;
+        let mut c = self.order_local(input, "SUBMIT_RESULT", order);
+        c["outcome"] = json!(match text(&p["outcome"])? {
+            "DISPATCHED" => "KNOWN_RESULT",
+            "UNKNOWN" => "UNKNOWN",
+            _ => return Err(err("EXECUTION_SUBMISSION_OUTCOME")),
+        });
+        self.order_apply(&c)?;
+        Ok(())
+    }
     pub(crate) fn submission(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         row(p, &["order", "outcome"])?;
         let r = self.relation(input)?;
         let order = text(&p["order"])?;
-        let outcome = text(&p["outcome"])?;
-        if !matches!(outcome, "UNKNOWN" | "DISPATCHED") {
-            return Err(err("EXECUTION_SUBMISSION_OUTCOME"));
-        }
-        let mut c = self.order_local(input, "SUBMIT_RESULT", order);
-        c["outcome"] = json!(if outcome == "DISPATCHED" {
-            "KNOWN_RESULT"
-        } else {
-            outcome
-        });
-        self.order_apply(&c)?;
-        if outcome == "DISPATCHED" {
+        self.apply_order_submission(input)?;
+        if p["outcome"] == "DISPATCHED" {
             return Ok(());
         }
         let stage = "SUBMIT_UNKNOWN";
@@ -673,22 +892,33 @@ impl Components {
         ))?;
         Ok(())
     }
+    pub(crate) fn apply_spot_order_accept(&mut self, input: &Value, order: &str) -> Result<(), Error> {
+        let payload = &input["payload"];
+        row(payload, &["order", "venue_order"])?;
+        let venue_order = id(&payload["venue_order"])?;
+        let mut command = self.external(input, "ACCEPT", order);
+        command["venue_order_id"] = json!(venue_order);
+        self.order_apply(&command)?;
+        Ok(())
+    }
     pub(crate) fn accept(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         row(p, &["order", "venue_order"])?;
         let relation = self.relation(input)?;
         let order = id(&p["order"])?;
-        id(&p["venue_order"])?;
-        let mut c = self.external(input, "ACCEPT", order);
-        c["venue_order_id"] = p["venue_order"].clone();
-        self.order_apply(&c)?;
+        if let Some(broker) = input.get("broker_record") {
+            id(&p["venue_order"])?;
+            self.apply_native_order_fact(input, order, broker)?;
+        } else {
+            self.apply_spot_order_accept(input, order)?;
+        }
         if relation["side"] == "BUY" {
             let payload =
                 json!({"schema_version":1,"reservation":order,"stage":"BROKER_ACKNOWLEDGED"});
             self.account_apply(&self.command(input, "STAGE", payload.clone(), 0))?;
             self.ledger_apply(&self.ledger_command(input, "STAGE", payload, 0))?;
         } else {
-            self.position_apply(&self.command(input,"STAGE",json!({"schema_version":1,"order":order,"cluster":input["cluster"],"stage":"BROKER_ACKNOWLEDGED"}),0))?;
+            self.stage_position(input, "BROKER_ACKNOWLEDGED", 0)?;
         }
         self.risk_apply(&self.risk_command(
             input,
@@ -698,23 +928,30 @@ impl Components {
         ))?;
         Ok(())
     }
-    pub(crate) fn cancel(&mut self, input: &Value) -> Result<(), Error> {
+    pub(crate) fn apply_order_cancel(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
         row(p, &["order", "request_id", "reason"])?;
-        let relation = self.relation(input)?;
         let order = id(&p["order"])?;
         id(&p["request_id"])?;
         text(&p["reason"])?;
         let mut c = self.order_local(input, "CANCEL", order);
         c["request"] = json!({"schema_version":1,"request_id":{"schema_version":1,"value":p["request_id"]},"order_id":{"schema_version":1,"value":order},"reason":p["reason"],"metadata":{}});
         self.order_apply(&c)?;
+        Ok(())
+    }
+    pub(crate) fn cancel(&mut self, input: &Value) -> Result<(), Error> {
+        let p = &input["payload"];
+        row(p, &["order", "request_id", "reason"])?;
+        let relation = self.relation(input)?;
+        let order = id(&p["order"])?;
+        self.apply_order_cancel(input)?;
         if relation["side"] == "BUY" {
             let payload =
                 json!({"schema_version":1,"reservation":order,"stage":"CANCEL_REQUESTED"});
             self.account_apply(&self.command(input, "STAGE", payload.clone(), 0))?;
             self.ledger_apply(&self.ledger_command(input, "STAGE", payload, 0))?;
         } else {
-            self.position_apply(&self.command(input,"RELEASE",json!({"schema_version":1,"order":order,"cluster":input["cluster"],"broker_confirmed":false}),0))?;
+            self.release_position(input, false)?;
         }
         self.risk_apply(&self.risk_command(
             input,
@@ -723,6 +960,18 @@ impl Components {
             0,
         ))?;
         Ok(())
+    }
+    pub(crate) fn apply_spot_order_fill(&mut self, input: &Value, order: &str) -> Result<Value, Error> {
+        let p = &input["payload"];
+        let before = boundary(self.order.get(text(&input["cluster"])?, order))?.to_record();
+        let precision = if before["order_type"] == "MARKET" {
+            &p["price_precision"]
+        } else {
+            &before["price"]["precision"]
+        };
+        let mut command = self.external(input, "FILL", order);
+        command["fill"] = json!({"schema_version":1,"trade_id":{"schema_version":1,"value":p["trade"]},"order_id":{"schema_version":1,"value":order},"price":{"schema_version":1,"value":p["price"],"precision":precision},"quantity":{"schema_version":1,"value":p["quantity"],"precision":before["quantity"]["precision"]},"ts_event":{"schema_version":1,"unix_nanos":input["time"]},"ts_init":{"schema_version":1,"unix_nanos":input["time"]},"venue_trade_id":{"schema_version":1,"value":p["venue_trade"]},"venue_order_id":{"schema_version":1,"value":p["venue_order"]},"liquidity_side":"UNKNOWN","external_sequence":input["runtime_sequence"],"external_event_id":input["source_ref"],"metadata":{},"reference_price":null});
+        self.order_apply(&command)
     }
     pub(crate) fn fill(&mut self, input: &Value) -> Result<(), Error> {
         let p = &input["payload"];
@@ -926,25 +1175,10 @@ impl Components {
         let charges = money(&nonnegative(&application["charges"])?, self.precision)?;
         let rebates = money(&nonnegative(&application["rebates"])?, self.precision)?;
         Arc::make_mut(&mut self.meta)["fee_authority"] = fee_owner.checkpoint();
-        let before_order = boundary(self.order.get(cluster, order))?.to_record();
-        let qp = before_order["quantity"]["precision"].clone();
-        let pp = if is_market {
-            p["price_precision"].clone()
-        } else {
-            before_order["price"]["precision"].clone()
-        };
         let price = nonnegative(&p["price"])?;
         let qty = nonnegative(&p["quantity"])?;
         let buy = relation["side"] == "BUY";
-        if price.is_zero() || qty.is_zero() {
-            return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
-        }
-        if !is_market {
-            let limit = dec(&before_order["price"]["value"])?;
-            if (buy && price > limit) || (!buy && price < limit) {
-                return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
-            }
-        }
+        validate_fill_price(&relation["request"], &price, &qty)?;
         let multiplier = self.contract_multiplier()?;
         let notional = &price * &qty * &multiplier;
         let notional_s = settled_money(
@@ -954,12 +1188,11 @@ impl Components {
             &self.config["currency"],
             self.precision,
         )?;
-        let mut oc = self.external(input, "FILL", order);
-        oc["fill"] = json!({"schema_version":1,"trade_id":{"schema_version":1,"value":p["trade"]},"order_id":{"schema_version":1,"value":order},"price":{"schema_version":1,"value":p["price"],"precision":pp},"quantity":{"schema_version":1,"value":p["quantity"],"precision":qp},"ts_event":{"schema_version":1,"unix_nanos":input["time"]},"ts_init":{"schema_version":1,"unix_nanos":input["time"]},"venue_trade_id":{"schema_version":1,"value":p["venue_trade"]},"venue_order_id":{"schema_version":1,"value":p["venue_order"]},"liquidity_side":"UNKNOWN","external_sequence":input["runtime_sequence"],"external_event_id":input["source_ref"],"metadata":{},"reference_price":null});
-        if perpetual {
-            oc["fill"] = input["broker_record"]["payload"]["fill"].clone();
-        }
-        let after_order = self.order_apply(&oc)?;
+        let after_order = if perpetual {
+            self.apply_native_order_fact(input, order, &input["broker_record"])?
+        } else {
+            self.apply_spot_order_fill(input, order)?
+        };
         let terminal = after_order["status"] == "FILLED";
         let before_alloc = match self.position.cluster(cluster, inst) {
             Ok(v) => Some(v),
@@ -967,22 +1200,14 @@ impl Components {
             Err(e) => return Err(Error(e.to_string())),
         };
         let before_account = self.account.snapshot();
-        let mut position_trade = json!({"schema_version":if is_market {2} else {1},"instrument":inst,"cluster":cluster,"order":order,"trade":p["trade"],"venue_trade":p["venue_trade"],"execution":format!("ETX-{}",super::perpetual::cause(input)),"sequence":input["runtime_sequence"],"side":relation["side"],"position_side":"LONG","position_mode":"NETTING","price":p["price"],"quantity":p["quantity"],"fee":charges,"bucket":initial_bucket,"terminal_fill":terminal});
-        if perpetual {
-            position_trade["schema_version"] = json!(3);
-            position_trade["economic_time"] = input["broker_record"]["ts_event"].clone();
-            position_trade["broker_record_digest"] = json!(hash(&input["broker_record"]));
-            position_trade["rebates"] = json!(rebates);
-        }
-        if is_market {
-            position_trade["price_precision"] = p["price_precision"].clone();
-        }
-        let mut position_command = self.command(input, "TRADE", position_trade, 0);
-        if perpetual {
-            position_command["payload"]["trade_evidence"] = json!(boundary(
-                self.position.trade_input_digest(&position_command)
-            )?);
-        }
+        let position_command = self.position_trade_command(
+            input,
+            inst,
+            &relation["request"],
+            &json!({"charges":charges,"rebates":rebates}),
+            initial_bucket,
+            terminal,
+        )?;
         let fact = self.position_apply(&position_command)?;
         let original_trade = if perpetual {
             Some(boundary(self.position.trade_evidence(text(&p["trade"])?))?)
@@ -1029,11 +1254,7 @@ impl Components {
         } else {
             new_market
         } - old_market;
-        let ledger_before = if let Some(b) = before_alloc {
-            allocation_witness(&b, self.precision)?
-        } else {
-            json!({"schema_version":1,"identity":null,"cycle":0,"realized_exact":money(&BigDecimal::zero(),self.precision)?,"quantity":"0","cost":money(&BigDecimal::zero(),self.precision)?,"realized":money(&BigDecimal::zero(),self.precision)?,"version":0})
-        };
+        let ledger_before = allocation_before(before_alloc.as_ref(), self.precision)?;
         let ledger_after = allocation_witness(&allocation, self.precision)?;
         let ledger_trade = self.ledger_command(input,"TRADE",json!({"schema_version":1,"trade":p["trade"],"execution":format!("ETX-{}",super::perpetual::cause(input)),"venue_trade":p["venue_trade"],"order":order,"fee_instruction":fee["instruction"],"source_sequence":input["runtime_sequence"],"side":relation["side"],"instrument":inst,"notional":notional_s,"charges":charges,"rebates":rebates,"reservation":if buy{json!(order)}else{Value::Null},"terminal_fill":terminal,"before":ledger_before,"after":ledger_after,"allocation_evidence":hash(&allocation),"mark":valuation["mark"],"multiplier":multiplier.normalized().to_plain_string()}),0);
         if let Some(original) = &original_trade {
@@ -1070,14 +1291,37 @@ impl Components {
         } else {
             self.account_apply(&account_trade)?;
         }
-        let instruction = boundary(onlyalpha_settlement::compile(
-            json!({"schema_version":if perpetual{2}else{1},"scope":settlement["scope"],"order":order,"trade":p["trade"],"currency":self.config["currency"],"side":relation["side"],"quantity":p["quantity"],"gross_notional":notional_s,"charges":charges,"rebates":rebates,"trading_day":input["trading_day"],"time":input["time"],"calendar":settlement["calendar"],"policy":settlement["policy"],"position":pos["id"],"position_cycle":pos["cycle"],"allocation":allocation["id"],"allocation_cycle":allocation["cycle"],"provenance":{"reference":settlement["source_ref"],"fingerprint":settlement["source_digest"],"instruction":settlement["instruction"]}}),
-        ))?;
+        let instruction = self.settlement_instruction(
+            input,
+            &position_command["payload"],
+            &json!({"notional":notional_s,"rebates":rebates}),
+            &pos,
+            &allocation,
+        )?;
         let mut owner = self.settlement_owner()?;
         boundary(owner.register(&instruction))?;
         Arc::make_mut(&mut self.meta)["settlement_authority"] = owner.checkpoint();
         self.risk_apply(&self.risk_command(input,"FILL",json!({"schema_version":1,"order":order,"trade":p["trade"],"source_ref":input["source_ref"],"quantity":p["quantity"],"notional":notional_s,"final_fill":terminal}),0))?;
         self.fill_collateral(input)?;
+        Ok(())
+    }
+    pub(crate) fn apply_order_terminal(&mut self, input: &Value, order: &str) -> Result<(), Error> {
+        let outcome = text(&input["payload"]["outcome"])?;
+        if !matches!(outcome, "CANCELLED" | "REJECTED" | "EXPIRED" | "FAILED") {
+            return Err(err("EXECUTION_TERMINAL_UNPROVEN"));
+        }
+        if let Some(broker) = input.get("broker_record") {
+            self.apply_native_order_fact(input, order, broker)?;
+            return Ok(());
+        }
+        let mut command = self.external(input, outcome, order);
+        if outcome == "REJECTED" {
+            command["rejection"] = external_rejection(&Value::Null);
+        }
+        if outcome == "FAILED" {
+            command["failure"] = json!({"schema_version":1,"code":"EXTERNAL_FAILURE","message":"explicit external failure"});
+        }
+        self.order_apply(&command)?;
         Ok(())
     }
     pub(crate) fn terminal(&mut self, input: &Value) -> Result<(), Error> {
@@ -1086,27 +1330,13 @@ impl Components {
         let relation = self.relation(input)?;
         let order = text(&p["order"])?;
         let outcome = text(&p["outcome"])?;
-        if !matches!(outcome, "CANCELLED" | "REJECTED" | "EXPIRED" | "FAILED") {
-            return Err(err("EXECUTION_TERMINAL_UNPROVEN"));
-        }
-        let mut oc = self.external(input, outcome, order);
-        if outcome == "REJECTED" {
-            let reason = input["broker_record"]["payload"]["reason"]
-                .as_str()
-                .unwrap_or("explicit external rejection");
-            oc["rejection"] =
-                json!({"schema_version":1,"code":"EXTERNAL_REJECTION","message":reason});
-        }
-        if outcome == "FAILED" {
-            oc["failure"] = json!({"schema_version":1,"code":"EXTERNAL_FAILURE","message":"explicit external failure"});
-        }
-        self.order_apply(&oc)?;
+        self.apply_order_terminal(input, order)?;
         if relation["side"] == "BUY" {
             let payload = json!({"schema_version":1,"reservation":order,"outcome":outcome});
             self.account_apply(&self.command(input, "RELEASE", payload.clone(), 0))?;
             self.ledger_apply(&self.ledger_command(input, "RELEASE", payload, 0))?;
         } else {
-            self.position_apply(&self.command(input,"RELEASE",json!({"schema_version":1,"order":order,"cluster":input["cluster"],"broker_confirmed":true}),0))?;
+            self.release_position(input, true)?;
         }
         self.risk_apply(&self.risk_command(input,"TERMINAL",json!({"schema_version":1,"order":order,"outcome":outcome,"source_ref":input["source_ref"]}),0))?;
         self.terminal_collateral(input)?;
@@ -1115,7 +1345,45 @@ impl Components {
 }
 
 impl Components {
-    fn settlement_owner(&self) -> Result<onlyalpha_settlement::Authority, Error> {
+    pub(crate) fn admit_settlement_order(
+        &self,
+        owner: &mut onlyalpha_settlement::Authority,
+        input: &Value,
+        instrument: &str,
+        precision: u8,
+    ) -> Result<(), Error> {
+        let payload = &input["payload"];
+        let request = &payload["request"];
+        let scope = json!({"schema_version":1,"engine":input["engine"],"runtime":input["runtime"],"account":input["account"],"gateway":input["gateway"],"generation":input["generation"],"runtime_kind":input["runtime_kind"],"cluster":input["cluster"],"revision":input["revision"],"instrument":instrument,"request":request["request_id"]["value"]});
+        let order = id(&payload["order"])?;
+        let side = text(&request["side"])?;
+        let quantity = text(&request["quantity"]["value"])?;
+        match payload["schema_version"].as_u64() {
+            Some(1) => boundary(owner.admit_order(scope, order, side, quantity, precision)),
+            Some(2) => {
+                let contract = &payload["settlement_fill_contract"];
+                self.validate_whole_fill_contract(request, &payload["fee_contract"], contract)?;
+                boundary(
+                    owner.admit_whole_fill_order(scope, order, side, quantity, precision, contract),
+                )
+            }
+            _ => Err(err("EXECUTION_ADMISSION_SCHEMA")),
+        }
+    }
+    pub(crate) fn settlement_instruction(
+        &self,
+        input: &Value,
+        trade: &Value,
+        economics: &Value,
+        position: &Value,
+        allocation: &Value,
+    ) -> Result<onlyalpha_settlement::Instruction, Error> {
+        let settlement = &input["payload"]["settlement"];
+        boundary(onlyalpha_settlement::compile(
+            json!({"schema_version":if self.config["schema_version"] == 3 {2}else{1},"scope":settlement["scope"],"order":trade["order"],"trade":trade["trade"],"currency":self.config["currency"],"side":trade["side"],"quantity":trade["quantity"],"gross_notional":economics["notional"],"charges":trade["fee"],"rebates":economics["rebates"],"trading_day":input["trading_day"],"time":input["time"],"calendar":settlement["calendar"],"policy":settlement["policy"],"position":position["id"],"position_cycle":position["cycle"],"allocation":allocation["id"],"allocation_cycle":allocation["cycle"],"provenance":{"reference":settlement["source_ref"],"fingerprint":settlement["source_digest"],"instruction":settlement["instruction"]}}),
+        ))
+    }
+    pub(crate) fn settlement_owner(&self) -> Result<onlyalpha_settlement::Authority, Error> {
         let mut owner = boundary(onlyalpha_settlement::Authority::new(
             crate::components::settlement_config(&self.config),
             512,
@@ -1127,9 +1395,23 @@ impl Components {
         Ok(owner)
     }
     fn settlement_maturity(&mut self, input: &Value) -> Result<(), Error> {
+        let mut owner = self.settlement_owner()?;
+        let (effect, instrument) = Self::settlement_effect(&mut owner, input)?;
+        if let Some(payload) = self.settle_position(input, &effect, &instrument)? {
+            self.ledger_apply(&self.ledger_command(input, "SETTLEMENT", payload, 0))?;
+        }
+        if !nonnegative(&effect["cash_amount"])?.is_zero() {
+            self.account_apply(&self.command(input,"SETTLE",json!({"schema_version":1,"instruction":effect["id"],"source_trade":effect["trade"],"amount":effect["cash_amount"]}),0))?;
+        }
+        Arc::make_mut(&mut self.meta)["settlement_authority"] = owner.checkpoint();
+        Ok(())
+    }
+    pub(crate) fn settlement_effect(
+        owner: &mut onlyalpha_settlement::Authority,
+        input: &Value,
+    ) -> Result<(Value, String), Error> {
         let p = &input["payload"];
         row(p, &["instruction", "expected_version"])?;
-        let mut owner = self.settlement_owner()?;
         let id = text(&p["instruction"])?;
         let before = boundary(owner.snapshot(id))?;
         if before["version"] != p["expected_version"] {
@@ -1141,6 +1423,7 @@ impl Components {
         {
             return Err(err("EXECUTION_SETTLEMENT_SCOPE"));
         }
+        let instrument = text(&original["scope"]["instrument"])?.to_owned();
         let effect = boundary(owner.mature(
             id,
             text(&input["trading_day"])?,
@@ -1148,28 +1431,41 @@ impl Components {
             uint(&p["expected_version"])?,
         ))?
         .record();
-        let quantity = nonnegative(&effect["asset_quantity"])?;
-        if !quantity.is_zero() {
-            let instrument = text(&original["scope"]["instrument"])?;
-            let position = boundary(self.position.account(instrument))?;
-            let allocation = boundary(self.position.cluster(text(&input["cluster"])?, instrument))?;
-            if position["id"] != effect["position"]
-                || position["cycle"] != effect["position_cycle"]
-                || allocation["id"] != effect["allocation"]
-                || allocation["cycle"] != effect["allocation_cycle"]
-            {
-                return Err(err("EXECUTION_SETTLEMENT_LIFECYCLE"));
-            }
-            self.position_apply(&self.command(input,"SETTLE",json!({"schema_version":1,"instrument":instrument,"trading_day":input["trading_day"],"source":effect["id"],"buckets":[{"schema_version":1,"cluster":input["cluster"],"quantity":effect["asset_quantity"]}]}),0))?;
-            let after = boundary(self.position.cluster(text(&input["cluster"])?, instrument))?;
-            self.ledger_apply(&self.ledger_command(input,"SETTLEMENT",json!({"schema_version":1,"instruction":effect["id"],"instrument":instrument,"before":allocation_witness(&allocation,self.precision)?,"after":allocation_witness(&after,self.precision)?,"before_evidence":hash(&allocation),"allocation_evidence":hash(&after)}),0))?;
-        }
-        if !nonnegative(&effect["cash_amount"])?.is_zero() {
-            self.account_apply(&self.command(input,"SETTLE",json!({"schema_version":1,"instruction":effect["id"],"source_trade":effect["trade"],"amount":effect["cash_amount"]}),0))?;
-        }
-        Arc::make_mut(&mut self.meta)["settlement_authority"] = owner.checkpoint();
-        Ok(())
+        Ok((effect, instrument))
     }
+    pub(crate) fn settle_position(
+        &mut self,
+        input: &Value,
+        effect: &Value,
+        instrument: &str,
+    ) -> Result<Option<Value>, Error> {
+        if nonnegative(&effect["asset_quantity"])?.is_zero() {
+            return Ok(None);
+        }
+        let cluster = text(&input["cluster"])?;
+        let position = boundary(self.position.account(instrument))?;
+        let allocation = boundary(self.position.cluster(cluster, instrument))?;
+        if position["id"] != effect["position"]
+            || position["cycle"] != effect["position_cycle"]
+            || allocation["id"] != effect["allocation"]
+            || allocation["cycle"] != effect["allocation_cycle"]
+        {
+            return Err(err("EXECUTION_SETTLEMENT_LIFECYCLE"));
+        }
+        self.position_apply(&self.command(input,"SETTLE",json!({"schema_version":1,"instrument":instrument,"trading_day":input["trading_day"],"source":effect["id"],"buckets":[{"schema_version":1,"cluster":cluster,"quantity":effect["asset_quantity"]}]}),0))?;
+        let after = boundary(self.position.cluster(cluster, instrument))?;
+        Ok(Some(
+            json!({"schema_version":1,"instruction":effect["id"],"instrument":instrument,"before":allocation_witness(&allocation,self.precision)?,"after":allocation_witness(&after,self.precision)?,"before_evidence":hash(&allocation),"allocation_evidence":hash(&after)}),
+        ))
+    }
+}
+
+pub(crate) fn allocation_before(allocation: Option<&Value>, precision: u8) -> Result<Value, Error> {
+    if let Some(allocation) = allocation {
+        return allocation_witness(allocation, precision);
+    }
+    let zero = money(&BigDecimal::zero(), precision)?;
+    Ok(json!({"schema_version":1,"identity":null,"cycle":0,"realized_exact":zero,"quantity":"0","cost":zero,"realized":zero,"version":0}))
 }
 
 pub(crate) fn allocation_witness(a: &Value, p: u8) -> Result<Value, Error> {
@@ -1177,3 +1473,7 @@ pub(crate) fn allocation_witness(a: &Value, p: u8) -> Result<Value, Error> {
         json!({"schema_version":1,"identity":a["id"],"cycle":a["cycle"],"realized_exact":exact_record(&exact(&a["realized_exact"])?,p),"quantity":a["quantity"],"cost":exact_record(&exact(&a["cost"])?,p),"realized":exact_record(&exact(&a["realized_pnl"])?,p),"version":a["version"]}),
     )
 }
+
+#[cfg(test)]
+#[path = "tests/admission_preview_tests.rs"]
+mod admission_preview_tests;

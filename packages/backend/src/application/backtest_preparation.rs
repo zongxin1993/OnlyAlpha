@@ -127,42 +127,60 @@ pub(crate) fn build_prepared_next_open(
     crate::workers::backtest::PreparedNextOpen,
     crate::application::research_admission::PreparationError,
 > {
+    let provenance = materialized.verified().manifest()["provenance"]
+        .as_array()
+        .filter(|rows| rows.len() == 1)
+        .ok_or("RESEARCH_PREPARATION_INPUT_MISMATCH")?;
+    let metadata = &provenance[0]["source_metadata"];
+    prepare_retained_next_open(
+        source_revision,
+        materialized.verified().dataset(),
+        &metadata["sealed_input"]["scope"],
+        &metadata["construction_recipe"],
+        &materialized.lineage()["request_fingerprint"],
+        rules,
+        generation,
+    )
+}
+
+pub(crate) fn prepare_retained_next_open(
+    source_revision: &onlyalpha_strategy::SourceRevision,
+    dataset: &crate::application::research_dataset::Dataset,
+    scope: &serde_json::Value,
+    recipe: &serde_json::Value,
+    request: &serde_json::Value,
+    rules: onlyalpha_market_crypto::spot::SpotRuleSnapshot,
+    generation: &str,
+) -> std::result::Result<
+    crate::workers::backtest::PreparedNextOpen,
+    crate::application::research_admission::PreparationError,
+> {
     use crate::{application::factor_content::hash, workers::backtest::PreparedNextOpen};
     use onlyalpha_domain::{base::OnlyDomainModel, time::OnlyTimestamp};
     use serde_json::json;
     const INVALID: &str = "RESEARCH_PREPARATION_INPUT_MISMATCH";
     const START: &str = "2025-01-03T00:00:00Z";
     const END: &str = "2025-01-03T12:00:00Z";
-    let dataset = materialized.verified().dataset();
-    let provenance = materialized.verified().manifest()["provenance"]
-        .as_array()
-        .filter(|r| r.len() == 1)
-        .ok_or(INVALID)?
-        .first()
-        .ok_or(INVALID)?;
-    let scope = &provenance["source_metadata"]["sealed_input"]["scope"];
     let source = source_revision.to_record();
     if dataset.definition()["instruments"] != source["universe"]["instruments"]
         || dataset.definition()["bar_semantic"] != source["market_input_contract"]["bar_semantic"]
-        || provenance["source_metadata"]["construction_recipe"]
-            != source["market_input_contract"]["construction_requirement"]["recipe"]
+        || *recipe != source["market_input_contract"]["construction_requirement"]["recipe"]
     {
         return Err(INVALID.into());
     }
-    let bars = dataset.bars()?;
+    let bars = crate::application::job_input::ordered_bars(dataset)?;
     if bars.len() > 8192 {
         return Err(INVALID.into());
     }
+    let request = request.as_str().ok_or(INVALID)?;
     let source_id = hash(
-        &json!({"contract":"ONLYALPHA_NEXT_OPEN_DATASET_SOURCE_V1","snapshot":dataset.snapshot_fingerprint(),"request":materialized.lineage()["request_fingerprint"],"scope":scope}),
+        &json!({"contract":"ONLYALPHA_NEXT_OPEN_DATASET_SOURCE_V1","snapshot":dataset.snapshot_fingerprint(),"request":request,"scope":scope}),
     )?;
     let version = scope["data_version"].as_str().ok_or(INVALID)?;
     let pin = onlyalpha_backtest::Source::new(
         &source_id,
         dataset.snapshot_fingerprint(),
-        materialized.lineage()["request_fingerprint"]
-            .as_str()
-            .ok_or(INVALID)?,
+        request,
         version,
         0,
         bars.len() as u64,

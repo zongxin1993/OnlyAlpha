@@ -26,19 +26,22 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path};
 
 pub async fn run(
-    client: &mut tokio_postgres::Client,
+    session: &mut onlyalpha_backend::persistence::authority_session::AuthoritySession,
     v: &Value,
     materialized: &MaterializedDataset,
 ) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut facts=super::super::job_fact_connection::Connection::reader().await?;
+    let namespace=onlyalpha_backend::bootstrap::deployment::load_semantic_store_id(&Path::new(v["research_root"].as_str().ok_or("research root")?).join(".onlyalpha-semantic-store.json"))?;
+
     let phase = v["phase"].as_str().ok_or("phase")?;
     if phase == "source-cut-inspect" {
-        return research_report_regressions::inspect_source_cut(client, v).await;
+        return research_report_regressions::inspect_source_cut(session, v).await;
     }
     if phase == "report-inspect" {
-        return research_report_regressions::inspect(client, v).await;
+        return research_report_regressions::inspect(session, v).await;
     }
     if phase == "inspect" {
-        return inspect_completed(client, v).await;
+        return inspect_completed(session.client_mut().await?, v).await;
     }
     if !matches!(phase, "submit" | "execute" | "crash-after-claim") {
         return Err("phase".into());
@@ -81,7 +84,7 @@ pub async fn run(
         f["generation"].as_str().ok_or("generation")?,
     )?;
     let mut inputs = if phase != "submit" {
-        let accepted = research_submission::load(client, &work_id, None).await?;
+        let accepted = research_submission::load(session.client_mut().await?, &mut facts.client, &namespace, &work_id, None).await?;
         research_admission::restore(&accepted, hold, &installation, &datasets)
     } else {
         research_admission::prepare(
@@ -127,7 +130,7 @@ pub async fn run(
             format!("onlyalpha_dev_session={}", "a".repeat(64)),
         )
         .body(())?;
-    let Admission::Owner(session) = human.admit(&request)? else {
+    let Admission::Owner(human_session) = human.admit(&request)? else {
         return Err("human session".into());
     };
     let reference = Reference::new(
@@ -158,7 +161,7 @@ pub async fn run(
     let source_session = source.authenticate(&format!("Bearer {token}"))?;
     let context = Context {
         human_authority: &human,
-        human: &session,
+        human: &human_session,
         source_authority: &source,
         source: &source_session,
         selection: &selection,
@@ -188,7 +191,7 @@ pub async fn run(
             specification: spec,
         };
         let (proposal, actionable) = research_submission::prepare_study(
-            client,
+            session,
             &novelty,
             &context,
             command.clone(),
@@ -204,7 +207,7 @@ pub async fn run(
         let fingerprint = proposal.fingerprint()?;
         if mode == "normal" {
             let (reentered, original_actionable) = research_submission::prepare_study(
-                client,
+                session,
                 &novelty,
                 &context,
                 command.clone(),
@@ -218,7 +221,7 @@ pub async fn run(
             assert_eq!(reentered.record()?, document);
             assert_eq!(reentered.fingerprint()?, fingerprint);
             assert!(
-                client
+                session.client_mut().await?
                     .query_opt(
                         "SELECT 1 FROM research_run WHERE run_id=$1::text::uuid",
                         &[&work_id],
@@ -236,7 +239,7 @@ pub async fn run(
             let (observer, connection) =
                 tokio_postgres::connect(&dsn, tokio_postgres::NoTls).await?;
             let observer_driver = tokio::spawn(connection);
-            let writer: i32 = client
+            let writer: i32 = session.client_mut().await?
                 .query_one("SELECT pg_backend_pid()", &[])
                 .await?
                 .get(0);
@@ -251,7 +254,7 @@ pub async fn run(
             )
             .await?;
             let submit = research_submission::submit(
-                client,
+                session,
                 &novelty,
                 &context,
                 (&restored, &fingerprint),
@@ -285,7 +288,7 @@ pub async fn run(
             revoked?;
             assert!(matches!(result, Err("RESEARCH_SOURCE_ACCESS_DENIED")));
             assert!(
-                client
+                session.client_mut().await?
                     .query_opt(
                         "SELECT 1 FROM research_run WHERE run_id=$1::text::uuid",
                         &[&work_id]
@@ -300,7 +303,7 @@ pub async fn run(
             return Ok(json!({"run_id":work_id,"state":"DENIED"}));
         }
         let run = research_submission::submit(
-            client,
+            session,
             &novelty,
             &context,
             (&restored, &fingerprint),
@@ -311,24 +314,20 @@ pub async fn run(
         .await
         .map_err(|e| format!("study-submission: {e}"))?;
         assert_eq!(run.run_id(), work_id);
+        assert_eq!(run.source_selection(), context.selection);
+        assert_eq!(run.owner(), context.source.subject_id()?);
         // Original Receipt replay ignores subsequent Source withdrawal and does not repeat admission.
         source.withdraw();
-        assert_eq!(
-            research_submission::submit(
-                client,
-                &novelty,
-                &context,
-                (&restored, &fingerprint),
-                &inputs,
-                &datasets,
-                at
-            )
-            .await?
-            .run_id(),
-            run.run_id()
-        );
+        let alternate = onlyalpha_backend::application::source_access::Selection::new(context.selection.reference().clone(), context.selection.source_id(), "OTHER")?;
+        let replay_context = research_submission::Context { selection: &alternate, ..context };
+        let replay = research_submission::submit(
+            session, &novelty, &replay_context, (&restored, &fingerprint), &inputs, &datasets, at,
+        ).await?;
+        assert_eq!(replay.run_id(), run.run_id());
+        assert_eq!(replay.owner(), run.owner());
+        assert_eq!(replay.source_selection(), run.source_selection());
         assert!(matches!(
-            research_submission::submission_outcome(client, &context, &restored).await?,
+            research_submission::submission_outcome(session.client_mut().await?, &mut facts.client, &namespace, &context, &restored).await?,
             SubmissionOutcome::Accepted(_)
         ));
         if mode == "queued-cancel" {
@@ -338,7 +337,7 @@ pub async fn run(
             let held = group.with_file_name("held-queued-cancel-group");
             std::fs::rename(&group, &held)?;
             let cancellation = research_submission::cancel(
-                client,
+                session,
                 (context.human_authority, context.human),
                 CommandId::new("00000000-0000-4000-8000-000000000901")?,
                 run.run_id(),
@@ -348,7 +347,7 @@ pub async fn run(
             std::fs::rename(&held, &group)?;
             cancellation?;
             return Ok(
-                json!({"run_id":run.run_id(),"state":ResearchExecution::new(client).observe(&run).await?.state.as_str(),"materialization_id":materialized.lineage()["materialization_id"]}),
+                json!({"run_id":run.run_id(),"state":ResearchExecution::new(session.client_mut().await?).observe(&run).await?.state.as_str(),"materialization_id":materialized.lineage()["materialization_id"]}),
             );
         }
         return Ok(
@@ -357,7 +356,7 @@ pub async fn run(
     }
     // Fresh process resumes only the original durable grant. No second admission.
     source.withdraw();
-    let run = research_submission::load(client, &work_id, Some("local-developer")).await?;
+    let run = research_submission::load(session.client_mut().await?, &mut facts.client, &namespace, &work_id, Some("local-developer")).await?;
     assert_eq!(run.specification_fingerprint(), spec.fingerprint()?);
     assert_eq!(
         materialized.lineage()["materialization_id"],
@@ -367,7 +366,7 @@ pub async fn run(
     let worker = "00000000-0000-4000-8000-000000000902";
     let proof = AuthoringClaim::verify(&run, &inputs, &installation, "0.11.1")?;
     if phase == "crash-after-claim" {
-        let claim = ResearchExecution::new(client)
+        let claim = ResearchExecution::new(session.client_mut().await?)
             .claim_authoring(
                 &run,
                 &proof,
@@ -380,8 +379,8 @@ pub async fn run(
         assert!(claim.ownership_certain());
         std::process::exit(73);
     }
-    let before = ResearchExecution::new(client).observe(&run).await?;
-    let attempts: i64 = client
+    let before = ResearchExecution::new(session.client_mut().await?).observe(&run).await?;
+    let attempts: i64 = session.client_mut().await?
         .query_one(
             "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
             &[&run.run_id()],
@@ -389,19 +388,19 @@ pub async fn run(
         .await?
         .get(0);
     assert!(
-        ResearchExecution::new(client)
+        ResearchExecution::new(session.client_mut().await?)
             .claim(&run, worker, "00000000-0000-4000-8000-000000000919", at)
             .await
             .is_err()
     );
-    let after = ResearchExecution::new(client).observe(&run).await?;
+    let after = ResearchExecution::new(session.client_mut().await?).observe(&run).await?;
     assert_eq!(
         (before.state, before.revision),
         (after.state, after.revision)
     );
     assert_eq!(
         attempts,
-        client
+        session.client_mut().await?
             .query_one(
                 "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
                 &[&run.run_id()],
@@ -414,7 +413,7 @@ pub async fn run(
     if mode == "budget" || mode == "budget-with-result" {
         for i in 0..if mode == "budget" { 3 } else { 2 } {
             let attempt = format!("00000000-0000-4000-8000-{:012}", 910 + i);
-            let mut claim = ResearchExecution::new(client)
+            let mut claim = ResearchExecution::new(session.client_mut().await?)
                 .claim_authoring(&run, &proof, worker, &attempt, at)
                 .await?
                 .ok_or("claim")?;
@@ -428,7 +427,7 @@ pub async fn run(
                 "controlled retry classification",
             )?;
             assert_eq!(
-                ResearchExecution::new(client)
+                ResearchExecution::new(session.client_mut().await?)
                     .fail(
                         &mut claim,
                         &failure,
@@ -443,7 +442,7 @@ pub async fn run(
     }
     if !matches!(mode, "normal" | "wrong-native-version") && first.is_none() {
         first = Some(
-            ResearchExecution::new(client)
+            ResearchExecution::new(session.client_mut().await?)
                 .claim_authoring(
                     &run,
                     &proof,
@@ -497,7 +496,7 @@ pub async fn run(
         .await?;
         let claim = first.as_mut().unwrap();
         assert!(
-            ResearchExecution::new(client)
+            ResearchExecution::new(session.client_mut().await?)
                 .heartbeat(claim)
                 .await
                 .is_err()
@@ -505,21 +504,21 @@ pub async fn run(
         assert!(!claim.ownership_certain());
         tx.commit().await?;
         assert_eq!(
-            ResearchExecution::new(client)
+            ResearchExecution::new(session.client_mut().await?)
                 .complete(claim, completion.as_ref().unwrap(), at)
                 .await
                 .unwrap_err(),
             "RESEARCH_EXECUTION_OWNERSHIP_UNCERTAIN"
         );
-        ResearchExecution::new(client).heartbeat(claim).await?;
-        ResearchExecution::new(client)
+        ResearchExecution::new(session.client_mut().await?).heartbeat(claim).await?;
+        ResearchExecution::new(session.client_mut().await?)
             .complete(claim, completion.as_ref().unwrap(), at)
             .await?;
         drop(blocker);
         driver.await??;
     } else if mode.starts_with("cancel-") {
         research_submission::cancel(
-            client,
+            session,
             (context.human_authority, context.human),
             CommandId::new("00000000-0000-4000-8000-000000000914")?,
             run.run_id(),
@@ -555,9 +554,9 @@ pub async fn run(
             }
         }
         let attempt = first.as_ref().unwrap().attempt_id();
-        client.execute("UPDATE research_run_attempt SET lease_expires_at=last_heartbeat_at WHERE attempt_id=$1::text::uuid",&[&attempt]).await?;
+        session.client_mut().await?.execute("UPDATE research_run_attempt SET lease_expires_at=last_heartbeat_at WHERE attempt_id=$1::text::uuid",&[&attempt]).await?;
         assert_eq!(
-            ResearchExecution::new(client)
+            ResearchExecution::new(session.client_mut().await?)
                 .expire(&run, at)
                 .await?
                 .unwrap()
@@ -565,7 +564,7 @@ pub async fn run(
             RunState::CancelRequested
         );
         let inspection = store.inspect(run.clone(), 2)?;
-        let resolved = ResearchExecution::new(client)
+        let resolved = ResearchExecution::new(session.client_mut().await?)
             .reconcile(&inspection, at)
             .await?;
         drop(inspection);
@@ -587,7 +586,7 @@ pub async fn run(
     } else if mode == "budget" || mode == "budget-with-result" {
         if first.is_none() {
             first = Some(
-                ResearchExecution::new(client)
+                ResearchExecution::new(session.client_mut().await?)
                     .claim_authoring(
                         &run,
                         &proof,
@@ -601,9 +600,9 @@ pub async fn run(
         }
         let claim = first.as_ref().unwrap();
         let attempt = claim.attempt_id();
-        client.execute("UPDATE research_run_attempt SET lease_expires_at=last_heartbeat_at WHERE attempt_id=$1::text::uuid",&[&attempt]).await?;
+        session.client_mut().await?.execute("UPDATE research_run_attempt SET lease_expires_at=last_heartbeat_at WHERE attempt_id=$1::text::uuid",&[&attempt]).await?;
         assert_eq!(
-            ResearchExecution::new(client)
+            ResearchExecution::new(session.client_mut().await?)
                 .expire(&run, at)
                 .await?
                 .unwrap()
@@ -611,7 +610,7 @@ pub async fn run(
             RunState::Failed
         );
         assert!(
-            ResearchExecution::new(client)
+            ResearchExecution::new(session.client_mut().await?)
                 .claim_authoring(
                     &run,
                     &proof,
@@ -629,10 +628,11 @@ pub async fn run(
     } else {
         if mode == "stale-reentry" {
             let attempt = first.as_ref().unwrap().attempt_id();
-            client.execute("UPDATE research_run_attempt SET lease_expires_at=last_heartbeat_at WHERE attempt_id=$1::text::uuid",&[&attempt]).await?;
+            session.client_mut().await?.execute("UPDATE research_run_attempt SET lease_expires_at=last_heartbeat_at WHERE attempt_id=$1::text::uuid",&[&attempt]).await?;
         }
         let status = onlyalpha_backend::workers::research::run_once(
-            client,
+            session.client_mut().await?,
+            &mut facts.client,
             onlyalpha_backend::workers::research::Work {
                 run: run.clone(),
                 inputs: inputs.take().unwrap(),
@@ -657,9 +657,9 @@ pub async fn run(
                 status.err().ok_or("wrong executor claimed")?.code(),
                 "RESEARCH_EXECUTOR_IMAGE_MISMATCH"
             );
-            let status = ResearchExecution::new(client).observe(&run).await?;
+            let status = ResearchExecution::new(session.client_mut().await?).observe(&run).await?;
             assert_eq!((status.state, status.revision), (RunState::Queued, 0));
-            let attempts: i64 = client
+            let attempts: i64 = session.client_mut().await?
                 .query_one(
                     "SELECT count(*) FROM research_run_attempt WHERE run_id=$1::text::uuid",
                     &[&run.run_id()],
@@ -674,7 +674,7 @@ pub async fn run(
         if let Some(mut stale) = first {
             let complete = store.load_verified(&run)?.unwrap();
             assert_eq!(
-                ResearchExecution::new(client)
+                ResearchExecution::new(session.client_mut().await?)
                     .complete(&mut stale, &complete, at)
                     .await
                     .unwrap_err(),
@@ -682,10 +682,10 @@ pub async fn run(
             );
         }
     }
-    let status = ResearchExecution::new(client).observe(&run).await?;
+    let status = ResearchExecution::new(session.client_mut().await?).observe(&run).await?;
     assert_eq!(status.state, RunState::Completed);
     let cancel = research_submission::cancel(
-        client,
+        session,
         (context.human_authority, context.human),
         CommandId::new("00000000-0000-4000-8000-000000000904")?,
         run.run_id(),
@@ -693,7 +693,7 @@ pub async fn run(
     )
     .await;
     assert!(matches!(cancel, Err("RESEARCH_CANCEL_CONFLICT")));
-    assert!(client.query_opt("SELECT 1 FROM product_command_receipt WHERE command_id='00000000-0000-4000-8000-000000000904'",&[]).await?.is_none());
+    assert!(session.client_mut().await?.query_opt("SELECT 1 FROM product_command_receipt WHERE command_id='00000000-0000-4000-8000-000000000904'",&[]).await?.is_none());
     Ok(json!({"run_id":run.run_id(),"state":status.state.as_str()}))
 }
 
@@ -703,6 +703,9 @@ pub async fn execute_node_fence(
     session: onlyalpha_backend::persistence::authority_session::AuthoritySession,
     v: &Value,
 ) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut facts=super::super::job_fact_connection::Connection::reader().await?;
+    let namespace=onlyalpha_backend::bootstrap::deployment::load_semantic_store_id(&Path::new(v["research_root"].as_str().ok_or("research root")?).join(".onlyalpha-semantic-store.json"))?;
+
     let writer = std::sync::Arc::new(tokio::sync::Mutex::new(Some(session)));
     let command = CommandId::new(v["research_command"].as_str().ok_or("command")?)?;
     let id = research_submission::run_id(&command);
@@ -710,6 +713,8 @@ pub async fn execute_node_fence(
         let mut original = writer.lock().await;
         research_submission::load(
             original.as_mut().ok_or("writer")?.client_mut().await?,
+            &mut facts.client,
+            &namespace,
             &id,
             None,
         )
@@ -763,9 +768,12 @@ async fn inspect_completed(
     client: &mut tokio_postgres::Client,
     v: &Value,
 ) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut facts=super::super::job_fact_connection::Connection::reader().await?;
+    let namespace=onlyalpha_backend::bootstrap::deployment::load_semantic_store_id(&Path::new(v["research_root"].as_str().ok_or("research root")?).join(".onlyalpha-semantic-store.json"))?;
+
     let command = CommandId::new(v["research_command"].as_str().ok_or("command")?)?;
     let id = research_submission::run_id(&command);
-    let run = research_submission::load(client, &id, Some("local-developer")).await?;
+    let run = research_submission::load(client,&mut facts.client,&namespace, &id, Some("local-developer")).await?;
     assert_eq!(
         ResearchExecution::new(client).observe(&run).await?.state,
         RunState::Completed

@@ -16,6 +16,12 @@
 
 ## 公开接口
 
+[`ProgramNodes`、`ProgramFactor`](src/program_nodes.rs)把已绑定的 Rust 因子程序、原生算子和谓词接入原 Strategy `NodePort`。构造时核对精确定义、参数、端口、数值类型、实现与工件绑定；执行使用 `BoundProgram`／`OperatorStream`／`PredicateCalculation`，不解析 Python AST。程序事件序号从零开始，适配层的 Calculation receipt 样本计数从一开始。缺值、输出规范化及窗口语义沿用所属数学 owner。
+
+[`ProgramCalculation`](src/program_definition.rs)从已解码且绑定参数的 `BoundProgram` 和因子元数据生成完整 `Definition`、`TypeDeclaration` 与批量／事件实现清单。校验输入输出类型与角色，参数声明来自原程序，warmup 来自实际绑定窗口，数值规范固定为 Decimal28／Half Even／Q12。实现身份绑定泛化程序容器、API 与实际执行镜像；精确参数及其证书由调用方单独绑定。类型、声明或工件格式不符时拒绝。此纯值适配器不读取 PostgreSQL，不证明 READY、资产权限或实际加载镜像；正式调用方必须保留所属读取器和准入证据。
+
+实例按 scope／商品／节点持有可变状态。恢复采用独立候选，核对完整字段、绑定、游标、receipt 与窗口，错误使当前执行失效。`ProgramFactor::new` 和 `ProgramNodes::new` 只校验传入的数学绑定值，不证明 PostgreSQL 证书存在、READY、私有资产权限或发布资格；这些证明必须由 Backend 的 owning reader 提供。
+
 Worker::from_stream 接入已有通道并执行握手和请求；WorkerConnector / ProcessControl 提供连接与生命周期端口。StrategyNodes、StrategyPreparation 连接计算与行情准备；ChartInstallation 校验安装资源；native_operators / native_predicates 暴露定义、清单与求值，protocol 提供协议绑定。fingerprint 计算原始字节摘要。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
@@ -55,3 +61,5 @@ cargo doc -p onlyalpha-calculation-bridge --no-deps
 集成测试位于 [`tests/`](tests/)，独立单元测试统一集中在 `src/tests/`，仍由原业务模块挂载并保留私有访问；内联测试可保留。 无外部服务依赖的库验证可在宿主机运行并记录平台；数据库或运行中应用验证使用固定 `onlyalpha-dev` 环境。
 
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

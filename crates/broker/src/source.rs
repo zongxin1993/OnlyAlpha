@@ -292,3 +292,106 @@ impl SourceHistory {
         ))
     }
 }
+
+/// Incremental finite source owner. Keeps compact economic frontier/birth indexes,
+/// never replays a caller's SQL/Journal rows to issue a funding view.
+pub struct SourceTimeline {
+    base: SourceHistory,
+    prefixes: BTreeMap<BigInt, Value>,
+    trades: BTreeMap<String, (BigInt, String)>,
+    observed: BTreeMap<String, BigInt>,
+}
+impl SourceTimeline {
+    pub fn new(scope: Scope, binding: &Value, expected: &str) -> Result<Self, Error> {
+        Ok(Self {
+            base: SourceHistory::new(scope, binding, expected, None)?,
+            prefixes: BTreeMap::new(),
+            trades: BTreeMap::new(),
+            observed: BTreeMap::new(),
+        })
+    }
+    pub fn head(&self) -> &str {
+        &self.base.head
+    }
+    pub fn sequence(&self) -> u64 {
+        self.base.sequence
+    }
+    pub fn accept_step(
+        &mut self,
+        step: SourceStep<'_>,
+        facts: &[(Fact, Value)],
+    ) -> Result<(), Error> {
+        let sequence = step.sequence;
+        self.base.accept_step(step, facts.iter().cloned().map(Ok))?;
+        let now = self.base.now.clone();
+        let visible = self.base.visible_at.clone();
+        self.prefixes.entry(now.clone()).or_insert_with(||json!({"schema_version":1,"source_binding":self.base.binding,"sequence":sequence,"hash":self.base.head,"visible_at_ns":serde_json::from_str::<Value>(&visible.to_string()).expect("validated integer"),"clock_ns":serde_json::from_str::<Value>(&now.to_string()).expect("validated integer"),"economic_through_ns":serde_json::from_str::<Value>(&(&now-BigInt::from(1)).to_string()).expect("validated integer")}));
+        for (fact, _) in facts {
+            if fact.record()["kind"] == "TRADE"
+                && self
+                    .trades
+                    .insert(
+                        fact.identity().into(),
+                        (now.clone(), digest(&fact.record())),
+                    )
+                    .is_some()
+            {
+                return Err(err("BROKER_SOURCE_DUPLICATE_BIRTH"));
+            }
+        }
+        Ok(())
+    }
+    pub fn observe(&mut self, fact: &Fact) -> Result<(), Error> {
+        if let Some((_, original)) = self.trades.get(fact.identity()) {
+            if *original != digest(&fact.record()) {
+                return Err(err("BROKER_SOURCE_ORIGINAL_FACT_REQUIRED"));
+            }
+            self.observed
+                .entry(fact.identity().into())
+                .or_insert_with(|| self.base.visible_at.clone());
+        }
+        Ok(())
+    }
+    /// Original closed prefix and visibility are derived from actual accepted
+    /// source steps and first observations, not a caller-supplied complete flag.
+    pub fn funding_history(&self, boundary: u64, visible: u64) -> Result<SourceHistory, Error> {
+        let at = BigInt::from(boundary);
+        let seen = BigInt::from(visible);
+        let (_, closure) = self
+            .prefixes
+            .range((
+                std::ops::Bound::Excluded(at.clone()),
+                std::ops::Bound::Unbounded,
+            ))
+            .next()
+            .ok_or_else(|| err("BROKER_ECONOMIC_PREFIX_UNPROVEN"))?;
+        if integer(&closure["visible_at_ns"], false)? > seen {
+            return Err(err("BROKER_ECONOMIC_PREFIX_UNPROVEN"));
+        }
+        let mut trades = BTreeMap::new();
+        let mut observations = std::collections::BTreeSet::new();
+        let mut late = false;
+        for (id, (born, fp)) in &self.trades {
+            if born <= &at {
+                trades.insert(id.clone(), fp.clone());
+                if let Some(when) = self.observed.get(id) {
+                    observations.insert(id.clone());
+                    late |= when > &seen;
+                }
+            }
+        }
+        Ok(SourceHistory {
+            scope: self.base.scope.clone(),
+            binding: self.base.binding.clone(),
+            head: self.base.head.clone(),
+            sequence: self.base.sequence,
+            now: self.base.now.clone(),
+            visible_at: self.base.visible_at.clone(),
+            boundary: Some((at, seen)),
+            closure: Some(closure.clone()),
+            boundary_trades: trades,
+            first_observations: observations,
+            observation_after_visibility: late,
+        })
+    }
+}

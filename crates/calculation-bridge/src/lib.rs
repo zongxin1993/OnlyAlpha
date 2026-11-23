@@ -8,7 +8,11 @@ pub use process::{
 mod strategy_adapter;
 pub use strategy_adapter::StrategyNodes;
 
+mod program_definition;
+mod program_nodes;
+pub use program_definition::ProgramCalculation;
 mod strategy_preparation;
+pub use program_nodes::{ProgramFactor, ProgramNodes};
 pub use strategy_preparation::StrategyPreparation;
 
 mod chart_installation;

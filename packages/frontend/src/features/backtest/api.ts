@@ -177,6 +177,8 @@ const runSchema = z.strictObject({
     revision,
     accepted_at: utc,
     preparation_command_id: uuid.nullable(),
+    cancel_requested_at: utc.optional(),
+    cancellation_reason: z.literal("USER_REQUESTED").optional(),
     report_status: z.strictObject({
         state: z.enum(["PENDING", "NOT_CHECKED", "VERIFIED", "NOT_APPLICABLE", "UNAVAILABLE"]),
         code: z.string().nullable()
@@ -222,7 +224,7 @@ export const resultSchema = z.strictObject({
     evidence_fingerprint: sha,
     result_fingerprint: sha,
     determinism_fingerprint: sha,
-    state: z.enum(["COMPLETED", "CANCELLED", "FAILED"]),
+    state: z.literal("COMPLETED"),
     sample,
     metrics,
     curve: z.array(

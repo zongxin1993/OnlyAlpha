@@ -82,6 +82,7 @@ impl Host {
             text(&o.outputs["environment"], "runtime_generation_fingerprint")?,
         )?;
         installed_proof(config, &o, &runtime)?;
+        let mut facts = self.job_fact_reader().await.map_err(|e|e.code())?;
         let resolved = {
             let mut writer = self.writer.lock().await;
             let client = writer
@@ -90,7 +91,7 @@ impl Host {
                 .client_mut()
                 .await
                 .map_err(|_| "PRODUCT_AUTHORITY_UNAVAILABLE")?;
-            Composer::new(client)
+            Composer::new(client).with_fact_reader(facts.client_mut().await.map_err(|e|e.code())?)
                 .resolve(
                     &input.strategy_id,
                     &input.strategy_revision_fingerprint,
@@ -173,6 +174,7 @@ impl Host {
             ResearchInputOutcome::Prepared(value) => value,
         };
         o = self.preparation_checkpoint(&o, &human).await?;
+        let mut builder = self.database.calculation_build_connection(self.inputs.namespace()).await.map_err(|e|e.code())?;
         let (prepared, specification) = {
             let mut writer = self.writer.lock().await;
             let client = writer
@@ -182,7 +184,9 @@ impl Host {
                 .await
                 .map_err(|_| "PRODUCT_AUTHORITY_UNAVAILABLE")?;
             PreparedInputs::prepare_strategy(
-                &mut Composer::new(client),
+                &mut Composer::new(client)
+                    .with_fact_reader(facts.client_mut().await.map_err(|e|e.code())?)
+                    .with_builder(builder.client_mut().await.map_err(|e|e.code())?),
                 resolved,
                 &context,
                 &installation,
@@ -191,6 +195,8 @@ impl Host {
             )
             .await?
         };
+        builder.close().await.map_err(|e|e.code())?;
+        facts.close().await.map_err(|e|e.code())?;
         let policy = crate::bootstrap::research_namespace::policy();
         let novelty = crate::bootstrap::research_namespace::novelty(
             config.research_root.parent().ok_or(INVALID)?,
@@ -246,6 +252,7 @@ impl Host {
         o: &Operation,
         human: &human_access::Session,
     ) -> Result<Value> {
+        let mut fact_reader=self.job_fact_reader().await.map_err(|e|e.code())?;
         let mut view = o.view();
         let future = CommandId::new(o.request.research_command()).map_err(|_| INVALID)?;
         let mut reader = self.reader.lock().await;
@@ -302,7 +309,7 @@ impl Host {
         let record = &o.outputs["ready"]["prepared_study"];
         let pin = text(&o.outputs["ready"], "prepared_study_fingerprint")?;
         let study = research_submission::strategy::restore_study(&context, record, pin)?;
-        match research_submission::strategy::submission_outcome_readonly(client, &context, &study)
+        match research_submission::strategy::submission_outcome_readonly(client, fact_reader.client_mut().await.map_err(|e|e.code())?, self.inputs.namespace(), &context, &study)
             .await?
         {
             SubmissionOutcome::Accepted(run) => {
@@ -326,7 +333,7 @@ impl Host {
             let spec = study.request().specification();
             let (policy, version) = study.request().policy();
             let group = novelty
-                .retained_group(client, &future, &[spec.subject()?], policy, version)
+                .retained_group((client,fact_reader.client_mut().await.map_err(|e|e.code())?), &future, &[spec.subject()?], policy, version)
                 .await?;
             if group["group_fingerprint"] != record["decision_group_fingerprint"]
                 || group["disposition"] != "ACTIONABLE"
@@ -371,6 +378,7 @@ impl Host {
         )
         .map_err(|_| "RESEARCH_ALGORITHM_INSTALLATION_CHANGED")?;
         let original = &o.outputs["ready"]["prepared_inputs"];
+        let mut facts = self.job_fact_reader().await.map_err(|e|e.code())?;
         let mut writer = self.writer.lock().await;
         let client = writer
             .as_mut()
@@ -378,23 +386,20 @@ impl Host {
             .client_mut()
             .await
             .map_err(|_| "PRODUCT_AUTHORITY_UNAVAILABLE")?;
-        let mut composer = Composer::new(client);
-        let (resolved, context) = composer
-            .resolve_retained(&original["composition"], runtime, &installation)
-            .await?;
-        if context.record() != ResearchContext::new(o.request.strategy()?.context.clone())?.record()
-        {
-            return Err(INVALID.into());
-        }
-        let (prepared, specification) = PreparedInputs::prepare_strategy(
+        let mut composer = Composer::new(client).with_fact_reader(facts.client_mut().await.map_err(|e|e.code())?);
+        let (prepared, specification, context) = PreparedInputs::restore_strategy_inputs(
             &mut composer,
-            resolved,
-            &context,
+            original,
+            runtime,
             &installation,
             &datasets,
             &materialized,
         )
         .await?;
+        if context.record() != ResearchContext::new(o.request.strategy()?.context.clone())?.record()
+        {
+            return Err(INVALID.into());
+        }
         if prepared.record() != original
             || specification.record()
                 != &o.outputs["ready"]["prepared_study"]["request"]["specification"]

@@ -34,6 +34,14 @@ fn ns(time: &OnlyTimestamp) -> Result<u64, Error> {
 }
 struct BinanceNextOpenPolicy(SpotSimulationPolicy);
 impl NextOpenPolicy for BinanceNextOpenPolicy {
+    fn analytical_entry_quote(
+        &self,
+        price: &OnlyPrice,
+        quantity: &OnlyQuantity,
+        context: &Value,
+    ) -> Result<Value, Error> {
+        boundary(self.0.analytical_entry_quote(price, quantity, context))
+    }
     fn binding(&self) -> Value {
         self.0.binding()
     }
@@ -240,6 +248,10 @@ impl PreparedNextOpen {
     }
     pub fn record(&self) -> Value {
         json!({"schema_version":1,"contract":"ONLYALPHA_BTC_NEXT_OPEN_PREPARATION_V1","strategy_fingerprint":self.source.fingerprint(),"input_pin":self.inputs.fingerprint(),"settings":self.settings,"policy_binding":self.policy.binding(),"window":self.window,"initial_ns":self.initial_ns.to_string()})
+    }
+    /// Exact immutable source value; this accessor grants no Product admission.
+    pub fn source_revision(&self) -> &SourceRevision {
+        &self.source
     }
     pub fn simulation_policy(&self) -> &SpotSimulationPolicy {
         &self.policy

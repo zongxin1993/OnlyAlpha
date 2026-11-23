@@ -6,7 +6,10 @@ use crate::{
         strategy_projection::{self, FreezeRequest, Freezes},
     },
     bootstrap::startup::Directory,
-    persistence::{research_evidence::Store as Evidence, research_submission},
+    persistence::{
+        research_evidence::{Store as Evidence, read_published_strategy_if_present},
+        research_submission,
+    },
     security::{
         human_access,
         ingress::{self, Release},
@@ -90,15 +93,53 @@ impl Host {
             return Err(invalid());
         }
         let run = {
+            let mut facts=self.job_fact_reader().await?;
             let mut reader = self.reader.lock().await;
             let client = reader
                 .as_mut()
                 .ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-            research_submission::load(client, intent.run_id().map_err(failed)?, Some(&owner))
+            research_submission::load(client, facts.client_mut().await?, self.inputs.namespace(), intent.run_id().map_err(failed)?, Some(&owner))
                 .await
                 .map_err(failed)?
         };
         run.strategy_specification().map_err(failed)?;
+        // 结果证据只有一个归属：本 Run 已有 PG 发布时，正式 Freeze 直接消费发布正文；
+        // 没有发布行时才使用文件证据割线的既有路径。任一路径失败都不得改用另一路径。
+        let published = {
+            let mut facts = self.job_fact_reader().await?;
+            read_published_strategy_if_present(facts.client_mut().await?, self.inputs.namespace(), &run)
+                .await
+                .map_err(|e| failed(crate::transport::job_publication::failure_code(e)))?
+        };
+        if let Some(publication) = published.as_ref() {
+            if Instant::now() >= deadline {
+                return Err(Failure::unavailable("REQUEST_DEADLINE_EXPIRED"));
+            }
+            self.human_access.check_session(&human)?;
+            let frozen = FrozenStore::open(self.inputs.roots().directory(Directory::Research))
+                .map_err(|e| failed(e.code()))?;
+            let result = {
+                let mut writer = self.writer.lock().await;
+                let session = writer
+                    .as_mut()
+                    .ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+                Freezes::new(session, &frozen, self.inputs.namespace(), &human)
+                    .execute_published(
+                        &intent,
+                        publication,
+                        &now()?.to_string(),
+                        ROWS,
+                        WORK,
+                    )
+                    .await
+                    .map_err(failed)?
+            };
+            self.human_access.check_session(&human)?;
+            return Ok(ingress::attach(
+                Json(result).into_response(),
+                Release::Generation(human.metadata_session()),
+            ));
+        }
         let research = self.research_preparation_config.research_root.clone();
         let runtime = self.research_preparation_config.runtime_root.clone();
         let evidence = tokio::task::spawn_blocking(move || {

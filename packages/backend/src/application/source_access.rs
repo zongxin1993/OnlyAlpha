@@ -100,6 +100,22 @@ impl Selection {
             environment: environment.into(),
         })
     }
+    /// Original selection values only; this record carries no permission.
+    pub(crate) fn record(&self) -> serde_json::Value {
+        serde_json::json!({"integration_id":self.reference.integration_id(),
+            "revision_fingerprint":self.reference.revision(),
+            "expected_type_id":self.reference.expected_type_id(),
+            "source_id":self.source_id,"environment":self.environment})
+    }
+    pub(crate) fn from_record(value: &serde_json::Value) -> Result<Self, Error> {
+        let keys = ["integration_id", "revision_fingerprint", "expected_type_id", "source_id", "environment"];
+        let object = value.as_object().ok_or(Error::ProofUnavailable)?;
+        if object.len() != keys.len() || keys.iter().any(|key| !object.contains_key(*key)) {
+            return Err(Error::ProofUnavailable);
+        }
+        let text = |key: &str| value[key].as_str().filter(|v| configured_text(v, 256)).ok_or(Error::ProofUnavailable);
+        Self::new(Reference::new(text("integration_id")?, text("revision_fingerprint")?, Some(text("expected_type_id")?))?, text("source_id")?, text("environment")?)
+    }
     pub fn reference(&self) -> &Reference {
         &self.reference
     }

@@ -1,19 +1,19 @@
 //! Test-only consumer of original READY/Run owners; no DTO can mint a grant.
 use super::*;
 use crate::{
-    application::backtest_run::{CancelRequest, VerifiedCompletion, VerifiedRun},
+    application::backtest_run::VerifiedRun,
     bootstrap::workstation_startup::{Configuration as NodeConfiguration, Running},
     persistence::{
-        backtest_evidence, backtest_run::Backtests, research_preparation::child_command,
+        backtest_run::Backtests, research_preparation::child_command,
     },
     workers::{
-        backtest_service::{Configuration, StartMode},
+        backtest_service::Configuration,
         backtest_service_tests as producer,
         backtest_worker::tests as worker,
     },
 };
 use onlyalpha_domain::time::OnlyUtcDateTime;
-use std::{path::PathBuf, sync::atomic::Ordering};
+use std::sync::atomic::Ordering;
 
 fn clock()
 -> std::result::Result<OnlyUtcDateTime, crate::application::research_admission::PreparationError> {
@@ -64,6 +64,144 @@ async fn create_original(
         .unwrap()
 }
 
+async fn interrupt_worker(
+    running: Running,
+    listener: tokio::net::TcpListener,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+    original: &Operation,
+    scenario: &str,
+) {
+    use axum::body::{Body, to_bytes};
+    use hyper_util::rt::TokioIo;
+    use std::time::Duration;
+
+    let host = Arc::clone(&running.host);
+    let address = listener.local_addr().unwrap();
+    let preparation = original.command.value();
+    let run = original.request.reserved_run_id();
+    let recover_cancellation = scenario == "recover-cancel";
+    let phase = match scenario {
+        "worker-exit-before-claim" => "before_claim",
+        "worker-exit-during-execution" => "after_first_step",
+        "worker-exit-after-candidate" => "candidate_ready",
+        "worker-exit-during-insert" => "member_inserted",
+        _ => "before_produce",
+    };
+    let request = |request: http::Request<Body>| async move {
+        let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+        let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+            .await
+            .unwrap();
+        let client = tokio::spawn(connection);
+        let (response, body) = sender.send_request(request).await.unwrap().into_parts();
+        let body = to_bytes(Body::new(body), 8 << 20).await.unwrap();
+        drop(sender);
+        client.await.unwrap().unwrap();
+        (response, body)
+    };
+    let drive_worker = async {
+        let interrupted = worker::gate(&run, phase);
+        let paused = worker::gate(&run, "pause_requested");
+        let (navigation, _) = request(
+            http::Request::builder()
+                .uri("/")
+                .header("host", address.to_string())
+                .header("accept", "text/html")
+                .header("sec-fetch-mode", "navigate")
+                .header("sec-fetch-dest", "document")
+                .header("sec-fetch-site", "none")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(navigation.status, http::StatusCode::OK);
+        let cookie = navigation.headers[http::header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap();
+        let post = |path: String, command: &str, body: serde_json::Value| {
+            let message = http::Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("host", address.to_string())
+                .header("origin", format!("http://{address}"))
+                .header("cookie", cookie)
+                .header("idempotency-key", command)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            async move {
+                let (response, body) = request(message).await;
+                assert_eq!(response.status, http::StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+            }
+        };
+        let accepted = post(
+            format!("/api/v2/backtest/preparations/{preparation}/submit"),
+            original.request.future_command(),
+            serde_json::json!({
+                "schema_version": 1,
+                "preparation_command_id": preparation,
+                "preparation_fingerprint": original.outputs["ready"]["preparation_fingerprint"],
+            }),
+        )
+        .await;
+        assert_eq!(accepted["state"], "ACCEPTED");
+        assert_eq!(accepted["backtest_command_id"], original.request.future_command());
+        assert_eq!(accepted["run_id"], run);
+
+        interrupted.entered().await;
+        if matches!(phase, "before_claim" | "candidate_ready" | "member_inserted") {
+            if phase == "candidate_ready" {
+                worker::expire_original(&run).await;
+            }
+            println!("BACKTEST_EXIT_AT {scenario} {run}");
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            std::process::exit(86);
+        }
+        assert!(host.admitted());
+        host.backtest_wake.get().unwrap().stop();
+        paused.entered().await;
+        if recover_cancellation {
+            {
+                let namespace = namespace(&host.research_preparation_config).unwrap();
+                let mut held = host.writer.lock().await;
+                let mut runs = Backtests::new(held.as_mut().unwrap(), &namespace);
+                let original_run = runs.load(&run).await.unwrap();
+                assert_eq!(original_run.state().as_str(), "RUNNING");
+                worker::expire_original(&run).await;
+                assert!(runs.expire(&original_run, now().unwrap()).await.unwrap().is_some());
+            }
+            let cancel = child_command(&original.command, "backtest-recovery-cancel").unwrap();
+            let requested = post(
+                format!("/api/v2/backtest/runs/{run}/cancellation"),
+                cancel.value(),
+                serde_json::json!({"schema_version": 1, "run_id": run}),
+            )
+            .await;
+            assert_eq!(requested["run_id"], run);
+            assert_eq!(requested["state"], "CANCEL_REQUESTED");
+        }
+        assert!(host.admitted(), "Worker has not exited while the interruption is held");
+        drop(interrupted);
+    };
+    let (closed, ()) = tokio::time::timeout(Duration::from_secs(60), async {
+        tokio::join!(running.serve(listener, shutdown), drive_worker)
+    })
+    .await
+    .expect("Host must drain its Backtest Worker");
+    assert_eq!(closed.unwrap_err().code(), "BACKTEST_SERVICE_UNAVAILABLE");
+    assert!(!host.admitted());
+    assert!(host.backtest_drained.load(Ordering::Acquire));
+    assert!(host.writer.lock().await.is_none());
+    assert!(tokio::net::TcpStream::connect(address).await.is_err());
+    if !recover_cancellation {
+        worker::expire_original(&run).await;
+    }
+}
+
 /// Locators identify facts produced by the unchanged Shipping HTTP fixture.
 /// Every opaque owner is reopened here, never supplied by serialized test data.
 pub async fn run_owner_scenario(
@@ -71,10 +209,8 @@ pub async fn run_owner_scenario(
     preparation: &CommandId,
     fresh: Option<&CommandId>,
     scenario: &str,
-    external_files: &[PathBuf],
 ) {
     let configuration = Configuration {
-        backtest_root: config.user_data.join("backtest"),
         research_root: config.user_data.join("research"),
         runtime_root: config.user_data.join("runtime"),
         algorithms_root: config.algorithms.clone(),
@@ -99,32 +235,47 @@ pub async fn run_owner_scenario(
             .query(preparation, "local-developer")
             .await
             .unwrap();
-            Backtests::new(held.as_mut().unwrap(), &namespace)
+            let run = Backtests::new(held.as_mut().unwrap(), &namespace)
                 .load(&original.request.reserved_run_id())
                 .await
-                .unwrap()
+                .unwrap();
+            assert_eq!(
+                run.resolution()["runtime_work_binding"]["reason"],
+                original.request.future_command()
+            );
+            run
         };
-        let context = backtest_evidence::read_context(
+        let denied = crate::persistence::backtest_run::read_product_snapshot(
             connection.client_mut().await.unwrap(),
             &namespace,
-            &configuration.research_root,
-            &configuration.runtime_root,
             run.run_id(),
-            Some(run.owner()),
+            "another-backtest-owner",
+        ).await;
+        assert!(matches!(denied, Err("BACKTEST_RUN_NOT_FOUND")));
+        worker::recover_published(
+            connection,
+            writer.clone(),
+            crate::workers::source_sessions::SourceSessions::new(|| async {
+                Err(crate::application::source_access::Error::ProofUnavailable)
+            }),
+            Arc::new(crate::persistence::market_data::ClickHouse::new(config.clickhouse).unwrap()),
+            configuration,
+            run,
+            clock,
         )
-        .await
-        .unwrap();
-        assert_eq!(context.original_operation().command, *preparation);
-        context.verify_cut().unwrap();
-        drop(context);
-        worker::recover_published(connection, writer.clone(), configuration, run, clock).await;
+        .await;
         writer.lock().await.take().unwrap().close().await.unwrap();
         return;
     }
+    let fault_paths = (scenario == "resolve-unknown-commits")
+        .then(|| (config.user_data.clone(), config.schema.clone()));
     let listener = tokio::net::TcpListener::bind(config.listen).await.unwrap();
     let (stop, shutdown) = tokio::sync::watch::channel(false);
+    let retired_store = config.user_data.join("backtest");
+    assert!(!retired_store.exists());
     let running = Running::open(config, &shutdown).await.unwrap();
-    let host = &running.host;
+    assert!(!retired_store.exists());
+    let host = &Arc::clone(&running.host);
     {
         let mut held = host.writer.lock().await;
         let pid: i32 = held
@@ -139,6 +290,39 @@ pub async fn run_owner_scenario(
             .get(0);
         println!("BACKTEST_OWNER_PID {pid}");
         std::io::Write::flush(&mut std::io::stdout()).unwrap();
+    }
+    if scenario == "read-publication-withdrawal" {
+        let original = host.preparation_query(preparation, "local-developer").await.unwrap();
+        assert_eq!(original.state, State::Ready);
+        let run = original.request.reserved_run_id();
+        crate::security::ingress::assert_backtest_artifact_withdrawal(
+            &running.ingress,
+            listener.local_addr().unwrap(),
+            &run,
+        )
+        .await;
+        stop.send_replace(true);
+        running.serve(listener, shutdown).await.unwrap();
+        assert!(host.writer.lock().await.is_none());
+        println!("BACKTEST_WITHDRAWAL_FENCED {run}");
+        return;
+    }
+    if matches!(
+        scenario,
+        "worker-exit"
+            | "worker-exit-before-claim"
+            | "worker-exit-during-execution"
+            | "worker-exit-after-candidate"
+            | "worker-exit-during-insert"
+            | "recover-cancel"
+            | "missing-program"
+            | "missing-market-seal"
+            | "missing-market-row"
+    ) {
+        let original = host.preparation_query(preparation, "local-developer").await.unwrap();
+        assert_eq!(original.state, State::Ready);
+        interrupt_worker(running, listener, shutdown, &original, scenario).await;
+        return;
     }
     // No Run exists yet. Positively drain original workers before creating it,
     // so only the scenario's concrete Service can claim the new original row.
@@ -204,7 +388,39 @@ pub async fn run_owner_scenario(
         source: &session,
         selection: &selection,
     };
-    if scenario == "windows" {
+    if let Some((user_data, schema)) = fault_paths {
+        let cancel = child_command(preparation, "backtest-cancel-after-final-heartbeat").unwrap();
+        stop.send_replace(true);
+        running.serve(listener, shutdown).await.unwrap();
+        worker::resolve_unknown_commits(
+            crate::bootstrap::workstation_startup::FaultedBacktestOwner {
+                database: &host.database,
+                user_data: &user_data,
+                schema: &schema,
+            },
+            host.worker_sources(),
+            host.clickhouse.clone(),
+            configuration,
+            &run,
+            clock,
+            &permission_context,
+            cancel,
+        ).await;
+        return;
+    }
+    if scenario == "memory-completion" {
+        let mut reader = host.reader.lock().await;
+        producer::memory_completion(
+            reader.as_mut().unwrap(),
+            &run,
+            &original,
+            &configuration,
+            &session,
+            &selection,
+            &host.clickhouse,
+        )
+        .await;
+    } else if scenario == "windows" {
         let fresh = host
             .preparation_query(fresh.unwrap(), human.subject_id().unwrap())
             .await
@@ -214,110 +430,28 @@ pub async fn run_owner_scenario(
             host, &human, &original, &fresh,
         )
         .await;
-    } else if matches!(scenario, "full-interval-evidence" | "pause-cancel") {
-        let worker_id = child_command(preparation, "technical-worker").unwrap();
-        let attempt = child_command(preparation, "technical-attempt").unwrap();
-        let mut reader = host.reader.lock().await;
-        let client = reader.as_mut().unwrap();
-        let runtime = configuration
-            .backtest_root
-            .join("runtime")
-            .join(run.run_id());
-        assert!(!runtime.exists());
-        // Resume on a fresh Run cannot create its journal or change its state.
-        producer::refuse_mode(client, &run, &original, &configuration, StartMode::Resume).await;
-        assert!(!runtime.exists());
-        let joined = if scenario == "full-interval-evidence" {
-            producer::whole_interval(client, &run, &original, &configuration).await
-        } else {
-            producer::pause_after_open_then_cancel(client, &run, &original, &configuration).await
-        };
-        let context = backtest_evidence::read_context(
-            client,
-            run.namespace(),
-            &configuration.research_root,
-            &configuration.runtime_root,
-            run.run_id(),
-            Some(run.owner()),
-        )
-        .await
-        .unwrap();
-        let store = backtest_evidence::Store::open(
-            &configuration.backtest_root,
-            &configuration.research_root,
-            &configuration.runtime_root,
-        )
-        .unwrap();
-        let proof = backtest_evidence::owner_tests::commit_and_reopen(
-            &store,
-            &context,
-            joined,
-            &configuration.backtest_root,
-        );
-        let proof = VerifiedCompletion::from_proof(proof).unwrap();
-        // Producer-only scenarios prove Work/Joined/publication separately from
-        // scheduler claims. Acquire the actual SQL Claim immediately before its
-        // terminal commit; long publication corruption checks cannot expire it.
-        let mut claim = {
-            let mut held = host.writer.lock().await;
-            Backtests::new(held.as_mut().unwrap(), run.namespace())
-                .claim(&run, worker_id.value(), attempt.value(), now().unwrap())
-                .await
-                .unwrap()
-                .unwrap()
-        };
-        {
-            let mut held = host.writer.lock().await;
-            let mut backtests = Backtests::new(held.as_mut().unwrap(), run.namespace());
-            if scenario == "pause-cancel" {
-                backtests
-                    .request_cancel(
-                        &CancelRequest::new(
-                            child_command(preparation, "technical-cancel").unwrap(),
-                            run.run_id(),
-                        )
-                        .unwrap(),
-                        &permission_context,
-                        now().unwrap(),
-                    )
-                    .await
-                    .unwrap();
-                backtests
-                    .cancel(&mut claim, &proof, now().unwrap())
-                    .await
-                    .unwrap();
-            } else {
-                backtests
-                    .complete(&mut claim, &proof, now().unwrap())
-                    .await
-                    .unwrap();
-            }
-        }
-        drop(context);
-        let context = backtest_evidence::read_context(
-            client,
-            run.namespace(),
-            &configuration.research_root,
-            &configuration.runtime_root,
-            run.run_id(),
-            Some(run.owner()),
-        )
-        .await
-        .unwrap();
-        assert!(!external_files.is_empty());
-        backtest_evidence::owner_tests::terminal_missing_and_external_tamper(
-            &store,
-            &context,
-            &configuration.backtest_root,
-            external_files,
-        );
-        let journal = runtime.join("runtime.sqlite3");
-        let before = std::fs::read(&journal).unwrap();
-        producer::refuse_mode(client, &run, &original, &configuration, StartMode::Create).await;
-        assert_eq!(std::fs::read(&journal).unwrap(), before);
     } else {
         let namespace = run.namespace();
-        let connection = {
+        let following = if matches!(scenario, "expiry-before-finalization" | "expiry-before-recovery-publication" | "lost-guard") {
+            let prepared = host
+                .preparation_query(fresh.unwrap(), human.subject_id().unwrap())
+                .await
+                .unwrap();
+            assert_eq!(prepared.state, State::Ready);
+            let following = create_original(host, &human, &prepared).await;
+            let mut reader = host.reader.lock().await;
+            let order = crate::persistence::backtest_run::pending_native_run_ids(
+                reader.as_mut().unwrap(),
+                namespace,
+            )
+            .await
+            .unwrap();
+            assert_eq!(order, [run.run_id(), following.run_id()]);
+            Some(following)
+        } else {
+            None
+        };
+        let connect = || async {
             let mut held = host.writer.lock().await;
             let pid = held
                 .as_mut()
@@ -334,70 +468,80 @@ pub async fn run_owner_scenario(
                 .await
                 .unwrap()
         };
+        let connection = connect().await;
         let cancel = child_command(preparation, "technical-cancel").unwrap();
         match scenario {
+            "finite-publication" => {
+                worker::finite_publication(
+                    connection,
+                    host.writer.clone(),
+                    host.worker_sources(),
+                    host.clickhouse.clone(),
+                    configuration,
+                    run.clone(),
+                    clock,
+                )
+                .await;
+            }
             "queued-cancel" => {
+                worker::request_and_replay_cancel(&host.writer, &run, &permission_context, cancel, now().unwrap()).await;
                 let cancelled = {
                     let mut held = host.writer.lock().await;
-                    let mut backtests = Backtests::new(held.as_mut().unwrap(), namespace);
-                    backtests
-                        .request_cancel(
-                            &CancelRequest::new(cancel, run.run_id()).unwrap(),
-                            &permission_context,
-                            now().unwrap(),
-                        )
-                        .await
-                        .unwrap();
-                    backtests.load(run.run_id()).await.unwrap()
+                    Backtests::new(held.as_mut().unwrap(), namespace).load(run.run_id()).await.unwrap()
                 };
                 worker::queued_cancel(
                     connection,
                     host.writer.clone(),
+                    host.worker_sources(),
+                    host.clickhouse.clone(),
                     configuration,
                     cancelled,
                     clock,
                 )
                 .await;
             }
-            "shutdown-resume" => {
-                worker::shutdown_pause(
-                    connection,
-                    host.writer.clone(),
-                    configuration.clone(),
-                    run.clone(),
-                    clock,
-                )
-                .await;
-                let connection = {
-                    let mut held = host.writer.lock().await;
-                    let pid = held
-                        .as_mut()
-                        .unwrap()
-                        .client_mut()
-                        .await
-                        .unwrap()
-                        .query_one("SELECT pg_catalog.pg_backend_pid()", &[])
-                        .await
-                        .unwrap()
-                        .get(0);
-                    host.database
-                        .research_connection(namespace, pid, host.writer_live.clone())
-                        .await
-                        .unwrap()
-                };
-                worker::resume_expired(
-                    connection,
-                    host.writer.clone(),
-                    configuration,
-                    run.clone(),
-                    clock,
-                )
-                .await;
+            "shutdown-resume" | "attempts-exhausted" => {
+                let expected_attempts = if scenario == "attempts-exhausted" { 3 } else { 1 };
+                let mut connection = connection;
+                for attempt in 1..=expected_attempts {
+                    worker::shutdown_pause(
+                        connection,
+                        host.writer.clone(),
+                        host.worker_sources(),
+                        host.clickhouse.clone(),
+                        configuration.clone(),
+                        &run,
+                        attempt,
+                        clock,
+                    )
+                    .await;
+                    if attempt == expected_attempts {
+                        break;
+                    }
+                    worker::expire_original(run.run_id()).await;
+                    connection = connect().await;
+                }
+                if scenario == "attempts-exhausted" {
+                    worker::expire_original(run.run_id()).await;
+                } else {
+                    worker::resume_expired(
+                        connect().await,
+                        host.writer.clone(),
+                        host.worker_sources(),
+                        host.clickhouse.clone(),
+                        configuration,
+                        run,
+                        clock,
+                    )
+                    .await;
+                }
             }
             "running-cancel" => {
                 worker::cancel_running(
                     connection,
                     host.writer.clone(),
+                    host.worker_sources(),
+                    host.clickhouse.clone(),
                     configuration,
                     run.clone(),
                     &permission_context,
@@ -410,19 +554,38 @@ pub async fn run_owner_scenario(
                 worker::crash_after_publication(
                     connection,
                     host.writer.clone(),
+                    host.worker_sources(),
+                    host.clickhouse.clone(),
                     configuration,
                     run.clone(),
                     clock,
                 )
                 .await
             }
+            "expiry-before-finalization" | "expiry-before-recovery-publication" => {
+                worker::expiry_before_finalization(
+                    [connection, connect().await],
+                    host.writer.clone(),
+                    host.worker_sources(),
+                    host.clickhouse.clone(),
+                    configuration,
+                    &run,
+                    following.as_ref().unwrap(),
+                    scenario == "expiry-before-finalization",
+                    clock,
+                )
+                .await;
+            }
             "lost-guard" => {
                 let mut inspector = host.reader.lock().await;
                 worker::lost_original_guard(
                     connection,
                     host.writer.clone(),
+                    host.worker_sources(),
+                    host.clickhouse.clone(),
                     configuration,
                     run.clone(),
+                    following.as_ref().unwrap(),
                     inspector.as_mut().unwrap(),
                     clock,
                 )
@@ -432,6 +595,8 @@ pub async fn run_owner_scenario(
                 worker::cleanup_busy_then_stop(
                     connection,
                     host.writer.clone(),
+                    host.worker_sources(),
+                    host.clickhouse.clone(),
                     configuration,
                     run.clone(),
                     clock,

@@ -16,6 +16,10 @@
 
 ## 公开接口
 
+[`WorkingState`、`WorkingStep`、`CompletedWorkingState`](src/working.rs)提供未发布的常驻经济 owner。它调用原 `apply_operation`，保留订单、准入、费用、资金、仓位及结算判断；ADMIT 的两类正常业务拒绝由实际 Risk／Account 的只读预检查确定，再推进独占 owner；不复制整套 Components，其他异常使对象失效。它不返回 Prepared／Store Ready 或外部提交许可。普通 schema3 原始经济事实仍要求原始凭据，不能因使用内存而接受未证明的 MARK／FUNDING／成交。
+
+`finish` 核对实际输入前缀、费用重放及 Account／Ledger 对账，复用完整 transcript 组装，返回字段私有的结束对象；不证明市场输入耗尽、子进程回收或正式结果已发布。收尾可以生成一次完整状态，逐步推进不生成全组件历史投影。
+
 [`ProjectionData::evaluate_funding`](src/projection_data.rs) 按输入的市场切片、来源步和逐笔应用原文计算 FundingDraft，保留首次闭合的原步。草稿仅公开规范数据。通用 Store 的新提交、已有行恢复、投影安装和 Ready 查询在遇到该操作时要求原 Run 的具体写者。新 ADMIT 要晚于本 Run 已结算的经济边界。`FILL` 将完整 Broker 原文摘要、经济时间和金额决定字段交给 Position，两个经济投影核对同一笔已应用成交。
 
 配置 3 还核对原编译正文的完整通用经济投影：产品/标的、LINEAR、账户模式、结算币、乘数、保证金曲线和完整 Funding schedule，不能保留原策略身份却替换经济参数。Funding 的当前成交 lineage 与经济边界数量分开证明；恢复在旧输入对应的真实连续交易前缀重新签发，不使用最终仓位替代旧前缀。
@@ -32,16 +36,26 @@ Components 接收配置和交易输入，Prepared 表示准备结果；Store、C
 
 在被动行上调用 `ProjectionData::transcript` 得到 [TranscriptDraft](src/backtest_result.rs)。它提供来源、统计、明细和诊断，可用 `record()` 取得副本或用 `into_record()` 取走数据。封存、结果指纹和最终身份由持有实际 Ready 来源的结果入口生成。
 
+[`verify_finite_backtest_result`](src/finite_result.rs) 接收 `WorkingState::finish` 留存的经济正文与 Account checkpoint，以及受信的冻结配置、Kernel 工件指纹、输入指纹和起止纳秒。它校验有序执行输入和原事实关联，核对永续 Broker、MARK、FUNDING 正文与冻结来源绑定。永续订单核对准入时可见的 MARK 和 Margin 前缀，再用生产 Order 命令重建各输入前缀并比对完整终态快照。永续或配置风控规则的作业复用生产操作处理程序检查截至最后一次准入的执行前缀，核对当时的维护状态、资金与风控限制。实际原件凭据在 `WorkingState::check_original_input` 中校验。校验复用 Position、Margin、Settlement 和 StrategyLedger 的所属计算，核对 Account 命令、逐点权益、各 cluster 时间线和对账。`VerifiedFiniteBacktestResult` 通过 `equity_points()` 提供逐 Account 点的执行前缀、账户序号、NAV、高水位和回撤，通过 `closed_cycles()` 提供各 cluster 的平仓周期数。缺失字段、非规范金额或关联不符时返回 `Error`。调用方负责验证行情耗尽、Runtime 和 Strategy 的完成证据与正式发布。
+
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
 
 ```rust
 pub use components::Components;
+pub use planning::AdmissionPreview;
 pub use model::{Error, Prepared, digest};
 pub use coordinator::{CommitIntent, Record, Store, coordinate, pending_events, recover};
 pub use reconciliation::LedgerReconciliation;
 pub use performance::RuntimePerformance;
 pub use backtest_result::{BacktestResult, TranscriptDraft};
 ```
+
+`AdmissionPreview::default()` 创建单次只读验证专用的空复算上下文；`check(configuration, checkpoint, input)`
+对完整 checkpoint 冷恢复一次，内容完全相同时复用该组件数据。每个输入从独立候选重新检查 scope、
+序号、别名、风险和账户容量，`Some(Error)` 仅表示重新推导的业务拒绝，`None` 不证明原始 ADMIT 事实存在。
+完整 checkpoint 改变时先丢弃旧基线，恢复错误不回退。该上下文不提供可变组件、Store、Ready、派发或提交权限，
+也不验证调用方的 Run/原始来源归属；调用方须逐次证明实际来源，并把上下文限制在同一次来源验证内。
+原 `Components::admission_rejection` 每次仍新建上下文并完整冷恢复，任意 checkpoint 的恢复契约不变。
 
 ## 状态与生命周期
 
@@ -65,3 +79,5 @@ cargo doc -p onlyalpha-execution --no-deps
 一级目录仅允许 `src/`、`tests/`、`examples/`、`benches/`，按需创建。编译资源归入 `src/`，专用测试数据随测试组织，共享参考数据使用根目录 `test-data/`。
 
 显式 BACKTEST 配置 3 的 margin_observation_capacity 默认 512，可冻结为 1 至 512 的整数。达到上界后拒绝新风险；已接纳委托的成交、终态及随后仍发生的标记价、资金费继续由各自所有者记账。账户维护额缺证可从 maintenance_status 以及 last_confirmed_maintenance 查询。
+
+性能基准入口与口径见 [BENCHMARK.md](BENCHMARK.md)。

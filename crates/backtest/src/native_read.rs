@@ -13,8 +13,15 @@ struct OriginalExecution<'a> {
     genesis: Vec<Value>,
     cursor: usize,
     end: usize,
+    admission: onlyalpha_execution::AdmissionPreview,
 }
 impl OriginalExecution<'_> {
+    fn checkpoint(&self) -> Result<Value, Error> {
+        Ok(
+            json!({"schema_version":1,"config":self.configuration,"sequence":self.cursor,"pending":null,"components":self.components()?}),
+        )
+    }
+
     fn body_components(&self) -> Result<Vec<Value>, Error> {
         if self.cursor == 0 {
             return (0..6)
@@ -165,11 +172,6 @@ impl NativeExecution for OriginalExecution<'_> {
         view["active_order_ids"] = json!(active);
         Ok(view)
     }
-    fn checkpoint(&self) -> Result<Value, Error> {
-        Ok(
-            json!({"schema_version":1,"config":self.configuration,"sequence":self.cursor,"pending":null,"components":self.components()?}),
-        )
-    }
     fn order(&self, cluster: &str, order: &str) -> Result<Value, Error> {
         Ok(self.typed_order(cluster, order)?.to_record())
     }
@@ -190,13 +192,17 @@ impl NativeExecution for OriginalExecution<'_> {
                 return Err(err("TERMINAL_NATIVE_INPUT"));
             }
             self.cursor += 1;
+            self.admission = Default::default();
             return Ok(());
         }
-        if input["op"] == "ADMIT"
-            && let Some(rejection) =
-                Components::admission_rejection(self.configuration, &self.checkpoint()?, input)?
-        {
-            return Err(rejection);
+        if input["op"] == "ADMIT" {
+            let checkpoint = self.checkpoint()?;
+            if let Some(rejection) = self
+                .admission
+                .check(self.configuration, &checkpoint, input)?
+            {
+                return Err(rejection);
+            }
         }
         Err(err("TERMINAL_NATIVE_INPUT_MISSING"))
     }
@@ -296,6 +302,7 @@ pub(crate) fn verify(
         genesis,
         cursor: 0,
         end: 0,
+        admission: Default::default(),
     };
     let mut previous = binding["initial_state"].clone();
     for reference in source.refs() {

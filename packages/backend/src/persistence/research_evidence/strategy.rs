@@ -157,6 +157,24 @@ fn output_index<'a>(
     backend: &str,
     count: usize,
 ) -> Result<BTreeMap<String, &'a Value>> {
+    let index = output_columns(values, graph, count)?;
+    for node in graph.ordered_nodes() {
+        let id = node.fingerprint();
+        let value = index.get(&id).ok_or(INVALID)?;
+        if value["implementation_fingerprint"]
+            != implementation(prepared, &node.to_record(), &id, backend)?["implementation_fingerprint"]
+        {
+            return Err(INVALID);
+        }
+    }
+    Ok(index)
+}
+/// 计算图逐节点类型化输出列的结构核对：节点集合与图一致、端口数与定义一致、每列长度等于轴长。
+fn output_columns<'a>(
+    values: &'a Value,
+    graph: &Graph,
+    count: usize,
+) -> Result<BTreeMap<String, &'a Value>> {
     let mut index = BTreeMap::new();
     for value in rows(values)? {
         exact(
@@ -172,14 +190,8 @@ fn output_index<'a>(
         return Err(INVALID);
     }
     for node in graph.ordered_nodes() {
-        let id = node.fingerprint();
         let record = node.to_record();
-        let value = index.get(&id).ok_or(INVALID)?;
-        if value["implementation_fingerprint"]
-            != implementation(prepared, &record, &id, backend)?["implementation_fingerprint"]
-        {
-            return Err(INVALID);
-        }
+        let value = index.get(&node.fingerprint()).ok_or(INVALID)?;
         let columns = value["values"].as_object().ok_or(INVALID)?;
         if columns.len() != rows(&record["outputs"])?.len()
             || columns
@@ -191,11 +203,149 @@ fn output_index<'a>(
     }
     Ok(index)
 }
+/// 计算结果身份：逻辑计算身份 + 介质无关的分区内容身份（不含路径与编码字节）。
+/// 返回 (分区内容身份, 计算结果身份)。
+fn calculation_result(logical: &str, partitions: &[Value]) -> Result<(String, String)> {
+    let content = columnar::calculation_content(partitions)?;
+    let result = hash(
+        &json!({"schema_version":1,"calculation_fingerprint":logical,"result_content_fingerprint":content}),
+    )?;
+    Ok((content, result))
+}
+/// 统计结果身份：逻辑统计身份 + 实际统计行正文。返回 (内容身份, 结果身份)。
+fn statistics_result(logical: &str, rows: &Value) -> Result<(String, String)> {
+    let content = hash(&json!({"schema_version":1,"rows":rows}))?;
+    let result = hash(
+        &json!({"schema_version":1,"statistics_fingerprint":logical,"result_content_fingerprint":content}),
+    )?;
+    Ok((content, result))
+}
+/// 研究结果科学身份：结果计划 + 按逻辑身份排序的统计与计算结果引用。
+/// 返回 (计划身份, 内容身份, 科学结果身份)。文件证据与 PG 发布只经此处定义。
+fn research_result(
+    plan: &Value,
+    statistics: &[Value],
+    calculations: &[Value],
+) -> Result<(String, String, String)> {
+    let content = hash(
+        &json!({"schema_version":2,"statistics_results":statistics,"calculation_results":calculations}),
+    )?;
+    let plan_fingerprint = hash(plan)?;
+    let result = hash(
+        &json!({"schema_version":2,"research_result_plan_fingerprint":plan_fingerprint,"research_result_content_fingerprint":content}),
+    )?;
+    Ok((plan_fingerprint, content, result))
+}
+/// PG 正式发布的科学结果身份（Constitution §4.1）：在发布成员的同一表示——逐轴计算行
+/// `(轴键, {"decision","targets"})` 与统计正文 `(统计身份, 统计正文)`——上复用文件证据的
+/// 同一组身份公式。生产方与读取方调用同一函数，同一语义在两条轨道收敛到同一
+/// `research_result_fingerprint`；不读取文件，不依赖路径或编码字节。
+pub(crate) fn published_result_fingerprint(
+    spec: &RunSpecification,
+    calculations: &[(Value, Value)],
+    statistics: &[(Value, Value)],
+) -> Result<String> {
+    let (instrument, axis) = published_axis(calculations)?;
+    let mut calcs = Vec::new();
+    for (name, graph) in spec.calculation_graphs() {
+        let role = if name == "decision" { "decision" } else { "targets" };
+        let columns = published_columns(calculations, role)?;
+        let index = output_columns(&columns, graph, axis.len())?;
+        let mut partitions = Vec::new();
+        for node in graph.ordered_nodes() {
+            let id = node.fingerprint();
+            let output = &index.get(&id).ok_or(INVALID)?["values"];
+            let (schema, rows) =
+                columnar::calculation_rows(&axis, output, &node.to_record()["outputs"])?;
+            let schema = columnar::schema_payload(&schema)?;
+            partitions.push(json!({"node_fingerprint":id,"instrument_id":instrument,"row_count":rows.len(),
+                "arrow_schema":schema,"semantic_fingerprint":columnar::partition(&id,&instrument,&schema,&rows)?}));
+        }
+        let logical = spec.calculation_identity(name)?;
+        let (_, result) = calculation_result(&logical, &partitions)?;
+        calcs.push(json!({"calculation_fingerprint":logical,"calculation_result_fingerprint":result}));
+    }
+    let plans = spec.statistics_intents()?;
+    if statistics.len() != plans.len() {
+        return Err(INVALID);
+    }
+    let mut stats = Vec::new();
+    for plan in plans {
+        let logical = hash(&plan)?;
+        let mut matches = statistics.iter().filter(|(key, _)| *key == logical);
+        let (_, body) = matches.next().ok_or(INVALID)?;
+        if matches.next().is_some() || body["statistics_fingerprint"] != logical || body["plan"] != plan {
+            return Err(INVALID);
+        }
+        exact(body, &["statistics_fingerprint", "plan", "rows"])?;
+        rows(&body["rows"])?;
+        let (_, result) = statistics_result(&logical, &body["rows"])?;
+        stats.push(json!({"statistics_fingerprint":logical,"statistics_result_fingerprint":result}));
+    }
+    let by = |key: &'static str| move |v: &Value| v[key].as_str().unwrap_or("").to_owned();
+    stats.sort_by_key(by("statistics_fingerprint"));
+    calcs.sort_by_key(by("calculation_fingerprint"));
+    research_result(&spec.result_plan()?, &stats, &calcs).map(|(_, _, result)| result)
+}
+/// 发布轴键 `[instrument, bar_start, bar_end, ts_event, revision]`：单一标的，取事件时刻为计算轴。
+fn published_axis(calculations: &[(Value, Value)]) -> Result<(String, Vec<Value>)> {
+    let mut instrument: Option<String> = None;
+    let mut axis = Vec::with_capacity(calculations.len());
+    for (key, _) in calculations {
+        let key = rows(key)?;
+        let id = key.first().and_then(Value::as_str).ok_or(INVALID)?;
+        if key.len() != 5 || *instrument.get_or_insert_with(|| id.to_owned()) != id {
+            return Err(INVALID);
+        }
+        axis.push(key[3].clone());
+    }
+    Ok((instrument.ok_or(INVALID)?, axis))
+}
+/// 逐轴计算行转置为按节点的类型化输出列；每行须含同一节点集合、实现身份与端口集合。
+fn published_columns(calculations: &[(Value, Value)], role: &str) -> Result<Value> {
+    let mut nodes: BTreeMap<String, (Value, serde_json::Map<String, Value>)> = BTreeMap::new();
+    for (index, (_, row)) in calculations.iter().enumerate() {
+        exact(row, &["decision", "targets"])?;
+        let entries = rows(&row[role])?;
+        if index > 0 && entries.len() != nodes.len() {
+            return Err(INVALID);
+        }
+        for entry in entries {
+            exact(entry, &["node_fingerprint", "implementation_fingerprint", "outputs"])?;
+            let id = text(entry, "node_fingerprint")?;
+            let outputs = entry["outputs"].as_object().ok_or(INVALID)?;
+            if index == 0 {
+                let columns = outputs.keys().map(|k| (k.clone(), json!([]))).collect();
+                let first = (entry["implementation_fingerprint"].clone(), columns);
+                if nodes.insert(id.to_owned(), first).is_some() {
+                    return Err(INVALID);
+                }
+            }
+            let (implementation, columns) = nodes.get_mut(id).ok_or(INVALID)?;
+            if *implementation != entry["implementation_fingerprint"] || columns.len() != outputs.len() {
+                return Err(INVALID);
+            }
+            for (port, value) in outputs {
+                let column = columns.get_mut(port).and_then(Value::as_array_mut).ok_or(INVALID)?;
+                column.push(value.clone());
+            }
+        }
+    }
+    Ok(Value::Array(
+        nodes
+            .into_iter()
+            .map(|(id, (implementation, values))| {
+                json!({"node_fingerprint":id,"implementation_fingerprint":implementation,"values":values})
+            })
+            .collect(),
+    ))
+}
 fn validate_case(
     spec: &RunSpecification,
     prepared: &Value,
     value: &Value,
     axis: &[Value],
+    include_targets: bool,
 ) -> Result<()> {
     let graph = spec.calculation_graph("decision")?;
     let r = output_index(
@@ -212,13 +362,17 @@ fn validate_case(
         "TRADING",
         axis.len(),
     )?;
-    let _targets = output_index(
-        &value["target_outputs"],
-        spec.target_graph(),
-        prepared,
-        "RESEARCH",
-        axis.len(),
-    )?;
+    if include_targets {
+        output_index(
+            &value["target_outputs"],
+            spec.target_graph(),
+            prepared,
+            "RESEARCH",
+            axis.len(),
+        )?;
+    } else if !rows(&value["target_outputs"])?.is_empty() {
+        return Err(INVALID);
+    }
     if value["axis"] != json!(axis) || r.keys().collect::<Vec<_>>() != t.keys().collect::<Vec<_>>()
     {
         return Err(INVALID);
@@ -268,6 +422,13 @@ fn validate_case(
     }
     Ok(())
 }
+/// 交易准入证据的语义身份：按节点顺序排列的等价证据指纹稳定序列的哈希。
+/// 文件发布与完整 PG 发布共用同一实现，两条路径不得各自另立定义。
+pub(crate) fn trading_admission_identity(evidence_fingerprints: &[String]) -> Result<String> {
+    hash(
+        &json!({"domain":"onlyalpha.strategy.trading-admission-evidence","schema_version":1,"evidence_fingerprints":evidence_fingerprints}),
+    )
+}
 fn science(
     spec: &RunSpecification,
     prepared: &Value,
@@ -275,27 +436,38 @@ fn science(
     dataset: &super::super::research_dataset::VerifiedDataset,
     at: OnlyUtcDateTime,
 ) -> Result<Science> {
-    exact(
-        observation,
-        &[
-            "schema_version",
-            "contract",
-            "run_specification_fingerprint",
-            "dataset_snapshot_fingerprint",
-            "input_window",
-            "observation_count",
-            "axis",
-            "research_outputs",
-            "streaming_outputs",
-            "target_outputs",
-            "decisions",
-            "restoration",
-            "producer",
-            "graph_cases",
-            "node_profiles",
-            "statistics",
-        ],
-    )?;
+    let certified = prepared.get("build_certification").is_some();
+    let mut fields = vec![
+        "schema_version",
+        "contract",
+        "run_specification_fingerprint",
+        "dataset_snapshot_fingerprint",
+        "input_window",
+        "observation_count",
+        "axis",
+        "research_outputs",
+        "streaming_outputs",
+        "target_outputs",
+        "decisions",
+        "restoration",
+        "producer",
+        "graph_cases",
+        "node_profiles",
+        "statistics",
+    ];
+    if certified {
+        fields.push("build_certification");
+    }
+    exact(observation, &fields)?;
+    if certified {
+        crate::application::calculation_build::verify_reference(
+            prepared,
+            spec.record(),
+            dataset.dataset().definition(),
+            &dataset.manifest()["provenance"][0]["source_metadata"]["construction_recipe"],
+            observation,
+        )?;
+    }
     let axis = dataset
         .dataset()
         .rows()
@@ -335,7 +507,7 @@ fn science(
     if observation["observation_count"] != count {
         return Err(INVALID);
     }
-    validate_case(spec, prepared, observation, &axis)?;
+    validate_case(spec, prepared, observation, &axis, true)?;
     exact(
         &observation["restoration"],
         &[
@@ -367,16 +539,17 @@ fn science(
         }
         let input = rows(&case["rows"])?;
         let case_axis = input.iter().map(|r| r["at_ns"].clone()).collect::<Vec<_>>();
-        if input.len()
-            < prepared["input_window"]["warmup_bars"]
-                .as_u64()
-                .ok_or(INVALID)? as usize
-                + 2
+        let proof_window = if certified {
+            &prepared["build_certification"]["context"]["window"]
+        } else {
+            &prepared["input_window"]
+        };
+        if input.len() < proof_window["warmup_bars"].as_u64().ok_or(INVALID)? as usize + 2
             || input.len() > 8192
         {
             return Err(INVALID);
         }
-        validate_case(spec, prepared, case, &case_axis)?;
+        validate_case(spec, prepared, case, &case_axis, !certified)?;
     }
     let instrument = dataset.dataset().definition()["instruments"][0]
         .as_str()
@@ -428,10 +601,7 @@ fn science(
             files.insert(relative, raw);
             bindings.push(json!({"node_fingerprint":id,"research_implementation_fingerprint":implementation(prepared,&record,&id,"RESEARCH")?["implementation_fingerprint"]}));
         }
-        let content = columnar::calculation_content(&partitions)?;
-        let result = hash(
-            &json!({"schema_version":1,"calculation_fingerprint":logical,"result_content_fingerprint":content}),
-        )?;
+        let (content, result) = calculation_result(&logical, &partitions)?;
         let manifest = json!({"schema_version":1,"calculation_fingerprint":logical,"dataset_snapshot_fingerprint":dataset.dataset().snapshot_fingerprint(),
             "calculation_graph_fingerprint":graph.fingerprint(),"calculation_graph":graph.to_record(),"result_content_fingerprint":content,
             "calculation_result_fingerprint":result,"partition_count":partitions.len(),"total_row_count":axis.len()*partitions.len(),"partitions":partitions,"created_at":audit(at)});
@@ -500,10 +670,7 @@ fn science(
         if actual["rows"] != json!(values) {
             return Err(INVALID);
         }
-        let content = hash(&json!({"schema_version":1,"rows":values}))?;
-        let result = hash(
-            &json!({"schema_version":1,"statistics_fingerprint":logical,"result_content_fingerprint":content}),
-        )?;
+        let (content, result) = statistics_result(&logical, &json!(values))?;
         let (schema, raw) = columnar::write_statistics(&values)?;
         total = total
             .checked_add(raw.len())
@@ -528,27 +695,34 @@ fn science(
     statistics.sort_by(|a, b| a.logical.cmp(&b.logical));
     let stats=statistics.iter().map(|s|json!({"statistics_fingerprint":s.logical,"statistics_result_fingerprint":s.manifest["statistics_result_fingerprint"]})).collect::<Vec<_>>();
     let calcs=calculations.iter().map(|c|json!({"calculation_fingerprint":c.logical,"calculation_result_fingerprint":c.manifest["calculation_result_fingerprint"]})).collect::<Vec<_>>();
-    let content =
-        hash(&json!({"schema_version":2,"statistics_results":stats,"calculation_results":calcs}))?;
     let plan = spec.result_plan()?;
-    let plan_fp = hash(&plan)?;
-    let result_fp = hash(
-        &json!({"schema_version":2,"research_result_plan_fingerprint":plan_fp,"research_result_content_fingerprint":content}),
-    )?;
+    let (plan_fp, content, result_fp) = research_result(&plan, &stats, &calcs)?;
     let result = json!({"schema_version":2,"plan":plan,"research_result_plan_fingerprint":plan_fp,"dataset_snapshot_fingerprint":dataset.dataset().snapshot_fingerprint(),
         "statistics_results":stats,"research_result_content_fingerprint":content,"research_result_fingerprint":result_fp,"created_at":audit(at),"calculation_results":calcs});
-    let equivalence = equivalence::derive(
-        spec.calculation_graph("decision")?,
-        &spec.record()["implementation_bindings"],
-        observation,
-    )?;
+    let equivalence = if certified {
+        equivalence::derive_certified(
+            spec.calculation_graph("decision")?,
+            &spec.record()["implementation_bindings"],
+            observation,
+            &prepared["build_certification"],
+        )?
+    } else {
+        equivalence::derive(
+            spec.calculation_graph("decision")?,
+            &spec.record()["implementation_bindings"],
+            observation,
+        )?
+    };
     let ids = equivalence
         .iter()
-        .map(|v| v["evidence_fingerprint"].clone())
-        .collect::<Vec<_>>();
-    let admission = hash(
-        &json!({"domain":"onlyalpha.strategy.trading-admission-evidence","schema_version":1,"evidence_fingerprints":ids}),
-    )?;
+        .map(|v| {
+            v["evidence_fingerprint"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or(INVALID)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let admission = trading_admission_identity(&ids)?;
     let mut source = json!({"schema_version":1,"universe":{"kind":"SINGLE_INSTRUMENT","instruments":dataset.dataset().definition()["instruments"]},
         "market_input_contract":{"schema_version":2,"data_kind":"BAR","bar_semantic":dataset.dataset().definition()["bar_semantic"],
             "construction_requirement":{"schema_version":1,"kind":"EXACT_RECIPE","policy":null,"recipe":dataset.manifest()["provenance"][0]["source_metadata"]["construction_recipe"]},"observation_admission":"FINAL_ONLY"},
@@ -845,6 +1019,15 @@ fn retained_runtime(
     {
         return Err(INVALID);
     }
+    // The opaque original Run's loader verified the exact PG programs,
+    // parameters, certificates and reconstructed manifests. Runtime owns the
+    // generic image, not a per-private-factor registration.
+    let factor_values = crate::application::factor_build::retained_factor_manifest_values(
+        &run.prepared_inputs,
+        text(&proof["native_descriptor"]["image"], "artifact")?,
+        text(&proof, "algorithm_artifact")?,
+    )
+    .map_err(|_| INVALID)?;
     let allowed = rows(&held.manifest()["implementations"])?;
     let native = rows(&proof["native_descriptor"]["implementations"])?;
     for (_, graph) in spec.calculation_graphs() {
@@ -858,7 +1041,10 @@ fn retained_runtime(
             };
             for backend in backends {
                 let body = implementation(prepared, &definition, &id, backend)?;
-                if !allowed.contains(&implementation_projection(body)?) {
+                let factor = definition["kind"] == "FACTOR"
+                    && factor_values.get(text(body, "implementation_fingerprint")?) == Some(body);
+                if !factor && !allowed.contains(&implementation_projection(body)?) {
+                    eprintln!("[strategy-evidence] invalid line={}", line!());
                     return Err(INVALID);
                 }
                 if definition["kind"] == "PREDICATE"
@@ -1270,9 +1456,10 @@ impl Store {
             freeze_relation_fingerprint: relation_id.into(),
             statistics_result_count: science.statistics.len() as u64,
             calculation_result_count: science.calculations.len() as u64,
-            validated_calculations: Some(report["prepared_inputs"].clone()),
-            source_locks: cut.locks.clone(),
-            strategy_cut: Some(cut.clone()),
+            evidence: super::ResearchCountsEvidence::Files {
+                prepared_inputs: report["prepared_inputs"].clone(),
+                cut: cut.clone(),
+            },
         };
         cut.verify()?;
         sealed.verify_cut()?;

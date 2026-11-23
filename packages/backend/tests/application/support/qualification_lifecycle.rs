@@ -167,6 +167,7 @@ pub(super) async fn run_phase(
     root: &Path,
     phase: &str,
 ) {
+    let mut facts=crate::job_fact_connection::Connection::reader().await.unwrap();
     let (frozen, policies, decisions, counts, policy) =
         setup(session, namespace, human, root).await;
     let request = qualification(&counts);
@@ -325,6 +326,7 @@ pub(super) async fn run_phase(
         assert!(
             strategy_promotion::read_verified_admission(
                 session.client_mut().await.unwrap(),
+                &mut facts.client,
                 namespace,
                 frozen,
                 decision,
@@ -400,6 +402,7 @@ pub(super) async fn run_phase(
     let pin = record.fingerprint().to_owned();
     let admission = strategy_promotion::read_verified_admission(
         session.client_mut().await.unwrap(),
+        &mut facts.client,
         namespace,
         frozen,
         decision.clone(),
@@ -428,10 +431,15 @@ pub(super) async fn run_phase(
         .start()
         .await
         .unwrap();
+    let facts_tx = facts.client.build_transaction().read_only(true).start().await.unwrap();
+    let read_context = crate::persistence::build_fact_read::BuildFactRead::reader(
+        &tx, &facts_tx, namespace,
+    ).await.unwrap();
     admission
-        .verify_in_transaction(&tx, namespace)
+        .verify_in_transaction(&read_context, namespace)
         .await
         .unwrap();
+    facts_tx.rollback().await.unwrap();
     tx.rollback().await.unwrap();
     if phase == "admission-source-cut" {
         let lock = root.join(".source-cut.lock");
@@ -501,13 +509,18 @@ pub(super) async fn run_phase(
             .start()
             .await
             .unwrap();
+        let facts_tx = facts.client.build_transaction().read_only(true).start().await.unwrap();
+        let verification = async {
+            let read_context = crate::persistence::build_fact_read::BuildFactRead::reader(
+                &tx, &facts_tx, namespace,
+            ).await.map_err(|_| "PROMOTION_LEDGER_UNAVAILABLE")?;
+            admission.verify_in_transaction(&read_context, namespace).await
+        }.await;
         assert!(
-            admission
-                .verify_in_transaction(&tx, namespace)
-                .await
-                .is_err(),
+            verification.is_err(),
             "retained FS locks cannot certify a changed PG ledger closure"
         );
+        facts_tx.rollback().await.unwrap();
         tx.rollback().await.unwrap();
         return;
     }

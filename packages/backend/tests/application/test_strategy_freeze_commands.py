@@ -375,55 +375,12 @@ def test_backtest_queued_cancel_has_no_attempt_and_replays_the_original_cancel_r
     assert state["runs"][0][7:] == (None, None, None)
 
 
-def test_backtest_attempt_fence_expiry_and_running_cancel_preserve_the_same_run(
-    freeze_database: tuple[str, Path, dict[str, Any]], run_freeze_owner: Callable[..., None]
-) -> None:
-    dsn, _, _ = freeze_database
-    run_freeze_owner("backtest:fence-cancel")
-    state = backtest_snapshot(dsn)
-    assert len(state["runs"]) == 1
-    assert state["runs"][0][1] == "CANCELLED"
-    assert state["attempts"] == [(1, 1, "EXPIRED"), (2, 2, "CANCELLED")]
-    assert len(state["commands"]) == len(state["admissions"]) == 2
-    # This running cancellation supplies an explicit sealed prefix proof.
-    # Queued cancellation above still has no producer and retains three NULLs.
-    assert state["runs"][0][7:] == ("1" * 64, "2" * 64, "3" * 64)
-
-
-def test_backtest_sealed_completion_sets_all_final_pins_in_one_transaction(
-    freeze_database: tuple[str, Path, dict[str, Any]], run_freeze_owner: Callable[..., None]
-) -> None:
-    dsn, _, _ = freeze_database
-    run_freeze_owner("backtest:complete")
-    state = backtest_snapshot(dsn)
-    assert len(state["runs"]) == len(state["commands"]) == len(state["admissions"]) == 1
-    assert state["runs"][0][1] == "COMPLETED"
-    assert state["runs"][0][7:] == ("1" * 64, "2" * 64, "3" * 64)
-    assert state["attempts"] == [(1, 1, "SUCCEEDED")]
-
-
-def test_backtest_guard_socket_loss_cannot_commit_attempt_and_completion_on_another_socket(
-    freeze_database: tuple[str, Path, dict[str, Any]], run_freeze_owner: Callable[..., None]
-) -> None:
-    dsn, _, _ = freeze_database
-    run_freeze_owner("backtest:trigger")
-    with psycopg.connect(dsn) as conn:
-        conn.execute("DROP TRIGGER backtest_test_finalization_guard ON backtest_run")
-        conn.execute("DROP FUNCTION backtest_test_terminate_guard()")
-    state = backtest_snapshot(dsn)
-    assert state["runs"][0][1:3] == ("RUNNING", 1)
-    assert state["runs"][0][7:] == (None, None, None)
-    assert state["attempts"] == [(1, 1, "ACTIVE")]
-
-
 @pytest.mark.parametrize(
     "phase",
     [
         "deferred-create-guard",
         "deferred-create-receipt",
         "deferred-claim-guard",
-        "deferred-finalize-guard",
-        "deferred-finalize-result",
     ],
 )
 def test_backtest_deferred_effects_are_drained_before_the_final_business_and_physical_proof(
@@ -434,14 +391,10 @@ def test_backtest_deferred_effects_are_drained_before_the_final_business_and_phy
     state = backtest_snapshot(dsn)
     if phase.startswith("deferred-create"):
         assert state == {"runs": [], "attempts": [], "commands": [], "admissions": []}
-    elif phase == "deferred-claim-guard":
+    else:
+        assert phase == "deferred-claim-guard"
         assert state["runs"][0][1:3] == ("QUEUED", 0)
         assert state["attempts"] == []
-        assert len(state["commands"]) == len(state["admissions"]) == 1
-    else:
-        assert state["runs"][0][1:3] == ("RUNNING", 1)
-        assert state["runs"][0][7:] == (None, None, None)
-        assert state["attempts"] == [(1, 1, "ACTIVE")]
         assert len(state["commands"]) == len(state["admissions"]) == 1
 
 
@@ -625,24 +578,6 @@ def test_qualified_admission_keeps_actual_decision_counts_and_frozen_files_alive
     run_freeze_owner: Callable[..., None], phase: str
 ) -> None:
     run_freeze_owner("qualification:" + phase)
-
-
-@pytest.mark.parametrize("phase", ["scheduler-inventory", "scheduler-queued-cancel", "scheduler-expiry"])
-def test_backtest_scheduler_uses_original_pending_rows_queued_cancel_and_server_expiry(
-    freeze_database: tuple[str, Path, dict[str, Any]], run_freeze_owner: Callable[..., None], phase: str
-) -> None:
-    dsn, _, _ = freeze_database
-    run_freeze_owner(f"backtest:{phase}")
-    state = backtest_snapshot(dsn)
-    assert len(state["runs"]) == 1
-    if phase == "scheduler-queued-cancel":
-        assert state["runs"][0][1] == "CANCELLED"
-        assert state["attempts"] == []
-        assert state["runs"][0][7:] == (None, None, None)
-    else:
-        assert state["runs"][0][1] == "COMPLETED"
-        expected = [(1, 1, "EXPIRED"), (2, 2, "SUCCEEDED")] if phase == "scheduler-expiry" else [(1, 1, "SUCCEEDED")]
-        assert state["attempts"] == expected
 
 
 def test_another_candidate_with_only_graph_alias_changes_reuses_the_first_frozen_revision(

@@ -17,10 +17,13 @@ use std::{
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<Value> {
+pub async fn inspect(session: &mut onlyalpha_backend::persistence::authority_session::AuthoritySession, v: &Value) -> Result<Value> {
+    let mut facts=super::super::super::job_fact_connection::Connection::reader().await?;
+    let namespace=onlyalpha_backend::bootstrap::deployment::load_semantic_store_id(&Path::new(v["research_root"].as_str().ok_or("research root")?).join(".onlyalpha-semantic-store.json"))?;
+
     let command = CommandId::new(v["research_command"].as_str().ok_or("command")?)?;
     let id = research_submission::run_id(&command);
-    let run = research_submission::load(client, &id, Some("local-developer")).await?;
+    let run = research_submission::load(session.client_mut().await?, &mut facts.client, &namespace, &id, Some("local-developer")).await?;
     let semantic = Path::new(v["semantic_root"].as_str().ok_or("semantic root")?);
     let root = Path::new(v["research_root"].as_str().ok_or("research root")?);
     let roots: BTreeMap<String, PathBuf> = serde_json::from_value(v["source_roots"].clone())?;
@@ -29,7 +32,7 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         Path::new(v["projection_root"].as_str().ok_or("projection")?),
         roots,
     )?;
-    let original = serde_json::to_value(completed_report(client, &authority, root, &run).await)?;
+    let original = serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &run).await)?;
     assert_eq!(original["report_status"]["state"], "VERIFIED");
     assert_eq!(original["decision_provenance"]["state"], "VERIFIED");
     assert_eq!(
@@ -71,17 +74,17 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         let held = source.with_file_name("held-report-upstream");
         std::fs::rename(&source, &held)?;
         let unavailable =
-            serde_json::to_value(completed_report(client, &authority, root, &run).await);
+            serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &run).await);
         std::fs::rename(&held, &source)?;
         let unavailable = unavailable?;
         assert!(unavailable["report"].is_null(), "{relative}");
         assert_eq!(unavailable["report_status"]["state"], "UNAVAILABLE");
         assert_eq!(
-            ResearchExecution::new(client).observe(&run).await?.state,
+            ResearchExecution::new(session.client_mut().await?).observe(&run).await?.state,
             RunState::Completed
         );
         assert_eq!(
-            serde_json::to_value(completed_report(client, &authority, root, &run).await)?,
+            serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &run).await)?,
             original
         );
     }
@@ -91,7 +94,7 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         .join(command.value());
     let held = semantic.join("held-original-report-group");
     std::fs::rename(&group, &held)?;
-    let missing = serde_json::to_value(completed_report(client, &authority, root, &run).await);
+    let missing = serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &run).await);
     std::fs::rename(&held, &group)?;
     let missing = missing?;
     assert_eq!(missing["report"], original["report"]);
@@ -101,7 +104,7 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         "HISTORICAL_PROOF_UNAVAILABLE"
     );
     assert_eq!(
-        ResearchExecution::new(client).observe(&run).await?.state,
+        ResearchExecution::new(session.client_mut().await?).observe(&run).await?.state,
         RunState::Completed
     );
 
@@ -127,7 +130,7 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     std::fs::write(&path, canonical)?;
     std::fs::set_permissions(&path, permissions.clone())?;
-    let wrong = serde_json::to_value(completed_report(client, &authority, root, &run).await);
+    let wrong = serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &run).await);
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     std::fs::write(&path, &bytes)?;
     std::fs::set_permissions(&path, permissions)?;
@@ -139,7 +142,7 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         "HISTORICAL_PROOF_UNAVAILABLE"
     );
     assert_eq!(
-        serde_json::to_value(completed_report(client, &authority, root, &run).await)?,
+        serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &run).await)?,
         original
     );
 
@@ -150,9 +153,9 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         CommandKind::SaveWorkspace,
         &"e".repeat(64),
     )?;
-    Commands::new(client).admit_exact(&unrelated).await?;
+    Commands::new(session.client_mut().await?).admit_exact(&unrelated).await?;
     assert_eq!(
-        serde_json::to_value(completed_report(client, &authority, root, &run).await)?,
+        serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &run).await)?,
         original
     );
 
@@ -165,7 +168,7 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         .join(result);
     let held = root.join("held-original-report-artifact");
     std::fs::rename(&artifact, &held)?;
-    let unavailable = serde_json::to_value(completed_report(client, &authority, root, &run).await);
+    let unavailable = serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &run).await);
     std::fs::rename(&held, &artifact)?;
     let unavailable = unavailable?;
     assert!(unavailable["report"].is_null());
@@ -175,23 +178,24 @@ pub async fn inspect(client: &mut tokio_postgres::Client, v: &Value) -> Result<V
         "RESEARCH_REPORT_UNAVAILABLE"
     );
     assert_eq!(unavailable["decision_provenance"]["state"], "VERIFIED");
-    let retained = research_submission::load(client, &id, Some("local-developer")).await?;
+    let retained = research_submission::load(session.client_mut().await?, &mut facts.client, &namespace, &id, Some("local-developer")).await?;
     assert_eq!(
-        ResearchExecution::new(client)
+        ResearchExecution::new(session.client_mut().await?)
             .observe(&retained)
             .await?
             .state,
         RunState::Completed
     );
     assert_eq!(
-        serde_json::to_value(completed_report(client, &authority, root, &retained).await)?,
+        serde_json::to_value(completed_report(session.client_mut().await?, &mut facts.client, &authority, root, &retained).await)?,
         original
     );
     Ok(json!({"run_id":id,"state":"COMPLETED","report_provenance_regressions":"VERIFIED"}))
 }
 
 /// Each independent physical-source fault keeps the original bounded probe budget.
-pub async fn inspect_source_cut(client: &mut tokio_postgres::Client, v: &Value) -> Result<Value> {
+pub async fn inspect_source_cut(session: &mut onlyalpha_backend::persistence::authority_session::AuthoritySession, v: &Value) -> Result<Value> {
+
     let relative = v["missing_upstream"].as_str().ok_or("upstream")?;
     if ![
         "statistics-results/sha256",
@@ -210,14 +214,14 @@ pub async fn inspect_source_cut(client: &mut tokio_postgres::Client, v: &Value) 
         Path::new(v["projection_root"].as_str().ok_or("projection")?),
         roots,
     )?;
-    let projection = authority.refresh_projection(client).await?;
-    assert_eq!(authority.refresh_projection(client).await?, projection);
+    let projection = authority.refresh_projection(session).await?;
+    assert_eq!(authority.refresh_projection(session).await?, projection);
     let source = root.join(relative);
     let held = source.with_file_name("held-source-cut-upstream");
     std::fs::rename(&source, &held)?;
-    let unavailable = authority.refresh_projection(client).await;
+    let unavailable = authority.refresh_projection(session).await;
     std::fs::rename(&held, &source)?;
     assert!(unavailable.is_err());
-    assert_eq!(authority.refresh_projection(client).await?, projection);
+    assert_eq!(authority.refresh_projection(session).await?, projection);
     Ok(json!({"source_cut_regressions":"VERIFIED","missing_upstream":relative}))
 }

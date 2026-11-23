@@ -346,6 +346,14 @@ pub(crate) struct Preparations<'a> {
 fn db(_: impl std::fmt::Debug) -> &'static str {
     UNAVAILABLE
 }
+fn read_error(error: tokio_postgres::Error) -> &'static str {
+    match error.code() {
+        Some(&tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE) => {
+            "RESEARCH_PREPARATION_ACCESS_DENIED"
+        }
+        _ => UNAVAILABLE,
+    }
+}
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
     v[k].as_str().ok_or(CORRUPT)
 }
@@ -854,18 +862,30 @@ enum PreparationExpectation<'a> {
     Exact(&'a PreparationRequest),
     BacktestCommand,
 }
-/// Shared owning primitive. Every original input path and the Backtest Command
-/// query takes the same barrier and verifies the same canonical binding.
+/// A committed receipt proves acceptance while later revisions are still being written.
 async fn observe_original_preparation(
     tx: &Transaction<'_>,
     command: &CommandId,
     owner: &str,
     expectation: PreparationExpectation<'_>,
 ) -> Result<Option<Operation>> {
-    Commands::lock_command(tx, command).await.map_err(db)?;
-    let binding = Commands::verify_binding_in_transaction(tx, command)
-        .await
-        .map_err(db)?;
+    let observed = match expectation {
+        PreparationExpectation::BacktestCommand => Some(
+            Commands::verify_binding_in_transaction(tx, command)
+                .await
+                .map_err(db)?,
+        ),
+        PreparationExpectation::Exact(_) => None,
+    };
+    let binding = match observed {
+        Some(binding @ Binding::Accepted(_)) => binding,
+        _ => {
+            Commands::lock_command(tx, command).await.map_err(db)?;
+            Commands::verify_binding_in_transaction(tx, command)
+                .await
+                .map_err(db)?
+        }
+    };
     match binding {
         Binding::None => {
             if tx
@@ -967,38 +987,80 @@ async fn backtest_operations(
     }
     Ok(result)
 }
+pub(crate) async fn original_backtest_preparation(
+    tx: &Transaction<'_>,
+    run: &crate::application::backtest_run::VerifiedRun,
+) -> Result<Operation> {
+    let resolution = run.resolution();
+    let specification = run.specification().record();
+    let future = resolution["runtime_work_binding"]["reason"].as_str().ok_or(CORRUPT)?;
+    let owner = run.owner();
+    let missing = "BACKTEST_PREPARATION_PROOF_MISSING";
+    let rows = tx.query(
+        "SELECT command_id::text,owner,preparation_kind FROM public.research_preparation WHERE COALESCE(accepted_payload::jsonb->'input'->>'research_command_id',accepted_payload::jsonb->'input'->>'backtest_command_id')::uuid=$1::text::uuid ORDER BY command_id LIMIT 2",
+        &[&future],
+    ).await.map_err(read_error)?;
+    let row = match rows.as_slice() {
+        [row] => row,
+        [] => return Err(missing),
+        _ => return Err(CORRUPT),
+    };
+    let command = CommandId::new(row.try_get::<_, &str>(0).map_err(|_| CORRUPT)?)
+        .map_err(|_| CORRUPT)?;
+    let retained_owner: &str = row.try_get("owner").map_err(|_| CORRUPT)?;
+    let kind: &str = row.try_get("preparation_kind").map_err(|_| CORRUPT)?;
+    if retained_owner != owner || kind != "BACKTEST_PREPARATION" {
+        return Err("BACKTEST_PREPARATION_PROOF_MISMATCH");
+    }
+    let operation = load(tx, &command, owner).await?;
+    let input = operation.request.backtest().map_err(|_| CORRUPT)?;
+    let ready = operation.outputs.get("ready").ok_or(missing)?;
+    let admission = &ready["admission"];
+    if operation.request.future_command() != future
+        || operation.request.reserved_run_id() != run.run_id()
+        || ready["specification"] != *specification
+        || ready["preparation"] != resolution["preparation"]
+        || ready["preparation_fingerprint"] != specification["preparation_fingerprint"]
+        || ready["backtest_binding"] != resolution["backtest_binding"]
+        || admission["strategy_fingerprint"] != specification["strategy_fingerprint"]
+        || admission["freeze_relation_fingerprint"] != resolution["freeze_relation_fingerprint"]
+        || admission["qualification_decision_fingerprint"] != resolution["qualification_decision_fingerprint"]
+        || admission["promotion_fingerprint"] != resolution["promotion_fingerprint"]
+        || resolution["source_selection"] != json!({
+            "integration_id": input.source.integration_id,
+            "revision_fingerprint": input.source.integration_revision_fingerprint,
+            "expected_type_id": input.source.expected_type_id,
+            "source_id": input.source.source_id,
+            "environment": input.source.environment,
+        })
+    {
+        return Err("BACKTEST_PREPARATION_PROOF_MISMATCH");
+    }
+    Ok(operation)
+}
+
 pub(crate) async fn load(
     tx: &Transaction<'_>,
     command: &CommandId,
     owner: &str,
 ) -> Result<Operation> {
-    let row=tx.query_opt("SELECT owner,accepted_fingerprint,accepted_payload,revision,state,phase,outputs_payload,detail_payload,preparation_kind FROM research_preparation WHERE command_id=$1::text::uuid",&[&command.value()]).await.map_err(db)?.ok_or("RESEARCH_PREPARATION_NOT_FOUND")?;
-    let actual: String = row.try_get(0).map_err(db)?;
-    if actual != owner {
-        return Err("RESEARCH_PREPARATION_NOT_FOUND");
-    }
-    let accepted = parse(&row.try_get::<_, String>(2).map_err(db)?)?;
-    let kind: String = row.try_get(8).map_err(db)?;
-    if kind == "BACKTEST_PREPARATION"
-        && accepted["schema_version"] == 1
-        && accepted["contract"] == "ONLYALPHA_ACCEPTED_BACKTEST_PREPARATION_V1"
-    {
-        if accepted["command_id"] != command.value()
-            || accepted["owner"] != owner
-            || hash(&accepted)? != row.try_get::<_, String>(1).map_err(db)?
-        {
-            return Err(CORRUPT);
-        }
-        return Err("BACKTEST_PREPARATION_HISTORICAL_READER_UNAVAILABLE");
-    }
+    let row = tx.query_opt(
+        "SELECT accepted_fingerprint,accepted_payload,revision,state,phase,outputs_payload,detail_payload,preparation_kind FROM research_preparation WHERE command_id=$1::text::uuid AND owner=$2",
+        &[&command.value(), &owner],
+    ).await.map_err(read_error)?.ok_or("RESEARCH_PREPARATION_NOT_FOUND")?;
+    let corrupt = |_| CORRUPT;
+    let accepted = parse(&row.try_get::<_, String>("accepted_payload").map_err(corrupt)?)?;
+    let accepted_fingerprint: String = row.try_get("accepted_fingerprint").map_err(corrupt)?;
+    let kind: String = row.try_get("preparation_kind").map_err(corrupt)?;
+    let actual_fingerprint = hash(&accepted).map_err(|_| CORRUPT)?;
     let request: PreparationRequest =
         serde_json::from_value(accepted["input"].clone()).map_err(|_| CORRUPT)?;
-    request.validate(command)?;
+    request.validate(command).map_err(|_| CORRUPT)?;
     if request.kind() != kind
         || accepted["schema_version"] != (if request.is_backtest() { 2 } else { 1 })
         || accepted["command_id"] != command.value()
         || accepted["owner"] != owner
-        || hash(&accepted)? != row.try_get::<_, String>(1).map_err(db)?
+        || actual_fingerprint != accepted_fingerprint
     {
         return Err(CORRUPT);
     }
@@ -1074,9 +1136,13 @@ pub(crate) async fn load(
     }
     let binding = Commands::verify_binding_in_transaction(tx, command)
         .await
-        .map_err(db)?;
+        .map_err(|error| error.code())?;
     let Binding::Accepted(receipt) = binding else {
-        return Err(CORRUPT);
+        return Err(if request.is_backtest() {
+            "RESEARCH_PREPARATION_PROOF_MISSING"
+        } else {
+            CORRUPT
+        });
     };
     let expected = Admission::new(
         command.clone(),
@@ -1084,17 +1150,21 @@ pub(crate) async fn load(
         &request.intent(owner)?,
     )
     .map_err(db)?;
+    let accepted_at = text(&accepted, "accepted_at")?
+        .parse::<OnlyUtcDateTime>()
+        .map_err(|_| CORRUPT)?;
     if receipt.admission() != &expected
         || receipt.outcome().kind() != OutcomeKind::ResearchPreparationOperation
-        || receipt.outcome().id() != hash(&accepted)?
-        || text(&accepted, "accepted_at")?
-            .parse::<OnlyUtcDateTime>()
-            .map_err(|_| CORRUPT)?
-            != receipt.accepted_at()
+        || receipt.outcome().id() != actual_fingerprint
+        || accepted_at != receipt.accepted_at()
     {
-        return Err(CORRUPT);
+        return Err(if request.is_backtest() {
+            "RESEARCH_PREPARATION_PROOF_MISMATCH"
+        } else {
+            CORRUPT
+        });
     }
-    let revision: i64 = row.try_get(3).map_err(db)?;
+    let revision: i64 = row.try_get("revision").map_err(corrupt)?;
     if revision < 0 {
         return Err(CORRUPT);
     }
@@ -1104,10 +1174,10 @@ pub(crate) async fn load(
         request,
         accepted,
         revision,
-        state: State::parse(&row.try_get::<_, String>(4).map_err(db)?)?,
-        phase: row.try_get(5).map_err(db)?,
-        outputs: parse(&row.try_get::<_, String>(6).map_err(db)?)?,
-        detail: parse(&row.try_get::<_, String>(7).map_err(db)?)?,
+        state: State::parse(row.try_get("state").map_err(corrupt)?)?,
+        phase: row.try_get("phase").map_err(corrupt)?,
+        outputs: parse(row.try_get("outputs_payload").map_err(corrupt)?)?,
+        detail: parse(row.try_get("detail_payload").map_err(corrupt)?)?,
     };
     if o.phase.is_empty()
         || !o.phase.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')

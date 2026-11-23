@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,85 @@ import pytest
 from scripts import dev_verification as verification
 
 pytestmark = pytest.mark.architecture
+
+
+@pytest.mark.parametrize("collect_only", [False, True])
+@pytest.mark.parametrize("mode", ["backtest-publication", "research-publication", "backtest-owner:queued-cancel", "normal"])
+def test_backtest_builds_before_scenario_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, collect_only: bool, mode: str
+) -> None:
+    from packages.backend.tests.application import backtest_native_host, test_strategy_research_evidence
+    from packages.backend.tests.application import conftest as application
+    from scripts import native_http_contract
+
+    events = []
+
+    def build(name):
+        events.append(name)
+        return tmp_path / name
+
+    class TimeoutObserver:
+        @pytest.hookimpl(tryfirst=True)
+        def pytest_timeout_set_timer(self, item, settings):
+            assert settings.timeout == 120 and not settings.func_only
+            events.append("timeout")
+
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    monkeypatch.setattr(application, "__file__", str(tmp_path / "conftest.py"))
+    monkeypatch.setattr(
+        test_strategy_research_evidence, "_build_strategy_evidence_owner_binary", lambda **_: build("probe")
+    )
+    monkeypatch.setattr(native_http_contract, "native_executable", lambda **_: build("backend"))
+    monkeypatch.setattr(backtest_native_host, "build_web_assets", lambda _: build("web"))
+    if mode == "backtest-publication":
+        target = tmp_path / "test_backtest_worker_publication.py"
+        target.write_text(
+            "import pytest\n\n"
+            "@pytest.mark.timeout(120)\n"
+            "def test_scenario(request):\n"
+            "    assert request.getfixturevalue('backtest_fault_probe').name == 'probe'\n"
+            "    assert request.getfixturevalue('backtest_web_assets').name == 'web'\n"
+        )
+        expected = ["probe", "backend", "web", "timeout"]
+    elif mode == "research-publication":
+        target = tmp_path / "test_research_worker_publication.py"
+        target.write_text(
+            "import pytest\n\n"
+            "@pytest.mark.timeout(120)\n"
+            "def test_scenario(backtest_fault_probe):\n"
+            "    assert backtest_fault_probe.name == 'probe'\n"
+        )
+        expected = ["probe", "timeout"]
+    else:
+        target = tmp_path / "test_strategy_research_evidence.py"
+        target.write_text(
+            "import pytest\n\n"
+            "@pytest.mark.timeout(120)\n"
+            f"@pytest.mark.parametrize('mode', [{mode!r}])\n"
+            "def test_scenario(mode, request):\n"
+            "    if mode.startswith('backtest-owner:'):\n"
+            "        assert request.getfixturevalue('backtest_fault_probe').name == 'probe'\n"
+            "        assert request.getfixturevalue('backtest_web_assets').name == 'web'\n"
+        )
+        expected = ["probe", "backend", "web", "timeout"] if mode.startswith("backtest-owner:") else ["timeout"]
+    # 内层计时器不能覆盖外层 pytest 的 SIGALRM。
+    command = [
+        "--noconftest",
+        "--rootdir",
+        str(tmp_path.parent),
+        "--import-mode=importlib",
+        "-p",
+        "pytest_timeout",
+        "--timeout-method=thread",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+        str(target),
+    ]
+    if collect_only:
+        command.append("--collect-only")
+    assert pytest.main(command, plugins=[application, TimeoutObserver()]) == pytest.ExitCode.OK
+    assert events == ([] if collect_only else expected)
 
 
 @pytest.fixture

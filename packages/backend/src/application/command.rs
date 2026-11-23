@@ -14,6 +14,7 @@ pub enum Error {
     ReceiptCorrupt,
     BindingMismatch,
     Conflict,
+    Denied,
     Unavailable,
 }
 impl Error {
@@ -23,6 +24,7 @@ impl Error {
             Self::ReceiptCorrupt => "PRODUCT_COMMAND_RECEIPT_CORRUPT",
             Self::BindingMismatch => "PRODUCT_COMMAND_BINDING_MISMATCH",
             Self::Conflict => "PRODUCT_COMMAND_CONFLICT",
+            Self::Denied => "PRODUCT_COMMAND_AUTHORITY_DENIED",
             Self::Unavailable => "PRODUCT_COMMAND_AUTHORITY_UNAVAILABLE",
             _ => "PRODUCT_COMMAND_INVALID",
         }

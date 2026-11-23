@@ -50,6 +50,35 @@ fn timestamp(v: &Value) -> Result<OnlyTimestamp, Error> {
 fn diagnostic(code: &str, details: Value) -> Value {
     json!({"severity":"ERROR","code":code,"details":details})
 }
+pub(crate) fn cluster_summary(snapshot: &Value) -> Value {
+    Value::Object(
+        [
+            "initial_capital",
+            "equity",
+            "net_pnl",
+            "realized_pnl",
+            "unrealized_pnl",
+            "fees",
+            "simple_return",
+            "high_water_mark",
+            "drawdown",
+            "maximum_drawdown",
+            "external_cash_flow",
+            "flags",
+        ]
+        .into_iter()
+        .map(|key| (key.into(), snapshot[key].clone()))
+        .collect(),
+    )
+}
+
+pub(crate) struct TranscriptParts {
+    pub source: Value,
+    pub reconciliation: Value,
+    pub runtime_performance: Value,
+    pub facts: Vec<Value>,
+    pub trades: Vec<Value>,
+}
 impl Components {
     /// Caller declares the immutable input pin, exact artifact, config and complete ordered
     /// transaction-input hashes. Only the admitted Runtime driver can bind these to a Dataset
@@ -160,6 +189,36 @@ impl Components {
             return Err(err("RESULT_SOURCE_CHANGED"));
         }
         let runtime_performance = performance["performance"].clone();
+        self.assemble_transcript(
+            manifest,
+            outcome,
+            TranscriptParts {
+                source,
+                reconciliation,
+                runtime_performance,
+                facts,
+                trades,
+            },
+        )
+    }
+    pub(crate) fn assemble_transcript(
+        &self,
+        manifest: &Value,
+        outcome: &Value,
+        parts: TranscriptParts,
+    ) -> Result<TranscriptDraft, Error> {
+        let TranscriptParts {
+            source,
+            reconciliation,
+            runtime_performance,
+            facts,
+            trades,
+        } = parts;
+        let requested = text(&outcome["status"])?;
+        let expected = manifest["inputs"]
+            .as_array()
+            .ok_or_else(|| err("RESULT_MANIFEST_INPUTS"))?;
+        let complete = facts.len() == expected.len();
         let account = self.account.snapshot();
         let position = self.position.state();
         let ledger = self.ledger.state();
@@ -237,25 +296,7 @@ impl Components {
                     timeline.push(json!({"timeline_sequence":timeline.len(),"source":"LEDGER_OCCURRENCE","point":point}));
                 }
             }
-            // The Ledger owns these values, including its numerical and quality policy.
-            let fields = [
-                "initial_capital",
-                "equity",
-                "net_pnl",
-                "realized_pnl",
-                "unrealized_pnl",
-                "fees",
-                "simple_return",
-                "high_water_mark",
-                "drawdown",
-                "maximum_drawdown",
-                "external_cash_flow",
-                "flags",
-            ];
-            let summary: serde_json::Map<_, _> = fields
-                .into_iter()
-                .map(|k| (k.into(), snapshot[k].clone()))
-                .collect();
+            let summary = cluster_summary(&snapshot);
             clusters.push(json!({"cluster":cluster,"revision":self.config["profiles"][cluster]["revision"],"cluster_performance":{"authority":"STRATEGY_LEDGER","summary":summary},"final_ledger":snapshot}));
             timelines.push(json!({"cluster":cluster,"points":timeline}));
             final_ledgers.push(snapshot);

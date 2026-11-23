@@ -7,7 +7,7 @@ mod reconciliation;
 mod recovery;
 mod reservation;
 pub use manager::Manager;
-pub use model::{Error, Outcome, Status, digest};
+pub use model::{Error, Outcome, Status, average_cost, digest, release_cost};
 mod funding;
 pub use funding::FundingEffect;
 pub use onlyalpha_domain::market_source::OnlyMarketSourceCut as MarketSourceCut;

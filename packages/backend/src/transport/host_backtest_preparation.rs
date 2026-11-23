@@ -9,6 +9,7 @@ use crate::{
     application::{
         backtest_preparation::{BacktestOrigin, BacktestPrepareInput, run_id},
         backtest_run::{self, CreateRequest},
+        calculation_build,
         research_dataset::MaterializedDataset,
     },
     bootstrap::deployment,
@@ -24,7 +25,9 @@ use crate::{
 use onlyalpha_data_source_binance::spot_rest::PublicRest;
 use onlyalpha_domain::time::OnlyUtcDateTime;
 use onlyalpha_market_crypto::spot::SpotRuleSnapshot;
+use onlyalpha_observability::{Correlation, Operation as TraceOperation};
 use std::{io::Write as _, os::fd::AsFd};
+use tracing::Instrument;
 /// An absent future Run does not settle the original durable confirmation.
 /// SQL Accepted/Pending observations take precedence at the call site.
 fn backtest_confirmation_in_progress(state: State, phase: &str) -> bool {
@@ -137,6 +140,7 @@ impl Host {
         &self,
         selected: &Value,
     ) -> Result<VerifiedBacktestAdmission> {
+        let mut fact_reader = self.job_fact_reader().await.map_err(|e|e.code())?;
         let config = &self.research_preparation_config;
         let descriptor =
             protected_files::open_directory(&config.research_root).map_err(|_| INVALID)?;
@@ -146,7 +150,17 @@ impl Host {
                 .map_err(|e| e.code())?,
         );
         let decisions = Arc::new(qualification_decision::Store::open(&config.research_root)?);
-        let mut reader = self.reader.lock().await;
+        let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+        let observed_reader_wait =
+            TraceOperation::start("backend", "reader.wait", Correlation::default());
+        let mut reader = self
+            .reader
+            .lock()
+            .instrument(observed_reader_wait.span().clone())
+            .await;
+        observed_reader_wait.finish("acquired", 1, 0);
+        observed_reader_hold.acquired("reader", "reader.hold");
+        let _observed_reader_release = observed_reader_hold.begin_release_marker();
         let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
         let tx = client
             .build_transaction()
@@ -155,8 +169,10 @@ impl Host {
             .start()
             .await
             .map_err(|_| INVALID)?;
+        let facts_tx = fact_reader.client_mut().await.map_err(|e|e.code())?.build_transaction().read_only(true).start().await.map_err(|_|INVALID)?;
+        let facts = crate::persistence::build_fact_read::BuildFactRead::reader(&tx,&facts_tx,&namespace).await.map_err(|_|INVALID)?;
         let admission = strategy_promotion::read_selected_admission_in_transaction(
-            &tx,
+            &facts,
             &namespace,
             frozen,
             decisions,
@@ -170,6 +186,7 @@ impl Host {
             },
         )
         .await?;
+        facts_tx.commit().await.map_err(|_|INVALID)?;
         tx.commit().await.map_err(|_| INVALID)?;
         Ok(admission)
     }
@@ -179,6 +196,7 @@ impl Host {
         human: &human_access::Session,
         validation: Arc<crate::persistence::strategy_validation::VerifiedValidation>,
     ) -> Result<VerifiedBacktestAdmission> {
+        let mut fact_reader = self.job_fact_reader().await.map_err(|e|e.code())?;
         let started = Instant::now();
         use crate::{
             application::{
@@ -201,7 +219,20 @@ impl Host {
         validation.verify_cut()?;
         let o = self.preparation_checkpoint(o, human).await?;
         let published = {
-            let mut writer = self.writer.lock().await;
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut writer = self
+                .writer
+                .lock()
+                .instrument(writer_wait.span().clone())
+                .await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
             let session = writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             Freezes::new(session, &frozen, &namespace, human)
                 .execute_manual(
@@ -230,11 +261,21 @@ impl Host {
         // Repeated semantics retain their own valid provenance and reuse the
         // canonical grant, never a second BACKTEST stage transition.
         {
-            let mut reader = self.reader.lock().await;
+            let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let observed_reader_wait =
+                TraceOperation::start("backend", "reader.wait", Correlation::default());
+            let mut reader = self
+                .reader
+                .lock()
+                .instrument(observed_reader_wait.span().clone())
+                .await;
+            observed_reader_wait.finish("acquired", 1, 0);
+            observed_reader_hold.acquired("reader", "reader.hold");
+            let _observed_reader_release = observed_reader_hold.begin_release_marker();
             let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
             if let Some(existing) =
                 strategy_promotion::read_existing_backtest_admission_for_strategy(
-                    client,
+                    (client,fact_reader.client_mut().await.map_err(|e|e.code())?),
                     &namespace,
                     frozen.clone(),
                     decisions.clone(),
@@ -256,7 +297,20 @@ impl Host {
         let request =
             QualificationRequest::from_manual(command, "manual-backtest", "1", &evidence)?;
         let decision = {
-            let mut writer = self.writer.lock().await;
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut writer = self
+                .writer
+                .lock()
+                .instrument(writer_wait.span().clone())
+                .await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
             let session = writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             Qualifications::new(
                 session,
@@ -284,7 +338,20 @@ impl Host {
             "用户确认策略并准备实验回测",
         )?;
         let promotion = {
-            let mut writer = self.writer.lock().await;
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut writer = self
+                .writer
+                .lock()
+                .instrument(writer_wait.span().clone())
+                .await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
             let session = writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             Promotions::new(
                 session,
@@ -300,10 +367,21 @@ impl Host {
             "BACKTEST_ADMISSION_PHASE phase=promotion elapsed_ms={}",
             started.elapsed().as_millis()
         );
-        let mut reader = self.reader.lock().await;
+        let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+        let observed_reader_wait =
+            TraceOperation::start("backend", "reader.wait", Correlation::default());
+        let mut reader = self
+            .reader
+            .lock()
+            .instrument(observed_reader_wait.span().clone())
+            .await;
+        observed_reader_wait.finish("acquired", 1, 0);
+        observed_reader_hold.acquired("reader", "reader.hold");
+        let _observed_reader_release = observed_reader_hold.begin_release_marker();
         let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
         strategy_promotion::read_verified_admission(
             client,
+            fact_reader.client_mut().await.map_err(|e|e.code())?,
             &namespace,
             frozen,
             decision,
@@ -328,7 +406,17 @@ impl Host {
     ) -> std::result::Result<Value, Failure> {
         let owner = self.preparation_owner(human).map_err(failure)?;
         let original = {
-            let mut reader = self.reader.lock().await;
+            let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let observed_reader_wait =
+                TraceOperation::start("backend", "reader.wait", Correlation::default());
+            let mut reader = self
+                .reader
+                .lock()
+                .instrument(observed_reader_wait.span().clone())
+                .await;
+            observed_reader_wait.finish("acquired", 1, 0);
+            observed_reader_hold.acquired("reader", "reader.hold");
+            let _observed_reader_release = observed_reader_hold.begin_release_marker();
             let client = reader
                 .as_mut()
                 .ok_or_else(|| failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
@@ -362,7 +450,17 @@ impl Host {
         let owner = self.preparation_owner(&human).map_err(failure)?.to_owned();
         input.validate(&command).map_err(|e| failure(e.into()))?;
         let original = {
-            let mut reader = self.reader.lock().await;
+            let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let observed_reader_wait =
+                TraceOperation::start("backend", "reader.wait", Correlation::default());
+            let mut reader = self
+                .reader
+                .lock()
+                .instrument(observed_reader_wait.span().clone())
+                .await;
+            observed_reader_wait.finish("acquired", 1, 0);
+            observed_reader_hold.acquired("reader", "reader.hold");
+            let _observed_reader_release = observed_reader_hold.begin_release_marker();
             let client = reader
                 .as_mut()
                 .ok_or_else(|| failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
@@ -409,7 +507,17 @@ impl Host {
         let accepted = {
             let namespace = namespace(&self.research_preparation_config).map_err(failure)?;
             let manual = if matches!(input.origin, BacktestOrigin::ManualStrategy { .. }) {
-                let mut reader = self.reader.lock().await;
+                let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let observed_reader_wait =
+                    TraceOperation::start("backend", "reader.wait", Correlation::default());
+                let mut reader = self
+                    .reader
+                    .lock()
+                    .instrument(observed_reader_wait.span().clone())
+                    .await;
+                observed_reader_wait.finish("acquired", 1, 0);
+                observed_reader_hold.acquired("reader", "reader.hold");
+                let _observed_reader_release = observed_reader_hold.begin_release_marker();
                 let client = reader
                     .as_mut()
                     .ok_or_else(|| failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
@@ -443,7 +551,20 @@ impl Host {
                 }
                 _ => return Err(failure(INVALID.into())),
             };
-            let mut writer = self.writer.lock().await;
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut writer = self
+                .writer
+                .lock()
+                .instrument(writer_wait.span().clone())
+                .await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
             let session = writer
                 .as_mut()
                 .ok_or_else(|| failure("PRODUCT_AUTHORITY_UNAVAILABLE".into()))?;
@@ -473,7 +594,17 @@ impl Host {
         command: &CommandId,
     ) -> std::result::Result<(), Failure> {
         let owner = self.preparation_owner(human).map_err(failure)?;
-        let mut reader = self.reader.lock().await;
+        let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+        let observed_reader_wait =
+            TraceOperation::start("backend", "reader.wait", Correlation::default());
+        let mut reader = self
+            .reader
+            .lock()
+            .instrument(observed_reader_wait.span().clone())
+            .await;
+        observed_reader_wait.finish("acquired", 1, 0);
+        observed_reader_hold.acquired("reader", "reader.hold");
+        let _observed_reader_release = observed_reader_hold.begin_release_marker();
         let client = reader
             .as_mut()
             .ok_or_else(|| failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
@@ -493,6 +624,15 @@ impl Host {
         original: Operation,
         human: human_access::Session,
     ) -> Result<()> {
+        let trace_prepare = TraceOperation::start(
+            "backend",
+            "backtest.prepare.inputs",
+            Correlation {
+                command_id: Some(original.command.value().into()),
+                ..Default::default()
+            },
+        );
+        let prepared:Result<()> = async {
         let config = self.research_preparation_config.clone();
         pinned_release(&config, &original)?;
         let mut o = self.preparation_checkpoint(&original, &human).await?;
@@ -534,7 +674,7 @@ impl Host {
             let owner = input.backtest_command_id.clone();
             let actor = o.owner.clone();
             let at = now().map_err(|e| e.code())?;
-            let binding = tokio::task::spawn_blocking(move || {
+            let binding = crate::workers::backtest_profile::spawn_blocking(move || {
                 let mut registry = Registry::open_existing(&root)?;
                 registry.bind_new_work_exact(&work, &generation, &owner, &actor, at)
             })
@@ -564,11 +704,18 @@ impl Host {
                 if runtime.binding() != &o.outputs["environment"]["binding"] {
                     return Err(INVALID.into());
                 }
+                let mut facts = self.job_fact_reader().await.map_err(|e|e.code())?;
                 let resolved = {
-                    let mut reader = self.reader.lock().await;
+                    let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+        let observed_reader_wait = TraceOperation::start("backend", "reader.wait", Correlation::default());
+        let mut reader = self.reader.lock().instrument(observed_reader_wait.span().clone()).await;
+        observed_reader_wait.finish("acquired",1,0);
+        observed_reader_hold.acquired("reader", "reader.hold");
+        let _observed_reader_release = observed_reader_hold.begin_release_marker();
                     let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
                     crate::application::strategy_validation::ResolvedValidation::resolve(
                         client,
+                        facts.client_mut().await.map_err(|e|e.code())?,
                         &o,
                         runtime,
                         installation.clone(),
@@ -703,7 +850,13 @@ impl Host {
                 &observed_datasets,
                 text(acquired.materialized.lineage(), "materialization_id")?,
             )?;
-            let joined = tokio::task::spawn_blocking(move || {
+            let resolved = {
+                let mut builder = self.database.calculation_build_connection(self.inputs.namespace()).await.map_err(|e|e.code())?;
+                let result = resolved.prepare_calculation_build(builder.client_mut().await.map_err(|e|e.code())?,&observed,installed.clone(),&observer).await?;
+                builder.close().await.map_err(|e|e.code())?;
+                result
+            };
+            let joined = crate::workers::backtest_profile::spawn_blocking(move || {
                 resolved.observe(
                     installed,
                     &version,
@@ -719,7 +872,12 @@ impl Host {
                 crate::persistence::strategy_validation::Store::open(&config.research_root)?
                     .with_runtime_root(&config.runtime_root)?;
             let validation = {
-                let mut writer = self.writer.lock().await;
+                let mut writer_hold=crate::workers::backtest_profile::HoldEnd::pending();
+        let writer_wait=onlyalpha_observability::Operation::start("backend","writer.wait",onlyalpha_observability::Correlation::default());
+        let mut writer = self.writer.lock().instrument(writer_wait.span().clone()).await;
+        writer_wait.finish("acquired",1,0);
+        writer_hold.acquired("writer","writer.hold");
+        let _writer_release_begin=writer_hold.begin_release_marker();
                 let session = writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
                 Arc::new(store.publish(session, joined).await?)
             };
@@ -746,11 +904,26 @@ impl Host {
             text(&o.outputs["environment"], "runtime_generation_fingerprint")?,
         )?;
         let binding = runtime.backtest_execution_binding()?;
+        let generation = text(runtime.manifest(), "runtime_generation_fingerprint")?;
+        let mut evidence = RuntimeEvidenceHold::open(
+            &config.runtime_root,
+            &o.request.reserved_run_id(),
+            &input.backtest_command_id,
+            generation,
+        )?;
+        let metadata = evidence.backtest_metadata(installation.artifact_fingerprint())?;
+        if metadata.binding != binding
+            || evidence.binding() != runtime.binding()
+            || evidence.binding() != &o.outputs["environment"]["binding"]
+            || metadata.installed["native_descriptor"]["implementations"] != native
+        {
+            return Err(INVALID.into());
+        }
         let prepared = build_prepared_next_open(
             proof.source_revision(),
             &acquired.materialized,
             rules,
-            text(runtime.manifest(), "runtime_generation_fingerprint")?,
+            generation,
         )?;
         let ready = crate::persistence::research_preparation::BacktestReady::derive(
             &o,
@@ -764,6 +937,7 @@ impl Host {
                 algorithm_resolution: &resolution,
                 algorithm_resolution_request: &request,
                 native_implementations: &native,
+                native_image: &metadata.installed["native_descriptor"]["image"],
                 backtest_binding: &binding,
                 rules_response: &rule_record,
             },
@@ -771,6 +945,7 @@ impl Host {
         ready.verify_cut()?;
         proof.verify_cut()?;
         runtime.verify()?;
+        evidence.verify()?;
         self.preparation_checkpoint(&o, &human).await?;
         authority
             .check_session(&session)
@@ -780,12 +955,20 @@ impl Host {
             .map_err(|_| "RESEARCH_SOURCE_ACCESS_DENIED")?;
         // Owning transaction rechecks the actual proofs at the durable READY handoff.
         {
-            let mut writer = self.writer.lock().await;
+            let mut writer_hold=crate::workers::backtest_profile::HoldEnd::pending();
+        let writer_wait=onlyalpha_observability::Operation::start("backend","writer.wait",onlyalpha_observability::Correlation::default());
+        let mut writer = self.writer.lock().instrument(writer_wait.span().clone()).await;
+        writer_wait.finish("acquired",1,0);
+        writer_hold.acquired("writer","writer.hold");
+        let _writer_release_begin=writer_hold.begin_release_marker();
             let session = writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             crate::persistence::research_preparation::publish_backtest_ready(session, &ready)
                 .await?;
         }
         Ok(())
+        }.instrument(trace_prepare.span().clone()).await;
+        trace_prepare.finish(if prepared.is_ok() { "ok" } else { "failed" }, 1, 0);
+        prepared
     }
     async fn backtest_calculations(
         &self,
@@ -805,9 +988,20 @@ impl Host {
                 let store =
                     crate::persistence::strategy_validation::Store::open(&config.research_root)?
                         .with_runtime_root(&config.runtime_root)?;
-                let mut reader = self.reader.lock().await;
+                let mut facts=self.job_fact_reader().await.map_err(|e|e.code())?;
+                let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let observed_reader_wait =
+                    TraceOperation::start("backend", "reader.wait", Correlation::default());
+                let mut reader = self
+                    .reader
+                    .lock()
+                    .instrument(observed_reader_wait.span().clone())
+                    .await;
+                observed_reader_wait.finish("acquired", 1, 0);
+                observed_reader_hold.acquired("reader", "reader.hold");
+                let _observed_reader_release = observed_reader_hold.begin_release_marker();
                 let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
-                Arc::new(store.read_verified(client, o.command.value()).await?)
+                Arc::new(store.read_verified(client,facts.client_mut().await.map_err(|e|e.code())?,o.command.value()).await?)
             };
             if validation.source_revision().fingerprint() != proof.strategy_fingerprint()
                 || o.outputs["ready"]["validation_fingerprint"] != validation.fingerprint()
@@ -851,12 +1045,17 @@ impl Host {
         }
         let ready = json!({"algorithm_resolution":original["algorithm_resolution"]});
         crate::persistence::backtest_evidence::verify_implementation_bindings(
-            proof.source_revision(),
+            proof,
             &ready,
             runtime.manifest(),
             &installed,
         )?;
-        let record = json!({"algorithm_resolution":original["algorithm_resolution"],"native_implementations":installed["native_descriptor"]["implementations"]});
+        let record = json!({
+            "algorithm_resolution": original["algorithm_resolution"],
+            "native_implementations": installed["native_descriptor"]["implementations"],
+            "native_image": installed["native_descriptor"]["image"],
+            "calculation_build": calculation_build::reference(&original["build_certification"]),
+        });
         proof.verify_cut()?;
         runtime.verify()?;
         installation
@@ -887,6 +1086,9 @@ impl Host {
         let ready = &o.outputs["ready"];
         if resolution["algorithm_resolution"] != ready["algorithm_resolution"]
             || request != ready["algorithm_resolution_request"]
+            || resolution["native_implementations"] != ready["native_implementations"]
+            || resolution["native_image"] != ready["native_image"]
+            || resolution["calculation_build"] != ready["calculation_build"]
             || runtime.backtest_execution_binding()? != ready["backtest_binding"]
         {
             return Err(INVALID.into());
@@ -942,9 +1144,20 @@ impl Host {
                 let store =
                     crate::persistence::strategy_validation::Store::open(&config.research_root)?
                         .with_runtime_root(&config.runtime_root)?;
-                let mut reader = self.reader.lock().await;
+                let mut facts=self.job_fact_reader().await.map_err(|e|e.code())?;
+                let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let observed_reader_wait =
+                    TraceOperation::start("backend", "reader.wait", Correlation::default());
+                let mut reader = self
+                    .reader
+                    .lock()
+                    .instrument(observed_reader_wait.span().clone())
+                    .await;
+                observed_reader_wait.finish("acquired", 1, 0);
+                observed_reader_hold.acquired("reader", "reader.hold");
+                let _observed_reader_release = observed_reader_hold.begin_release_marker();
                 let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
-                Arc::new(store.read_verified(client, o.command.value()).await?)
+                Arc::new(store.read_verified(client,facts.client_mut().await.map_err(|e|e.code())?,o.command.value()).await?)
             };
             validation.require_backtest_inputs(o, admission.source_revision(), materialized)?;
             Ok(Some(validation))
@@ -1029,7 +1242,7 @@ impl Host {
         );
         let config = self.research_preparation_config.clone();
         let original = o.clone();
-        tokio::task::spawn_blocking(move||->Result<()> {
+        crate::workers::backtest_profile::spawn_blocking(move||->Result<()> {
             pinned_release(&config,&original)?;
             let input=original.request.backtest()?;let ready=&original.outputs["ready"];
             let generation=text(&original.outputs["environment"],"runtime_generation_fingerprint")?;
@@ -1052,13 +1265,16 @@ impl Host {
             let binding=&ready["backtest_binding"];
             if installed["native_descriptor"]!=native || installed["release_manifest_sha256"]!=config.release_manifest_fingerprint
                 || installed["source_inputs"]!=release["source_inputs"]
+                || native["image"]!=ready["native_image"]
                 || native["image"]["artifact"]!=binding["executor_artifact_sha256"]
                 || native["image"]["version"]!=binding["executor_version"]
                 || native["execution_capabilities"]!=metadata.executor["execution_capabilities"]
                 || native["execution_capabilities"].as_array().is_none_or(|rows|rows.iter().filter(|r|**r==json!({"kind":"BACKTEST","contract":"onlyalpha.backtest.executor/1"})).count()!=1) {return Err("BACKTEST_EXECUTOR_UNAVAILABLE".into());}
             if ready["algorithm_resolution"]!=prior["algorithm_resolution"] || ready["algorithm_resolution_request"]!=prior["algorithm_resolution_request"]
+                || ready["calculation_build"]!=calculation_build::reference(&prior["build_certification"])
+                || ready["native_implementations"]!=installed["native_descriptor"]["implementations"]
                 || ready["algorithm_resolution"]["algorithm_artifact"]!=installation.artifact_fingerprint() {return Err(INVALID.into());}
-            crate::persistence::backtest_evidence::verify_implementation_bindings(admission.source_revision(),ready,runtime.manifest(),&installed)?;
+            crate::persistence::backtest_evidence::verify_implementation_bindings(&admission,ready,runtime.manifest(),&installed)?;
             let datasets=Datasets::open(&config.research_root.join("datasets"),8192,8*1024*1024)?;
             let materialized=MaterializedDataset::load(&datasets,text(ready,"dataset_materialization_id")?)?;
             let prepared=build_prepared_next_open(admission.source_revision(),&materialized,retained_rules(&original)?,generation)?;
@@ -1116,7 +1332,17 @@ impl Host {
         let mut view = o.view();
         let namespace = namespace(&self.research_preparation_config)?;
         if o.outputs.get("ready").is_none() {
-            let mut reader = self.reader.lock().await;
+            let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let observed_reader_wait =
+                TraceOperation::start("backend", "reader.wait", Correlation::default());
+            let mut reader = self
+                .reader
+                .lock()
+                .instrument(observed_reader_wait.span().clone())
+                .await;
+            observed_reader_wait.finish("acquired", 1, 0);
+            observed_reader_hold.acquired("reader", "reader.hold");
+            let _observed_reader_release = observed_reader_hold.begin_release_marker();
             let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
             let tx = client
                 .build_transaction()
@@ -1160,7 +1386,17 @@ impl Host {
         } else {
             let request = Self::backtest_create_request(o)?;
             let outcome = {
-                let mut reader = self.reader.lock().await;
+                let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+                let observed_reader_wait =
+                    TraceOperation::start("backend", "reader.wait", Correlation::default());
+                let mut reader = self
+                    .reader
+                    .lock()
+                    .instrument(observed_reader_wait.span().clone())
+                    .await;
+                observed_reader_wait.finish("acquired", 1, 0);
+                observed_reader_hold.acquired("reader", "reader.hold");
+                let _observed_reader_release = observed_reader_hold.begin_release_marker();
                 let client = reader.as_mut().ok_or("PRODUCT_READ_DRIVER_UNAVAILABLE")?;
                 crate::persistence::backtest_run::creation_outcome_readonly(
                     client, &namespace, &request, &o.owner,
@@ -1227,7 +1463,12 @@ impl Host {
             Err(_) => return json!({"state":"PENDING"}),
         };
         let new_work_absent=async {
-            let mut reader=self.reader.lock().await;let client=reader.as_mut().ok_or(INVALID)?;
+            let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+        let observed_reader_wait = TraceOperation::start("backend", "reader.wait", Correlation::default());
+        let mut reader = self.reader.lock().instrument(observed_reader_wait.span().clone()).await;
+        observed_reader_wait.finish("acquired",1,0);
+        observed_reader_hold.acquired("reader", "reader.hold");
+        let _observed_reader_release = observed_reader_hold.begin_release_marker();let client=reader.as_mut().ok_or(INVALID)?;
             let tx=client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.map_err(|_|INVALID)?;
             let eligible=crate::persistence::research_preparation::cancelled_backtest_cleanup_in_transaction(&tx,&namespace,&work,&generation,&command).await?;
             let exact=eligible.is_some_and(|operation|operation.command==current.command&&operation.owner==current.owner);
@@ -1240,7 +1481,17 @@ impl Host {
             let Ok(request) = Self::backtest_create_request(&current) else {
                 return json!({"state":"PENDING"});
             };
-            let mut reader = self.reader.lock().await;
+            let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let observed_reader_wait =
+                TraceOperation::start("backend", "reader.wait", Correlation::default());
+            let mut reader = self
+                .reader
+                .lock()
+                .instrument(observed_reader_wait.span().clone())
+                .await;
+            observed_reader_wait.finish("acquired", 1, 0);
+            observed_reader_hold.acquired("reader", "reader.hold");
+            let _observed_reader_release = observed_reader_hold.begin_release_marker();
             let Some(client) = reader.as_mut() else {
                 return json!({"state":"PENDING"});
             };
@@ -1260,8 +1511,8 @@ impl Host {
         // No owning proof is live. A busy historical SH reader retains the
         // exact pending binding; this path never reopens or replaces work.
         let actor = current.owner.clone();
-        let result =
-            tokio::task::spawn_blocking(move || -> std::result::Result<Value, &'static str> {
+        let result = crate::workers::backtest_profile::spawn_blocking(
+            move || -> std::result::Result<Value, &'static str> {
                 {
                     let observed = Registry::inspect_work(&root, &work, &generation, &command)?;
                     if observed["closed"] == true {
@@ -1277,8 +1528,9 @@ impl Host {
                     now().map_err(|e| e.code())?,
                 )?;
                 Ok(json!({"state":"COMPLETED"}))
-            })
-            .await;
+            },
+        )
+        .await;
         match result {
             Ok(Ok(v)) => v,
             _ => json!({"state":"PENDING","work_id":current.request.reserved_run_id()}),
@@ -1305,7 +1557,17 @@ impl Host {
         let request = Self::backtest_create_request(&o).map_err(failure)?;
         let namespace = namespace(&self.research_preparation_config).map_err(failure)?;
         let outcome = {
-            let mut reader = self.reader.lock().await;
+            let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let observed_reader_wait =
+                TraceOperation::start("backend", "reader.wait", Correlation::default());
+            let mut reader = self
+                .reader
+                .lock()
+                .instrument(observed_reader_wait.span().clone())
+                .await;
+            observed_reader_wait.finish("acquired", 1, 0);
+            observed_reader_hold.acquired("reader", "reader.hold");
+            let _observed_reader_release = observed_reader_hold.begin_release_marker();
             let client = reader
                 .as_mut()
                 .ok_or_else(|| failure("PRODUCT_READ_DRIVER_UNAVAILABLE".into()))?;
@@ -1365,7 +1627,20 @@ impl Host {
             started.elapsed().as_millis()
         );
         let run = {
-            let mut writer = self.writer.lock().await;
+            let mut writer_hold = crate::workers::backtest_profile::HoldEnd::pending();
+            let writer_wait = onlyalpha_observability::Operation::start(
+                "backend",
+                "writer.wait",
+                onlyalpha_observability::Correlation::default(),
+            );
+            let mut writer = self
+                .writer
+                .lock()
+                .instrument(writer_wait.span().clone())
+                .await;
+            writer_wait.finish("acquired", 1, 0);
+            writer_hold.acquired("writer", "writer.hold");
+            let _writer_release_begin = writer_hold.begin_release_marker();
             let session = writer.as_mut().ok_or("PRODUCT_AUTHORITY_UNAVAILABLE")?;
             Backtests::new(session, &namespace)
                 .create_prepared(

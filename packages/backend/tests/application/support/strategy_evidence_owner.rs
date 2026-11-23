@@ -18,12 +18,17 @@ use crate::{
 use serde_json::{Value, json};
 use std::{os::fd::AsFd, path::Path};
 pub async fn run_phase(session: &mut AuthoritySession, root: &Path, phase: &str) {
+    let mut facts=crate::job_fact_connection::Connection::reader().await.unwrap();
+    let read_namespace=deployment::load_semantic_store_id(&root.join(".onlyalpha-semantic-store.json")).unwrap();
+
     let request: Value = serde_json::from_slice(
         &std::fs::read(std::env::var("ONLYALPHA_STRATEGY_EVIDENCE_REQUEST").unwrap()).unwrap(),
     )
     .unwrap();
     let run = research_submission::load(
         session.client_mut().await.unwrap(),
+        &mut facts.client,
+        &read_namespace,
         request["run_id"].as_str().unwrap(),
         Some("local-developer"),
     )
@@ -282,7 +287,7 @@ async fn qualification_history(
         .with_runtime_root(Path::new(request["runtime_root"].as_str().unwrap()))
         .unwrap();
     let first = authority
-        .refresh_projection(session.client_mut().await.unwrap())
+        .refresh_projection(session)
         .await
         .unwrap();
     let current_path = root
@@ -382,7 +387,7 @@ async fn qualification_history(
         CommandId::new(request["qualification_history_command"].as_str().unwrap()).unwrap();
     let group = authority
         .seal(
-            session.client_mut().await.unwrap(),
+            session,
             &command,
             std::slice::from_ref(&subject),
             "onlyalpha.factor-research",
@@ -395,7 +400,7 @@ async fn qualification_history(
     assert_eq!(
         authority
             .authorize_action(
-                session.client_mut().await.unwrap(),
+                session,
                 &command,
                 std::slice::from_ref(&subject),
                 &identity
@@ -443,7 +448,7 @@ async fn qualification_history(
     // The existing snapshot already owns canonical SourceLock::acquire. This
     // healthy read must reuse it, not deadlock by acquiring publication again.
     let fresh = authority
-        .refresh_projection(session.client_mut().await.unwrap())
+        .refresh_projection(session)
         .await
         .unwrap();
     let fresh_projection: Value = serde_json::from_slice(
@@ -483,7 +488,7 @@ async fn qualification_history(
     );
     assert_eq!(
         authority
-            .refresh_projection(session.client_mut().await.unwrap())
+            .refresh_projection(session)
             .await
             .unwrap(),
         fresh,
@@ -504,7 +509,7 @@ async fn qualification_history(
     let action_command = CommandId::new("00000000-0000-4000-8000-000000000776").unwrap();
     let action_group = authority
         .seal(
-            session.client_mut().await.unwrap(),
+            session,
             &action_command,
             std::slice::from_ref(&subject),
             "onlyalpha.factor-research",
@@ -516,7 +521,7 @@ async fn qualification_history(
     assert_eq!(action_group["disposition"], "ACTIONABLE");
     let action = authority
         .authorize_action(
-            session.client_mut().await.unwrap(),
+            session,
             &action_command,
             std::slice::from_ref(&subject),
             &fresh,
@@ -555,7 +560,7 @@ async fn qualification_history(
     drop(action);
     let replay = authority
         .seal(
-            session.client_mut().await.unwrap(),
+            session,
             &command,
             std::slice::from_ref(&subject),
             "onlyalpha.factor-research",
@@ -583,7 +588,7 @@ async fn qualification_history(
     std::fs::rename(&legacy_file, &absent).unwrap();
     let missing = authority
         .seal(
-            session.client_mut().await.unwrap(),
+            session,
             &command,
             std::slice::from_ref(&subject),
             "onlyalpha.factor-research",
@@ -605,7 +610,7 @@ async fn qualification_history(
     let bytes = std::fs::read(&decision_path).unwrap();
     std::fs::write(&decision_path, b"corrupt canonical decision").unwrap();
     let rejected = authority
-        .refresh_projection(session.client_mut().await.unwrap())
+        .refresh_projection(session)
         .await
         .is_err();
     assert_eq!(

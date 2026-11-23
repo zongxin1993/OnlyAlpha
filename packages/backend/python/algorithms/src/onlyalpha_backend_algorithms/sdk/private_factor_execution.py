@@ -5,7 +5,6 @@ The source revision reference is supplied by its owning backend, never authorize
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import multiprocessing
 import os
@@ -25,8 +24,6 @@ from onlyalpha.algorithm.private_factor import (
     ONLY_PRIVATE_FACTOR_NUMERIC_V1,
     _arrow_type,
     _normalize_output,
-    _PrivateFactorAstInterpreter,
-    _SourcePolicy,
 )
 from onlyalpha.algorithm.private_factor import (
     ONLY_PRIVATE_FACTOR_VALIDATION_POLICY_V1 as ONLY_PRIVATE_FACTOR_VALIDATION_POLICY_V1,
@@ -64,7 +61,6 @@ from onlyalpha.calculation.implementation import (
     only_implementation_manifest_from_bytes,
 )
 from onlyalpha.calculation.registry import OnlyCalculationBackendRegistration
-from onlyalpha.calculation.value_semantics import OnlyCanonicalValueSemanticsV1
 from onlyalpha.canonical import only_canonical_fingerprint
 from onlyalpha.quant_assets.private_factor_provider_snapshot import (
     OnlyPrivateFactorProviderSnapshotEntryV1 as OnlyPrivateFactorProviderSnapshotEntryV1,
@@ -147,32 +143,9 @@ def only_validate_private_factor_revision(
         errors.append("PRIVATE_FACTOR_API_CONTRACT_MISMATCH")
     if revision.source_sha256 != source_sha256(revision.source_text):
         errors.append("PRIVATE_FACTOR_SOURCE_HASH_MISMATCH")
-    try:
-        tree = ast.parse(revision.source_text, mode="exec")
-        functions = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        if (
-            len(tree.body) != 1
-            or len(functions) != 1
-            or not isinstance(functions[0], ast.FunctionDef)
-            or functions[0].name != "calculate"
-        ):
-            raise ValueError("PRIVATE_FACTOR_ENTRYPOINT_INVALID")
-        function = functions[0]
-        args = function.args
-        if (
-            [item.arg for item in args.args] != ["api", "inputs", "parameters"]
-            or args.posonlyargs
-            or args.kwonlyargs
-            or args.vararg
-            or args.kwarg
-            or args.defaults
-            or args.kw_defaults
-            or function.decorator_list
-        ):
-            raise ValueError("PRIVATE_FACTOR_ENTRYPOINT_SIGNATURE_INVALID")
-        _SourcePolicy().visit(tree)
-    except (SyntaxError, ValueError) as exc:
-        errors.append(str(exc))
+    # Source-only records can no longer certify or execute. The native build
+    # owner validates the stored typed program and exact parameter certificate.
+    errors.append("PRIVATE_FACTOR_NATIVE_BUILD_REQUIRED")
     return OnlyPrivateFactorValidationEvidenceV1(
         revision.revision_fingerprint,
         revision.source_sha256,
@@ -276,15 +249,7 @@ def only_execute_private_factor_program(
 
 
 def _execute_program(source: bytes, inputs: Mapping[str, object], parameters: Mapping[str, object]) -> object:
-    tree = ast.parse(source.decode("utf-8"), mode="exec")
-    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.FunctionDef) or tree.body[0].name != "calculate":
-        raise ValueError("PRIVATE_FACTOR_ENTRYPOINT_INVALID")
-    return _PrivateFactorAstInterpreter(
-        tree.body[0],
-        OnlyCanonicalValueSemanticsV1(ONLY_PRIVATE_FACTOR_NUMERIC_V1),
-        dict(inputs),
-        dict(parameters),
-    ).run()
+    raise ValueError("PRIVATE_FACTOR_NATIVE_PROGRAM_REQUIRED")
 
 
 def _execute_child(

@@ -6,8 +6,13 @@ mod model;
 mod perpetual;
 mod perpetual_fees;
 mod planning;
+mod working;
 pub use components::Components;
 pub use model::{Error, Prepared, digest};
+pub use planning::AdmissionPreview;
+pub use working::{
+    CompletedWorkingState, MemoryAdmission, OriginalEvidence, WorkingState, WorkingStep,
+};
 mod coordinator;
 pub use coordinator::{CommitIntent, Record, Store, coordinate, pending_events, recover};
 
@@ -22,6 +27,8 @@ pub use performance::RuntimePerformance;
 
 mod backtest_result;
 pub use backtest_result::{BacktestResult, TranscriptDraft};
+mod finite_result;
+pub use finite_result::{VerifiedFiniteBacktestResult, verify_finite_backtest_result};
 
 #[cfg(test)]
 extern crate self as onlyalpha_execution;

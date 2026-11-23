@@ -41,6 +41,7 @@ pub struct Configuration {
     pub algorithm_artifact: String,
     pub trust: PathBuf,
     pub postgres_dsn: String,
+    pub factor_build_postgres_dsn: String,
     pub postgres_peer: SocketAddr,
     pub postgres_user: String,
     pub postgres_database: String,
@@ -111,6 +112,7 @@ impl Drop for PendingRead {
 }
 pub(crate) struct Database {
     postgres_dsn: zeroize::Zeroizing<String>,
+    factor_build_postgres_dsn: zeroize::Zeroizing<String>,
     postgres_peer: SocketAddr,
     postgres_user: String,
     postgres_database: String,
@@ -120,6 +122,9 @@ impl Database {
     fn from(config: &Configuration) -> Self {
         Self {
             postgres_dsn: zeroize::Zeroizing::new(config.postgres_dsn.clone()),
+            factor_build_postgres_dsn: zeroize::Zeroizing::new(
+                config.factor_build_postgres_dsn.clone(),
+            ),
             postgres_peer: config.postgres_peer,
             postgres_user: config.postgres_user.clone(),
             postgres_database: config.postgres_database.clone(),
@@ -205,7 +210,110 @@ impl ResearchConnection {
         self.owned.close().await
     }
 }
+/// The two owned read drivers used by finite job input restoration. Neither is
+/// a mutation session; all control and publication writes stay on the original AS.
+pub(crate) struct JobReadConnections {
+    metadata: ResearchConnection,
+    facts: ResearchConnection,
+    physical: Arc<ClickHouse>,
+}
+impl JobReadConnections {
+    pub(crate) fn new(metadata:ResearchConnection,facts:ResearchConnection,physical:Arc<ClickHouse>) -> Result<Self,Failure> {
+        if metadata.namespace!=facts.namespace || metadata.writer_pid!=facts.writer_pid {
+            return Err(Failure::unavailable("JOB_INPUT_CONNECTION_BINDING_MISMATCH"));
+        }
+        Ok(Self {metadata,facts,physical})
+    }
+    pub(crate) fn physical(&self) -> Arc<ClickHouse> { Arc::clone(&self.physical) }
+    pub(crate) fn namespace(&self) -> &crate::bootstrap::deployment::SemanticStoreId {&self.metadata.namespace}
+    pub(crate) fn active(&self) -> bool {self.metadata.active() && self.facts.active()}
+    pub(crate) async fn client_mut(&mut self) -> Result<&mut Client,Failure> {self.metadata.client_mut().await}
+    pub(crate) async fn clients_mut(&mut self) -> Result<(&mut Client,&mut Client),Failure> {
+        let metadata=self.metadata.client_mut().await?;
+        let facts=self.facts.client_mut().await?;
+        Ok((metadata,facts))
+    }
+    pub(crate) async fn close(&mut self) -> Result<(),Failure> {
+        let metadata=self.metadata.close().await;
+        let facts=self.facts.close().await;
+        metadata?;
+        facts
+    }
+}
+/// Explicit construction principal. This owns the driver before role selection;
+/// cancellation or any abandoned operation revokes this independent builder.
+pub(crate) struct CalculationBuildConnection {
+    owned: PendingRead,
+    namespace: crate::bootstrap::deployment::SemanticStoreId,
+}
+impl CalculationBuildConnection {
+    pub(crate) async fn client_mut(&mut self) -> Result<&mut Client,Failure> {
+        if !driver_active(&self.owned.alive) || self.owned.driver.as_ref().is_none_or(|d|d.is_finished()) {
+            return Err(Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"));
+        }
+        let client = self.owned.client.as_mut().ok_or(Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"))?;
+        tokio::time::timeout(Duration::from_secs(5),async {
+            crate::persistence::job_publication::role(client,&["onlyalpha_factor_builder"]).await.map_err(|_|Failure::unavailable("FACTOR_BUILD_CAPABILITY_DENIED"))?;
+            crate::bootstrap::deployment::verify_binding(client,&self.namespace).await.map_err(|_|Failure::unavailable("SEMANTIC_STORE_BINDING_MISMATCH"))
+        }).await.map_err(|_|Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"))??;
+        Ok(client)
+    }
+    pub(crate) async fn close(&mut self) -> Result<(),Failure> { self.owned.close().await }
+}
 impl Database {
+    async fn factor_build_session(&self) -> Result<PendingRead,Failure> {
+        let pg: Config = self
+            .factor_build_postgres_dsn
+            .as_str()
+            .parse()
+            .map_err(|_| Failure::unavailable("FACTOR_BUILD_CONFIGURATION_INVALID"))?;
+        let profile = Self {
+            postgres_dsn: self.factor_build_postgres_dsn.clone(),
+            factor_build_postgres_dsn: self.factor_build_postgres_dsn.clone(),
+            postgres_peer: self.postgres_peer,
+            postgres_user: pg
+                .get_user()
+                .ok_or(Failure::unavailable("FACTOR_BUILD_CONFIGURATION_INVALID"))?
+                .into(),
+            postgres_database: self.postgres_database.clone(),
+            transport: self.transport.clone(),
+        };
+        connect(&profile,false).await
+    }
+    pub(crate) async fn factor_build_connection(
+        &self,
+    ) -> Result<(Client, JoinHandle<Result<(), tokio_postgres::Error>>), Failure> {
+        let mut owned = self.factor_build_session().await?;
+        Ok((
+            owned.client.take().ok_or(Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"))?,
+            owned.driver.take().ok_or(Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"))?,
+        ))
+    }
+    pub(crate) async fn calculation_build_connection(
+        &self,namespace:&crate::bootstrap::deployment::SemanticStoreId,
+    ) -> Result<CalculationBuildConnection,Failure> {
+        let mut connection = CalculationBuildConnection {owned:self.factor_build_session().await?,namespace:namespace.clone()};
+        // The owning connection exists before the first role-setting await.
+        let client = connection.owned.client.as_mut().ok_or(Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"))?;
+        tokio::time::timeout(Duration::from_secs(5),client.batch_execute("SET ROLE onlyalpha_factor_builder; SET application_name='onlyalpha-calculation-build'"))
+            .await.map_err(|_|Failure::unavailable("FACTOR_BUILD_CONNECTION_UNAVAILABLE"))?
+            .map_err(|_|Failure::unavailable("FACTOR_BUILD_CAPABILITY_DENIED"))?;
+        connection.client_mut().await?;
+        Ok(connection)
+    }
+    pub(crate) async fn job_reader_connection(
+        &self,namespace:&crate::bootstrap::deployment::SemanticStoreId,
+        writer_pid:i32,writer_live:tokio::sync::watch::Receiver<bool>,
+    ) -> Result<ResearchConnection,Failure> {
+        let mut connection = self.research_connection(namespace,writer_pid,writer_live).await?;
+        let client = connection.client_mut().await?;
+        tokio::time::timeout(Duration::from_secs(5),async {
+            client.batch_execute("SET ROLE onlyalpha_job_reader; SET application_name='onlyalpha-job-facts'").await.map_err(|_|Failure::unavailable("JOB_READER_CAPABILITY_DENIED"))?;
+            crate::persistence::job_publication::role(client,&["onlyalpha_job_reader"]).await.map_err(|_|Failure::unavailable("JOB_READER_CAPABILITY_DENIED"))?;
+            crate::bootstrap::deployment::verify_binding(client,namespace).await.map_err(|_|Failure::unavailable("SEMANTIC_STORE_BINDING_MISMATCH"))
+        }).await.map_err(|_|Failure::unavailable("JOB_READER_CONNECTION_UNAVAILABLE"))??;
+        Ok(connection)
+    }
     pub(crate) async fn research_connection(
         &self,
         namespace: &crate::bootstrap::deployment::SemanticStoreId,
@@ -240,6 +348,11 @@ impl Database {
     }
 }
 async fn connect(config: &Database, readonly: bool) -> Result<PendingRead, Failure> {
+    let (pg, stream) = postgres_socket(config, readonly).await?;
+    postgres_session(pg, stream, readonly).await
+}
+
+async fn postgres_socket(config: &Database, readonly: bool) -> Result<(Config, TcpStream), Failure> {
     // NoTls never silently falls back from SSLPrefer/Require. Independent exact
     // TCP peer + explicit endpoint/user/database + later semantic namespace proof.
     let mut pg: Config = config
@@ -278,6 +391,10 @@ async fn connect(config: &Database, readonly: bool) -> Result<PendingRead, Failu
     if stream.peer_addr().ok() != Some(config.postgres_peer) {
         return Err(Failure::unavailable("POSTGRES_PEER_MISMATCH"));
     }
+    Ok((pg, stream))
+}
+
+async fn postgres_session(pg: Config, stream: TcpStream, readonly: bool) -> Result<PendingRead, Failure> {
     let (client, connection) =
         tokio::time::timeout(Duration::from_secs(5), pg.connect_raw(stream, NoTls))
             .await
@@ -331,7 +448,8 @@ impl Drop for Running {
             .ready
             .store(false, std::sync::atomic::Ordering::Release);
         self.host.chart_gate.close();
-        if !self.host.research_drained.load(Ordering::Acquire)
+        if !self.host.factor_build_drained.load(Ordering::Acquire)
+            || !self.host.research_drained.load(Ordering::Acquire)
             || !self.host.backtest_drained.load(Ordering::Acquire)
         {
             self.host.stop_research_admission();
@@ -429,6 +547,13 @@ impl Running {
             .collect();
         let access = Arc::new(crate::security::human_access::Access::generate()?);
         let mut write = connect(&database, false).await?;
+        // Validate while PendingRead still owns both the client and driver.
+        // Failure, timeout or cancellation drops that exact connection; startup
+        // never provisions roles or substitutes an administrative connection.
+        crate::persistence::node_access::verify(
+            write.client.as_ref().ok_or(Failure::unavailable("POSTGRES_UNAVAILABLE"))?,
+            &database.postgres_user,
+        ).await.map_err(Failure::unavailable)?;
         let writer_live = write.alive.clone();
         let mut writer = AuthoritySession::acquire(
             write
@@ -590,7 +715,6 @@ impl Running {
             }
         };
         let host = Arc::new(Host {
-            backtest_root: config.user_data.join("backtest"),
             human_access: Arc::clone(&access),
             research_preparation_config:
                 crate::transport::host_research_preparation::PreparationConfig {
@@ -609,6 +733,9 @@ impl Running {
             backtest: Mutex::new(None),
             backtest_wake: OnceLock::new(),
             backtest_drained: AtomicBool::new(true),
+            factor_build: Mutex::new(None),
+            factor_build_wake: OnceLock::new(),
+            factor_build_drained: AtomicBool::new(true),
             research: Mutex::new(None),
             research_wake: OnceLock::new(),
             research_drained: AtomicBool::new(true),
@@ -634,9 +761,7 @@ impl Running {
         });
         let research_configuration = crate::workers::research_service::Configuration {
             runtime_root: config.user_data.join("runtime"),
-            research_root: config.user_data.join("research"),
             algorithms: config.algorithms.clone(),
-            native_version: env!("CARGO_PKG_VERSION").into(),
         };
         let ingress = crate::security::ingress::LocalIngress::new_workstation(
             access,
@@ -671,6 +796,25 @@ impl Running {
             if !running.host.writer_active() {
                 return Err(Failure::unavailable("PRODUCT_AUTHORITY_DRIVER_LOST"));
             }
+            let (client, driver) = running.host.database.factor_build_connection().await?;
+            let factor = crate::workers::factor_build::Service::start(
+                client,
+                driver,
+                running.host.inputs.namespace().clone(),
+                Arc::new(algorithm_installation),
+            )
+            .await
+            .map_err(Failure::unavailable)?;
+            running
+                .host
+                .factor_build_wake
+                .set(factor.wake())
+                .map_err(|_| Failure::unavailable("FACTOR_BUILD_WAKE_INVALID"))?;
+            running
+                .host
+                .factor_build_drained
+                .store(false, Ordering::Release);
+            *running.host.factor_build.lock().await = Some(factor);
             let writer_pid = {
                 let mut held = running.host.writer.lock().await;
                 held.as_mut()
@@ -697,9 +841,15 @@ impl Running {
                 .host
                 .research_drained
                 .store(false, Ordering::Release);
+            let facts = running.host.database.job_reader_connection(
+                running.host.inputs.namespace(),writer_pid,running.host.writer_live.clone(),
+            ).await?;
             let service = crate::workers::research_service::Service::start(
                 connection,
+                facts,
                 Arc::clone(&running.host.writer),
+                running.host.worker_sources(),
+                Arc::clone(&running.host.clickhouse),
                 research_configuration,
                 || {
                     host::now().map_err(|_| {
@@ -727,11 +877,16 @@ impl Running {
                 )
                 .await?;
             let preparation = &running.host.research_preparation_config;
+            let facts = running.host.database.job_reader_connection(
+                running.host.inputs.namespace(),writer_pid,running.host.writer_live.clone(),
+            ).await?;
             let service = crate::workers::backtest_worker::Service::start(
                 connection,
+                facts,
                 Arc::clone(&running.host.writer),
+                running.host.worker_sources(),
+                Arc::clone(&running.host.clickhouse),
                 crate::workers::backtest_service::Configuration {
-                    backtest_root: running.host.backtest_root.clone(),
                     research_root: preparation.research_root.clone(),
                     runtime_root: preparation.runtime_root.clone(),
                     algorithms_root: preparation.algorithms_root.clone(),
@@ -774,15 +929,47 @@ impl Running {
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) -> Result<(), Failure> {
         let mut writer_live = self.host.writer_live.clone();
+        let mut factor_status = self
+            .host
+            .factor_build
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(Failure::unavailable("FACTOR_BUILD_SERVICE_UNAVAILABLE"))?
+            .subscribe();
+        let mut backtest_status = self
+            .host
+            .backtest
+            .lock()
+            .await
+            .as_ref()
+            .map(crate::workers::backtest_worker::Service::subscribe);
         let mut failure = loop {
             if *shutdown.borrow() {
                 break None;
+            }
+            let Some(backtest_status) = backtest_status.as_mut() else {
+                break Some(Failure::unavailable("BACKTEST_SERVICE_UNAVAILABLE"));
+            };
+            if matches!(
+                *factor_status.borrow(),
+                crate::workers::factor_build::Status::Unavailable
+                    | crate::workers::factor_build::Status::Stopped
+            ) {
+                break Some(Failure::unavailable("FACTOR_BUILD_SERVICE_UNAVAILABLE"));
             }
             if !self.host.writer_active() {
                 break Some(Failure::unavailable("PRODUCT_AUTHORITY_DRIVER_LOST"));
             }
             tokio::select! {
              _=shutdown.changed()=>break None,
+             // The task owns every sender. Transient status changes do not mean it has exited.
+             _=backtest_status.wait_for(|_| false)=>{
+                 if !*shutdown.borrow() {
+                     break Some(Failure::unavailable("BACKTEST_SERVICE_UNAVAILABLE"));
+                 }
+             },
+             _=factor_status.changed()=>{if matches!(*factor_status.borrow(),crate::workers::factor_build::Status::Unavailable|crate::workers::factor_build::Status::Stopped){break Some(Failure::unavailable("FACTOR_BUILD_SERVICE_UNAVAILABLE"));}},
              expired=self.host.app.expire_temporary()=>{if expired.is_err(){break Some(Failure::unavailable("TEMPORARY_CACHE_LIFECYCLE_FAILED"));}},
              _=writer_live.changed()=>break Some(Failure::unavailable("PRODUCT_AUTHORITY_DRIVER_LOST")),
              _=self.reader_driver.as_mut().expect("retained read driver")=>{self.reader_driver.take();break Some(Failure::unavailable("PRODUCT_READ_DRIVER_LOST"));},
@@ -804,6 +991,19 @@ impl Running {
         self.host.ready.store(false, Ordering::Release);
         self.host.chart_gate.close();
         self.host.stop_research_admission();
+        {
+            let mut original = self.host.factor_build.lock().await;
+            if let Some(service) = original.as_mut()
+                && let Err(code) = service.drain().await
+            {
+                self.host.retain_research_owner();
+                return Err(Failure::unavailable(code));
+            }
+            original.take();
+            self.host
+                .factor_build_drained
+                .store(true, Ordering::Release);
+        }
         {
             let mut original = self.host.research.lock().await;
             if let Some(service) = original.as_mut()
@@ -987,4 +1187,7 @@ mod driver_tests {
 #[path = "../../tests/transport/backtest_recovery_startup.rs"]
 mod backtest_recovery_startup;
 #[cfg(test)]
-pub(crate) use backtest_recovery_startup::open as test_backtest_owner;
+pub(crate) use backtest_recovery_startup::{
+    FaultedBacktestOwner, facts as test_job_fact_reader, open as test_backtest_owner,
+    publication_fault, research as test_research_owner,
+};

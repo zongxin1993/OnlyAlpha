@@ -481,57 +481,6 @@ export const strategySchema = z.strictObject({
     promotion_records: z.array(z.record(z.string(), z.unknown()))
 });
 
-const safeNonnegativeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-
-export const backtestRunSchema = z.strictObject({
-    schema_version: z.literal(1),
-    run_id: uuid4,
-    state: z.string().min(1),
-    revision: safeNonnegativeInteger,
-    specification_fingerprint: sha256,
-    admission_resolution_fingerprint: sha256,
-    queued_at: timestamp,
-    started_at: timestamp.nullable(),
-    cancel_requested_at: timestamp.nullable(),
-    finished_at: timestamp.nullable(),
-    result_fingerprint: sha256.nullable(),
-    evidence_fingerprint: sha256.nullable(),
-    determinism_fingerprint: sha256.nullable(),
-    failure: runFailureSchema.nullable()
-});
-
-const backtestEvidenceArtifactSchema = z.strictObject({
-    name: z.string().min(1),
-    sha256,
-    size: safeNonnegativeInteger,
-    media_type: z.string().min(1)
-});
-
-const backtestEvidenceManifestSchema = z.strictObject({
-    schema_version: z.literal(1),
-    backtest_run_id: uuid4,
-    specification_fingerprint: sha256,
-    admission_resolution_fingerprint: sha256,
-    strategy_fingerprint: sha256,
-    dataset_binding_fingerprint: sha256,
-    base_dataset_snapshot_fingerprint: sha256,
-    market_product_composition_fingerprint: sha256,
-    portfolio_profile_fingerprint: sha256,
-    risk_profile_fingerprint: sha256,
-    execution_profile_fingerprint: sha256,
-    kernel_semantics_version: z.string().min(1),
-    implementation_fingerprints: z.array(sha256),
-    result_fingerprint: sha256,
-    determinism_fingerprint: sha256,
-    artifacts: z.array(backtestEvidenceArtifactSchema),
-    evidence_fingerprint: sha256
-});
-
-export const backtestEvidenceSchema = z.strictObject({
-    schema_version: z.literal(1),
-    manifest: backtestEvidenceManifestSchema
-});
-
 export const productHealthSchema = z
     .strictObject({
         status: z.string().min(1),
@@ -601,8 +550,6 @@ export type ResearchRunSummaryTransport = z.infer<typeof researchRunSummarySchem
 export type ResearchRunPageTransport = z.infer<typeof researchRunPageSchema>;
 export type ResearchRunSubmissionTransport = z.infer<typeof researchRunSubmissionSchema>;
 export type StrategyTransport = z.infer<typeof strategySchema>;
-export type BacktestRunTransport = z.infer<typeof backtestRunSchema>;
-export type BacktestEvidenceTransport = z.infer<typeof backtestEvidenceSchema>;
 export type ProductHealthTransport = z.infer<typeof productHealthSchema>;
 export type ResearchCalculationCatalogTransport = z.infer<typeof researchCalculationCatalogSchema>;
 // Only the active calculation catalog is checked against the served native API.

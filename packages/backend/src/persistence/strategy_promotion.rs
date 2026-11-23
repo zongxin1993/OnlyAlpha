@@ -20,6 +20,7 @@ use onlyalpha_strategy::SourceRevision;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio_postgres::{Client, Transaction};
+use super::build_fact_read::BuildFactRead;
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "PROMOTION_LEDGER_CORRUPT";
 const UNAVAILABLE: &str = "PROMOTION_LEDGER_UNAVAILABLE";
@@ -166,6 +167,7 @@ impl<'a> Promotions<'a> {
         decision: &Arc<VerifiedDecision>,
         at: OnlyUtcDateTime,
     ) -> Work<PromotionRecord> {
+        let roles=owned.control_roles().map_err(db)?;
         let tx = owned
             .client_mut()
             .await
@@ -200,7 +202,7 @@ impl<'a> Promotions<'a> {
         let new_admission = accepted.is_none();
         if new_admission && let Some(proof) = decision.manual_evidence() {
             proof
-                .require_running_parent_in_transaction(&tx, self.namespace, actor)
+                .require_running_parent_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace, actor)
                 .await
                 .map_err(stage_guard)?;
         }
@@ -235,7 +237,7 @@ impl<'a> Promotions<'a> {
         .map_err(uncertain)?;
         let required = accepted.as_ref().map(|r| r.outcome().id());
         let before = read_cut(
-            &tx,
+            &BuildFactRead::control(&tx,&roles),
             self.namespace,
             &request.strategy,
             &relation,
@@ -312,7 +314,7 @@ impl<'a> Promotions<'a> {
             .await
             .map_err(db)?;
         let after = read_cut(
-            &tx,
+            &BuildFactRead::control(&tx,&roles),
             self.namespace,
             &request.strategy,
             &relation,
@@ -327,7 +329,7 @@ impl<'a> Promotions<'a> {
         }
         if new_admission && let Some(proof) = decision.manual_evidence() {
             proof
-                .require_running_parent_in_transaction(&tx, self.namespace, actor)
+                .require_running_parent_in_transaction(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles), self.namespace, actor)
                 .await
                 .map_err(stage_guard)?;
         }
@@ -544,7 +546,7 @@ impl VerifiedBacktestAdmission {
     /// existing guarded transaction. No new socket, write or blocking DB bridge.
     pub(crate) async fn verify_in_transaction(
         &self,
-        tx: &Transaction<'_>,
+        tx: &BuildFactRead<'_, '_>,
         namespace: &SemanticStoreId,
     ) -> Result<()> {
         if namespace != &self.namespace {
@@ -599,6 +601,7 @@ struct PromotionCutSelection<'a> {
 
 pub(crate) async fn read_verified_admission(
     client: &mut Client,
+    facts: &mut Client,
     namespace: &SemanticStoreId,
     frozen: Arc<FrozenStore>,
     decision: Arc<VerifiedDecision>,
@@ -626,8 +629,10 @@ pub(crate) async fn read_verified_admission(
         .await
         .map_err(|_| UNAVAILABLE)?;
     transaction(&tx, namespace).await?;
+    let fact_tx = facts.build_transaction().read_only(true).start().await.map_err(|_|UNAVAILABLE)?;
+    let context = BuildFactRead::reader(&tx,&fact_tx,namespace).await.map_err(|_|UNAVAILABLE)?;
     let sealed = admission_in_transaction(
-        &tx,
+        &context,
         namespace,
         frozen,
         decision,
@@ -639,13 +644,14 @@ pub(crate) async fn read_verified_admission(
         },
     )
     .await?;
+    fact_tx.commit().await.map_err(|_|UNAVAILABLE)?;
     tx.commit().await.map_err(|_| UNAVAILABLE)?;
     Ok(sealed)
 }
 /// Exact Q/P observation on one owning snapshot, with the same bounded SQL
 /// environment as standalone admission. No caller JSON can construct a proof.
 pub(crate) async fn read_selected_admission_in_transaction(
-    tx: &Transaction<'_>,
+    tx: &BuildFactRead<'_, '_>,
     namespace: &SemanticStoreId,
     frozen: Arc<FrozenStore>,
     decisions: Arc<super::qualification_decision::Store>,
@@ -713,7 +719,7 @@ pub(crate) async fn read_selected_admission_in_transaction(
     .await
 }
 async fn admission_in_transaction(
-    tx: &Transaction<'_>,
+    tx: &BuildFactRead<'_, '_>,
     namespace: &SemanticStoreId,
     frozen: Arc<FrozenStore>,
     decision: Arc<VerifiedDecision>,
@@ -807,7 +813,7 @@ async fn seal_admission(
 /// A new validation occurrence does not authorize BACKTEST -> BACKTEST or change
 /// the prior immutable Freeze, Qualification or Promotion identities.
 pub(crate) async fn read_existing_backtest_admission_for_strategy(
-    client: &mut Client,
+    clients: (&mut Client, &mut Client),
     namespace: &SemanticStoreId,
     frozen: Arc<FrozenStore>,
     decisions: Arc<super::qualification_decision::Store>,
@@ -815,6 +821,7 @@ pub(crate) async fn read_existing_backtest_admission_for_strategy(
     strategy: &str,
     max_work: usize,
 ) -> Result<Option<VerifiedBacktestAdmission>> {
+    let (client,facts) = clients;
     let max_work = max_work.min(WORK);
     if max_work == 0 || !crate::is_sha256_hex(strategy) {
         return Err(INVALID);
@@ -844,8 +851,10 @@ pub(crate) async fn read_existing_backtest_admission_for_strategy(
         })
         .ok_or("QUALIFIED_PROMOTION_PROOF_REQUIRED")?;
     let decision_id = text(selected.record(), "qualification_decision_fingerprint")?;
+    let fact_tx = facts.build_transaction().read_only(true).start().await.map_err(|_|UNAVAILABLE)?;
+    let context = BuildFactRead::reader(&tx,&fact_tx,namespace).await.map_err(|_|UNAVAILABLE)?;
     let decision = decisions
-        .read_verified_in_transaction(&tx, namespace, runtime_root, decision_id)
+        .read_verified_in_transaction(&context, namespace, runtime_root, decision_id)
         .await?;
     let relation = text(
         &decision.record()["evidence"][0],
@@ -853,7 +862,7 @@ pub(crate) async fn read_existing_backtest_admission_for_strategy(
     )?
     .to_owned();
     let value = admission_in_transaction(
-        &tx,
+        &context,
         namespace,
         frozen,
         decision,
@@ -865,6 +874,7 @@ pub(crate) async fn read_existing_backtest_admission_for_strategy(
         },
     )
     .await?;
+    fact_tx.commit().await.map_err(|_|UNAVAILABLE)?;
     tx.commit().await.map_err(|_| UNAVAILABLE)?;
     Ok(Some(value))
 }
@@ -968,7 +978,7 @@ async fn records(
     Ok(result)
 }
 async fn read_cut(
-    tx: &Transaction<'_>,
+    tx: &BuildFactRead<'_, '_>,
     namespace: &SemanticStoreId,
     subject: &str,
     relation: &FreezeRelation,
@@ -991,7 +1001,7 @@ async fn read_cut(
     .await
 }
 async fn read_cut_with_prefix(
-    tx: &Transaction<'_>,
+    tx: &BuildFactRead<'_, '_>,
     namespace: &SemanticStoreId,
     subject: &str,
     relation: &FreezeRelation,
@@ -1380,6 +1390,10 @@ pub(crate) struct VerifiedBacktestHistory {
     max_work: usize,
 }
 impl VerifiedBacktestHistory {
+    pub(crate) fn validated_decision(&self) -> Result<&Value> {
+        self.verify_cut()?;
+        self.decision.validated_decision()
+    }
     pub(crate) fn source_revision(&self) -> &SourceRevision {
         &self.source
     }
@@ -1397,7 +1411,7 @@ impl VerifiedBacktestHistory {
             self.max_work,
         )
     }
-    pub(crate) async fn verify_in_transaction(&self, tx: &Transaction<'_>) -> Result<()> {
+    pub(crate) async fn verify_in_transaction(&self, tx: &BuildFactRead<'_, '_>) -> Result<()> {
         self.verify_cut()?;
         transaction(tx, &self.namespace).await?;
         let actual = read_cut_with_prefix(
@@ -1420,7 +1434,7 @@ impl VerifiedBacktestHistory {
     }
 }
 pub(crate) async fn read_verified_history_in_transaction(
-    tx: &Transaction<'_>,
+    tx: &BuildFactRead<'_, '_>,
     namespace: &SemanticStoreId,
     frozen: Arc<FrozenStore>,
     decision: Arc<VerifiedDecision>,

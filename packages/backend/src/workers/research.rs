@@ -41,17 +41,17 @@ pub struct Work {
 // The two actual consumers share one protocol: a directly owned technical session and
 // the Shipping Host's original AuthoritySession. Neither opens/reconnects a socket.
 enum Access<'a> {
-    Direct(&'a mut Client),
+    Direct(&'a mut Client, &'a mut Client, &'a crate::bootstrap::deployment::SemanticStoreId),
     Owned(&'a SharedAuthority),
 }
 enum Guard<'a> {
-    Direct(&'a mut Client),
+    Direct(&'a mut Client, &'a mut Client, &'a crate::bootstrap::deployment::SemanticStoreId),
     Owned(MutexGuard<'a, Option<AuthoritySession>>),
 }
 impl Access<'_> {
     async fn enter(&mut self) -> Guard<'_> {
         match self {
-            Self::Direct(client) => Guard::Direct(client),
+            Self::Direct(client,facts,namespace) => Guard::Direct(client,facts,namespace),
             Self::Owned(writer) => Guard::Owned(writer.lock().await),
         }
     }
@@ -59,13 +59,33 @@ impl Access<'_> {
 impl Guard<'_> {
     async fn client(&mut self) -> Result<&mut Client, PreparationError> {
         match self {
-            Self::Direct(client) => Ok(client),
+            Self::Direct(client,..) => Ok(client),
             Self::Owned(writer) => writer
                 .as_mut()
                 .ok_or("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")?
                 .client_mut()
                 .await
                 .map_err(|_| PreparationError::from("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")),
+        }
+    }
+    async fn load(&mut self,id:&str) -> Result<VerifiedRun,PreparationError> {
+        match self {
+            Self::Direct(client,facts,namespace)=>crate::persistence::research_submission::load(client,facts,namespace,id,None).await.map_err(Into::into),
+            Self::Owned(writer)=>{
+                let session=writer.as_mut().ok_or("RESEARCH_NODE_AUTHORITY_UNAVAILABLE")?;
+                let mut owned=session.take_ownership();
+                let roles=owned.control_roles().map_err(|e|PreparationError::from(e.code()))?;
+                let result=async {
+                    let tx=owned.client_mut().await.map_err(|e|PreparationError::from(e.code()))?.transaction().await.map_err(|_|PreparationError::from("RESEARCH_SUBMISSION_UNAVAILABLE"))?;
+                    let facts=crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles);
+                    let run=crate::persistence::research_submission::load_in_transaction(&facts,id,None).await?;
+                    tx.commit().await.map_err(|_|PreparationError::from("RESEARCH_SUBMISSION_UNAVAILABLE"))?;
+                    Ok::<_,PreparationError>(run)
+                }.await;
+                owned.verify().await.map_err(|e|PreparationError::from(e.code()))?;
+                session.restore_ownership(owned);
+                result
+            }
         }
     }
     async fn complete(
@@ -122,10 +142,12 @@ impl Guard<'_> {
 /// Existing direct technical consumer, with no alternate business or execution semantics.
 pub async fn run_once(
     client: &mut Client,
+    facts: &mut Client,
     work: Work,
     now: impl Fn() -> OnlyUtcDateTime,
 ) -> Result<RunStatus, PreparationError> {
-    execute_once(&mut Access::Direct(client), work, &|| Ok(now())).await
+    let namespace=crate::bootstrap::deployment::load_semantic_store_id(&work.evidence_root.join(".onlyalpha-semantic-store.json")).map_err(|e|PreparationError::from(e.code()))?;
+    execute_once(&mut Access::Direct(client,facts,&namespace), work, None, &|| Ok(now())).await
 }
 /// All operational writes use the original guard-owning socket. Losing that socket
 /// cannot finalize on an independent Research connection after a prior lock check.
@@ -134,7 +156,17 @@ pub async fn run_owned(
     work: Work,
     now: impl Fn() -> Result<OnlyUtcDateTime, PreparationError>,
 ) -> Result<RunStatus, PreparationError> {
-    execute_once(&mut Access::Owned(writer), work, &now).await
+    execute_once(&mut Access::Owned(writer), work, None, &now).await
+}
+/// Shipping input handoff retains the same Source session through every claim
+/// await. Technical retained-fact recovery above does not issue Source access.
+pub(crate) async fn run_owned_authorized(
+    writer: &SharedAuthority,
+    work: Work,
+    source: &crate::application::source_access::Session,
+    now: impl Fn() -> Result<OnlyUtcDateTime, PreparationError>,
+) -> Result<RunStatus, PreparationError> {
+    execute_once(&mut Access::Owned(writer), work, Some(source), &now).await
 }
 /// Before executable preparation, recover cancellation/terminal facts without an algorithm.
 pub(crate) async fn recover_owned(
@@ -163,12 +195,7 @@ async fn recover_existing(
         if status.state == RunState::Completed {
             let current = {
                 let mut held = access.enter().await;
-                crate::persistence::research_submission::load(
-                    held.client().await?,
-                    run.run_id(),
-                    None,
-                )
-                .await?
+                held.load(run.run_id()).await?
             };
             let root = root.to_path_buf();
             let runtime_root = runtime_root.to_path_buf();
@@ -229,6 +256,7 @@ async fn heartbeat(
 async fn execute_once(
     access: &mut Access<'_>,
     work: Work,
+    source: Option<&crate::application::source_access::Session>,
     now: &impl Fn() -> Result<OnlyUtcDateTime, PreparationError>,
 ) -> Result<RunStatus, PreparationError> {
     let run = work.run.clone();
@@ -284,6 +312,11 @@ async fn execute_once(
     } else {
         None
     };
+    if let Some(source) = source {
+        const DENIED: &str = "RESEARCH_SOURCE_ACCESS_DENIED";
+        if source.subject_id().map_err(|_|PreparationError::from(DENIED))? != work.run.owner() { return Err(DENIED.into()); }
+        source.require_selection(work.run.source_selection(), crate::application::source_access::Permission::ClosedHistory).map_err(|_|PreparationError::from(DENIED))?;
+    }
     let mut job = tokio::task::spawn_blocking(move || {
         let store = Evidence::open(&work.evidence_root)?.with_runtime_root(&work.runtime_root)?;
         match work.run.specification() {

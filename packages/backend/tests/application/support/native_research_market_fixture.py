@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import json
 import os
-import platform
 import re
 import shutil
 import subprocess
-import tomllib
+import sys
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -20,6 +19,9 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+
+from packages.backend.tests.application.support.native_probe import build_native_probe as _build_market_probe
+from packages.backend.tests.application.support.native_probe import runtime_diagnostic_lines
 
 from packages.backend.tests.application.test_runtime_installation_postgres import (
     native_environment_case as native_environment_case,
@@ -60,9 +62,11 @@ class MarketStorageInputs:
 
 @contextmanager
 def market_database(postgres_dsn: str) -> Iterator[MarketStorageInputs]:
+    started=time.monotonic_ns()
     backend = native_executable(release=True)
     result = migrate(backend, postgres_dsn, DEFAULT_MIGRATION_ROOT)
     assert result.returncode == 0, result.stderr
+    print(f"[research-fixture] phase=database-ready elapsed_us={(time.monotonic_ns()-started)//1000}",file=sys.stderr,flush=True)
     name = "onlyalpha_test_native_market_storage_" + uuid4().hex
     config = ClickHouseConfiguration(
         os.environ["ONLYALPHA_TEST_CLICKHOUSE_URL"],
@@ -71,6 +75,7 @@ def market_database(postgres_dsn: str) -> Iterator[MarketStorageInputs]:
         os.environ["ONLYALPHA_TEST_CLICKHOUSE_PASSWORD"],
     )
     clickhouse_namespace(backend, name, initialize=True)
+    print(f"[research-fixture] phase=market-ready elapsed_us={(time.monotonic_ns()-started)//1000}",file=sys.stderr,flush=True)
     try:
         yield MarketStorageInputs(config)
     finally:
@@ -82,38 +87,6 @@ def database(postgres_dsn: str) -> Iterator[MarketStorageInputs]:
     with market_database(postgres_dsn) as inputs:
         yield inputs
 
-
-@functools.cache
-def _build_market_probe(*, release: bool = False) -> Path:
-    # A formal frozen-source process can prepare this producer before pytest's
-    # scenario budget, then reuse that same build. Never reuse a persisted binary.
-    from scripts.rust_kernel_check import compiler_environment, prepare_cargo_home
-
-    target = {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"}[platform.machine()]
-    output = ROOT / "test-results/rust-kernel/target"
-    env = compiler_environment(os.environ, output)
-    env["RUSTUP_TOOLCHAIN"] = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
-    prepare_cargo_home(Path("/usr/local/cargo/registry"), Path(env["CARGO_HOME"]))
-    subprocess.run(
-        [
-            "cargo",
-            "build",
-            "--frozen",
-            "--offline",
-            *(["--release"] if release else []),
-            "--target",
-            target,
-            "-j1",
-            "-p",
-            "onlyalpha-backend",
-            "--example",
-            "command-postgres-probe",
-        ],
-        cwd=ROOT,
-        env=env,
-        check=True,
-    )
-    return output / target / ("release" if release else "debug") / "examples/command-postgres-probe"
 
 
 @pytest.fixture(scope="session")
@@ -127,11 +100,11 @@ def _strategy_probe_diagnostics(stderr: str | bytes | None) -> None:
 
     if isinstance(stderr, bytes):
         stderr = stderr.decode("utf-8", errors="replace")
-    # Only bounded static phase/line labels from the existing source diagnostics.
+    # Only bounded phase/line labels, payload sizes/digests and elapsed microseconds.
     # Never dump the request, stdout, environment, arbitrary child errors or IDs.
     for line in (stderr or "").splitlines()[-256:]:
         if re.fullmatch(
-            r"\[strategy-(?:evaluation|evidence)\] (?:phase=[a-z][a-z0-9-]{0,63}|invalid line=[0-9]{1,10}|input-pin=[a-z][a-z0-9-]{0,63})",
+            r"\[(?:strategy-(?:evaluation|evidence)|calculation-build)\] (?:phase=[a-z][a-z0-9-]{0,63}|invalid line=[0-9]{1,10}|input-pin=[a-z][a-z0-9-]{0,63}|payload=(?:prepared-inputs|build-certification|algorithm-resolution|composition|specification|study|request) bytes=[0-9]{1,10} sha256=[0-9a-f]{64}|submission_us=[0-9]{1,20})",
             line,
         ):
             print(line, file=sys.stderr, flush=True)
@@ -153,12 +126,12 @@ def probe(
             env=env,
         )
     except subprocess.TimeoutExpired as error:
-        if op in {"strategy-evidence-phase", "strategy-worker-phase"}:
+        if op in {"strategy-evidence-phase", "strategy-worker-phase", "dataset-strategy-prepare"}:
             _strategy_probe_diagnostics(error.stderr)
         raise
     assert result.returncode == 0, result.stderr
     parsed = cast(dict[str, Any], json.loads(result.stdout))
-    if op == "strategy-evidence-phase" and "error" in parsed:
+    if op == "dataset-strategy-prepare" or (op == "strategy-evidence-phase" and "error" in parsed):
         # Preserve the exact returned error/old assertions and the same safe
         # phase surface for both ordinary errors and outer-harness timeouts.
         _strategy_probe_diagnostics(result.stderr)
@@ -188,6 +161,8 @@ def strategy_preparation_case(
     first_bar_start: datetime | None = None,
     manual_only: bool = False,
     fresh_runtime: bool = True,
+    builtins_only: bool = False,
+    coherent_backtest: bool = False,
 ) -> dict[str, Any]:
     from uuid import uuid4
 
@@ -200,6 +175,8 @@ def strategy_preparation_case(
     runtime = runtime_root if runtime_root is not None else tmp_path / "use_test_strategy_runtime"
     generation = None
     if not manual_only:
+        started=time.monotonic_ns()
+        print("[research-fixture] phase=runtime-start elapsed_us=0",file=sys.stderr,flush=True)
         try:
             result = subprocess.run(
                 [str(executable)],
@@ -225,33 +202,37 @@ def strategy_preparation_case(
         except subprocess.TimeoutExpired as error:
             # Preserve the original deadline and expose only the probe's bounded
             # phase markers; the request and deployment environment are not logged.
-            for line in (error.stderr or b"").decode("utf-8", errors="replace").splitlines():
-                if line.startswith("[runtime-environment] phase="):
-                    print(line, flush=True)
+            for line in runtime_diagnostic_lines(error.stderr):
+                print(line,file=sys.stderr,flush=True)
             raise
+        print(f"[research-fixture] phase=runtime-ready elapsed_us={(time.monotonic_ns()-started)//1000}",file=sys.stderr,flush=True)
+        if os.environ.get("ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS")=="1":
+            for line in runtime_diagnostic_lines(result.stderr):
+                print(line,file=sys.stderr,flush=True)
         environment = json.loads(result.stdout)
         assert "error" not in environment, (environment, result.stderr)
         generation = environment["manifest"]["runtime_generation_fingerprint"]
         assert environment["snapshot"]["active_for_new_work"] == generation
-    saved = author(
-        market_probe,
-        vector["draft"]["factor_id"],
-        "save",
-        op="factor-authoring",
-        factor_id=vector["draft"]["factor_id"],
-        draft=vector["draft"],
-        expected=None,
-    )
-    assert "error" not in saved, saved
-    published = author(
-        market_probe,
-        vector["draft"]["factor_id"],
-        "publish",
-        op="factor-authoring",
-        factor_id=vector["draft"]["factor_id"],
-        expected=saved["result"]["draft_fingerprint"],
-    )
-    assert published["result"]["revision"] == vector["revision"]
+    if not builtins_only:
+        saved = author(
+            market_probe,
+            vector["draft"]["factor_id"],
+            "save",
+            op="factor-authoring",
+            factor_id=vector["draft"]["factor_id"],
+            draft=vector["draft"],
+            expected=None,
+        )
+        assert "error" not in saved, saved
+        published = author(
+            market_probe,
+            vector["draft"]["factor_id"],
+            "publish",
+            op="factor-authoring",
+            factor_id=vector["draft"]["factor_id"],
+            expected=saved["result"]["draft_fingerprint"],
+        )
+        assert published["result"]["revision"] == vector["revision"]
 
     # Controlled market inputs enter through existing WAL/seal/catalog owners.
     # They are technical inputs, never claimed as real Binance observations.
@@ -268,7 +249,9 @@ def strategy_preparation_case(
         executable,
         database,
         "retained-source-prerequisite",
+        fixture_capture_id=str(uuid4()),
         fixture_profile=profile,
+        coherent_backtest=coherent_backtest,
         user_data=str(tmp_path / "source-inputs"),
         selected_backend=str(executable),
         selected_backend_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
@@ -357,6 +340,21 @@ def strategy_preparation_case(
             ],
         }
     )
+    if builtins_only:
+        # A separate real authored public-operator strategy. Existing private
+        # factor fixtures and their expectations retain their original path.
+        instances[-1] = {
+            "instance_key": "momentum",
+            "type_reference": {
+                "kind": "INDICATOR",
+                "type_id": "onlyalpha.operator.rolling_mean",
+                "semantic_version": versions["onlyalpha.operator.rolling_mean"],
+            },
+            "parameters": {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}},
+            "published_outputs": ["value"],
+            "primary_output": "value",
+            "input_bindings": [{"input_name": "value", "source": "bar.close"}],
+        }
     seed_strategy = json.loads((ROOT / "examples/private-assets/strategy/simple_momentum/strategy.json").read_text())[
         "strategy"
     ]["definition"]
@@ -367,6 +365,8 @@ def strategy_preparation_case(
             "revision_fingerprint": vector["revision"]["revision_fingerprint"],
         }
     ]
+    if builtins_only:
+        seed_strategy["factor_revision_dependencies"] = []
     seed_strategy["signals"]["entry"]["operator"] = ">="
     seed_strategy["signals"]["entry"]["right"]["value"]["value"] = "0.001"
     seed_strategy["universe"] = {"kind": "SINGLE_INSTRUMENT", "instruments": [scope["instrument_id"]]}
