@@ -175,6 +175,8 @@ def start_stop(mode: str, artifact: Path | None = None) -> int:
         raise ValueError("DEV_PROJECT_REFUSED")
     environment = {key: value for key, value in os.environ.items() if not key.startswith("ONLYALPHA_")}
     environment.update(ONLYALPHA_COMPOSE_NAMESPACE="onlyalpha-dev", ONLYALPHA_DEV_EXISTING_USER_DATA="true")
+    if mode == "start" and "ONLYALPHA_HUMAN_CREDENTIALS_FILE" in os.environ:
+        environment["ONLYALPHA_HUMAN_CREDENTIALS_FILE"] = os.environ["ONLYALPHA_HUMAN_CREDENTIALS_FILE"]
     compose = [
         "docker",
         "compose",

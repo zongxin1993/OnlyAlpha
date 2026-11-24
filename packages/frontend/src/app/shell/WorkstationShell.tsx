@@ -4,6 +4,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { WorkspaceIcon } from "../../shared/components/WorkspaceIcon";
 import { NAV_GROUPS } from "../nav";
 import { ContextBar } from "./ContextBar";
+import { HumanSessionControls } from "../HumanSessionGate";
 import { getRailSnapshot, setRail, subscribeRail } from "./rail";
 import { SideRail } from "./SideRail";
 
@@ -108,6 +109,7 @@ export function WorkstationShell() {
             <footer className="status-surface">
                 <span className="status-dot" aria-hidden="true" />
                 <span>OnlyAlpha · 个人量化工作台</span>
+                <HumanSessionControls />
                 <nav className="footer-quick" aria-label="页脚导航">
                     <Link to="/overview">总览</Link>
                     <Link to="/">工作台</Link>

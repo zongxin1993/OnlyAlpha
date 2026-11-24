@@ -26,9 +26,11 @@ fn worker_observation_preserves_research_vocabulary_and_exact_optional_fields() 
             json!({"state":"UNAVAILABLE","code":"BACKTEST_SERVICE_UNAVAILABLE"}),
         ),
     ] {
-        let observation: BacktestWorkerObservation = worker_observation(actual);
+        let observation = worker_observation(run, actual).unwrap();
         assert_eq!(serde_json::to_value(observation).unwrap(), want);
     }
+    let other_run = "f4eb56ad-2606-4cfa-a12c-87ffabb76e0e";
+    assert!(worker_observation(run, Some(Status::Running(other_run.into()))).is_none());
 }
 
 #[test]
@@ -41,9 +43,10 @@ fn worker_loss_never_rewrites_run_status_or_publication_availability() {
         view.worker_observation.is_none(),
         "the additive observation remains optional"
     );
-    view.worker_observation = Some(worker_observation(Some(Status::Unavailable(
-        "BACKTEST_SERVICE_UNAVAILABLE",
-    ))));
+    view.worker_observation = worker_observation(
+        &view.run_id,
+        Some(Status::Unavailable("BACKTEST_SERVICE_UNAVAILABLE")),
+    );
     let mut actual = serde_json::to_value(view).unwrap();
     assert_eq!(
         actual.as_object_mut().unwrap().remove("worker_observation"),

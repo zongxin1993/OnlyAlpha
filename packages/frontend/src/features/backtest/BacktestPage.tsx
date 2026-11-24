@@ -174,9 +174,15 @@ function BacktestRoute({ onRefresh }: { onRefresh: () => void }) {
                             void read();
                         }, 3000);
                 }
-            } catch {
-                if (isCurrent())
+            } catch (error) {
+                if (!isCurrent()) return;
+                if (runRoute && api.isRunNotFound(error)) {
+                    setRun(null);
+                    setResult(null);
+                    setProblem("无法查看这次回测，请返回回测记录查看自己的任务。");
+                } else {
                     setProblem("暂时无法读取当前记录。已有策略与回测仍然保留，请重新查看。");
+                }
             } finally {
                 if (isCurrent()) setLoading(false);
             }

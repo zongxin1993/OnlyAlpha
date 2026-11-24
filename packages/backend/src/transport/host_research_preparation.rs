@@ -779,10 +779,8 @@ impl Host {
         crate::application::source_access::Selection,
     )> {
         let owner = self.preparation_owner(human)?;
-        let (authority, session) = {
-            let issuer = self.issuer.lock().await;
-            (issuer.authority.clone(), issuer.session.clone())
-        };
+        let (authority, session) = self.subject_sources(owner).await
+            .map_err(|_| "RESEARCH_SOURCE_ACCESS_DENIED")?;
         let selection = source.selection()?;
         if check {
             authority
@@ -900,7 +898,7 @@ impl Host {
             Some(&source.expected_type_id),
         )
         .map_err(|e| e.code())?;
-        let (resolved, _) = self.resolve(&reference).await.map_err(|e| e.code())?;
+        let resolved = self.resolve_with_session(&reference, &source_session).await.map_err(|e| e.code())?;
         if resolved.selection() != &selection {
             return Err("RESEARCH_SOURCE_ACCESS_DENIED".into());
         }

@@ -1,4 +1,5 @@
 //! Technical infrastructure probe: never a Shipping Product endpoint.
+use onlyalpha_backend as host_backend;
 mod backtest_native_host;
 mod factor_studies_probe;
 mod integration_command_fixture;
@@ -697,7 +698,7 @@ pub fn run_with_input(input: Option<String>) -> Result<(), Box<dyn StdError>> {
     startup_progress("tokio_ready");
     runtime.block_on(async {
   if std::env::args().skip(1).collect::<Vec<_>>()==["--backtest-native-host"] {
-    return backtest_native_host::serve().await;
+    return backtest_native_host::serve(backtest_native_host::configuration()?).await;
   }
   if std::env::args().skip(1).collect::<Vec<_>>()==["--describe-native-runtime"] {
     println!("{}",onlyalpha_backend::workers::algorithm::describe_native_runtime(env!("CARGO_PKG_VERSION"))?);return Ok(());

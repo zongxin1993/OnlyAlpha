@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-export class ProductRequestError extends Error {}
+export class ProductRequestError extends Error {
+    constructor(
+        message: string,
+        readonly status?: number
+    ) {
+        super(message);
+    }
+}
 
 export async function request<T>(
     path: string,
@@ -27,7 +34,10 @@ export async function request<T>(
                 z.object({ detail: z.string() }).transform((v) => v.detail)
             ])
             .safeParse(data);
-        throw new ProductRequestError(code.success ? code.data : "服务响应不可用，请核对原操作");
+        throw new ProductRequestError(
+            code.success ? code.data : "服务响应不可用，请核对原操作",
+            r.status
+        );
     }
     return schema.parse(data);
 }

@@ -1,6 +1,6 @@
 //! Technical entry into the unchanged Shipping startup and HTTP owners.
 //! This starts no alternate Backtest authority and never accepts a Work/grant DTO.
-use onlyalpha_backend::{
+use super::host_backend::{
     bootstrap::workstation_startup::{Configuration, Running},
     persistence::market_data::ClickHouseConfig,
     transport::endpoint::Transport,
@@ -24,13 +24,15 @@ fn path(v: &Value, name: &str) -> Result<PathBuf, Box<dyn Error>> {
     }
     Ok(p)
 }
-pub(super) async fn serve() -> Result<(), Box<dyn Error>> {
+pub(super) fn configuration() -> Result<Value, Box<dyn Error>> {
     let mut raw = String::new();
     io::stdin().take(131073).read_to_string(&mut raw)?;
     if raw.len() > 131072 {
         return Err("probe frame bound".into());
     }
-    let v: Value = serde_json::from_str(&raw)?;
+    Ok(serde_json::from_str(&raw)?)
+}
+pub(super) async fn serve(v: Value) -> Result<(), Box<dyn Error>> {
     if v.as_object().is_none_or(|m| m.len() != 9) || v["schema_version"] != 1 {
         return Err("explicit Host configuration required".into());
     }
@@ -79,7 +81,7 @@ pub(super) async fn serve() -> Result<(), Box<dyn Error>> {
     let diagnostics = std::env::var_os("ONLYALPHA_DIAGNOSTICS_PATH")
         .map(PathBuf::from)
         .map(|path| {
-            use onlyalpha_backend::bootstrap::observability;
+            use super::host_backend::bootstrap::observability;
             observability::start(observability::mode(Some("detail"), None)?, Some(&path))
         })
         .transpose()?

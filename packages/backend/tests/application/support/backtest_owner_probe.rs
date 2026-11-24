@@ -59,6 +59,8 @@ pub(crate) fn is_sha256_hex(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+use crate as host_backend;
+mod backtest_native_host;
 #[path = "postgres_probe.rs"]
 mod consumer;
 mod strategy_freeze_boundary;
@@ -67,8 +69,48 @@ use std::{
     io::{self, IsTerminal, Read},
 };
 
+async fn drive_worker_gates(path: std::path::PathBuf) -> Result<(), Box<dyn Error>> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use workers::backtest_worker::tests::gate;
+
+    let mut socket = tokio::net::UnixStream::connect(path).await?;
+    let mut frame = [0; 37];
+    socket.read_exact(&mut frame).await?;
+    let run_id = std::str::from_utf8(&frame[..36])?;
+    if frame[36] != b'\n' || !application::command::uuid4(run_id) {
+        return Err("worker gate requires the reserved Run ID".into());
+    }
+    let phases = ["before_claim", "after_first_step", "after_publish"]
+        .map(|phase| (phase, gate(run_id, phase)));
+    socket.write_all(b"armed\n").await?;
+    for (phase, barrier) in phases {
+        barrier.entered().await;
+        socket.write_all(format!("{phase}\n").as_bytes()).await?;
+        if phase != "after_publish" {
+            let mut release = [0; 8];
+            socket.read_exact(&mut release).await?;
+            if &release != b"release\n" {
+                return Err("worker gate requires explicit release".into());
+            }
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args == ["--backtest-native-host-with-worker-gates"] {
+        let mut configuration = backtest_native_host::configuration()?;
+        let path = configuration.as_object_mut()
+            .and_then(|fields| fields.remove("worker_gate_socket"))
+            .and_then(|value| value.as_str().map(std::path::PathBuf::from))
+            .filter(|path| path.is_absolute())
+            .ok_or("absolute worker gate socket required")?;
+        return tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            tokio::try_join!(backtest_native_host::serve(configuration), drive_worker_gates(path))?;
+            Ok(())
+        });
+    }
     if args == ["--exact", "actual_command_boundary", "--nocapture"] {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { humanSessionStorage } from "../../app/humanSession";
 import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
 import {
     FetchWatchlistApiClient,
@@ -20,7 +21,7 @@ export const watchlistMemberKey = (member: WatchlistMember): string =>
     ]);
 function retainedCommand(): string | null {
     try {
-        return sessionStorage.getItem(PENDING);
+        return humanSessionStorage.getItem(PENDING);
     } catch {
         return null;
     }
@@ -82,7 +83,8 @@ export function useWatchlists(credentials: LocalReadCredentials) {
         };
     }, [api, invalidate]);
     const clearPending = (command: string) => {
-        if (sessionStorage.getItem(PENDING) === command) sessionStorage.removeItem(PENDING);
+        if (humanSessionStorage.getItem(PENDING) === command)
+            humanSessionStorage.removeItem(PENDING);
         setPending((current) => (current === command ? null : current));
     };
     const save = async (lists: readonly Watchlist[]) => {
@@ -97,7 +99,7 @@ export function useWatchlists(credentials: LocalReadCredentials) {
             lists
         };
         try {
-            sessionStorage.setItem(PENDING, intent.command_id);
+            humanSessionStorage.setItem(PENDING, intent.command_id);
         } catch {
             setMessage("无法保留提交标识，本次未提交；请检查站点会话存储权限。");
             writing.current = false;

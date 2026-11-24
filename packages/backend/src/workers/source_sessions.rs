@@ -3,7 +3,7 @@
 use crate::application::source_access::{Error, Session};
 use std::{future::Future, pin::Pin, sync::Arc};
 
-type Lookup = dyn Fn() -> Pin<Box<dyn Future<Output = Result<Session, Error>> + Send>>
+type Lookup = dyn Fn(String, Option<String>) -> Pin<Box<dyn Future<Output = Result<Session, Error>> + Send>>
     + Send
     + Sync;
 
@@ -14,13 +14,17 @@ pub(crate) struct SourceSessions {
 impl SourceSessions {
     pub(crate) fn new<F, Fut>(lookup: F) -> Self
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
+        F: Fn(String, Option<String>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Session, Error>> + Send + 'static,
     {
-        Self { lookup: Arc::new(move || Box::pin(lookup())) }
+        Self { lookup: Arc::new(move |owner, strategy| Box::pin(lookup(owner, strategy))) }
     }
 
-    pub(crate) async fn current(&self) -> Result<Session, Error> {
-        (self.lookup)().await
+    pub(crate) async fn current(&self, owner: &str, backtest_strategy: Option<&str>) -> Result<Session, Error> {
+        let session = (self.lookup)(owner.to_owned(), backtest_strategy.map(str::to_owned)).await?;
+        if session.subject_id()? != owner {
+            return Err(Error::Forbidden);
+        }
+        Ok(session)
     }
 }

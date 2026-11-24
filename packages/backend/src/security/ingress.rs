@@ -298,13 +298,18 @@ pub struct LocalIngress {
 #[derive(Clone)]
 pub(crate) struct SourceRevoker(std::sync::Weak<State>);
 impl SourceRevoker {
-    pub(crate) fn withdraw(&self, authority: &SourceAuthority) -> Result<(), Error> {
+    pub(crate) fn withdraw<'a>(
+        &self,
+        authorities: impl IntoIterator<Item = &'a SourceAuthority>,
+    ) -> Result<(), Error> {
         let state = self.0.upgrade().ok_or(Error::ConnectionUnavailable)?;
         let _gate = state
             .gate
             .lock()
             .map_err(|_| Error::ConnectionUnavailable)?;
-        authority.withdraw();
+        for authority in authorities {
+            authority.withdraw();
+        }
         state.signal.send_replace(());
         Ok(())
     }
@@ -880,20 +885,7 @@ impl LocalIngress {
         let entered_at = Instant::now();
         let admission = match access.admit(&request) {
             Ok(admission) => admission,
-            Err(error) => {
-                return deny(
-                    error.code(),
-                    match error {
-                        crate::application::source_access::Error::Unauthorized => {
-                            StatusCode::UNAUTHORIZED
-                        }
-                        crate::application::source_access::Error::ProofUnavailable => {
-                            StatusCode::SERVICE_UNAVAILABLE
-                        }
-                        _ => StatusCode::FORBIDDEN,
-                    },
-                );
-            }
+            Err(error) => return human_error(error),
         };
         let size = if request.headers().contains_key("content-length") {
             match one(request.headers(), "content-length")
@@ -916,6 +908,9 @@ impl LocalIngress {
         let Some(path) = decoded_path(request.uri()) else {
             return deny("LOCAL_READ_FORBIDDEN", StatusCode::FORBIDDEN);
         };
+        if path == super::human_access::SESSION_PATH && size != 0 {
+            return deny("LOCAL_READ_FORBIDDEN", StatusCode::FORBIDDEN);
+        }
         // Identity is not operation permission. Add capabilities only with their
         // actual owning implementation; no blanket Human POST or Source grant.
         let native = self.state.workstation
@@ -934,7 +929,9 @@ impl LocalIngress {
         let (proof, cookie) = match admission {
             HumanAdmission::Owner(session) => (Proof::Human(session), None),
             HumanAdmission::Navigation(cookie) => (Proof::Bootstrap, Some(cookie)),
-            HumanAdmission::Health => (Proof::Bootstrap, None),
+            HumanAdmission::Health | HumanAdmission::Presentation | HumanAdmission::Login => {
+                (Proof::Bootstrap, None)
+            }
         };
         self.dispatch(
             id,
@@ -1008,6 +1005,57 @@ impl LocalIngress {
         if !self.state.mode.active(&session) {
             return deny("LOCAL_READ_UNAUTHORIZED", StatusCode::UNAUTHORIZED);
         }
+        let mut cookie = cookie;
+        if let Mode::Developer(access) = &self.state.mode
+            && parts.uri.path() == super::human_access::SESSION_PATH
+            && matches!(parts.method, Method::POST | Method::DELETE)
+        {
+            let Some(connection) = parts.extensions.get::<PhysicalConnection>() else {
+                return human_error(crate::application::source_access::Error::ProofUnavailable);
+            };
+            let Ok(mut gate) = self.state.gate.lock() else {
+                return human_error(crate::application::source_access::Error::ProofUnavailable);
+            };
+            if gate.shutdown || Instant::now() >= deadline {
+                return human_error(crate::application::source_access::Error::ProofUnavailable);
+            }
+            let Some(entry) = gate.connections.get_mut(&connection.id) else {
+                return human_error(crate::application::source_access::Error::ProofUnavailable);
+            };
+            match (&parts.method, entry.session.as_ref()) {
+                (&Method::POST, Some(Proof::Bootstrap)) => {
+                    let Some(authorization) = parts.headers.remove(http::header::AUTHORIZATION)
+                    else {
+                        return human_error(crate::application::source_access::Error::Unauthorized);
+                    };
+                    let Ok(value) = authorization.to_str() else {
+                        return human_error(crate::application::source_access::Error::Unauthorized);
+                    };
+                    let (session, header) = match access.login(value) {
+                        Ok(issued) => issued,
+                        Err(error) => return human_error(error),
+                    };
+                    entry.session = Some(Proof::Human(session.clone()));
+                    parts.extensions.insert(session);
+                    cookie = Some(header);
+                    self.state.signal.send_replace(());
+                }
+                (&Method::DELETE, Some(Proof::Human(session))) => {
+                    if let Err(error) = access.logout(session) {
+                        return human_error(error);
+                    }
+                    // Only this empty acknowledgement can outlive the old session.
+                    entry.session = Some(Proof::Bootstrap);
+                    self.state.signal.send_replace(());
+                    let mut response = StatusCode::NO_CONTENT.into_response();
+                    response
+                        .headers_mut()
+                        .insert(http::header::SET_COOKIE, HumanAccess::clear_cookie());
+                    return response;
+                }
+                _ => return human_error(crate::application::source_access::Error::Forbidden),
+            }
+        }
         parts
             .extensions
             .insert(RequestDeadline(deadline.into_std()));
@@ -1070,6 +1118,17 @@ async fn capture(app: Router, request: Request<Body>) -> Option<Response> {
     };
     let bytes = to_bytes(body, limit).await.ok()?;
     Some(Response::from_parts(parts, Body::from(bytes)))
+}
+fn human_error(error: crate::application::source_access::Error) -> Response {
+    use crate::application::source_access::Error;
+    deny(
+        error.code(),
+        match error {
+            Error::Unauthorized => StatusCode::UNAUTHORIZED,
+            Error::ProofUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            _ => StatusCode::FORBIDDEN,
+        },
+    )
 }
 fn deny(code: &'static str, status: StatusCode) -> Response {
     let mut response = (
@@ -1549,7 +1608,7 @@ mod tests {
                     assert!(session.check_active().is_ok());
                 }
                 4 => {
-                    ingress.source_revoker().withdraw(&source).unwrap();
+                    ingress.source_revoker().withdraw([&source]).unwrap();
                     assert!(ingress.state.mode.active(&owner));
                     assert!(session.check_active().is_err());
                 }
@@ -2460,6 +2519,133 @@ mod tests {
     }
     fn developer(app: Router) -> LocalIngress {
         LocalIngress::new_developer(HumanAccess::new(TOKEN).unwrap(), app)
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn configured_logout_fences_partial_writes_and_preserves_the_other_owner() {
+        use super::super::human_access::SESSION_PATH;
+        use super::super::human_access::credential_digest;
+        let other = "b".repeat(64);
+        let config = json!([
+            {"subject_id":"owner-a", "credential_sha256":DIGEST, "closed_history":[]},
+            {"subject_id":"owner-b", "credential_sha256":credential_digest(&other), "closed_history":[]}
+        ]);
+        async fn identity(request: Request<Body>) -> String {
+            assert!(!request.headers().contains_key(http::header::AUTHORIZATION));
+            request
+                .extensions()
+                .get::<HumanSession>()
+                .unwrap()
+                .subject_id()
+                .unwrap()
+                .to_owned()
+        }
+        let app = Router::new()
+            .route(SESSION_PATH, axum::routing::get(identity).post(identity))
+            .route(
+                "/api/v2/integration-types",
+                axum::routing::get(|| async { Body::from(vec![b'x'; 1024]) }),
+            );
+        let access = HumanAccess::configured(&serde_json::to_vec(&config).unwrap()).unwrap();
+        let ingress = LocalIngress::new_workstation(
+            Arc::new(access),
+            app,
+            Transport::Loopback { port: 5173 },
+        );
+        let raw = |method: &str, path: &str, headers: &str| {
+            format!(
+                "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:5173\r\nOrigin: http://127.0.0.1:5173\r\n{headers}\r\n"
+            )
+        };
+        let post = |token: &str| {
+            raw(
+                "POST",
+                SESSION_PATH,
+                &format!("Authorization: Bearer {token}\r\n"),
+            )
+        };
+        let cookie = |response: Vec<u8>, owner: &str| {
+            let text = String::from_utf8(response).unwrap();
+            assert!(text.starts_with("HTTP/1.1 200") && text.ends_with(owner));
+            let value = text
+                .lines()
+                .find_map(|line| line.strip_prefix("set-cookie: "))
+                .unwrap();
+            format!("Cookie: {}\r\n", value.split(';').next().unwrap())
+        };
+        let a = cookie(
+            memory_request(&ingress, post(TOKEN).as_bytes()).await,
+            "owner-a",
+        );
+        let second_a = cookie(
+            memory_request(&ingress, post(TOKEN).as_bytes()).await,
+            "owner-a",
+        );
+        let b = cookie(
+            memory_request(&ingress, post(&other).as_bytes()).await,
+            "owner-b",
+        );
+        assert!(a != second_a && a != b);
+        for header in [
+            String::new(),
+            format!("Authorization: Bearer {TOKEN}\r\n"),
+            format!("Cookie: {}={TOKEN}\r\n", super::super::human_access::COOKIE),
+        ] {
+            assert!(
+                memory_request(&ingress, raw("GET", SESSION_PATH, &header).as_bytes())
+                    .await
+                    .starts_with(b"HTTP/1.1 401")
+            );
+        }
+        assert!(
+            memory_request(&ingress, post(&"c".repeat(64)).as_bytes())
+                .await
+                .starts_with(b"HTTP/1.1 401")
+        );
+        let mut pending = Vec::new();
+        for (quota, header) in [(0, &a), (700, &second_a)] {
+            let (io, observed, blocked) = probe(
+                quota,
+                raw("GET", "/api/v2/integration-types", header).into_bytes(),
+            );
+            let server = ingress.clone();
+            let task = tokio::spawn(async move { server.serve_stream(io).await });
+            blocked.await.unwrap();
+            assert_eq!(observed.lock().unwrap().accepted.len(), quota);
+            pending.push((task, observed, quota));
+        }
+        let response = memory_request(&ingress, raw("DELETE", SESSION_PATH, &a).as_bytes()).await;
+        let text = String::from_utf8(response).unwrap();
+        assert!(
+            text.starts_with("HTTP/1.1 204")
+                && text.contains("Max-Age=0")
+                && text.ends_with("\r\n\r\n")
+        );
+        for (task, observed, quota) in pending {
+            assert!(task.await.unwrap().is_err());
+            assert_eq!(observed.lock().unwrap().accepted.len(), quota);
+        }
+        for old in [&a, &second_a] {
+            assert!(
+                memory_request(&ingress, raw("GET", SESSION_PATH, old).as_bytes())
+                    .await
+                    .starts_with(b"HTTP/1.1 401")
+            );
+        }
+        assert!(
+            memory_request(&ingress, raw("GET", SESSION_PATH, &b).as_bytes())
+                .await
+                .ends_with(b"owner-b")
+        );
+        let fresh = cookie(
+            memory_request(&ingress, post(TOKEN).as_bytes()).await,
+            "owner-a",
+        );
+        assert!(a != fresh);
+        assert!(
+            memory_request(&ingress, raw("GET", SESSION_PATH, &fresh).as_bytes())
+                .await
+                .ends_with(b"owner-a")
+        );
     }
     #[tokio::test(flavor = "current_thread")]
     async fn workstation_fifth_request_waits_without_increasing_execution_capacity() {

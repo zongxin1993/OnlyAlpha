@@ -492,9 +492,17 @@ fn publication_error(error:super::job_publication::PublicationError) -> &'static
     match error {
         P::OutcomeUnknown=>UNCERTAIN,
         P::Unavailable|P::Denied|P::OwnershipLost=>UNAVAILABLE,
-        P::MissingEvidence=>"BACKTEST_FROZEN_INPUT_BINDING_MISSING",
-        P::BudgetExceeded=>"BACKTEST_FROZEN_INPUT_BINDING_BUDGET_EXCEEDED",
+        P::MissingEvidence=>"BACKTEST_PUBLICATION_MISSING_EVIDENCE",
+        P::BudgetExceeded=>"BACKTEST_PUBLICATION_BUDGET_EXCEEDED",
         P::Integrity|P::Mismatch|P::Conflict=>MISMATCH,
+    }
+}
+fn registration_error(error: super::job_publication::PublicationError) -> &'static str {
+    use super::job_publication::PublicationError;
+    match error {
+        PublicationError::MissingEvidence => "BACKTEST_FROZEN_INPUT_BINDING_MISSING",
+        PublicationError::BudgetExceeded => "BACKTEST_FROZEN_INPUT_BINDING_BUDGET_EXCEEDED",
+        other => publication_error(other),
     }
 }
 async fn replay(
@@ -617,7 +625,7 @@ impl<'a> Backtests<'a> {
             if let Some(run)=replay(&tx,self.namespace,request,&owner).await? {
                 if preparation.is_some() {
                     let key = super::job_publication::RunLocator::new(crate::application::job_contract::JobKind::Backtest,run.run_id()).map_err(|_|MISMATCH)?;
-                    super::job_publication::verify_registered_control_transaction(&tx,&roles,self.namespace,&owner,&key,run.specification_fingerprint(),run.admission_resolution_fingerprint()).await.map_err(publication_error)?;
+                    super::job_publication::verify_registered_control_transaction(&tx,&roles,self.namespace,&owner,&key,run.specification_fingerprint(),run.admission_resolution_fingerprint()).await.map_err(registration_error)?;
                 }
                 commit(tx).await?; return Ok(run);
             }
@@ -652,8 +660,8 @@ impl<'a> Backtests<'a> {
                 crate::persistence::research_preparation::guard_submission(&tx,operation,expected).await?;
             }
             if preparation.is_some() {
-                let registration = super::job_publication::FrozenBindingRegistration::from_backtest(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),inputs,request,context).await.map_err(publication_error)?;
-                super::job_publication::register_control_transaction(&tx,&roles,self.namespace,&owner,&registration).await.map_err(publication_error)?;
+                let registration = super::job_publication::FrozenBindingRegistration::from_backtest(&crate::persistence::build_fact_read::BuildFactRead::control(&tx,&roles),inputs,request,context).await.map_err(registration_error)?;
+                super::job_publication::register_control_transaction(&tx,&roles,self.namespace,&owner,&registration).await.map_err(registration_error)?;
             }
             commit(tx).await?;
             tracing::info!(target:"onlyalpha.observability",event_kind="summary",module="backend",operation="backtest.run.queued",run_id=verified.run_id(),command_id=request.command_id().value(),outcome="queued");
@@ -827,25 +835,35 @@ impl<'a> Backtests<'a> {
             ).map_err(|_| MISMATCH)?;
             if !super::job_publication::recheck_control_transaction(
                 &tx, &roles, observation, &key, self.namespace, run.owner(),
-            ).await.map_err(|_| UNAVAILABLE)? {
+            ).await.map_err(publication_error)? {
                 commit(tx).await?;
                 return Ok(None);
             }
             let at_db=system_time(at).map_err(db)?;current.check_time(at_db)?;
-            let row=tx.query_one("SELECT COALESCE(max(attempt_number),0)::integer AS number,COALESCE(max(fencing_token),0)::bigint AS fence,count(*) FILTER(WHERE state='ACTIVE')::bigint AS active FROM backtest_run_attempt WHERE run_id=$1::text::uuid",&[&run.run_id()]).await.map_err(db)?;
-            if row.try_get::<_,i64>("active").map_err(db)?!=0 {commit(tx).await?;return Ok(None);}
-            let previous=row.try_get::<_,i32>("number").map_err(db)?;
+            let previous = observation.attempts();
             if previous >= crate::application::job_recovery::RetryBudget::finite_job().max_attempts() {
                 commit(tx).await?;
                 return Ok(None);
             }
             let number=previous.checked_add(1).ok_or(MISMATCH)?;
-            let fence=row.try_get::<_,i64>("fence").map_err(db)?.checked_add(1).ok_or(MISMATCH)?;
-            if current.status.state==RunState::Queued {if number!=1||fence!=1{return Err(MISMATCH);}transition(&tx,&current,RunState::Running,at_db).await?;}
+            let fence = i64::from(number);
+            let expected = if current.status.state == RunState::Queued {
+                transition(&tx, &current, RunState::Running, at_db).await?
+            } else {
+                current.status
+            };
+            if tx.execute(
+                "UPDATE public.backtest_run SET last_attempt_number=$3 WHERE run_id=$1::text::uuid AND last_attempt_number=$2",
+                &[&run.run_id(), &previous, &number],
+            ).await.map_err(db)? != 1 {
+                return Err(MISMATCH);
+            }
             let n=tx.execute("WITH lease AS MATERIALIZED (SELECT clock_timestamp() AS now) INSERT INTO backtest_run_attempt(attempt_id,run_id,attempt_number,state,worker_instance_id,fencing_token,claimed_at,last_heartbeat_at,lease_expires_at) SELECT $1::text::uuid,$2::text::uuid,$3,'ACTIVE',$4::text::uuid,$5,lease.now,lease.now,lease.now+interval '120 seconds' FROM lease",&[&attempt,&run.run_id(),&number,&worker,&fence]).await.map_err(db)?;
             if n!=1{return Err(MISMATCH);}
-            let expected=if current.status.state==RunState::Queued{RunStatus{state:RunState::Running,revision:current.status.revision.checked_add(1).ok_or(MISMATCH)?}}else{current.status};
             flush_deferred(&tx).await?;
+            if super::job_publication::backtest_attempt_history(&tx, run.run_id(), false).await.map_err(publication_error)? != (number, 1) {
+                return Err(MISMATCH);
+            }
             verify_current(&tx,self.namespace,run,Some(expected)).await?;
             verify_attempt(&tx,run.run_id(),attempt,worker,number,fence,"ACTIVE",true).await?;
             commit(tx).await?;
@@ -1012,11 +1030,13 @@ impl<'a> Backtests<'a> {
             };
             flush_deferred(&tx).await?;
             verify_current(&tx,self.namespace,run,Some(status)).await?;
+            if super::job_publication::backtest_attempt_history(&tx, run.run_id(), false).await.map_err(publication_error)? != (proof.attempts(), 0) {
+                return Err(MISMATCH);
+            }
             let checked = super::job_publication::read_control_facts(&tx,&roles,|facts| async move {
-                facts.query_one("SELECT evidence_fingerprint IS NULL AND result_fingerprint IS NULL AND determinism_fingerprint IS NULL,NOT EXISTS(SELECT 1 FROM public.job_publication p WHERE p.job_kind='BACKTEST' AND p.run_id=r.run_id),NOT EXISTS(SELECT 1 FROM public.job_result_member m WHERE m.job_kind='BACKTEST' AND m.run_id=r.run_id),failure_phase,failure_code,failure_detail,(SELECT COALESCE(max(attempt_number),0)::integer FROM public.backtest_run_attempt a WHERE a.run_id=r.run_id),(SELECT count(*) FROM public.backtest_run_attempt a WHERE a.run_id=r.run_id AND a.state='ACTIVE') FROM public.backtest_run r WHERE run_id=$1::text::uuid",&[&run.run_id()]).await.map_err(db)
+                facts.query_one("SELECT evidence_fingerprint IS NULL AND result_fingerprint IS NULL AND determinism_fingerprint IS NULL,NOT EXISTS(SELECT 1 FROM public.job_publication p WHERE p.job_kind='BACKTEST' AND p.run_id=r.run_id),NOT EXISTS(SELECT 1 FROM public.job_result_member m WHERE m.job_kind='BACKTEST' AND m.run_id=r.run_id),failure_phase,failure_code,failure_detail FROM public.backtest_run r WHERE run_id=$1::text::uuid",&[&run.run_id()]).await.map_err(db)
             }).await.map_err(publication_error)??;
             if !checked.get::<_,bool>(0) || !checked.get::<_,bool>(1) || !checked.get::<_,bool>(2)
-                || checked.get::<_,i32>(6) != proof.attempts() || checked.get::<_,i64>(7) != 0
                 || (target == RunState::Failed && (checked.get::<_,Option<String>>(3).as_deref()!=Some("OPERATIONAL")
                     || checked.get::<_,Option<String>>(4).as_deref()!=Some("BACKTEST_ATTEMPTS_EXHAUSTED")
                     || checked.get::<_,Option<String>>(5).as_deref()!=Some("Finite recomputation exhausted its three original Run Attempts without a publication"))) { return Err(MISMATCH); }
@@ -1180,7 +1200,7 @@ async fn post_commit(
 }
 async fn attempt_is_expired(tx: &Transaction<'_>, claim: &Claim, active_run: bool) -> Result<bool> {
     let row = tx.query_opt(
-        "SELECT (state='EXPIRED' AND finished_at IS NOT NULL AND failure_code='LEASE_EXPIRED') OR ($6 AND state='ACTIVE' AND finished_at IS NULL AND failure_code IS NULL AND lease_expires_at<=clock_timestamp()) FROM public.backtest_run_attempt WHERE run_id=$1::text::uuid AND attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND fencing_token=$5",
+        "SELECT (state='EXPIRED' AND finished_at>=lease_expires_at AND failure_code='LEASE_EXPIRED') OR ($6 AND state='ACTIVE' AND finished_at IS NULL AND failure_code IS NULL AND lease_expires_at<=clock_timestamp()) FROM public.backtest_run_attempt WHERE run_id=$1::text::uuid AND attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND fencing_token=$5",
         &[&claim.run_id(), &claim.attempt, &claim.worker, &claim.number, &claim.fence, &active_run],
     ).await.map_err(db)?.ok_or(MISMATCH)?;
     Ok(row.try_get::<_, Option<bool>>(0).map_err(db)? == Some(true))
@@ -1244,7 +1264,7 @@ async fn verify_attempt(
     state: &str,
     live: bool,
 ) -> Result<()> {
-    let row=tx.query_opt("SELECT state,lease_expires_at>clock_timestamp() AS live,finished_at IS NOT NULL AS finished,failure_code FROM backtest_run_attempt WHERE run_id=$1::text::uuid AND attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND fencing_token=$5",&[&run,&attempt,&worker,&number,&fence]).await.map_err(db)?.ok_or(MISMATCH)?;
+    let row=tx.query_opt("SELECT state,lease_expires_at>clock_timestamp() AS live,finished_at IS NOT NULL AS finished,(finished_at>=lease_expires_at AND failure_code='LEASE_EXPIRED') IS TRUE AS valid_expiry,failure_code FROM backtest_run_attempt WHERE run_id=$1::text::uuid AND attempt_id=$2::text::uuid AND worker_instance_id=$3::text::uuid AND attempt_number=$4 AND fencing_token=$5",&[&run,&attempt,&worker,&number,&fence]).await.map_err(db)?.ok_or(MISMATCH)?;
     if row.try_get::<_, &str>("state").map_err(db)? != state
         || (live && !row.try_get::<_, bool>("live").map_err(db)?)
         || row.try_get::<_, bool>("finished").map_err(db)? != (state != "ACTIVE")
@@ -1252,7 +1272,7 @@ async fn verify_attempt(
         return Err(MISMATCH);
     }
     let failure: Option<&str> = row.try_get("failure_code").map_err(db)?;
-    if (state == "EXPIRED" && failure != Some("LEASE_EXPIRED"))
+    if (state == "EXPIRED" && !row.try_get::<_, bool>("valid_expiry").map_err(db)?)
         || (matches!(state, "ACTIVE" | "SUCCEEDED" | "CANCELLED") && failure.is_some())
     {
         return Err(MISMATCH);

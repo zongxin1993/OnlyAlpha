@@ -1,6 +1,7 @@
 // Product commands remain backend-owned. Local records retain only the original
 // Human request; they confer no Freeze, Qualification, Runtime or Run authority.
 import { z } from "zod";
+import { humanSessionStorage } from "../../app/humanSession";
 import { request, ProductRequestError } from "../../api/productRequest";
 import { marketDataSourceListSchema } from "../../api/marketData/model";
 
@@ -339,9 +340,17 @@ export function loadRuns() {
         })
     );
 }
+export function isRunNotFound(error: unknown): boolean {
+    return (
+        error instanceof ProductRequestError &&
+        error.status === 404 &&
+        error.message === "BACKTEST_RUN_NOT_FOUND"
+    );
+}
+
 export async function loadRun(id: string): Promise<BacktestRun> {
     uuid.parse(id);
-    const value = await read(`/api/v2/backtest/runs/${id}`, runSchema);
+    const value = await request(`/api/v2/backtest/runs/${id}`, runSchema);
     if (value.run_id !== id) throw mismatch();
     return value;
 }
@@ -373,12 +382,12 @@ export function pendingPreparation(rawOrigin: BacktestOrigin): {
 } | null {
     const origin = originSchema.parse(rawOrigin),
         key = intentKey(origin);
-    const retained = sessionStorage.getItem(key);
+    const retained = humanSessionStorage.getItem(key);
     if (retained === null) return null;
     const observe = async (): Promise<BacktestPreparation> => {
         let intent: PrepareIntent;
         try {
-            if (sessionStorage.getItem(key) !== retained) throw mismatch();
+            if (humanSessionStorage.getItem(key) !== retained) throw mismatch();
             intent = prepareIntentSchema.parse(JSON.parse(retained) as unknown);
             if (!same(intent.input.origin, origin)) throw mismatch();
         } catch {
@@ -390,7 +399,7 @@ export function pendingPreparation(rawOrigin: BacktestOrigin): {
         } catch {
             throw new Pending(observe);
         }
-        if (sessionStorage.getItem(key) !== retained) throw new Pending(observe);
+        if (humanSessionStorage.getItem(key) !== retained) throw new Pending(observe);
         if (actual === null) {
             if (intent.refusal !== undefined) throw notStarted(intent);
             throw new Pending(observe);
@@ -420,16 +429,16 @@ function notStarted(intent: PrepareIntent): PreparationNotStarted {
     const key = intentKey(intent.input.origin),
         retained = JSON.stringify(intent);
     return new PreparationNotStarted(async () => {
-        if (sessionStorage.getItem(key) !== retained) throw mismatch();
+        if (humanSessionStorage.getItem(key) !== retained) throw mismatch();
         // A refusal described one HTTP invocation. Positive original authority
         // may since have appeared and always wins over this auxiliary marker.
         const actual = await queryRefusedPreparation(intent);
         if (actual !== null) return acceptPreparation(actual, intent);
-        if (sessionStorage.getItem(key) !== retained) throw mismatch();
+        if (humanSessionStorage.getItem(key) !== retained) throw mismatch();
         // The verified Backtest negative is sufficient here only because the original
         // correlated refusal was retained and this is an explicit user click.
         // This discards auxiliary intent; it never revokes a server Command.
-        sessionStorage.removeItem(key);
+        humanSessionStorage.removeItem(key);
         return null;
     }, reason);
 }
@@ -462,11 +471,11 @@ function refusedPreparation(
     if (
         value.command_id !== intent.command ||
         !same(value.input, intent.input) ||
-        sessionStorage.getItem(key) !== JSON.stringify(intent)
+        humanSessionStorage.getItem(key) !== JSON.stringify(intent)
     )
         throw mismatch();
     const refused = { ...intent, refusal: value.reason };
-    sessionStorage.setItem(key, JSON.stringify(refused));
+    humanSessionStorage.setItem(key, JSON.stringify(refused));
     throw notStarted(refused);
 }
 function requireIntent(value: BacktestPreparation, intent: PrepareIntent) {
@@ -490,7 +499,8 @@ async function observePreparation(intent: PrepareIntent): Promise<BacktestPrepar
 function acceptPreparation(value: BacktestPreparation, intent: PrepareIntent): BacktestPreparation {
     requireIntent(value, intent);
     const key = intentKey(intent.input.origin);
-    if (sessionStorage.getItem(key) === JSON.stringify(intent)) sessionStorage.removeItem(key);
+    if (humanSessionStorage.getItem(key) === JSON.stringify(intent))
+        humanSessionStorage.removeItem(key);
     return value;
 }
 async function observeOperation(original: BacktestPreparation): Promise<BacktestPreparation> {
@@ -515,7 +525,7 @@ export async function prepareBacktest(
     )
         throw new Error("回测环境尚未就绪，请重新查看后再准备。");
     const key = intentKey(context.input_defaults.origin);
-    const retained = sessionStorage.getItem(key);
+    const retained = humanSessionStorage.getItem(key);
     if (retained !== null) {
         const intent = prepareIntentSchema.parse(JSON.parse(retained) as unknown);
         if (intent.refusal !== undefined) {
@@ -564,7 +574,7 @@ export async function prepareBacktest(
             backtest_command_id: crypto.randomUUID()
         }
     };
-    sessionStorage.setItem(key, JSON.stringify(intent));
+    humanSessionStorage.setItem(key, JSON.stringify(intent));
     try {
         const value = await request(
             "/api/v2/backtest/preparations",
@@ -609,7 +619,10 @@ export async function confirmBacktest(input: BacktestPreparation): Promise<Confi
             run_id: value.run_id
         };
     const marker = `onlyalpha.backtest.submit.v2.${value.command_id}`;
-    if (value.backtest_outcome === "OUTCOME_UNKNOWN" || sessionStorage.getItem(marker) !== null)
+    if (
+        value.backtest_outcome === "OUTCOME_UNKNOWN" ||
+        humanSessionStorage.getItem(marker) !== null
+    )
         throw new Pending(() => observeStart(value));
     if (
         value.state !== "READY" ||
@@ -618,7 +631,7 @@ export async function confirmBacktest(input: BacktestPreparation): Promise<Confi
         value.backtest_outcome !== "NOT_SUBMITTED"
     )
         throw new Error("请等待回测准备完成并可核验后，再确认开始。");
-    sessionStorage.setItem(marker, value.backtest_command_id);
+    humanSessionStorage.setItem(marker, value.backtest_command_id);
     try {
         const reply = await request(
             `/api/v2/backtest/preparations/${value.command_id}/submit`,
@@ -659,7 +672,7 @@ export async function confirmBacktest(input: BacktestPreparation): Promise<Confi
             actual.backtest_outcome === "NOT_SUBMITTED" &&
             actual.run_id === null
         ) {
-            sessionStorage.removeItem(marker);
+            humanSessionStorage.removeItem(marker);
             throw new Error("回测服务暂时不可用，本次尚未开始。恢复后可再次确认同一次回测。", {
                 cause: error
             });
@@ -673,10 +686,10 @@ export async function cancelPreparation(input: BacktestPreparation): Promise<Bac
     if (["CANCEL_REQUESTED", "CANCELLED"].includes(current.state)) return current;
     if (current.run_id !== null) throw new Error("回测已经开始，请在回测任务中取消。");
     const storage = `onlyalpha.backtest.cancel-preparation.v2.${current.command_id}`;
-    if (sessionStorage.getItem(storage) !== null)
+    if (humanSessionStorage.getItem(storage) !== null)
         throw new Pending(() => observeOperation(current));
     const command = crypto.randomUUID();
-    sessionStorage.setItem(storage, command);
+    humanSessionStorage.setItem(storage, command);
     try {
         const value = await request(
             `/api/v2/backtest/preparations/${current.command_id}/cancellation`,
@@ -728,9 +741,9 @@ export async function cancelBacktest(input: BacktestRun): Promise<BacktestRun> {
         if (value.strategy_fingerprint !== current.strategy_fingerprint) throw mismatch();
         return value;
     };
-    if (sessionStorage.getItem(storage) !== null) throw new Pending(observe);
+    if (humanSessionStorage.getItem(storage) !== null) throw new Pending(observe);
     const command = crypto.randomUUID();
-    sessionStorage.setItem(storage, command);
+    humanSessionStorage.setItem(storage, command);
     try {
         const value = await request(
             `/api/v2/backtest/runs/${current.run_id}/cancellation`,

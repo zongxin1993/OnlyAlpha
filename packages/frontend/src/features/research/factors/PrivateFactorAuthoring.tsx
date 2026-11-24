@@ -1,6 +1,7 @@
 import { ContractEditor } from "./ContractEditor";
 import { inspectContract, type ContractKind } from "./contractForm";
 import { z } from "zod";
+import { humanSessionStorage } from "../../../app/humanSession";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalReadCredentials } from "../../../app/providers";
 import {
@@ -27,7 +28,7 @@ const pendingSchema = z.strictObject({
 });
 function retainedCommand(): { command: Pending | null; error: string | null } {
     try {
-        const raw = sessionStorage.getItem(pendingKey);
+        const raw = humanSessionStorage.getItem(pendingKey);
         return { command: raw === null ? null : pendingSchema.parse(JSON.parse(raw)), error: null };
     } catch {
         return {
@@ -206,7 +207,7 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
     }
     function clearPending(): boolean {
         try {
-            sessionStorage.removeItem(pendingKey);
+            humanSessionStorage.removeItem(pendingKey);
             setPending(null);
             return true;
         } catch {
@@ -284,7 +285,7 @@ export function PrivateFactorAuthoring({ onChanged }: { readonly onChanged: () =
         }
         const command: Pending = { id: crypto.randomUUID(), factor: draft.factor_id, kind };
         try {
-            sessionStorage.setItem(pendingKey, JSON.stringify(command));
+            humanSessionStorage.setItem(pendingKey, JSON.stringify(command));
         } catch {
             setError("无法保留提交标识，本次未提交；请检查站点会话存储权限。");
             return;

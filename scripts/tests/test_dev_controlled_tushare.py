@@ -76,6 +76,7 @@ def test_backtest_owner_controlled_https_admits_only_the_approved_nodes(monkeypa
     expected = [
         [*prefix, f"{node}[backtest-owner:{scenario}]"]
         for scenario in (
+            "human-owner-isolation",
             "queued-cancel",
             "running-cancel",
             "shutdown-resume",

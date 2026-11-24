@@ -62,7 +62,20 @@ network replacement or disruption of database/validation endpoints.
 Missing stores or changed source inputs refuse submission; they never authorize
 initialization, volume recreation, historical-store adoption or a silent retry.
 
-Guarded navigation automatically establishes a process-local developer session;
+默认单人模式下，打开 Workstation 页面会自动建立 `local-developer` 会话。
+
+如需在同一台机器上隔离不同使用者的回测，在启动 Workstation 前，将后端进程的 `ONLYALPHA_HUMAN_CREDENTIALS_FILE` 设置为容器或进程内可读的绝对路径。使用 `scripts.dev start` 时，可在既有 `user-data` 卷中预置 `/var/lib/onlyalpha/config/human-credentials.json`，并将环境变量设为这个容器内路径。将配置放在源码树外的受保护目录，使用服务进程可读、由服务用户或 root 拥有的普通文件，权限设为 `0600`。凭据文件的 JSON 顶层是数组，每位使用者一项：
+
+| 字段 | 部署方填写的内容 |
+| --- | --- |
+| `subject_id` | 固定且唯一的使用者标识。回测按此标识归属。 |
+| `credential_sha256` | 为此人独立生成 32 个密码学随机字节，编码为 64 位小写十六进制文本，再对这段 ASCII 文本计算 SHA-256。文件只保存摘要，以独立的安全渠道分发登录凭据。 |
+| `closed_history` | 允许读取已收盘行情的精确条目数组，每项填写 `integration_id`、`expected_type_id`、`revision_fingerprint`、`source_id`、`environment`。服务端在当前有效行情授权中核对同一版本，发布新版后须显式授权该版本。 |
+| `frozen_strategy_fingerprints` | 允许此人执行回测的冻结策略指纹数组。空数组表示未派发策略。 |
+
+多使用者模式下，浏览器通过登录页提交凭据。`POST /api/v2/human/session` 使用同源、空请求体和 Bearer 凭据，成功后设置独立的 HttpOnly、SameSite=Strict Cookie。`GET` 返回 `subject_id` 和 `can_logout`，未登录返回 401。`DELETE` 退出当前主体的会话并清除 Cookie，成功返回 204。重新登录会签发新 Cookie。退出后，其他主体的会话及已受理的回测各自保留原身份。此模式仍只供本机使用。
+
+In the default single-user mode,
 no `local-read.json` or manual credential input is required. Exact Source grants
 are authorized by the explicitly selected developer-role policy and populated
 with owning identities. Returning from Source management refreshes the chart list

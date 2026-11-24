@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { humanSessionStorage } from "../../app/humanSession";
 import type { LocalReadCredentials } from "../../api/marketData/localReadCredentials";
 import {
     FetchWorkspaceApiClient,
@@ -10,7 +11,7 @@ import { createUuidV4 } from "../../api/integrations/submissionIntent";
 const PENDING = "onlyalpha.workspace.library.pending-command";
 function retainedCommand(): string | null {
     try {
-        return sessionStorage.getItem(PENDING);
+        return humanSessionStorage.getItem(PENDING);
     } catch {
         return null;
     }
@@ -83,7 +84,7 @@ export function useDefaultWorkspace(credentials: LocalReadCredentials) {
         };
     }, [api, invalidate]);
     function clearPending(id: string) {
-        if (sessionStorage.getItem(PENDING) === id) sessionStorage.removeItem(PENDING);
+        if (humanSessionStorage.getItem(PENDING) === id) humanSessionStorage.removeItem(PENDING);
         setPending((current) => (current === id ? null : current));
     }
     const commit = async (
@@ -103,7 +104,7 @@ export function useDefaultWorkspace(credentials: LocalReadCredentials) {
             workspaces
         };
         try {
-            sessionStorage.setItem(PENDING, intent.command_id);
+            humanSessionStorage.setItem(PENDING, intent.command_id);
         } catch {
             setMessage("无法保留提交标识，本次未提交；请检查站点会话存储权限。");
             writing.current = false;

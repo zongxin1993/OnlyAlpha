@@ -346,6 +346,8 @@ configuration and credential entry from daily development. The manual bearer rul
 below remain applicable to the optional protected read-only composition, not a
 mandatory development setup. No production authentication exception is created.
 
+以下 `local-developer` 授权适用于默认单人模式。显式配置多 Human 登录时，回测采用各自的正式会话、冻结策略授权和精确行情授权。部署步骤及会话接口见[本机 Workstation 部署说明](../../deployment.md)。
+
 The explicitly selected dev composition serves the Shipping Web and Product API
 through one host-loopback listener. It authorizes one named `local-developer` subject
 to a bounded, immutable snapshot of eligible Sources in the already initialized dev

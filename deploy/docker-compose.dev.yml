@@ -171,6 +171,7 @@ services:
     init: true
     command: ["python", "-m", "scripts.dev", "inside"]
     environment:
+      ONLYALPHA_HUMAN_CREDENTIALS_FILE:
       ONLYALPHA_NATIVE_ARTIFACT_ROOT: ${ONLYALPHA_NATIVE_ARTIFACT_ROOT:-/workspace/test-results/native-workstation/unprepared}
       ONLYALPHA_POSTGRES_DSN: postgresql://onlyalpha:onlyalpha@postgres:5432/onlyalpha?sslmode=disable
       ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN: postgresql://onlyalpha_factor_builder_runtime:onlyalpha@postgres:5432/onlyalpha?sslmode=disable

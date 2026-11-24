@@ -991,6 +991,7 @@ def verify_public_science_rejects_rebound_facts(root: Path, report: dict[str, An
         "qualification-product",
         "backtest-native",
         "backtest-owner:memory-completion",
+        "backtest-owner:human-owner-isolation",
         "backtest-owner:queued-cancel",
         "backtest-owner:shutdown-resume",
         "backtest-owner:attempts-exhausted",
@@ -1054,6 +1055,7 @@ def test_actual_strategy_science_producer_report_historical_reader_and_freeze(
         monkeypatch.setenv("ONLYALPHA_FACTOR_BUILD_POSTGRES_DSN", prepare(postgres_dsn, test=True))
     finite_research = mode in {
         "backtest-owner:finite-publication",
+        "backtest-owner:human-owner-isolation",
         "backtest-owner:queued-cancel",
         "backtest-owner:running-cancel",
         "backtest-owner:shutdown-resume",

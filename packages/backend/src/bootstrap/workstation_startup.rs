@@ -545,7 +545,11 @@ impl Running {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
-        let access = Arc::new(crate::security::human_access::Access::generate()?);
+        let access = Arc::new(workstation_human_access(
+            std::env::var_os("ONLYALPHA_HUMAN_CREDENTIALS_FILE")
+                .as_deref()
+                .map(std::path::Path::new),
+        )?);
         let mut write = connect(&database, false).await?;
         // Validate while PendingRead still owns both the client and driver.
         // Failure, timeout or cancellation drops that exact connection; startup
@@ -1111,6 +1115,18 @@ fn remember(first: &mut Option<Failure>, result: Result<(), Failure>) {
     }
 }
 
+fn workstation_human_access(
+    path: Option<&std::path::Path>,
+) -> Result<crate::security::human_access::Access, Failure> {
+    use crate::security::human_access::Access;
+    let Some(path) = path else {
+        return Ok(Access::generate()?);
+    };
+    let bytes = protected_files::read_protected(path)
+        .map_err(|_| Failure::unavailable("HUMAN_CREDENTIALS_INVALID"))?;
+    Access::configured(&bytes).map_err(|_| Failure::unavailable("HUMAN_CREDENTIALS_INVALID"))
+}
+
 fn read_bounded(
     path: &std::path::Path,
     policy: FilePolicy,
@@ -1127,6 +1143,17 @@ fn read_bounded(
 #[cfg(test)]
 mod driver_tests {
     use super::*;
+    #[test]
+    fn absent_human_configuration_and_invalid_explicit_file_are_distinct() {
+        assert!(
+            workstation_human_access(None)
+                .unwrap()
+                .local_operator("local-developer")
+        );
+        for path in ["", "relative.json", "/dev/null"] {
+            assert!(workstation_human_access(Some(std::path::Path::new(path))).is_err());
+        }
+    }
     #[test]
     fn source_wall_clock_is_exact_for_persisted_receive_and_seal_observations() {
         let at = std::time::UNIX_EPOCH + Duration::from_nanos(123_456_789);

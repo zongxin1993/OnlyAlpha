@@ -2,13 +2,16 @@ import { defineConfig } from "@playwright/test";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
 const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
+const ownerIsolation = Boolean(process.env.ONLYALPHA_BROWSER_HUMAN_FIXTURE);
 
 export default defineConfig({
     testDir: "./e2e",
-    testIgnore:
-        process.env.ONLYALPHA_BROWSER_BACKTEST_DIAGNOSTIC === "1"
+    testIgnore: [
+        ...(process.env.ONLYALPHA_BROWSER_BACKTEST_DIAGNOSTIC === "1"
             ? []
-            : ["**/backtest-diagnostics.spec.ts"],
+            : ["**/backtest-diagnostics.spec.ts"]),
+        ...(ownerIsolation ? [] : ["**/backtest-owner-isolation.spec.ts"])
+    ],
     workers: 1,
     outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results",
     retries: 0,
@@ -17,13 +20,15 @@ export default defineConfig({
         trace: "retain-on-failure",
         launchOptions: executablePath === undefined ? {} : { executablePath }
     },
-    webServer: [
-        {
-            // Controlled renderer fixture is served only by this test server;
-            // the production build has no fixture entry point or Result adapter.
-            command: "npm exec -- vite --host 127.0.0.1 --port 4180 --strictPort",
-            url: "http://127.0.0.1:4180/e2e/support/study-renderer.html",
-            reuseExistingServer: false
-        }
-    ]
+    webServer: ownerIsolation
+        ? []
+        : [
+              {
+                  // Controlled renderer fixture is served only by this test server;
+                  // the production build has no fixture entry point or Result adapter.
+                  command: "npm exec -- vite --host 127.0.0.1 --port 4180 --strictPort",
+                  url: "http://127.0.0.1:4180/e2e/support/study-renderer.html",
+                  reuseExistingServer: false
+              }
+          ]
 });

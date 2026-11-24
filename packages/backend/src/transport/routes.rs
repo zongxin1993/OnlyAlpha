@@ -39,6 +39,7 @@ async fn verify<T: DeserializeOwned>(response: Response) -> Response {
 }
 pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
     let router=OpenApiRouter::<Arc<Host>>::new()
+ .routes(routes!(human_session_read, human_session_login, human_session_logout))
  .routes(routes!(market_data_stream_upgrade))
  .routes(routes!(temporary_market_data_stream_upgrade))
  .routes(routes!(study_preparation_context))
@@ -196,8 +197,57 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
             "LocalDeveloperCookie",
             SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new("onlyalpha_dev_session"))),
         );
+    document.components.get_or_insert_default().add_security_scheme(
+        "LocalHumanCredential",
+        SecurityScheme::Http(utoipa::openapi::security::Http::new(
+            utoipa::openapi::security::HttpAuthScheme::Bearer,
+        )),
+    );
     (router, document)
 }
+
+#[derive(serde::Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+struct HumanSessionView {
+    subject_id: String,
+    can_logout: bool,
+}
+
+fn authenticated_human_view(request: &Request<Body>) -> Response {
+    use crate::security::human_access::Session;
+    use axum::response::IntoResponse;
+    let Some(session) = request.extensions().get::<Session>() else {
+        return crate::transport::host::failure(StatusCode::UNAUTHORIZED, "HUMAN_SESSION_REQUIRED");
+    };
+    let Ok(subject_id) = session.subject_id() else {
+        return crate::transport::host::failure(StatusCode::UNAUTHORIZED, "HUMAN_SESSION_REQUIRED");
+    };
+    (
+        [(http::header::CACHE_CONTROL, "no-store")],
+        axum::Json(HumanSessionView {
+            subject_id: subject_id.to_owned(),
+            can_logout: session.can_logout(),
+        }),
+    )
+        .into_response()
+}
+
+#[utoipa::path(get, path="/api/v2/human/session", tag="workstation", security(("LocalDeveloperCookie"=[])), responses((status=200,body=HumanSessionView),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn human_session_read(request: Request<Body>) -> Response {
+    authenticated_human_view(&request)
+}
+
+#[utoipa::path(post, path="/api/v2/human/session", tag="workstation", security(("LocalHumanCredential"=[])), responses((status=200,body=HumanSessionView),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=413,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn human_session_login(request: Request<Body>) -> Response {
+    authenticated_human_view(&request)
+}
+
+#[utoipa::path(delete, path="/api/v2/human/session", tag="workstation", security(("LocalDeveloperCookie"=[])), responses((status=204),(status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=413,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn human_session_logout() -> Response {
+    // Only ingress holding the physical write gate can acknowledge withdrawal.
+    crate::transport::host::failure(StatusCode::FORBIDDEN, "HUMAN_LOGOUT_DENIED")
+}
+
 /// The ingress policy is a pure projection of the actual declared routes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
@@ -1339,6 +1389,28 @@ mod policy_tests {
             "history_projection_fingerprint",
         ] {
             assert!(!properties.contains_key(key));
+        }
+    }
+    #[test]
+    fn human_session_login_is_the_only_deployment_bearer_operation() {
+        let (_, document) = declaration();
+        let api = serde_json::to_value(document).unwrap();
+        let bearer = serde_json::json!([{"LocalHumanCredential": []}]);
+        let cookie = serde_json::json!([{"LocalDeveloperCookie": []}]);
+        let path = crate::security::human_access::SESSION_PATH;
+        let session = &api["paths"][path];
+        assert_eq!(session["get"]["security"], cookie);
+        assert_eq!(session["delete"]["security"], cookie);
+        assert!(session["delete"]["responses"].get("204").is_some());
+        assert_eq!(session["post"]["security"], bearer);
+        for (name, methods) in api["paths"].as_object().unwrap() {
+            for (method, operation) in methods.as_object().unwrap() {
+                if operation["security"].as_array().is_some_and(|schemes| {
+                    schemes.iter().any(|s| s.get("LocalHumanCredential").is_some())
+                }) {
+                    assert_eq!((name.as_str(), method.as_str()), (path, "post"));
+                }
+            }
         }
     }
     #[test]

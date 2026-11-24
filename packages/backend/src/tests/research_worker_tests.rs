@@ -47,7 +47,7 @@ pub(crate) async fn run(v: &Value) -> Result<Value, Box<dyn std::error::Error>> 
     let session = issuer.authenticate(&format!("Bearer {}", "e".repeat(64)))?;
     let lookups = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let queried = lookups.clone();
-    let sources = SourceSessions::new(move || {
+    let sources = SourceSessions::new(move |_, _| {
         queried.fetch_add(1, Ordering::SeqCst);
         let session = session.clone();
         async move { Ok(session) }

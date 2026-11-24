@@ -127,7 +127,7 @@ impl Host {
             &source.integration_revision_fingerprint,
             Some(&source.expected_type_id),
         )?;
-        let (resolved, _) = self.resolve(&reference).await?;
+        let resolved = self.resolve_with_session(&reference, session).await?;
         if resolved.selection().source_id() != source.source_id
             || resolved.selection().environment() != source.environment
             || definition["instruments"] != json!([source.instrument_id])
@@ -152,24 +152,34 @@ impl Host {
             return Err(fail(INVALID));
         }
         let (start, end) = acquisition_bounds(window.start, window.end, bar).map_err(fail)?;
-        let raw = json!({"source_reference":{"integration_id":source.integration_id,
-            "integration_revision_fingerprint":source.integration_revision_fingerprint,"expected_type_id":source.expected_type_id},
-            "instrument_id":source.instrument_id,"bar_semantic":semantic.to_record(),
-            "start_ns":start.to_string(),"end_ns":end.to_string(),"provenance":"REST_BACKFILL"});
-        // Reuse the actual lease/WAL/capture/publication and UNKNOWN behavior intact.
-        let request = Request::builder()
-            .body(Body::from(raw.to_string()))
-            .map_err(|_| fail(INVALID))?;
-        let response = match self.acquisition(request, human, deadline).await {
-            Ok(response) => response,
-            Err(error) => return acquisition_failure(error),
+        let receipt = if self.human_access.local_operator(human.subject_id()?) {
+            let raw = json!({"source_reference":{"integration_id":source.integration_id,
+                "integration_revision_fingerprint":source.integration_revision_fingerprint,"expected_type_id":source.expected_type_id},
+                "instrument_id":source.instrument_id,"bar_semantic":semantic.to_record(),
+                "start_ns":start.to_string(),"end_ns":end.to_string(),"provenance":"REST_BACKFILL"});
+            let request = Request::builder().body(Body::from(raw.to_string())).map_err(|_| fail(INVALID))?;
+            let response = match self.acquisition(request, human, deadline).await {
+                Ok(response) => response,
+                Err(error) => return acquisition_failure(error),
+            };
+            serde_json::from_slice(&to_bytes(response.into_body(), WORK).await.map_err(|_| fail(INVALID))?)
+                .map_err(|_| fail(INVALID))?
+        } else {
+            use crate::application::market_product::{AcquisitionRequest, Application};
+            let (_, original) = Application::acquisition_intent(&resolved, AcquisitionRequest {
+                instrument_id: &source.instrument_id,
+                semantic: &semantic,
+                start_ns: start,
+                end_ns: end,
+                clock_ns: crate::transport::host::now_ns()?,
+                admitted_at: &now()?.to_string(),
+            })?;
+            let mut reader = self.reader.lock().await;
+            let client = reader.as_mut().ok_or_else(|| fail("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+            let mut storage = Storage::new(Catalog::new(client, ROWS, WORK)?, &self.clickhouse, 100000)?;
+            let observed = self.app.acquisition_status(&resolved, session, &mut storage, original.id(), None).await?;
+            observed.into_parts()?.0
         };
-        let receipt: Value = serde_json::from_slice(
-            &to_bytes(response.into_body(), WORK)
-                .await
-                .map_err(|_| fail(INVALID))?,
-        )
-        .map_err(|_| fail(INVALID))?;
         let acquisition: crate::transport::wire::MarketDataAcquisitionDto =
             serde_json::from_value(receipt.clone()).map_err(|_| fail(INVALID))?;
         if acquisition.source_id != source.source_id

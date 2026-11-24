@@ -101,7 +101,7 @@ impl PreparationTask<FiniteTask> {
             async move |readers, pins, association| {
                 #[cfg(test)]
                 crate::workers::research_service::owner_tests::preparation_gate(run.run_id()).await;
-                let source = sources.current().await.map_err(|_| "RESEARCH_SOURCE_ACCESS_DENIED")?;
+                let source = sources.current(run.owner(), None).await.map_err(|_| "RESEARCH_SOURCE_ACCESS_DENIED")?;
                 let installation = Arc::new(
                     ChartInstallation::open(&algorithms, run.specification().algorithm_artifact_fingerprint()?)
                         .map_err(|_| "RESEARCH_ALGORITHM_INSTALLATION_CHANGED")?,
@@ -142,11 +142,9 @@ impl PreparationTask<LoadedBacktest> {
             "BACKTEST_PREPARATION_READ_DRAIN_UNKNOWN",
             async move |readers, pins, association| {
                 const DENIED: &str = "BACKTEST_SOURCE_ACCESS_DENIED";
-                let source = sources.current().await.map_err(|_| DENIED)?;
+                let strategy = run.specification().record()["strategy_fingerprint"].as_str().ok_or(DENIED)?;
+                let source = sources.current(run.owner(), Some(strategy)).await.map_err(|_| DENIED)?;
                 let selection = Selection::from_record(&run.resolution()["source_selection"]).map_err(|_| DENIED)?;
-                if source.subject_id().map_err(|_| DENIED)? != run.owner() {
-                    return Err(DENIED.into());
-                }
                 source.require_selection(&selection, crate::application::source_access::Permission::ClosedHistory).map_err(|_| DENIED)?;
                 let physical = readers.physical();
                 let (metadata, facts) = readers.clients_mut().await.map_err(|_| "BACKTEST_INPUT_READER_UNAVAILABLE")?;

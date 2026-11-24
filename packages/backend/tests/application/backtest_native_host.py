@@ -17,8 +17,9 @@ import socket
 import subprocess
 import threading
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 from decimal import Decimal
 from http.cookiejar import CookieJar
@@ -33,7 +34,8 @@ import pytest
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_json
 from psycopg import sql
 
-from packages.backend.tests.application.support.native_research_market_fixture import MarketStorageInputs, ROOT, probe
+from packages.backend.tests.application.support.backtest_publication_comparison import assert_equivalent_publications
+from packages.backend.tests.application.support.native_research_market_fixture import ROOT, MarketStorageInputs, probe
 
 # 单调计时标记：只记录真实发生的阶段边界，不把任何实际工作移出计时窗口，也不改变任何
 # 既有预算（Host 就绪 30s、观测循环 120s、npm build 120s、qualification 120s 全部保留）。
@@ -150,7 +152,8 @@ def reset_stages(case_label: str) -> None:
 
 @contextmanager
 def original_host(
-    executable: Path, configuration: dict[str, Any], output: Path, *, diagnostics: Path | None = None
+    executable: Path, configuration: dict[str, Any], output: Path, *, diagnostics: Path | None = None,
+    human_credentials_file: Path | None = None,
 ) -> Iterator[Any]:
     """Only the selected Runtime ELF starts the unchanged owning Node startup."""
     events: queue.Queue[str] = queue.Queue()
@@ -158,10 +161,17 @@ def original_host(
     # 一条用例可能先后起多个 Host（如 PG 发布模式：Freeze 专用 Host 排空后才起正式 Host），
     # 各自的 stderr 日志按 serial 分文件，后起的 Host 不得覆盖前一个 Host 的现场。
     log_path = output / f"host{serial}.log"
+    env = os.environ.copy()
+    env.pop("ONLYALPHA_HUMAN_CREDENTIALS_FILE", None)
+    if human_credentials_file is not None:
+        env["ONLYALPHA_HUMAN_CREDENTIALS_FILE"] = str(human_credentials_file)
+    if diagnostics is not None:
+        env["ONLYALPHA_DIAGNOSTICS_PATH"] = str(diagnostics)
+    mode = "--backtest-native-host-with-worker-gates" if "worker_gate_socket" in configuration else "--backtest-native-host"
     with log_path.open("w") as log:
         child = subprocess.Popen(
-            [str(executable), "--backtest-native-host"],
-            env={**os.environ, "ONLYALPHA_DIAGNOSTICS_PATH": str(diagnostics)} if diagnostics else None,
+            [str(executable), mode],
+            env=env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=log,
@@ -624,7 +634,7 @@ def execution_attempts(events: list[dict[str, Any]]) -> list[int]:
     ]
 
 
-def backtest_acceptance(dsn: str, run: str, command: str) -> tuple[Any, ...]:
+def backtest_acceptance(dsn: str, run: str, command: str, *, owner: str = "local-developer") -> tuple[Any, ...]:
     with psycopg.connect(dsn) as db:
         identity = db.execute(
             "SELECT binding.owner_id, binding.binding_fingerprint, binding.payload, "
@@ -636,7 +646,7 @@ def backtest_acceptance(dsn: str, run: str, command: str) -> tuple[Any, ...]:
             "AND receipt.command_kind='CREATE_BACKTEST_RUN' AND receipt.outcome_kind='BACKTEST_RUN'",
             (run, command),
         ).fetchone()
-    assert identity is not None and identity[0] == "local-developer", identity
+    assert identity is not None and identity[0] == owner, identity
     return identity
 
 
@@ -651,6 +661,75 @@ def cancel_receipts(dsn: str, run: str) -> dict[str, tuple[datetime, str]]:
             (run,),
         ).fetchall()
     return {command: (accepted_at, fingerprint) for command, accepted_at, fingerprint in receipts}
+
+
+def accept_with_concurrent_read(http: Any, dsn: str, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+    from scripts.database_guard import assert_test_database
+
+    database = assert_test_database(dsn)
+    name = sql.Identifier("commit_probe_" + UUID(command).hex)
+    base = "/api/v2/backtest/preparations"
+    with psycopg.connect(dsn, autocommit=True) as db, ThreadPoolExecutor(max_workers=2) as requests:
+        assert db.execute("SELECT current_database()").fetchone() == (database,)
+        gate = db.execute("SELECT hashtextextended(%s,1)", (command,)).fetchone()[0]
+        with db.transaction():
+            # WITH HOLD 的结果在 COMMIT 时物化，受理逻辑提前检查延迟约束不会触发这把锁。
+            db.execute(sql.SQL("""CREATE FUNCTION public.{}() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    EXECUTE 'DECLARE acceptance_commit_probe NO SCROLL CURSOR WITH HOLD FOR
+                        SELECT pg_catalog.pg_advisory_xact_lock({}::bigint)';
+                    RETURN NEW;
+                END $$""").format(name, sql.Literal(gate)))
+            db.execute(sql.SQL("""CREATE TRIGGER {} AFTER INSERT ON public.product_command_receipt
+                FOR EACH ROW WHEN (NEW.command_id = {}::uuid) EXECUTE FUNCTION public.{}()""").format(
+                name, sql.Literal(command), name,
+            ))
+        try:
+            def wait_for_waiter(pending: Future, blocker: int, key: int, statement: str) -> int:
+                deadline = time.monotonic() + 15
+                while True:
+                    rows = db.execute("""SELECT l.pid FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_stat_activity a
+                        ON a.pid=l.pid WHERE a.datname=current_database() AND a.state='active'
+                        AND upper(trim(trailing ';' from a.query))=%s AND l.locktype='advisory' AND NOT l.granted
+                        AND l.classid=(%s::bigint >> 32 & 4294967295)::oid AND l.objid=(%s::bigint & 4294967295)::oid
+                        AND l.objsubid=1 AND %s=ANY(pg_catalog.pg_blocking_pids(l.pid))""",
+                        (statement, key, key, blocker)).fetchall()
+                    if rows:
+                        ((pid,),) = rows
+                        return pid
+                    if pending.done():
+                        raise AssertionError(f"HTTP completed before {statement} lock observation: {pending.result()}")
+                    assert time.monotonic() < deadline, (statement, blocker)
+
+            with psycopg.connect(dsn) as barrier:
+                blocker, command_key, _ = barrier.execute(
+                    "SELECT pg_backend_pid(),hashtextextended(%s,0),pg_advisory_xact_lock(%s)", (command, gate),
+                ).fetchone()
+                post = requests.submit(request, http, base, payload, command)
+                writer = wait_for_waiter(post, blocker, gate, "COMMIT")
+                assert db.execute("SELECT 1 FROM public.product_command_receipt WHERE command_id=%s", (command,)).fetchone() is None
+                get = requests.submit(request, http, f"{base}/commands/{command}")
+                reader = wait_for_waiter(get, writer, command_key, "SELECT PG_ADVISORY_XACT_LOCK(HASHTEXTEXTENDED($1,0))")
+            accepted, observed = post.result(), get.result()
+            assert accepted['state'] == 'ACCEPTED' and observed['state'] in {'ACCEPTED', 'RUNNING', 'INPUT_PENDING', 'READY'}
+            for key in ('command_id', 'backtest_command_id', 'reserved_run_id', 'accepted_at', 'origin', 'source'):
+                assert observed[key] == accepted[key], key
+            assert observed['command_id'] == command and observed['backtest_command_id'] == payload['backtest_command_id']
+            assert observed['run_id'] is None and observed['backtest_outcome'] == 'NOT_SUBMITTED'
+            ((owner, receipt_outcome_id),) = db.execute("""SELECT p.owner,r.outcome_id FROM public.research_preparation p
+                JOIN public.product_command_receipt r USING (command_id) WHERE p.command_id=%s
+                AND r.command_kind='PREPARE_BACKTEST' AND r.outcome_kind='RESEARCH_PREPARATION_OPERATION'
+                AND r.outcome_id=p.accepted_fingerprint AND p.accepted_payload::jsonb->>'runtime_work_id'=%s""",
+                (command, observed['reserved_run_id'])).fetchall()
+            assert owner == 'local-developer'
+            print(f"PREPARATION_COMMIT_READ command={command} future={observed['backtest_command_id']} "
+                  f"run={observed['reserved_run_id']} owner={owner} receipt_outcome_id={receipt_outcome_id} barrier={blocker} "
+                  f"writer_commit={writer} reader={reader} post={accepted['state']} get={observed['state']}", flush=True)
+            return accepted
+        finally:
+            with db.transaction():
+                db.execute(sql.SQL("DROP TRIGGER {} ON public.product_command_receipt").format(name))
+                db.execute(sql.SQL("DROP FUNCTION public.{}()").format(name))
 
 
 def assert_cancel_during_preparation(
@@ -860,7 +939,10 @@ def missing_frozen_input(dsn: str, binding: dict[str, Any], scenario: str) -> It
 def missing_frozen_market_row(
     dsn: str, database: MarketStorageInputs, market: dict[str, Any]
 ) -> Iterator[str]:
-    from packages.backend.tests.application.test_market_storage_postgres_clickhouse import ClickHouseObservations, _quote
+    from packages.backend.tests.application.test_market_storage_postgres_clickhouse import (
+        ClickHouseObservations,
+        _quote,
+    )
     from scripts.database_guard import assert_test_database
 
     test_database = "onlyalpha_dev_validation_test"
@@ -1229,7 +1311,30 @@ def assert_backtest_query_refusals(http: Any, dsn: str, run: str, snapshot: tupl
                 db.execute("ALTER TABLE public.job_publication ENABLE TRIGGER job_publication_immutable")
 
         assert [row[2] for row in snapshot[1]] == ["EXPIRED", "SUCCEEDED"]
-        replace_winner(snapshot[1][0][0])
+        predecessor = snapshot[1][0][0]
+        finished_at, before_expiry = db.execute(
+            "SELECT finished_at, lease_expires_at - interval '1 microsecond' FROM public.backtest_run_attempt "
+            "WHERE attempt_id=%s AND run_id=%s AND state='EXPIRED' AND finished_at>=lease_expires_at",
+            (predecessor, run),
+        ).fetchone()
+
+        def set_predecessor_finish(at: datetime) -> None:
+            with db.transaction():
+                db.execute("ALTER TABLE public.backtest_run_attempt DISABLE TRIGGER job_backtest_attempt_closure")
+                changed = db.execute(
+                    "UPDATE public.backtest_run_attempt SET finished_at=%s WHERE attempt_id=%s AND run_id=%s AND state='EXPIRED'",
+                    (at, predecessor, run),
+                )
+                assert changed.rowcount == 1
+                db.execute("ALTER TABLE public.backtest_run_attempt ENABLE TRIGGER job_backtest_attempt_closure")
+
+        set_predecessor_finish(before_expiry)
+        try:
+            reject_publication("JOB_RESULT_CORRUPT")
+        finally:
+            set_predecessor_finish(finished_at)
+
+        replace_winner(predecessor)
         try:
             reject_publication("JOB_RESULT_CORRUPT")
         finally:
@@ -1369,7 +1474,7 @@ def assert_cold_backtest_publication(
     late_cancel: bool = False,
     prior_cancel: bool = False,
     check_refusals: bool = False,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, bytes]]:
     before = publication_identity(dsn, run)
     expected_receipts = cancel_receipts(dsn, run) if late_cancel else None
     if expected_receipts is not None:
@@ -1448,7 +1553,36 @@ def assert_cold_backtest_publication(
     assert publication_identity(dsn, run) == before
     if expected_receipts is not None:
         assert cancel_receipts(dsn, run) == expected_receipts
-    return result
+    return result, artifacts
+
+
+def prepare_comparison(http: Any, payload: dict[str, Any]) -> tuple[str, str]:
+    command, future = str(uuid4()), str(uuid4())
+    accepted = request(http, "/api/v2/backtest/preparations", {**payload, "backtest_command_id": future}, command)
+    assert accepted["command_id"] == command and accepted["backtest_command_id"] == future
+    ready = observe_until(
+        http, f"/api/v2/backtest/preparations/commands/{command}", {"READY"}, {"ACCEPTED", "RUNNING", "INPUT_PENDING"}
+    )
+    assert ready["run_id"] is None and ready["backtest_outcome"] == "NOT_SUBMITTED"
+    return command, ready["reserved_run_id"]
+
+
+def submit_comparison(http: Any, preparation: str, run: str) -> str:
+    ready = request(http, f"/api/v2/backtest/preparations/commands/{preparation}")
+    assert ready["reserved_run_id"] == run and ready["state"] == "READY", ready
+    submitted = request(
+        http, f"/api/v2/backtest/preparations/{preparation}/submit",
+        {"schema_version": 1, "preparation_command_id": preparation, "preparation_fingerprint": ready["preparation_fingerprint"]},
+        ready["backtest_command_id"],
+    )
+    assert submitted["state"] == "ACCEPTED" and submitted["run_id"] == run, submitted
+    assert submitted["backtest_command_id"] == ready["backtest_command_id"], submitted
+    return ready["backtest_command_id"]
+
+
+def run_comparison(http: Any, preparation: str, run: str) -> None:
+    submit_comparison(http, preparation, run)
+    observe_until(http, f"/api/v2/backtest/runs/{run}", {"COMPLETED"}, {"QUEUED", "RUNNING"})
 
 
 def exercise_native_backtest_host(
@@ -1465,8 +1599,6 @@ def exercise_native_backtest_host(
     *,
     web_assets: Path | None = None,
 ) -> None:
-    from scripts.native_web_e2e import controlled_source_https
-
     output.mkdir()
     # 原生 Host 链路是外层用例的一个子阶段，共用同一张表：与 native-dispatch-* 是包含关系。
     stage("native-chain-begin")
@@ -1492,7 +1624,7 @@ def exercise_native_backtest_host(
     )
     stale_worker = owner_fault in ("expiry-before-finalization", "expiry-before-recovery-publication")
     before_btc_rules = hold_rules if owner_fault == "recover-cancel" else None
-    with controlled_source_https(output, before_btc_rules=before_btc_rules) as (ca, external):
+    with backtest_market_input(output, before_btc_rules) as (ca, external):
         data = root.parent
         # 受控 HTTPS 行情前置：整段是真实网络 + ClickHouse/PG 写入，必须是独立可归因窗口。
         stage("prior-market-source-begin")
@@ -1626,7 +1758,8 @@ def exercise_native_backtest_host(
                 decision_id = qualified["decision_fingerprint"]
                 assert re.fullmatch(r"[0-9a-f]{64}", decision_id), qualified
         warm_diagnostics = output / "backtest-producer.jsonl" if owner_fault is None else None
-        with original_host(executable, configuration, output, diagnostics=warm_diagnostics) as http:
+        with ExitStack() as warm_host:
+            http = warm_host.enter_context(original_host(executable, configuration, output, diagnostics=warm_diagnostics))
             if publication is not None:
                 assert request(http, f"{strategy_path}/qualifications/commands/{qualification_command}") == qualified
                 stage("decision-cold-read-begin")
@@ -1676,13 +1809,27 @@ def exercise_native_backtest_host(
                 "initialize_fresh_runtime": False,
                 "backtest_command_id": future,
             }
+            if owner_fault == "human-owner-isolation":
+                from packages.backend.tests.application.backtest_human_owners import (
+                    assert_single_human_session,
+                    exercise_human_owners,
+                )
+
+                assert_single_human_session(http)
+                preflight, _ = prepare_comparison(http, payload)
+                warm_host.close()
+                exercise_human_owners(executable, configuration, output, payload, pins, selected_sha, dsn, preflight)
+                return
             if owner_fault == "recover-cancel":
                 rules_armed.set()
                 assert_cancel_during_preparation(
                     http, dsn, {**payload, "backtest_command_id": str(uuid4())}, at_rules, release_rules
                 )
             stage("preparation-post-begin")
-            accepted = request(http, "/api/v2/backtest/preparations", payload, preparation)
+            if owner_fault == "queued-cancel":
+                accepted = accept_with_concurrent_read(http, dsn, preparation, payload)
+            else:
+                accepted = request(http, "/api/v2/backtest/preparations", payload, preparation)
             assert accepted["command_id"] == preparation and accepted["backtest_command_id"] == future
             assert accepted["run_id"] is None
             ready = observe_until(
@@ -1706,17 +1853,7 @@ def exercise_native_backtest_host(
             if owner_fault is not None:
                 fresh = None
                 if worker_exit or stale_worker or owner_fault in ("windows", "lost-guard", "crash-recover"):
-                    fresh_command, fresh_future = str(uuid4()), str(uuid4())
-                    other = {**payload, "backtest_command_id": fresh_future}
-                    request(http, "/api/v2/backtest/preparations", other, fresh_command)
-                    unsubmitted = observe_until(
-                        http,
-                        f"/api/v2/backtest/preparations/commands/{fresh_command}",
-                        {"READY"},
-                        {"ACCEPTED", "RUNNING", "INPUT_PENDING"},
-                    )
-                    assert unsubmitted["run_id"] is None and unsubmitted["backtest_outcome"] == "NOT_SUBMITTED"
-                    fresh = (fresh_command, unsubmitted["reserved_run_id"])
+                    fresh = prepare_comparison(http, payload)
             else:
                 stage("run-submit-begin")
                 submitted = request(
@@ -1815,19 +1952,7 @@ def exercise_native_backtest_host(
                 assert history["run_id"] == run and history["backtest_command_id"] == future
                 assert history["preparation_fingerprint"] == ready["preparation_fingerprint"]
                 comparison_preparation, comparison_run = fresh
-                comparison_ready = request(http, f"/api/v2/backtest/preparations/commands/{comparison_preparation}")
-                submitted = request(
-                    http,
-                    f"/api/v2/backtest/preparations/{comparison_preparation}/submit",
-                    {
-                        "schema_version": 1,
-                        "preparation_command_id": comparison_preparation,
-                        "preparation_fingerprint": comparison_ready["preparation_fingerprint"],
-                    },
-                    comparison_ready["backtest_command_id"],
-                )
-                assert submitted["state"] == "ACCEPTED" and submitted["run_id"] == comparison_run, submitted
-                observe_until(http, f"/api/v2/backtest/runs/{comparison_run}", {"COMPLETED"}, {"QUEUED", "RUNNING"})
+                run_comparison(http, comparison_preparation, comparison_run)
             after, recovered_attempts, _, _ = publication_identity(dsn, run)
             assert after[6:8] == before[6:8], (before, after)
             assert backtest_acceptance(dsn, run, future) == acceptance
@@ -1874,7 +1999,7 @@ def exercise_native_backtest_host(
                 assert sorted(executions) == expected_executions, (run, executions)
                 production_count = f" producer_executions={len(executions)}"
             stage("cold-publication-reads-begin")
-            cold = assert_cold_backtest_publication(
+            cold, recovered_artifacts = assert_cold_backtest_publication(
                 executable,
                 configuration,
                 output,
@@ -1895,7 +2020,7 @@ def exercise_native_backtest_host(
             assert fresh is not None
             comparison_preparation, comparison_run = fresh
             recovered_comparison = owner_fault == "crash-recover"
-            comparison = assert_cold_backtest_publication(
+            comparison, comparison_artifacts = assert_cold_backtest_publication(
                 executable,
                 configuration,
                 output,
@@ -1909,6 +2034,8 @@ def exercise_native_backtest_host(
                 prior_cancel=recovered_comparison,
                 check_refusals=recovered_comparison,
             )
+            if not recovered_comparison:
+                assert_equivalent_publications(recovered_artifacts, comparison_artifacts, preparation, comparison_preparation)
             for field in ("metrics", "baseline", "curve", "positions"):
                 assert comparison[field] == cold[field], field
             for trade, control_trade in zip(comparison["trades"], cold["trades"], strict=True):
@@ -1924,6 +2051,33 @@ def exercise_native_backtest_host(
                     f"BACKTEST_UNKNOWN_COMMITS_RESOLVED run={comparison_run} producer_executions=2 query_executions=0",
                     flush=True,
                 )
+        if owner_fault in ("crash-recover", "shutdown-resume"):
+            baseline_diagnostics = output / "backtest-uninterrupted-producer.jsonl"
+            with original_host(executable, configuration, output, diagnostics=baseline_diagnostics) as http:
+                baseline_preparation, baseline_run = prepare_comparison(http, payload)
+                run_comparison(http, baseline_preparation, baseline_run)
+            assert execution_attempts(run_diagnostics(baseline_diagnostics, baseline_run)) == [1]
+            _, baseline_artifacts = assert_cold_backtest_publication(
+                executable, configuration, output, dsn, baseline_run, baseline_preparation, pins, selected_sha
+            )
+            expected_runs = {run, baseline_run}
+            assert_equivalent_publications(recovered_artifacts, baseline_artifacts, preparation, baseline_preparation)
+            if owner_fault == "crash-recover":
+                expected_runs.add(comparison_run)
+                assert_equivalent_publications(
+                    comparison_artifacts, baseline_artifacts, comparison_preparation, baseline_preparation
+                )
+            with psycopg.connect(dsn) as db:
+                assert {r for (r,) in db.execute("SELECT run_id::text FROM public.backtest_run")} == expected_runs
+            print(f"BACKTEST_UNINTERRUPTED_COMPARISON_CONFIRMED run={run} baseline={baseline_run}", flush=True)
+
+
+@contextmanager
+def backtest_market_input(output: Path, before_btc_rules: Callable[[], None] | None) -> Iterator[tuple[Path, dict[str, Any]]]:
+    from scripts.native_web_e2e import controlled_source_https
+
+    with controlled_source_https(output, before_btc_rules=before_btc_rules) as market:
+        yield market
         occurrences = [json.loads(line) for line in (output / "controlled-source-https.jsonl").read_text().splitlines()]
         assert any(row.get("path") == "/api/v3/exchangeInfo" and row.get("status") == 200 for row in occurrences), (
             occurrences

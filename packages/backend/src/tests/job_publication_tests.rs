@@ -88,7 +88,7 @@ async fn seed(c: &Client, kind: JobKind, parts: usize, bytes: usize) -> Fixture 
     let f = fixture(kind, (NS, OWNER), &run, &attempt, &worker, parts, bytes);
     let sql = match kind {
         JobKind::Backtest => {
-            "INSERT INTO backtest_run(run_id,revision,state,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,admission_resolution_schema_version,admission_resolution_payload,queued_at,started_at) VALUES($1::text::uuid,1,'RUNNING',1,$2,'{}',$3,1,'{}','2020-01-01','2020-01-01')"
+            "INSERT INTO backtest_run(run_id,revision,state,last_attempt_number,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,admission_resolution_schema_version,admission_resolution_payload,queued_at,started_at) VALUES($1::text::uuid,1,'RUNNING',1,1,$2,'{}',$3,1,'{}','2020-01-01','2020-01-01')"
         }
         JobKind::Research => {
             "INSERT INTO research_run(run_id,revision,state,specification_schema_version,specification_fingerprint,specification_payload,admission_resolution_fingerprint,queued_at,started_at,calculation_execution_evidence_fingerprints) VALUES($1::text::uuid,1,'RUNNING',1,$2,'{}',$3,'2020-01-01','2020-01-01',ARRAY[]::text[])"
@@ -110,6 +110,18 @@ async fn seed(c: &Client, kind: JobKind, parts: usize, bytes: usize) -> Fixture 
     c.execute(&format!("INSERT INTO {table}(run_id,attempt_id,worker_instance_id,attempt_number,state,claimed_at,last_heartbeat_at,lease_expires_at{extra}) VALUES($1::text::uuid,$2::text::uuid,$3::text::uuid,1,'ACTIVE',clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '120 seconds'{value})"),&[&run,&attempt,&worker]).await.unwrap();
     f
 }
+async fn cancel_seeded_backtest(client: &mut Client, run: &str) {
+    let tx = client.transaction().await.unwrap();
+    assert_eq!(tx.execute(
+        "UPDATE backtest_run_attempt SET state='CANCELLED',finished_at=transaction_timestamp() WHERE run_id=$1::text::uuid AND state='ACTIVE'",
+        &[&run],
+    ).await.unwrap(), 1);
+    assert_eq!(tx.execute(
+        "UPDATE backtest_run SET state='CANCELLED',revision=revision+2,cancel_requested_at=transaction_timestamp(),finished_at=transaction_timestamp() WHERE run_id=$1::text::uuid AND state='RUNNING'",
+        &[&run],
+    ).await.unwrap(), 1);
+    tx.commit().await.unwrap();
+}
 async fn writer(c: &mut Connection) -> PublicationRepository<'_> {
     c.runtime().await;
     c.client
@@ -129,7 +141,7 @@ async fn stage6_recompute_observation_is_rechecked_under_the_original_run_lock()
         let run = f.candidate.binding().run_id().to_owned();
         let attempts = if kind == JobKind::Research { "research_run_attempt" } else { "backtest_run_attempt" };
         let phase = if kind == JobKind::Research { ",failure_phase='OPERATIONAL'" } else { "" };
-        c.client.execute(&format!("UPDATE {attempts} SET state='EXPIRED',finished_at=clock_timestamp(),failure_code='LEASE_EXPIRED',failure_detail='Controlled recovery test'{phase} WHERE run_id=$1::text::uuid"), &[&run]).await.unwrap();
+        c.client.execute(&format!("UPDATE {attempts} SET state='EXPIRED',lease_expires_at=last_heartbeat_at,finished_at=clock_timestamp(),failure_code='LEASE_EXPIRED',failure_detail='Controlled recovery test'{phase} WHERE run_id=$1::text::uuid"), &[&run]).await.unwrap();
         let key = crate::subject::RunLocator::new(kind, &run).unwrap();
         let mut repository = writer(&mut c).await;
         repository.register(&f.registration).await.unwrap();
@@ -149,6 +161,102 @@ async fn stage6_recompute_observation_is_rechecked_under_the_original_run_lock()
         tx.rollback().await.unwrap();
     }
 }
+#[tokio::test]
+async fn backtest_recovery_requires_complete_attempt_history() {
+    use crate::application::job_recovery::{JobRecovery, RecoveryDecision, RecoveryRefusal, RetryBudget};
+
+    let admin = database().await;
+    let mut control = connected(true).await;
+    let namespace = SemanticStoreId::new(NS).unwrap();
+    for (issued, missing) in [(1_i32, vec![1_i32]), (3, vec![1, 2]), (3, vec![2]), (3, vec![3])] {
+        let f = seed(&admin.client, JobKind::Backtest, 1, 32).await;
+        let run = f.run_id();
+        let key = f.locator();
+        let mut repository = writer(&mut control).await;
+        repository.register(&f.registration).await.unwrap();
+        assert_eq!(admin.client.execute(
+            "UPDATE backtest_run_attempt SET state='EXPIRED',finished_at=lease_expires_at,failure_code='LEASE_EXPIRED',failure_detail='Controlled recovery test' WHERE run_id=$1::text::uuid",
+            &[&run],
+        ).await.unwrap(), 1);
+        for number in 2..=issued {
+            let attempt = format!("{:08x}-2222-4222-8222-222222222222", SEQUENCE.fetch_add(1, Ordering::Relaxed));
+            assert_eq!(admin.client.execute(
+                "INSERT INTO backtest_run_attempt(run_id,attempt_id,worker_instance_id,attempt_number,fencing_token,state,claimed_at,last_heartbeat_at,lease_expires_at,finished_at,failure_code,failure_detail) \
+                 SELECT run_id,$2::text::uuid,worker_instance_id,$3,$3::integer::bigint,'EXPIRED',finished_at,finished_at,finished_at+interval '1 second',finished_at+interval '1 second','LEASE_EXPIRED','Controlled recovery test' \
+                 FROM backtest_run_attempt WHERE run_id=$1::text::uuid AND attempt_number=$3-1",
+                &[&run, &attempt, &number],
+            ).await.unwrap(), 1);
+        }
+        assert_eq!(admin.client.execute(
+            "UPDATE backtest_run SET last_attempt_number=$2 WHERE run_id=$1::text::uuid",
+            &[&run, &issued],
+        ).await.unwrap(), 1);
+        let decision = JobRecovery::resolve(&mut repository, &key, RetryBudget::finite_job()).await.unwrap();
+        let proof = match decision {
+            RecoveryDecision::RecomputeWithNewClaim(proof) if issued == 1 => proof,
+            RecoveryDecision::Refused(RecoveryRefusal::RetryExhausted, proof) if issued == 3 => proof,
+            other => panic!("unexpected decision before fault: {other:?}"),
+        };
+        assert_eq!(proof.attempts(), issued);
+        assert_eq!(admin.client.execute(
+            "DELETE FROM backtest_run_attempt WHERE run_id=$1::text::uuid AND attempt_number=ANY($2)",
+            &[&run, &missing],
+        ).await.unwrap(), missing.len() as u64);
+        assert_eq!(JobRecovery::resolve(&mut repository, &key, RetryBudget::finite_job()).await.unwrap_err(),
+            PublicationError::MissingEvidence);
+        drop(repository);
+        let tx = control.client.transaction().await.unwrap();
+        assert_eq!(proof.recheck(&tx, &key, &namespace, OWNER).await, Err(PublicationError::MissingEvidence));
+        tx.rollback().await.unwrap();
+        let row = admin.client.query_one(
+            "SELECT state,revision,last_attempt_number, \
+             ARRAY(SELECT attempt_number FROM backtest_run_attempt WHERE run_id=r.run_id ORDER BY attempt_number), \
+             (SELECT count(*) FROM job_publication WHERE run_id=r.run_id), \
+             (SELECT count(*) FROM job_result_member WHERE run_id=r.run_id) FROM backtest_run r WHERE run_id=$1::text::uuid",
+            &[&run],
+        ).await.unwrap();
+        assert_eq!((row.get::<_, &str>(0), row.get::<_, i64>(1), row.get::<_, i32>(2)), ("RUNNING", 1, issued));
+        let remaining: Vec<i32> = (1..=issued).filter(|n| !missing.contains(n)).collect();
+        assert_eq!(row.get::<_, Vec<i32>>(3), remaining);
+        assert_eq!((row.get::<_, i64>(4), row.get::<_, i64>(5)), (0, 0));
+    }
+}
+
+#[tokio::test]
+async fn backtest_recovery_rejects_attempt_finished_before_lease_expiry() {
+    use crate::application::job_recovery::{JobRecovery, RetryBudget};
+
+    let mut admin = database().await;
+    let mut control = connected(true).await;
+    let f = seed(&admin.client, JobKind::Backtest, 1, 32).await;
+    let run = f.run_id();
+    let key = f.locator();
+    let mut repository = writer(&mut control).await;
+    repository.register(&f.registration).await.unwrap();
+    assert_eq!(admin.client.execute(
+        "UPDATE public.backtest_run_attempt SET state='EXPIRED',lease_expires_at=statement_timestamp(),finished_at=statement_timestamp(), \
+         failure_code='LEASE_EXPIRED',failure_detail='Controlled recovery test' WHERE run_id=$1::text::uuid AND state='ACTIVE'",
+        &[&run],
+    ).await.unwrap(), 1);
+    let crate::application::job_recovery::RecoveryDecision::RecomputeWithNewClaim(proof) =
+        JobRecovery::resolve(&mut repository, &key, RetryBudget::finite_job()).await.unwrap() else {
+            panic!("expected recompute at the exact lease boundary");
+        };
+    let fault = admin.client.transaction().await.unwrap();
+    fault.batch_execute("ALTER TABLE public.backtest_run_attempt DISABLE TRIGGER job_backtest_attempt_closure").await.unwrap();
+    assert_eq!(fault.execute(
+        "UPDATE public.backtest_run_attempt SET finished_at=lease_expires_at-interval '1 microsecond' WHERE run_id=$1::text::uuid AND state='EXPIRED'",
+        &[&run],
+    ).await.unwrap(), 1);
+    fault.batch_execute("ALTER TABLE public.backtest_run_attempt ENABLE TRIGGER job_backtest_attempt_closure").await.unwrap();
+    fault.commit().await.unwrap();
+    assert_eq!(JobRecovery::resolve(&mut repository, &key, RetryBudget::finite_job()).await.unwrap_err(), PublicationError::Integrity);
+    drop(repository);
+    let tx = control.client.transaction().await.unwrap();
+    assert_eq!(proof.recheck(&tx, &key, &SemanticStoreId::new(NS).unwrap(), OWNER).await, Err(PublicationError::Integrity));
+    tx.rollback().await.unwrap();
+}
+
 fn prepare_node_login() -> std::process::Output {
     std::process::Command::new("python3")
         .current_dir("/workspace")
@@ -590,7 +698,7 @@ async fn stale_attempt_wrong_binding_and_cancelled_run_cannot_publish() {
                 c.client.execute("UPDATE backtest_run_attempt SET fencing_token=2 WHERE run_id=$1::text::uuid",&[&f.run_id()]).await.unwrap();
             }
             "cancelled" => {
-                c.client.execute("UPDATE backtest_run SET state='CANCELLED',revision=revision+1,finished_at='2020-01-02' WHERE run_id=$1::text::uuid",&[&f.run_id()]).await.unwrap();
+                cancel_seeded_backtest(&mut c.client, f.run_id()).await;
             }
             _ => {}
         }
@@ -1196,14 +1304,15 @@ async fn foreign_owner_missing_evidence_and_cancelled_observation_never_grant_re
     );
     drop(foreign);
     c.admin().await;
-    c.client.execute("UPDATE backtest_run SET state='CANCELLED',revision=revision+1,finished_at='2020-01-02' WHERE run_id=$1::text::uuid",&[&f.run_id()]).await.unwrap();
+    cancel_seeded_backtest(&mut c.client, f.run_id()).await;
     let mut p = writer(&mut c).await;
     let PublicationObservation::ConfirmedUnpublished(o) = p.observe(&f.locator()).await.unwrap()
     else {
         panic!("cancelled has no publication")
     };
     assert_eq!(o.run_state(), "CANCELLED");
-    assert_eq!(o.run_revision(), 2);
+    assert_eq!(o.run_revision(), 3);
+    assert_eq!((o.attempts(), o.active_attempts()), (1, 0));
 }
 #[tokio::test]
 async fn rewritten_content_with_valid_new_digest_cannot_borrow_the_original_manifest() {

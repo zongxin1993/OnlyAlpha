@@ -1,0 +1,57 @@
+.human-session-page {
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: var(--bg);
+    color: var(--text);
+}
+.human-session-card {
+    width: min(100%, 25rem);
+    display: grid;
+    gap: 0.75rem;
+    padding: 1.5rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+.human-session-card h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.35rem;
+}
+.human-session-card p {
+    margin: 0;
+    color: var(--muted);
+}
+.human-session-card [role="alert"] {
+    color: var(--danger);
+}
+.human-session-card input,
+.human-session-card button {
+    padding: 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    background: var(--surface);
+    font: inherit;
+}
+.human-session-card button {
+    cursor: pointer;
+    background: var(--accent-soft);
+}
+.human-session-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+.human-session-controls span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.human-session-controls button {
+    flex: none;
+    font: inherit;
+    cursor: pointer;
+}

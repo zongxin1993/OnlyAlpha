@@ -47,10 +47,65 @@ impl ConfirmedUnpublished {
     }
 }
 
+pub(crate) async fn backtest_attempt_history(
+    tx: &Transaction<'_>, run: &str, published: bool,
+) -> Result<(i32, i64)> {
+    let limit = crate::application::job_recovery::RetryBudget::finite_job().max_attempts();
+    let root = tx.query_opt(
+        "SELECT state, started_at IS NOT NULL, failure_code, last_attempt_number FROM public.backtest_run WHERE run_id=$1::text::uuid",
+        &[&run],
+    ).await.map_err(db)?.ok_or(PublicationError::MissingEvidence)?;
+    let state: &str = root.get(0);
+    let started: bool = root.get(1);
+    let exhausted = root.get::<_, Option<&str>>(2) == Some("BACKTEST_ATTEMPTS_EXHAUSTED");
+    let last: i32 = root.get(3);
+    if (state == "COMPLETED") != published || !(0..=limit).contains(&last) || started != (last > 0) {
+        return Err(PublicationError::Integrity);
+    }
+    let rows = tx.query(
+        "SELECT attempt_number, fencing_token, state, \
+         state <> 'EXPIRED' OR (finished_at >= lease_expires_at AND failure_code = 'LEASE_EXPIRED') IS TRUE AS valid_expiry \
+         FROM public.backtest_run_attempt WHERE run_id=$1::text::uuid ORDER BY attempt_number LIMIT $2",
+        &[&run, &(i64::from(limit) + 1)],
+    ).await.map_err(db)?;
+    if rows.len() < last as usize {
+        return Err(PublicationError::MissingEvidence);
+    }
+    if rows.len() != last as usize {
+        return Err(PublicationError::Integrity);
+    }
+    let mut latest = None;
+    for (index, row) in rows.iter().enumerate() {
+        let number = index as i32 + 1;
+        let status: &str = row.get(2);
+        if row.get::<_, i32>(0) != number || row.get::<_, i64>(1) != i64::from(number)
+            || !row.get::<_, bool>("valid_expiry") || (number < last && status != "EXPIRED") {
+            return Err(PublicationError::Integrity);
+        }
+        latest = Some(status);
+    }
+    let valid = match state {
+        "QUEUED" => latest.is_none(),
+        "RUNNING" | "CANCEL_REQUESTED" => matches!(latest, Some("ACTIVE" | "EXPIRED")),
+        "COMPLETED" => latest == Some("SUCCEEDED"),
+        "CANCELLED" => matches!(latest, None | Some("EXPIRED" | "CANCELLED")),
+        "FAILED" if exhausted => last == limit && latest == Some("EXPIRED"),
+        "FAILED" => latest == Some("FAILED"),
+        _ => false,
+    };
+    if !valid {
+        return Err(PublicationError::Integrity);
+    }
+    Ok((last, i64::from(latest == Some("ACTIVE"))))
+}
+
 pub(super) async fn unpublished_attempts(
     tx: &Transaction<'_>,
     key: &RunLocator,
 ) -> Result<(i32, i64)> {
+    if key.kind == JobKind::Backtest {
+        return backtest_attempt_history(tx, &key.run, false).await;
+    }
     let query = format!(
         "SELECT COALESCE(max(attempt_number),0),count(*) FILTER(WHERE state='ACTIVE'),\
          COALESCE(bool_or(state='SUCCEEDED'),false) FROM public.{} WHERE run_id=$1::text::uuid",
@@ -247,6 +302,9 @@ pub(super) async fn load(
         if actual != research_execution_references(&members)? {
             return Err(PublicationError::Integrity);
         }
+    }
+    if key.kind == JobKind::Backtest {
+        backtest_attempt_history(tx, &key.run, true).await?;
     }
     let fence = if key.kind == JobKind::Backtest {
         "fencing_token"

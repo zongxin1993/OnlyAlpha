@@ -54,14 +54,9 @@ impl Captured<'_> {
     }
 }
 impl Application {
-    pub async fn prepare_acquisition(
-        &self,
-        r: Arc<Resolved>,
-        session: Session,
-        admission: Arc<dyn MutationAdmission>,
-        store: &mut Storage<'_>,
-        request: AcquisitionRequest<'_>,
-    ) -> Result<AcquisitionWork> {
+    pub(crate) fn acquisition_intent(
+        r: &Resolved, request: AcquisitionRequest<'_>,
+    ) -> Result<(Scope, AcquisitionIntent)> {
         let AcquisitionRequest {
             instrument_id: instrument,
             semantic: target,
@@ -70,14 +65,13 @@ impl Application {
             clock_ns,
             admitted_at,
         } = request;
-        session.require_selection(&r.selection, Permission::ClosedHistory)?;
-        let p = queries::plan(&r, instrument, target)?;
+        let p = queries::plan(r, instrument, target)?;
         let native = if p.recipe().is_native() {
             p
         } else {
-            queries::plan(&r, instrument, &queries::semantic(1)?)?
+            queries::plan(r, instrument, &queries::semantic(1)?)?
         };
-        let scope = queries::scope(&r, instrument, start, end, &native)?;
+        let scope = queries::scope(r, instrument, start, end, &native)?;
         let stride: i64 = native
             .target()
             .stride_minutes()
@@ -96,17 +90,21 @@ impl Application {
         {
             return Err(Error::Invalid);
         }
+        let intent = AcquisitionIntent::build(scope.clone(), "REST_BACKFILL", r.binding.fingerprint(), admitted_at)?;
+        Ok((scope, intent))
+    }
+    pub async fn prepare_acquisition(
+        &self,
+        r: Arc<Resolved>,
+        session: Session,
+        admission: Arc<dyn MutationAdmission>,
+        store: &mut Storage<'_>,
+        request: AcquisitionRequest<'_>,
+    ) -> Result<AcquisitionWork> {
+        session.require_selection(&r.selection, Permission::ClosedHistory)?;
+        let (scope, intent) = Self::acquisition_intent(&r, request)?;
         admission.require_acquisition(&r.selection, &scope)?;
-        // The exact immutable Intent is durable before reference/session/WAL effects.
-        let intent = store
-            .catalog()
-            .admit_intent(&AcquisitionIntent::build(
-                scope.clone(),
-                "REST_BACKFILL",
-                r.binding.fingerprint(),
-                admitted_at,
-            )?)
-            .await?;
+        let intent = store.catalog().admit_intent(&intent).await?;
         if intent.to_record()["integration_binding_fingerprint"] != r.binding.fingerprint() {
             return Err(Error::Conflict);
         }

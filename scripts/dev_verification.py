@@ -502,6 +502,7 @@ CONTROLLED_BACKTEST_OWNER_FIXTURE_COMMANDS = [
         f"test_actual_strategy_science_producer_report_historical_reader_and_freeze[backtest-owner:{scenario}]",
     ]
     for scenario in (
+        "human-owner-isolation",
         "queued-cancel",
         "running-cancel",
         "shutdown-resume",

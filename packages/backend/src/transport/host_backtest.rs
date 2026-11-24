@@ -146,15 +146,17 @@ impl BacktestPublication {
         Ok(Self { publication, result })
     }
 }
-pub(super) fn worker_observation(
+fn worker_observation(
+    run_id: &str,
     status: Option<crate::workers::backtest_worker::Status>,
-) -> BacktestWorkerObservation {
+) -> Option<BacktestWorkerObservation> {
     use crate::workers::backtest_worker::Status;
     use BacktestWorkerState::*;
     let (state, code, run_id) = match status {
         Some(Status::Starting) => (Starting, None, None),
         Some(Status::Idle) => (Idle, None, None),
-        Some(Status::Running(run)) => (Running, None, Some(run)),
+        Some(Status::Running(run)) if run == run_id => (Running, None, Some(run)),
+        Some(Status::Running(_)) => return None,
         Some(Status::Uncertain(code)) => (Unknown, Some(code.into()), None),
         Some(Status::Unavailable(code)) => (Unavailable, Some(code.into()), None),
         Some(Status::Stopped) => (Stopped, None, None),
@@ -164,11 +166,11 @@ pub(super) fn worker_observation(
             None,
         ),
     };
-    BacktestWorkerObservation {
+    Some(BacktestWorkerObservation {
         state,
         code,
         run_id,
-    }
+    })
 }
 pub(super) fn require_worker(
     status: Option<crate::workers::backtest_worker::Status>,
@@ -235,7 +237,7 @@ fn run_view(
         cancellation_reason: cancel_requested_at.as_ref().map(|_| BacktestCancellationReason::UserRequested),
         cancel_requested_at,
         report_status: BacktestReportAvailability { state, code: None },
-        worker_observation: Some(worker_observation(worker)),
+        worker_observation: worker_observation(run.run_id(), worker),
     })
 }
 
@@ -522,10 +524,7 @@ impl Host {
                 &text(&selected["environment"])?,
             )
             .map_err(|_| invalid())?;
-            let (authority, source_session) = {
-                let held = self.issuer.lock().await;
-                (held.authority.clone(), held.session.clone())
-            };
+            let (authority, source_session) = self.subject_sources(&owner).await?;
             let context = backtest_run::Context {
                 human_authority: &self.human_access,
                 human: &human,

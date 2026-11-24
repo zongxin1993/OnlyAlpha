@@ -441,6 +441,13 @@ impl Host {
         })
         .map_err(|_| failure("BACKTEST_PREPARATION_OUTCOME_UNKNOWN".into()))
     }
+    pub(crate) fn require_backtest_origin(&self, owner: &str, origin: &BacktestOrigin) -> std::result::Result<(), Failure> {
+        if self.human_access.local_operator(owner) || matches!(origin, BacktestOrigin::FrozenStrategy { strategy_fingerprint, .. } if self.human_access.frozen_strategy_allowed(owner, strategy_fingerprint)) {
+            Ok(())
+        } else {
+            Err(Failure::with_status(http::StatusCode::FORBIDDEN, "OWNER_OPERATION_DENIED"))
+        }
+    }
     pub(crate) async fn accept_backtest_preparation(
         self: &Arc<Self>,
         command: CommandId,
@@ -449,6 +456,7 @@ impl Host {
     ) -> std::result::Result<Value, Failure> {
         let owner = self.preparation_owner(&human).map_err(failure)?.to_owned();
         input.validate(&command).map_err(|e| failure(e.into()))?;
+        self.require_backtest_origin(&owner, &input.origin)?;
         let original = {
             let mut observed_reader_hold = crate::workers::backtest_profile::HoldEnd::pending();
             let observed_reader_wait =
@@ -637,6 +645,7 @@ impl Host {
         pinned_release(&config, &original)?;
         let mut o = self.preparation_checkpoint(&original, &human).await?;
         let input = o.request.backtest()?.clone();
+        self.require_backtest_origin(&o.owner, &input.origin).map_err(|e| e.code())?;
         o = self
             .preparation_progress(&o, State::Running, "VALIDATING", &o.outputs, &Value::Null)
             .await?;
@@ -649,7 +658,7 @@ impl Host {
             Some(&input.source.expected_type_id),
         )
         .map_err(|e| e.code())?;
-        let (selected, _) = self.resolve(&reference).await.map_err(|e| e.code())?;
+        let selected = self.resolve_with_session(&reference, &session).await.map_err(|e| e.code())?;
         if selected.selection() != &selection {
             return Err(INVALID.into());
         }
@@ -1170,13 +1179,14 @@ impl Host {
     async fn backtest_rule_source(&self, o: &Operation) -> Result<()> {
         let source = o.source()?;
         let selection = source.selection()?;
+        let (_, session) = self.subject_sources(&o.owner).await.map_err(|e| e.code())?;
         let reference = crate::application::source_access::Reference::new(
             &source.integration_id,
             &source.integration_revision_fingerprint,
             Some(&source.expected_type_id),
         )
         .map_err(|e| e.code())?;
-        let (selected, _) = self.resolve(&reference).await.map_err(|e| e.code())?;
+        let selected = self.resolve_with_session(&reference, &session).await.map_err(|e| e.code())?;
         if selected.selection() != &selection {
             return Err(INVALID.into());
         }
@@ -1206,6 +1216,7 @@ impl Host {
             return Err(INVALID.into());
         }
         let input = o.request.backtest()?;
+        self.require_backtest_origin(&o.owner, &input.origin).map_err(|e| e.code())?;
         let (authority, session, selection) =
             self.preparation_sources(human, &input.source, true).await?;
         self.backtest_rule_source(o).await?;
@@ -1602,6 +1613,7 @@ impl Host {
         let started = Instant::now();
         let request = Self::backtest_create_request(&o)?;
         let namespace = namespace(&self.research_preparation_config)?;
+        self.require_backtest_origin(&o.owner, &o.request.backtest()?.origin).map_err(|e| e.code())?;
         let source = o.source()?;
         let (a, s, selection) = self.preparation_sources(&human, &source, true).await?;
         let context = backtest_run::Context {

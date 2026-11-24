@@ -499,17 +499,36 @@ pub(crate) async fn expire_original(run: &str) {
     ).await.unwrap();
     assert_eq!(updated, 1);
 }
-async fn idle(service: &mut Service) {
-    let mut observed = service.subscribe();
+async fn wait_for_idle(mut observed: watch::Receiver<Status>) {
     loop {
         match observed.borrow().clone() {
             Status::Idle => return,
+            Status::Uncertain(CLEANUP_PENDING) => {}
             Status::Uncertain(code) | Status::Unavailable(code) => panic!("{code}"),
             _ => {}
         }
         observed.changed().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn cleanup_pending_waits_for_idle() {
+    let (status, observed) = watch::channel(Status::Uncertain(CLEANUP_PENDING));
+    let waiting = wait_for_idle(observed);
+    tokio::pin!(waiting);
+    tokio::select! {
+        biased;
+        () = &mut waiting => panic!("worker cleanup is still pending"),
+        () = std::future::ready(()) => {}
+    }
+    status.send(Status::Idle).unwrap();
+    tokio::select! {
+        biased;
+        () = &mut waiting => {},
+        () = std::future::ready(()) => panic!("worker idle was not observed"),
+    }
+}
+
 async fn assert_terminal(writer: &SharedAuthority, run: &VerifiedRun, status: &str) {
     let mut held = writer.lock().await;
     let mut backtests = Backtests::new(held.as_mut().unwrap(), run.namespace());
@@ -576,7 +595,7 @@ pub(crate) async fn queued_cancel(
         .await
         .unwrap();
     let mut service = Service::start(connection, facts, writer.clone(), sources, physical, configuration, clock).unwrap();
-    idle(&mut service).await;
+    wait_for_idle(service.subscribe()).await;
     service.drain().await.unwrap();
     assert!(attempts(&writer, &run).await.is_empty());
     assert_terminal(&writer, &run, "CANCELLED").await;
@@ -692,7 +711,7 @@ pub(crate) async fn resume_expired(
         clock,
     )
     .unwrap();
-    idle(&mut service).await;
+    wait_for_idle(service.subscribe()).await;
     service.drain().await.unwrap();
     assert_terminal(&writer, &run, "COMPLETED").await;
     assert_recomputed(&before, &attempts(&writer, &run).await);
@@ -786,9 +805,9 @@ pub(crate) async fn expiry_before_finalization(
         published.entered().await;
     }
     drop(published);
-    idle(&mut recovery_worker).await;
+    wait_for_idle(recovery_worker.subscribe()).await;
     recovery_worker.drain().await.unwrap();
-    idle(&mut original_worker).await;
+    wait_for_idle(original_worker.subscribe()).await;
     original_worker.drain().await.unwrap();
     assert_terminal(&writer, following, "COMPLETED").await;
     assert_terminal(&writer, run, "COMPLETED").await;
@@ -856,7 +875,7 @@ pub(crate) async fn cancel_running(
     assert_eq!(writer_row(&writer, run.run_id()).await, ("CANCEL_REQUESTED".into(), None, None, None));
     assert_eq!(attempts(&writer, &run).await, before);
     drop(barrier);
-    idle(&mut service).await;
+    wait_for_idle(service.subscribe()).await;
     service.drain().await.unwrap();
     assert_terminal(&writer, &run, "CANCELLED").await;
     let mut expected = before;
@@ -1108,7 +1127,7 @@ pub(crate) async fn recover_published(
         .await
         .unwrap();
     let mut service = Service::start(connection, facts, writer.clone(), sources, physical, configuration, clock).unwrap();
-    idle(&mut service).await;
+    wait_for_idle(service.subscribe()).await;
     service.drain().await.unwrap();
     assert!(!no_producer.gate.entered.load(Ordering::Acquire));
     assert_terminal(&writer, &run, "COMPLETED").await;

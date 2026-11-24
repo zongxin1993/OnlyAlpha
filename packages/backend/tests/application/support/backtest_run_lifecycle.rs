@@ -101,6 +101,19 @@ pub async fn finite_recovery(
         }).await.unwrap();
         let RecoveryDecision::RecomputeWithNewClaim(proof) = decision else { panic!("expected bounded recompute") };
         let attempt = format!("00000000-0000-4000-8000-{:012}",852+number);
+        if number == 2 {
+            let (admin, driver) = tokio_postgres::connect(&std::env::var("ONLYALPHA_POSTGRES_DSN").unwrap(), tokio_postgres::NoTls).await.unwrap();
+            let driver = tokio::spawn(driver);
+            admin.batch_execute("CREATE FUNCTION public.test_remove_previous_attempt() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$ BEGIN DELETE FROM public.backtest_run_attempt WHERE run_id=NEW.run_id AND attempt_number=1; RETURN NEW; END $$; \
+                CREATE CONSTRAINT TRIGGER test_remove_previous_attempt AFTER INSERT ON public.backtest_run_attempt DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.attempt_number=2) EXECUTE FUNCTION public.test_remove_previous_attempt()").await.unwrap();
+            let rejected = Backtests::new(session, namespace).claim_recompute(&run, &proof, WORKER, &attempt, at(4)).await;
+            admin.batch_execute("DROP TRIGGER test_remove_previous_attempt ON public.backtest_run_attempt; DROP FUNCTION public.test_remove_previous_attempt()").await.unwrap();
+            assert!(rejected.is_err(), "missing predecessor must roll back both the new claim and its cursor");
+            let stored = admin.query_one("SELECT state, last_attempt_number, ARRAY(SELECT attempt_number FROM public.backtest_run_attempt WHERE run_id=r.run_id ORDER BY attempt_number) FROM public.backtest_run r WHERE run_id=$1::text::uuid", &[&run_id]).await.unwrap();
+            assert_eq!((stored.get::<_, &str>(0), stored.get::<_, i32>(1), stored.get::<_, Vec<i32>>(2)), ("RUNNING", 1, vec![1]));
+            drop(admin);
+            driver.await.unwrap().unwrap();
+        }
         let mut claim = Backtests::new(session,namespace).claim_recompute(&run,&proof,WORKER,&attempt,at(number as u32 * 2)).await.unwrap().unwrap();
         assert_eq!(claim.attempt_number(),number);
         assert_eq!(claim.fencing_token(),i64::from(number));

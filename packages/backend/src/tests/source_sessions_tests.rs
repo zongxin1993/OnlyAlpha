@@ -21,7 +21,7 @@ async fn new_load_gets_current_session_without_refreshing_the_retained_session()
     let original_session = original.authenticate(&format!("Bearer {}", "e".repeat(64))).unwrap();
     let owner = Arc::new(tokio::sync::Mutex::new(original_session));
     let weak = Arc::downgrade(&owner);
-    let sessions = SourceSessions::new(move || {
+    let sessions = SourceSessions::new(move |_, _| {
         let weak = weak.clone();
         async move {
             let owner = weak.upgrade().ok_or(Error::ProofUnavailable)?;
@@ -29,25 +29,26 @@ async fn new_load_gets_current_session_without_refreshing_the_retained_session()
             Ok(session)
         }
     });
-    let retained = sessions.current().await.unwrap();
+    assert!(matches!(sessions.current("other-owner", None).await, Err(Error::Forbidden)));
+    let retained = sessions.current("worker-owner", None).await.unwrap();
     retained.require_selection(&selection, Permission::ClosedHistory).unwrap();
     let (replacement, _) = issuer();
     original.withdraw();
     *owner.lock().await = replacement.authenticate(&format!("Bearer {}", "e".repeat(64))).unwrap();
     assert!(retained.require_selection(&selection, Permission::ClosedHistory).is_err());
-    let current = sessions.current().await.unwrap();
+    let current = sessions.current("worker-owner", None).await.unwrap();
     assert_eq!(current.subject_id().unwrap(), "worker-owner");
     current.require_selection(&selection, Permission::ClosedHistory).unwrap();
     assert!(retained.require_selection(&selection, Permission::ClosedHistory).is_err());
     assert_eq!(Arc::strong_count(&owner), 1, "the provider must not retain its Node owner");
     drop(owner);
-    assert!(matches!(sessions.current().await, Err(Error::ProofUnavailable)));
+    assert!(matches!(sessions.current("worker-owner", None).await, Err(Error::ProofUnavailable)));
 }
 
 #[tokio::test]
 async fn failed_session_lookup_has_no_default_or_reconstructed_grant() {
-    let sessions = SourceSessions::new(|| async { Err(Error::ProofUnavailable) });
-    assert!(matches!(sessions.current().await, Err(Error::ProofUnavailable)));
+    let sessions = SourceSessions::new(|_, _| async { Err(Error::ProofUnavailable) });
+    assert!(matches!(sessions.current("worker-owner", None).await, Err(Error::ProofUnavailable)));
 }
 
 #[test]

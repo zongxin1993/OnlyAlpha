@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
+import { humanStorageKey } from "../../app/humanSession";
 import { useLocalReadCredentials, useMarketDataApi } from "../../app/providers";
 import {
     marketDataBarSemanticSchema,
@@ -87,12 +88,14 @@ function DayOperation({
     const client = useMarketDataApi();
     const credentials = useLocalReadCredentials();
     const ref = onlyMarketDataSourceReference(source);
-    const storageKey = JSON.stringify([
-        "onlyalpha.history.day.v1",
-        ref.integration_id,
-        ref.integration_revision_fingerprint,
-        instrument
-    ]);
+    const storageKey = humanStorageKey(
+        JSON.stringify([
+            "onlyalpha.history.day.v1",
+            ref.integration_id,
+            ref.integration_revision_fingerprint,
+            instrument
+        ])
+    );
     const [saved, setSaved] = useState(() => {
         try {
             const s = localStorage.getItem(storageKey);

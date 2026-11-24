@@ -8,6 +8,7 @@ mod reader;
 mod writer;
 mod backtest;
 mod guarded;
+pub(crate) use reader::backtest_attempt_history;
 pub(crate) use guarded::{JobRole, read_control_facts, recheck_control_transaction, register_control_transaction, verify_registered_control_transaction, verify_unpublished_control_transaction, with_job_role};
 use crate::{
     application::job_contract::{FrozenJobBinding, JobKind, MemberKind, ResultMember},

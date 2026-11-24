@@ -285,6 +285,7 @@ impl Host {
         }
         let owner = human.subject_id()?.to_owned();
         let selected = origin(&parameters(request.uri())?)?;
+        self.require_backtest_origin(&owner, &selected)?;
         let (strategy_name, existing) = {
             let mut reader = self.reader.lock().await;
             let client = reader

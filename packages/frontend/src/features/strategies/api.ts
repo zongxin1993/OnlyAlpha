@@ -1,6 +1,7 @@
 // Human Product client. Browser intents retain identifiers; every outcome is
 // re-read from its original owning command and never inferred from local state.
 import { z } from "zod";
+import { humanSessionStorage } from "../../app/humanSession";
 import { preparationSchema as backtestPreparationSchema } from "../backtest/api";
 const version = z
     .number()
@@ -313,7 +314,7 @@ type DefinitionIntent = z.infer<typeof definitionIntent>;
 // Auxiliary browser intent only: every outcome is still read from the original
 // owning commands. This never creates a replacement draft or command identity.
 export function pendingManualDefinition(id: string) {
-    const retained = sessionStorage.getItem(saveKey(id));
+    const retained = humanSessionStorage.getItem(saveKey(id));
     if (retained === null) return null;
     const intent = definitionIntent.parse(JSON.parse(retained) as unknown);
     if (
@@ -325,7 +326,7 @@ export function pendingManualDefinition(id: string) {
     return { name: intent.draft.description, observe: () => finishDefinition(intent) };
 }
 function persistDefinition(intent: DefinitionIntent): void {
-    sessionStorage.setItem(saveKey(intent.strategy_id), JSON.stringify(intent));
+    humanSessionStorage.setItem(saveKey(intent.strategy_id), JSON.stringify(intent));
 }
 function acceptedDefinition(raw: unknown, intent: DefinitionIntent, publish: boolean) {
     const receipt = receiptSchema.parse(raw);
@@ -379,7 +380,7 @@ async function finishDefinition(intent: DefinitionIntent): Promise<Authoring> {
                     throw new Pending(resume);
                 }
                 if (receipt === null && definitive(error)) {
-                    sessionStorage.removeItem(saveKey(intent.strategy_id));
+                    humanSessionStorage.removeItem(saveKey(intent.strategy_id));
                     throw new Error("策略资料已变化或当前没有保存权限，请重新查看。", {
                         cause: error
                     });
@@ -419,7 +420,7 @@ async function finishDefinition(intent: DefinitionIntent): Promise<Authoring> {
                 throw new Pending(resume);
             }
             if (published === null && definitive(error)) {
-                sessionStorage.removeItem(saveKey(intent.strategy_id));
+                humanSessionStorage.removeItem(saveKey(intent.strategy_id));
                 throw new Error("策略版本暂时无法保存，请重新查看已保存定义。", { cause: error });
             }
         }
@@ -439,7 +440,7 @@ async function finishDefinition(intent: DefinitionIntent): Promise<Authoring> {
     }
     if (state?.current_revision_fingerprint !== published.result.revision.revision_fingerprint)
         throw new Pending(resume);
-    sessionStorage.removeItem(saveKey(intent.strategy_id));
+    humanSessionStorage.removeItem(saveKey(intent.strategy_id));
     return state;
 }
 export async function saveDefinition(input: unknown): Promise<Authoring> {
@@ -457,7 +458,7 @@ export async function saveAuthoredDefinition(
     const draft = draftSchema.parse(rawDraft),
         binding = definitionBinding.parse(rawBinding);
     const key = saveKey(draft.strategy_id);
-    const retained = sessionStorage.getItem(key);
+    const retained = humanSessionStorage.getItem(key);
     if (retained !== null) {
         const intent = definitionIntent.parse(JSON.parse(retained) as unknown);
         if (
@@ -521,7 +522,7 @@ async function preparationAction(
     )
         throw new Error("请先查看当前准备进度。");
     const key = `onlyalpha.strategy.${action}.pending.${preparation.command_id}`;
-    const retained = sessionStorage.getItem(key);
+    const retained = humanSessionStorage.getItem(key);
     const intent =
         retained === null
             ? {
@@ -538,7 +539,7 @@ async function preparationAction(
         (action === "resume" && intent.command !== preparation.command_id)
     )
         throw new Error("请先查看原准备操作的结果。");
-    sessionStorage.setItem(key, JSON.stringify(intent));
+    humanSessionStorage.setItem(key, JSON.stringify(intent));
     const accepted = (value: Preparation, observed: boolean) => {
         if (
             value.command_id !== preparation.command_id ||
@@ -550,7 +551,8 @@ async function preparationAction(
                 BigInt(value.revision) <= BigInt(String(intent.request.expected_revision)))
         )
             throw new Error("原准备操作结果尚未确认。");
-        if (sessionStorage.getItem(key) === JSON.stringify(intent)) sessionStorage.removeItem(key);
+        if (humanSessionStorage.getItem(key) === JSON.stringify(intent))
+            humanSessionStorage.removeItem(key);
         return value;
     };
     const observe = async (): Promise<Preparation> => {
@@ -634,7 +636,7 @@ export async function prepareResearch(raw: unknown, authored: unknown): Promise<
         initialize_fresh_runtime: context.initialize_fresh_runtime
     };
     const key = `onlyalpha.strategy.preparation.pending.${revision.strategy_id}`;
-    const retained = sessionStorage.getItem(key);
+    const retained = humanSessionStorage.getItem(key);
     const intent =
         retained === null
             ? { command: crypto.randomUUID(), research_command: crypto.randomUUID(), request }
@@ -642,14 +644,14 @@ export async function prepareResearch(raw: unknown, authored: unknown): Promise<
     if (!same(intent.request, request)) throw new Error("请先查看原研究准备结果，再修改研究条件。");
     // This retains only the original request identity. Acceptance and readiness
     // are always observed from the server, including after a lost POST reply.
-    sessionStorage.setItem(key, JSON.stringify(intent));
+    humanSessionStorage.setItem(key, JSON.stringify(intent));
     const accepted = (value: Preparation): Preparation => {
         if (
             value.command_id !== intent.command ||
             value.research_command_id !== intent.research_command
         )
             throw new Error("准备回复暂时无法核验。");
-        sessionStorage.removeItem(key);
+        humanSessionStorage.removeItem(key);
         return value;
     };
     const observe = async (): Promise<Preparation> => {
@@ -745,14 +747,14 @@ export async function cancelResearch(raw: unknown) {
     if (["CANCEL_REQUESTED", "CANCELLED", "COMPLETED", "FAILED"].includes(research.state))
         return research;
     const key = `onlyalpha.strategy.cancel-research.pending.${research.run_id}`;
-    const retained = sessionStorage.getItem(key);
+    const retained = humanSessionStorage.getItem(key);
     const request = { schema_version: 1, run_id: research.run_id };
     const intent =
         retained === null
             ? { command: crypto.randomUUID(), request }
             : actionIntent.parse(JSON.parse(retained) as unknown);
     if (!same(intent.request, request)) throw new Error("请先查看原研究取消结果。");
-    sessionStorage.setItem(key, JSON.stringify(intent));
+    humanSessionStorage.setItem(key, JSON.stringify(intent));
     const accepted = (value: z.infer<typeof researchSchema>) => {
         if (
             value.run_id !== research.run_id ||
@@ -760,7 +762,8 @@ export async function cancelResearch(raw: unknown) {
             !["CANCEL_REQUESTED", "CANCELLED", "COMPLETED", "FAILED"].includes(value.state)
         )
             throw new Error("研究取消结果尚未确认。");
-        if (sessionStorage.getItem(key) === JSON.stringify(intent)) sessionStorage.removeItem(key);
+        if (humanSessionStorage.getItem(key) === JSON.stringify(intent))
+            humanSessionStorage.removeItem(key);
         return value;
     };
     const observe = async (): Promise<z.infer<typeof researchSchema>> => {
@@ -800,7 +803,7 @@ export async function freezeStrategy(raw: unknown): Promise<Frozen> {
     )
         throw new Error("完整策略证据尚未通过核验，暂时不能冻结。");
     const key = `onlyalpha.strategy.freeze.pending.${research.run_id}`;
-    const retained = sessionStorage.getItem(key);
+    const retained = humanSessionStorage.getItem(key);
     const intent =
         retained === null
             ? {
@@ -817,11 +820,11 @@ export async function freezeStrategy(raw: unknown): Promise<Frozen> {
         intent.request.candidate_fingerprint !== research.report.candidate_fingerprint
     )
         throw new Error("原冻结对象已变化，请查看原操作结果。");
-    sessionStorage.setItem(key, JSON.stringify(intent));
+    humanSessionStorage.setItem(key, JSON.stringify(intent));
     const accepted = (raw: unknown) => {
         const value = freezeSchema.parse(raw);
         if (value.command_id !== intent.command) throw new Error("原冻结回复暂时无法核验。");
-        sessionStorage.removeItem(key);
+        humanSessionStorage.removeItem(key);
         return value;
     };
     const observe = async (): Promise<Frozen> => {

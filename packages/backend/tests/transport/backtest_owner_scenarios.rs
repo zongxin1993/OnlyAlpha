@@ -255,7 +255,7 @@ pub async fn run_owner_scenario(
         worker::recover_published(
             connection,
             writer.clone(),
-            crate::workers::source_sessions::SourceSessions::new(|| async {
+            crate::workers::source_sessions::SourceSessions::new(|_, _| async {
                 Err(crate::application::source_access::Error::ProofUnavailable)
             }),
             Arc::new(crate::persistence::market_data::ClickHouse::new(config.clickhouse).unwrap()),

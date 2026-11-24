@@ -82,8 +82,13 @@ pub struct Host {
 pub(crate) struct Issuer {
     pub authority: Authority,
     pub session: Session,
+    subjects: BTreeMap<String, (Authority, Session)>,
 }
 pub(crate) fn issue(grants: Vec<Grant>) -> Result<Issuer, Failure> {
+    let (authority, session) = issue_for_subject("local-developer", grants)?;
+    Ok(Issuer { authority, session, subjects: BTreeMap::new() })
+}
+fn issue_for_subject(subject: &str, grants: Vec<Grant>) -> Result<(Authority, Session), Failure> {
     let mut entropy = [0; 32];
     getrandom::fill(&mut entropy)
         .map_err(|_| Failure::unavailable("LOCAL_READ_PROOF_UNAVAILABLE"))?;
@@ -92,12 +97,34 @@ pub(crate) fn issue(grants: Vec<Grant>) -> Result<Issuer, Failure> {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let authority = Authority::new("local-developer", &digest, grants)
+    let authority = Authority::new(subject, &digest, grants)
         .map_err(|_| Failure::unavailable("SOURCE_GRANT_UNAVAILABLE"))?;
     let session = authority
         .authenticate(&format!("Bearer {secret}"))
         .map_err(|_| Failure::unavailable("SOURCE_GRANT_UNAVAILABLE"))?;
-    Ok(Issuer { authority, session })
+    Ok((authority, session))
+}
+impl Issuer {
+    fn withdraw(&self, revoker: &SourceRevoker) -> Result<(), Failure> {
+        let authorities = std::iter::once(&self.authority).chain(self.subjects.values().map(|(authority, _)| authority));
+        revoker.withdraw(authorities).map_err(|_| Failure::unavailable("SOURCE_GATE_UNAVAILABLE"))
+    }
+}
+fn backtest_subject_route(method: &Method, path: &str) -> bool {
+    let segments: Vec<_> = path.split('/').collect();
+    match (method, segments.as_slice()) {
+        (&Method::GET, ["", "api", "v2", "market-data", "sources"]) => true,
+        (&Method::GET, ["", "api", "v2", "backtest", "creation-context" | "runs"]) => true,
+        (&Method::POST, ["", "api", "v2", "backtest", "preparations"]) => true,
+        (&Method::GET, ["", "api", "v2", "backtest", "preparations", "commands", id])
+        | (&Method::GET, ["", "api", "v2", "backtest", "preparations", id, "ready"])
+        | (&Method::POST, ["", "api", "v2", "backtest", "preparations", id, "submit" | "resume" | "cancellation"])
+        | (&Method::GET, ["", "api", "v2", "backtest", "runs", id])
+        | (&Method::GET, ["", "api", "v2", "backtest", "runs", id, "result" | "evidence"])
+        | (&Method::GET, ["", "api", "v2", "backtest", "runs", id, "evidence", "artifacts", _])
+        | (&Method::POST, ["", "api", "v2", "backtest", "runs", id, "cancellation"]) => crate::application::command::uuid4(id),
+        _ => false,
+    }
 }
 #[derive(Debug)]
 pub struct Failure(StatusCode, &'static str);
@@ -398,7 +425,8 @@ impl Host {
             .get::<human_access::Session>()
             .ok_or(Failure(StatusCode::UNAUTHORIZED, "LOCAL_READ_UNAUTHORIZED"))?
             .clone();
-        if human.subject_id()? != "local-developer" {
+        let subject = human.subject_id()?;
+        if !self.human_access.local_operator(subject) && !backtest_subject_route(request.method(), &path) {
             return Err(Failure(StatusCode::FORBIDDEN, "OWNER_OPERATION_DENIED"));
         }
         if !self.admitted() {
@@ -584,7 +612,8 @@ impl Host {
             return self.private_assets(request, &human).await;
         }
         if path.starts_with("/api/v2/market-data/") || path.starts_with("/api/v2/market/") {
-            return self.market(request, deadline).await;
+            let (_, session) = self.subject_sources(subject).await?;
+            return self.market(request, deadline, session).await;
         }
         Err(Failure(
             StatusCode::NOT_IMPLEMENTED,
@@ -603,13 +632,41 @@ impl Host {
     }
     pub(crate) fn worker_sources(self: &std::sync::Arc<Self>) -> crate::workers::source_sessions::SourceSessions {
         let owner = std::sync::Arc::downgrade(self);
-        crate::workers::source_sessions::SourceSessions::new(move || {
+        crate::workers::source_sessions::SourceSessions::new(move |subject, strategy| {
             let owner = owner.clone();
             async move {
-                let host = owner.upgrade().ok_or(crate::application::source_access::Error::ProofUnavailable)?;
-                Ok(host.source_session().await)
+                use crate::application::source_access::Error;
+                let host = owner.upgrade().ok_or(Error::ProofUnavailable)?;
+                if !host.human_access.local_operator(&subject)
+                    && !strategy.as_deref().is_some_and(|pin| host.human_access.frozen_strategy_allowed(&subject, pin))
+                {
+                    return Err(Error::Forbidden);
+                }
+                Ok(host.subject_sources(&subject).await?.1)
             }
         })
+    }
+    pub(crate) async fn subject_sources(&self, owner: &str) -> Result<(Authority, Session), crate::application::source_access::Error> {
+        use crate::application::source_access::Error;
+        let mut issuer = self.issuer.lock().await;
+        issuer.authority.check_session(&issuer.session)?;
+        if self.human_access.local_operator(owner) {
+            return Ok((issuer.authority.clone(), issuer.session.clone()));
+        }
+        if let Some(pair) = issuer.subjects.get(owner) {
+            return Ok(pair.clone());
+        }
+        let grants = issuer.authority.grants().iter()
+            .filter(|grant| grant.permissions().contains(&Permission::ClosedHistory)
+                && self.human_access.closed_history_allowed(owner, grant.selection()))
+            .map(|grant| Grant::new(grant.selection().clone(), vec![Permission::ClosedHistory]))
+            .collect::<Result<Vec<_>, _>>()?;
+        if grants.is_empty() {
+            return Err(Error::Forbidden);
+        }
+        let pair = issue_for_subject(owner, grants).map_err(|_| Error::ProofUnavailable)?;
+        issuer.subjects.insert(owner.to_owned(), pair.clone());
+        Ok(pair)
     }
     pub(crate) async fn source_session(&self) -> Session {
         self.issuer.lock().await.session.clone()
@@ -715,6 +772,10 @@ impl Host {
         reference: &Reference,
     ) -> Result<(Arc<Resolved>, Session), Failure> {
         let session = self.source_session().await;
+        let resolved = self.resolve_with_session(reference, &session).await?;
+        Ok((resolved, session))
+    }
+    pub(crate) async fn resolve_with_session(&self, reference: &Reference, session: &Session) -> Result<Arc<Resolved>, Failure> {
         let snapshots = self.snapshots().await?;
         let snapshot = snapshots
             .iter()
@@ -723,19 +784,16 @@ impl Host {
                 StatusCode::NOT_FOUND,
                 "MARKET_DATA_SOURCE_SELECTION_UNRESOLVED",
             ))?;
-        Ok((
-            Arc::new(self.current_source(snapshot, reference, &session).await?),
-            session,
-        ))
+        Ok(Arc::new(self.current_source(snapshot, reference, session).await?))
     }
     async fn market(
         self: &Arc<Self>,
         request: Request<Body>,
         deadline: Instant,
+        session: Session,
     ) -> Result<Response, Failure> {
         let path = request.uri().path();
         let p = parameters(request.uri())?;
-        let session = self.source_session().await;
         let snapshots = self.snapshots().await?;
         if path == "/api/v2/market-data/sources" {
             let (_, batch) = self.source_descriptions(&snapshots, &session).await?;
@@ -1233,20 +1291,14 @@ impl std::error::Error for Failure {}
 impl Host {
     pub(crate) async fn withdraw_sources(&self) -> Result<(), Failure> {
         let issuer = self.issuer.lock().await;
-        self.revoker
-            .get()
-            .ok_or_else(|| Failure::unavailable("SOURCE_GATE_UNAVAILABLE"))?
-            .withdraw(&issuer.authority)
-            .map_err(|_| Failure::unavailable("SOURCE_GATE_UNAVAILABLE"))
+        let revoker = self.revoker.get().ok_or_else(|| Failure::unavailable("SOURCE_GATE_UNAVAILABLE"))?;
+        issuer.withdraw(revoker)
     }
     pub(crate) async fn replace_sources(&self, snapshots: &[Snapshot]) -> Result<(), Failure> {
         let next = issue(grants(snapshots)?)?;
         let mut issuer = self.issuer.lock().await;
-        self.revoker
-            .get()
-            .ok_or_else(|| Failure::unavailable("SOURCE_GATE_UNAVAILABLE"))?
-            .withdraw(&issuer.authority)
-            .map_err(|_| Failure::unavailable("SOURCE_GATE_UNAVAILABLE"))?;
+        let revoker = self.revoker.get().ok_or_else(|| Failure::unavailable("SOURCE_GATE_UNAVAILABLE"))?;
+        issuer.withdraw(revoker)?;
         *issuer = next;
         Ok(())
     }
