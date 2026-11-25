@@ -312,7 +312,7 @@ def test_pure_rust_and_postgres_workspace_wiring_is_admitted():
     validate_infrastructure_sources(ROOT)
     assert not (ROOT / "plugs/onlyalpha-broker-virtual/src/source_host.rs").exists()
     backend_manifest = tomllib.loads((ROOT / "packages/backend/Cargo.toml").read_text())
-    assert "postgres" in backend_manifest["dependencies"]
+    assert "tokio-postgres" in backend_manifest["dependencies"]
     assert "onlyalpha-broker-virtual" in backend_manifest["dependencies"]
 
 
