@@ -1,6 +1,7 @@
 //! Durable Execution storage and bounded recovery orchestration, outside Trading Kernel.
 mod broker_source_store;
 mod codec;
+pub mod durability;
 mod perpetual_sources;
 pub use broker_source_store::BoundBrokerJournal;
 pub use perpetual_sources::BrokerJournal;

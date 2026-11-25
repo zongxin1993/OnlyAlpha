@@ -164,6 +164,13 @@ fn each_original_component_and_reference_is_required_before_a_restored_identity_
             Err(Error::RevisionCorrupt)
         ));
     }
+    let mut record = revision_record(v);
+    record.runtime_configuration_fingerprint = "b".repeat(64);
+    record.revision_fingerprint = Revision::derive_fingerprint(&record).unwrap();
+    assert!(matches!(
+        Revision::restore(record, &bindings),
+        Err(Error::RevisionCorrupt)
+    ));
     let changed =
         [SecretBinding::new("api_key", "ba13b6b1-af9a-450f-833d-48f5002297dc", 2).unwrap()];
     assert!(matches!(

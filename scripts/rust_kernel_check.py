@@ -396,6 +396,8 @@ BACKEND_DEPENDENCIES = {
     "onlyalpha-account": {"path": "../../crates/account"},
     "onlyalpha-market-data": {"path": "../../crates/market-data"},
     "onlyalpha-backtest": {"path": "../../crates/backtest"},
+    "onlyalpha-broker": {"path": "../../crates/broker"},
+    "onlyalpha-broker-virtual": {"path": "../../plugs/onlyalpha-broker-virtual"},
     "onlyalpha-execution": {"path": "../../crates/execution"},
     "arrow-array": {"default-features": False, "version": "=59.3.2"},
     "arrow-schema": {"default-features": False, "version": "=59.3.2"},
@@ -1516,6 +1518,13 @@ _INFRASTRUCTURE_RESOURCES = {
         "fixtures/usdm-brackets.json": "plugs/onlyalpha-data-source-binance/tests/fixtures/usdm-brackets.json",
         "fixtures/usdm-account.json": "plugs/onlyalpha-data-source-binance/tests/fixtures/usdm-account.json",
     },
+    "packages/backend/src/tests/sim_original_intents_tests.rs": {
+        "../../../../test-data/execution/domain-inputs.json": "test-data/execution/domain-inputs.json",
+        "../../../../test-data/settlement/common-v1.json": "test-data/settlement/common-v1.json",
+    },
+    "packages/backend/src/tests/sim_order_recovery_tests.rs": {
+        "../../../../test-data/broker/domain-inputs.json": "test-data/broker/domain-inputs.json",
+    },
     "plugs/onlyalpha-broker-binance/src/tests/venue_recovery.rs": {
         "../../../../test-data/broker/domain-inputs.json": "test-data/broker/domain-inputs.json",
     },
@@ -1679,6 +1688,7 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "packages/backend/src/tests/job_publication_tests.rs": {
         "support/job_publication_proxy.rs": "packages/backend/src/tests/support/job_publication_proxy.rs",
         "job_publication_guard_tests.rs": "packages/backend/src/tests/job_publication_guard_tests.rs",
+        "sim_run_reservation_tests.rs": "packages/backend/src/tests/sim_run_reservation_tests.rs",
     },
     "packages/backend/src/persistence/job_publication.rs": {
         "job_publication/model.rs": "packages/backend/src/persistence/job_publication/model.rs",
@@ -1794,7 +1804,14 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "packages/backend/src/workers/backtest_worker.rs": {
         "../../tests/application/support/backtest_worker_assertions.rs": "packages/backend/tests/application/support/backtest_worker_assertions.rs",
     },
+    "packages/backend/src/workers/sim_orders.rs": {
+        "../tests/sim_original_intents_tests.rs": "packages/backend/src/tests/sim_original_intents_tests.rs",
+    },
+    "packages/backend/src/tests/sim_original_intents_tests.rs": {
+        "../../../../crates/execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
+    },
     "packages/backend/src/workers/mod.rs": {
+        "../tests/sim_order_recovery_tests.rs": "packages/backend/src/tests/sim_order_recovery_tests.rs",
         "../tests/source_sessions_tests.rs": "packages/backend/src/tests/source_sessions_tests.rs",
         "../../tests/application/support/backtest_service_assertions.rs": "packages/backend/tests/application/support/backtest_service_assertions.rs",
     },
@@ -1833,6 +1850,9 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "crates/backtest/src/lib.rs": {
         "tests/next_open_tests.rs": "crates/backtest/src/tests/next_open_tests.rs",
         "tests/support/execution.rs": "crates/backtest/src/tests/support/execution.rs",
+    },
+    "crates/runtime/src/durability.rs": {
+        "tests/durability_tests.rs": "crates/runtime/src/tests/durability_tests.rs",
     },
     "crates/runtime/src/replay.rs": {
         "tests/replay_codec_work.rs": "crates/runtime/src/tests/replay_codec_work.rs",

@@ -43,6 +43,10 @@ pub fn declaration() -> (Router<Arc<Host>>, OpenApi) {
  .routes(routes!(market_data_stream_upgrade))
  .routes(routes!(temporary_market_data_stream_upgrade))
  .routes(routes!(study_preparation_context))
+ .routes(routes!(start_sim_run))
+ .routes(routes!(observe_sim_start))
+ .routes(routes!(publish_sim_account_revision))
+ .routes(routes!(read_sim_account_revision))
  .routes(routes!(backtest_preparation_create))
  .routes(routes!(backtest_preparation_observe))
  .routes(routes!(backtest_preparation_resume))
@@ -246,6 +250,47 @@ async fn human_session_login(request: Request<Body>) -> Response {
 async fn human_session_logout() -> Response {
     // Only ingress holding the physical write gate can acknowledge withdrawal.
     crate::transport::host::failure(StatusCode::FORBIDDEN, "HUMAN_LOGOUT_DENIED")
+}
+
+/// 在账户与券商授权范围内，按已核验的回测晋级记录接纳一次 SIM 运行。
+#[utoipa::path(post, path="/api/v2/sim/runs", tag="workstation", security(("LocalDeveloperCookie"=[])),
+    params(("Idempotency-Key"=String,Header,description="启动命令 UUID4；结果未知时按同一命令查询")),
+    request_body=crate::application::sim_run::StartSelection,
+    responses((status=200,body=crate::application::sim_run::StartObservation),(status=400,body=NativeErrorEnvelope),
+        (status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),
+        (status=409,body=NativeErrorEnvelope),(status=413,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn start_sim_run(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::sim_run::StartObservation>(host.dispatch(request).await).await
+}
+
+/// 按原启动命令查询本主体的预留或准入状态。
+#[utoipa::path(get, path="/api/v2/sim/commands/{command_id}", tag="workstation", security(("LocalDeveloperCookie"=[])),
+    params(("command_id"=String,Path)), responses((status=200,body=crate::application::sim_run::StartObservation),
+        (status=400,body=NativeErrorEnvelope),(status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),
+        (status=404,body=NativeErrorEnvelope),(status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn observe_sim_start(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::sim_run::StartObservation>(host.dispatch(request).await).await
+}
+
+/// 运营方发布不可变模拟账户修订，显式绑定开户资金、虚拟券商、允许标的与强制风控规则。
+#[utoipa::path(post, path="/api/v2/sim/accounts/{account_id}/revisions", tag="workstation", security(("LocalDeveloperCookie"=[])),
+    params(("account_id"=String,Path)),
+    request_body=crate::application::sim_account::SimAccountRevisionPublishInput,
+    responses((status=200,body=crate::application::sim_account::SimAccountRevisionView),(status=400,body=NativeErrorEnvelope),
+        (status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),
+        (status=409,body=NativeErrorEnvelope),(status=413,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn publish_sim_account_revision(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::sim_account::SimAccountRevisionView>(host.dispatch(request).await).await
+}
+
+/// 运营方按部署、账户与修订指纹精确回读模拟账户修订。
+#[utoipa::path(get, path="/api/v2/sim/accounts/{account_id}/revisions/{revision_fingerprint}", tag="workstation", security(("LocalDeveloperCookie"=[])),
+    params(("account_id"=String,Path),("revision_fingerprint"=String,Path)),
+    responses((status=200,body=crate::application::sim_account::SimAccountRevisionView),(status=400,body=NativeErrorEnvelope),
+        (status=401,body=NativeErrorEnvelope),(status=403,body=NativeErrorEnvelope),(status=404,body=NativeErrorEnvelope),
+        (status=409,body=NativeErrorEnvelope),(status=429,body=NativeErrorEnvelope),(status=503,body=NativeErrorEnvelope)))]
+async fn read_sim_account_revision(State(host): State<Arc<Host>>, request: Request<Body>) -> Response {
+    verify::<crate::application::sim_account::SimAccountRevisionView>(host.dispatch(request).await).await
 }
 
 /// The ingress policy is a pure projection of the actual declared routes.

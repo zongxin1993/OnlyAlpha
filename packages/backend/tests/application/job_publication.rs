@@ -23,6 +23,8 @@ pub use persistence::factor_build as factor_subject;
 pub use persistence::job_publication;
 #[path = "../../src/tests/factor_build_tests.rs"]
 mod factor_build_tests;
+#[path = "support/sim_account_revision_tests.rs"]
+mod sim_account_revision_tests;
 #[path = "../../src/tests/job_publication_tests.rs"]
 mod tests;
 #[path = "support/backtest_run_lifecycle.rs"]

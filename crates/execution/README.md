@@ -32,7 +32,7 @@
 
 BACKTEST 配置 schema 3 支持显式线性永续 LIMIT BUY OPEN。ADMIT 绑定原请求及策略，ACCEPT/FILL/TERMINAL 接收 Broker Fact 原记录、身份与指纹。MARK 和 FUNDING 接收 Domain 原始事实。配置与输入形态、未知结果、重复结算和边界检查见[执行契约](../../docs/execution.md#backtest-线性永续开仓)。
 
-Components 接收配置和交易输入，Prepared 表示准备结果；Store、CommitIntent、Record 定义提交边界，coordinate / recover 协调提交与恢复，pending_events 提取待交付事件。LedgerReconciliation、RuntimePerformance、BacktestResult 提供所属组合查询结果。
+[`input_id`](src/model.rs) 从交易输入中读取规范身份字符串，缺失、类型错误、超长或非规范身份按内核标识规则返回错误。Components 接收配置和交易输入，Prepared 表示准备结果；Store、CommitIntent、Record 定义提交边界，coordinate / recover 协调提交与恢复，pending_events 提取待交付事件。LedgerReconciliation、RuntimePerformance、BacktestResult 提供所属组合查询结果。
 
 在被动行上调用 `ProjectionData::transcript` 得到 [TranscriptDraft](src/backtest_result.rs)。它提供来源、统计、明细和诊断，可用 `record()` 取得副本或用 `into_record()` 取走数据。封存、结果指纹和最终身份由持有实际 Ready 来源的结果入口生成。
 

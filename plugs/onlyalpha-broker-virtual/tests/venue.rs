@@ -51,6 +51,82 @@ fn reopen_cut(config: &Value, cut: &Value) -> Result<VirtualBroker, Error> {
 }
 
 #[test]
+fn retained_inputs_restore_only_the_original_venue_cut() {
+    let config = json!({});
+    let mut original = venue(&config);
+    original.on_bar(1, &bar(0, "9.00")).unwrap();
+    original.dispatch(&submit("original")).unwrap();
+    let cut = original.checkpoint();
+    let inputs = cut["inputs"].as_array().unwrap();
+    let pin = digest(&cut);
+    let restore = |rows: &[Value], artifact: &str| {
+        VirtualBroker::restore_inputs(scope(), artifact, cash(), &config, rows, &pin)
+    };
+    let artifact = "b".repeat(64);
+    assert_eq!(restore(inputs, &artifact).unwrap().checkpoint(), cut);
+    assert!(restore(&inputs[..inputs.len() - 1], &artifact).is_err());
+    assert!(restore(inputs, &"c".repeat(64)).is_err());
+    let mut duplicated = inputs.clone();
+    duplicated.push(inputs.last().unwrap().clone());
+    assert!(restore(&duplicated, &artifact).is_err());
+}
+
+#[test]
+fn input_segments_require_each_original_checkpoint_and_exact_new_inputs() {
+    let config = json!({});
+    let mut original = venue(&config);
+    original.on_bar(1, &bar(0, "9.00")).unwrap();
+    let first = original.checkpoint();
+    original.dispatch(&submit("segmented")).unwrap();
+    let last = original.checkpoint();
+    let first_inputs = first["inputs"].as_array().unwrap();
+    let last_inputs = &last["inputs"].as_array().unwrap()[first_inputs.len()..];
+    let recover = |first_pin: &str, last_inputs: &[Value]| -> Result<VirtualBroker, Error> {
+        VirtualBroker::new(scope(), &"b".repeat(64), cash(), &config)?
+            .restore_input_segment(first_inputs, first_pin)?
+            .restore_input_segment(last_inputs, &digest(&last))
+    };
+    assert_eq!(recover(&digest(&first), last_inputs).unwrap().checkpoint(), last);
+    assert!(recover(&digest(&last), last_inputs).is_err());
+    let duplicated = [first_inputs.as_slice(), last_inputs].concat();
+    assert!(recover(&digest(&first), &duplicated).is_err());
+}
+
+#[test]
+fn product_descriptor_and_native_configuration_match_the_bound_venue() {
+    use onlyalpha_broker_virtual::provider::{
+        VIRTUAL_BROKER_TYPE_ID, descriptor, normalize_configuration,
+    };
+
+    let document = descriptor();
+    assert_eq!(VIRTUAL_BROKER_TYPE_ID, "onlyalpha.virtual_broker");
+    assert_eq!(document["type_id"], VIRTUAL_BROKER_TYPE_ID);
+    assert_eq!(document["category"], "BROKER");
+    for config in [
+        json!({}),
+        json!({"latency":{"fill_ns":2}, "maximum_fill_quantity":"2.50"}),
+    ] {
+        let venue = venue(&config);
+        assert_eq!(
+            normalize_configuration(&config).unwrap(),
+            venue.source_binding()["configuration"]
+        );
+        assert_eq!(venue.source_binding()["version"], document["implementation_version"]);
+        assert_eq!(venue.source_binding()["plugin_id"], document["provider_id"]);
+    }
+    for invalid in [
+        json!({"latency":{"fill_ns":-1}}),
+        json!({"maximum_fill_quantity":"0"}),
+    ] {
+        let error = normalize_configuration(&invalid).unwrap_err();
+        assert_eq!(
+            VirtualBroker::new(scope(), &"b".repeat(64), cash(), &invalid).err(),
+            Some(error)
+        );
+    }
+}
+
+#[test]
 fn three_equal_due_orders_and_complete_trade_queries_replay_in_original_order() {
     let cfg = json!({"latency":{"submit_ns":2}});
     let mut v = venue(&cfg);
@@ -650,9 +726,17 @@ fn unknown_submit_is_queried_and_resolved_only_with_the_original_facts_and_recei
         CommandState::Unknown
     );
     assert_eq!(v.checkpoint(), cut);
+    let prefix = j.records().unwrap();
     v.reconcile(&mut b, &mut j, c.id()).unwrap();
+    let discovery = j.records().unwrap().last().unwrap().record()["event"]["discovery"].clone();
+    v.verify_discovery(&prefix, &c, &discovery).unwrap();
+    let mut wrong_view = discovery.clone();
+    wrong_view["presence"] = json!("ABSENT_PROVEN");
+    assert!(v.verify_discovery(&prefix, &c, &wrong_view).is_err());
+    assert!(v.verify_discovery(&j.records().unwrap(), &c, &discovery).is_err());
     assert!(v.resolve(&mut b, &mut j, &reader, c.id()).is_err());
     v.advance(0).unwrap();
+    assert!(v.verify_discovery(&prefix, &c, &discovery).is_err());
     v.reconcile(&mut b, &mut j, c.id()).unwrap();
     assert_eq!(b.pending().len(), 1);
     assert!(v.resolve(&mut b, &mut j, &reader, c.id()).is_err());

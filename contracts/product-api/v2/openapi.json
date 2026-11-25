@@ -691,6 +691,66 @@
           }
         ]
       },
+      "BacktestPromotionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "backtest_run_id": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "qualification_decision_fingerprint": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "backtest_run_id",
+          "policy_id",
+          "policy_version",
+          "qualification_decision_fingerprint",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "BacktestQualificationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "backtest_run_id": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "backtest_run_id",
+          "policy_id",
+          "policy_version"
+        ],
+        "type": "object"
+      },
       "BacktestReportAvailability": {
         "additionalProperties": false,
         "properties": {
@@ -7820,6 +7880,12 @@
       "QualificationDecisionReadView": {
         "additionalProperties": false,
         "properties": {
+          "backtest_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "decision": {},
           "decision_fingerprint": {
             "type": "string"
@@ -7854,59 +7920,97 @@
         "type": "object"
       },
       "QualificationEvidenceReference": {
-        "additionalProperties": false,
-        "properties": {
-          "evidence_fingerprint": {
-            "type": "string"
+        "oneOf": [
+          {
+            "properties": {
+              "evidence_fingerprint": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "RESEARCH_RESULT"
+                ],
+                "type": "string"
+              },
+              "locator_fingerprint": {
+                "type": "string"
+              },
+              "subject_binding_fingerprint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "evidence_fingerprint",
+              "locator_fingerprint",
+              "subject_binding_fingerprint",
+              "kind"
+            ],
+            "type": "object"
           },
-          "kind": {
-            "type": "string"
+          {
+            "properties": {
+              "evidence_fingerprint": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "STRATEGY_VALIDATION"
+                ],
+                "type": "string"
+              },
+              "preparation_command_id": {
+                "type": "string"
+              },
+              "subject_binding_fingerprint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "evidence_fingerprint",
+              "preparation_command_id",
+              "subject_binding_fingerprint",
+              "kind"
+            ],
+            "type": "object"
           },
-          "locator_fingerprint": {
-            "type": "string"
-          },
-          "subject_binding_fingerprint": {
-            "type": "string"
+          {
+            "properties": {
+              "backtest_run_id": {
+                "type": "string"
+              },
+              "evidence_fingerprint": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "BACKTEST_EVIDENCE"
+                ],
+                "type": "string"
+              },
+              "subject_binding_fingerprint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "evidence_fingerprint",
+              "backtest_run_id",
+              "subject_binding_fingerprint",
+              "kind"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "kind",
-          "evidence_fingerprint",
-          "locator_fingerprint",
-          "subject_binding_fingerprint"
-        ],
-        "type": "object"
+        ]
       },
       "QualificationInput": {
-        "additionalProperties": false,
         "description": "Human selects exact existing scientific facts. Counts and conclusions are\nintentionally absent; the owning evaluator reads them from durable evidence.",
-        "properties": {
-          "freeze_relation_fingerprint": {
-            "type": "string"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResearchQualificationInput"
           },
-          "policy_id": {
-            "type": "string"
-          },
-          "policy_version": {
-            "type": "string"
-          },
-          "research_run_id": {
-            "type": "string"
-          },
-          "schema_version": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
+          {
+            "$ref": "#/components/schemas/BacktestQualificationInput"
           }
-        },
-        "required": [
-          "schema_version",
-          "research_run_id",
-          "freeze_relation_fingerprint",
-          "policy_id",
-          "policy_version"
-        ],
-        "type": "object"
+        ]
       },
       "QualificationPolicyCriterionView": {
         "additionalProperties": false,
@@ -8003,22 +8107,42 @@
         "type": "object"
       },
       "QualificationResumeInput": {
-        "additionalProperties": false,
-        "properties": {
-          "research_run_id": {
-            "type": "string"
+        "oneOf": [
+          {
+            "properties": {
+              "research_run_id": {
+                "type": "string"
+              },
+              "schema_version": {
+                "format": "int32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "schema_version",
+              "research_run_id"
+            ],
+            "type": "object"
           },
-          "schema_version": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
+          {
+            "properties": {
+              "backtest_run_id": {
+                "type": "string"
+              },
+              "schema_version": {
+                "format": "int32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "schema_version",
+              "backtest_run_id"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "schema_version",
-          "research_run_id"
-        ],
-        "type": "object"
+        ]
       },
       "QualifiedPromotionCommandState": {
         "enum": [
@@ -8056,42 +8180,14 @@
         "type": "object"
       },
       "QualifiedPromotionInput": {
-        "additionalProperties": false,
-        "properties": {
-          "freeze_relation_fingerprint": {
-            "type": "string"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResearchPromotionInput"
           },
-          "policy_id": {
-            "type": "string"
-          },
-          "policy_version": {
-            "type": "string"
-          },
-          "qualification_decision_fingerprint": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "research_run_id": {
-            "type": "string"
-          },
-          "schema_version": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
+          {
+            "$ref": "#/components/schemas/BacktestPromotionInput"
           }
-        },
-        "required": [
-          "schema_version",
-          "research_run_id",
-          "freeze_relation_fingerprint",
-          "policy_id",
-          "policy_version",
-          "qualification_decision_fingerprint",
-          "reason"
-        ],
-        "type": "object"
+        ]
       },
       "ResearchCalculationCatalogDto": {
         "additionalProperties": false,
@@ -8320,6 +8416,74 @@
         ],
         "type": "object"
       },
+      "ResearchPromotionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "freeze_relation_fingerprint": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "qualification_decision_fingerprint": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "research_run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "research_run_id",
+          "freeze_relation_fingerprint",
+          "policy_id",
+          "policy_version",
+          "qualification_decision_fingerprint",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "ResearchQualificationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "freeze_relation_fingerprint": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "research_run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "research_run_id",
+          "freeze_relation_fingerprint",
+          "policy_id",
+          "policy_version"
+        ],
+        "type": "object"
+      },
       "ResearchRunView": {
         "oneOf": [
           {
@@ -8494,6 +8658,196 @@
         ],
         "type": "object"
       },
+      "SimAccountRevisionPublishInput": {
+        "additionalProperties": false,
+        "properties": {
+          "broker_integration_id": {
+            "type": "string"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/SimInstrumentPolicyWire"
+            },
+            "type": "array"
+          },
+          "opening_cash": {
+            "$ref": "#/components/schemas/SimOpeningCashWire"
+          },
+          "risk_rules": {
+            "items": {
+              "$ref": "#/components/schemas/SimRiskRuleWire"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "opening_cash",
+          "broker_integration_id",
+          "instruments",
+          "risk_rules"
+        ],
+        "type": "object"
+      },
+      "SimAccountRevisionView": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "broker_integration_id": {
+            "type": "string"
+          },
+          "deployment_id": {
+            "type": "string"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/SimInstrumentPolicyWire"
+            },
+            "type": "array"
+          },
+          "opening_cash": {
+            "$ref": "#/components/schemas/SimOpeningCashWire"
+          },
+          "revision_fingerprint": {
+            "type": "string"
+          },
+          "risk_rules": {
+            "items": {
+              "$ref": "#/components/schemas/SimRiskRuleWire"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "deployment_id",
+          "account_id",
+          "revision_fingerprint",
+          "broker_integration_id",
+          "opening_cash",
+          "instruments",
+          "risk_rules"
+        ],
+        "type": "object"
+      },
+      "SimCurrencyWire": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "currency_type": {
+            "type": "string"
+          },
+          "precision": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "precision",
+          "currency_type"
+        ],
+        "type": "object"
+      },
+      "SimInstrumentPolicyWire": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "multiplier": {
+            "type": "string"
+          },
+          "price_precision": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "quantity_precision": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "price_precision",
+          "quantity_precision",
+          "multiplier"
+        ],
+        "type": "object"
+      },
+      "SimOpeningCashWire": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/SimCurrencyWire"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "SimRiskRuleWire": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "order": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "id",
+          "scope",
+          "order",
+          "mode",
+          "kind",
+          "limit"
+        ],
+        "type": "object"
+      },
       "SourceHistoryPolicy": {
         "enum": [
           "EXACT_SEALED_PROOF"
@@ -8504,6 +8858,79 @@
         "enum": [
           "AVAILABLE",
           "UNAVAILABLE"
+        ],
+        "type": "string"
+      },
+      "StartObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/StartState"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "run_id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "StartSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "account_revision_fingerprint": {
+            "type": "string"
+          },
+          "backtest_run_id": {
+            "type": "string"
+          },
+          "broker_revision_fingerprint": {
+            "type": "string"
+          },
+          "decision_fingerprint": {
+            "type": "string"
+          },
+          "policy_fingerprint": {
+            "type": "string"
+          },
+          "promotion_fingerprint": {
+            "type": "string"
+          },
+          "strategy_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "strategy_fingerprint",
+          "backtest_run_id",
+          "policy_fingerprint",
+          "decision_fingerprint",
+          "promotion_fingerprint",
+          "account_id",
+          "account_revision_fingerprint",
+          "broker_revision_fingerprint"
+        ],
+        "type": "object"
+      },
+      "StartState": {
+        "enum": [
+          "RESERVED",
+          "ACCEPTED"
         ],
         "type": "string"
       },
@@ -20834,6 +21261,445 @@
           {
             "LocalDeveloperCookie": []
           }
+        ]
+      }
+    },
+    "/api/v2/sim/accounts/{account_id}/revisions": {
+      "post": {
+        "operationId": "publish_sim_account_revision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimAccountRevisionPublishInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimAccountRevisionView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "summary": "运营方发布不可变模拟账户修订，显式绑定开户资金、虚拟券商、允许标的与强制风控规则。",
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/sim/accounts/{account_id}/revisions/{revision_fingerprint}": {
+      "get": {
+        "operationId": "read_sim_account_revision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision_fingerprint",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimAccountRevisionView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "summary": "运营方按部署、账户与修订指纹精确回读模拟账户修订。",
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/sim/commands/{command_id}": {
+      "get": {
+        "operationId": "observe_sim_start",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartObservation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "summary": "按原启动命令查询本主体的预留或准入状态。",
+        "tags": [
+          "workstation"
+        ]
+      }
+    },
+    "/api/v2/sim/runs": {
+      "post": {
+        "operationId": "start_sim_run",
+        "parameters": [
+          {
+            "description": "启动命令 UUID4；结果未知时按同一命令查询",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartObservation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "LocalDeveloperCookie": []
+          }
+        ],
+        "summary": "在账户与券商授权范围内，按已核验的回测晋级记录接纳一次 SIM 运行。",
+        "tags": [
+          "workstation"
         ]
       }
     },

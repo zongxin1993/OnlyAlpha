@@ -376,6 +376,13 @@ impl Revision {
                     .as_ref()
                     .map(ObjectDocument::fingerprint)
             || record.secret_binding_fingerprint != binding_fingerprint(bindings)?
+            || record.runtime_configuration_fingerprint
+                != runtime_configuration_fingerprint(
+                    &record.type_id,
+                    &record.type_descriptor_document,
+                    &record.configuration_document,
+                    bindings,
+                )?
             || record.revision_fingerprint != Self::derive_fingerprint(&record)?
         {
             return Err(Error::RevisionCorrupt);

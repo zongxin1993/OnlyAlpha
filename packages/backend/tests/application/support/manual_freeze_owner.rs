@@ -721,6 +721,7 @@ async fn qualification_promotion_phase(
             session.client_mut().await.unwrap(),
             namespace,
             qrequest.subject(),
+            "local-developer",
             &qcommand,
         )
         .await
@@ -794,6 +795,7 @@ async fn qualification_promotion_phase(
                 session.client_mut().await.unwrap(),
                 namespace,
                 qrequest.subject(),
+                "local-developer",
                 &qcommand,
             )
             .await
@@ -811,6 +813,7 @@ async fn qualification_promotion_phase(
         session.client_mut().await.unwrap(),
         namespace,
         qrequest.subject(),
+        "local-developer",
         &qcommand,
     )
     .await

@@ -19,13 +19,19 @@ pub enum Mode {
     DropBeforeRoleRestore,
 }
 struct Shared {
-    armed: AtomicBool,
+    matching_queries_until_fault: Mutex<usize>,
     waiting_commit: AtomicBool,
     stopped: AtomicBool,
     sockets: Mutex<Vec<TcpStream>>,
     entered: Mutex<Option<oneshot::Sender<()>>>,
 }
 impl Shared {
+    fn hits_fault(&self) -> bool {
+        let mut remaining = self.matching_queries_until_fault.lock().unwrap();
+        let hit = *remaining == 1;
+        *remaining = remaining.saturating_sub(1);
+        hit
+    }
     fn enter(&self) {
         if let Some(tx) = self.entered.lock().unwrap().take() {
             let _ = tx.send(());
@@ -99,7 +105,7 @@ impl Proxy {
         let (tx, rx) = oneshot::channel();
         let (release, wait) = mpsc::channel();
         let shared = Arc::new(Shared {
-            armed: AtomicBool::new(false),
+            matching_queries_until_fault: Mutex::new(0),
             waiting_commit: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
             sockets: Mutex::new(Vec::new()),
@@ -142,9 +148,7 @@ impl Proxy {
                             Mode::DropBeforeRoleRestore => &b"RESET ROLE\0"[..],
                             _ => &b"COMMIT\0"[..],
                         };
-                        if frame.matches(b'Q', fault_query)
-                            && up_state.armed.swap(false, Ordering::SeqCst)
-                        {
+                        if frame.matches(b'Q', fault_query) && up_state.hits_fault() {
                             match mode {
                                 Mode::DropBeforeCommit | Mode::DropBeforeRoleRestore => {
                                     up_state.enter();
@@ -201,7 +205,11 @@ impl Proxy {
         self.port
     }
     pub fn arm(&self) {
-        self.shared.armed.store(true, Ordering::SeqCst);
+        self.arm_on_match(1);
+    }
+    pub fn arm_on_match(&self, ordinal: usize) {
+        assert!(ordinal > 0);
+        *self.shared.matching_queries_until_fault.lock().unwrap() = ordinal;
     }
     pub async fn entered(&mut self) {
         tokio::time::timeout(

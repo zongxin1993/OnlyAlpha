@@ -39,6 +39,40 @@
 
 完整方案见[框架设计](../superpowers/specs/2026-11-14-research-backtest-pg-memory-framework-design.md)。
 
+## 单次 SIM 运行准入归属
+
+负责人于 2026-11-24 确认，**单次 SIM 运行的准入决定由 Rust 后端应用层的「启动 SIM」生命周期命令作出**。人或已获相应权限的 Agent 通过正式 API 发起请求。命令核验发起主体的权限、指定策略版本的 `BACKTEST_TO_SIM` 晋级证据、目标模拟账户和虚拟券商配置，将准入决定及上述绑定连同本次 Run、Generation 持久化到 PostgreSQL。策略晋级证据的归属见 [ADR 0118](0118-evidence-backed-qualification-and-promotion-authority.md)。
+
+后端 SIM Driver 在接手与重启恢复时读取原 Run 的准入记录，核验本次执行与原绑定一致。逐单派发仍须通过风控、确认原意图和 outbox 已正式提交、核验投影就绪，再向绑定的虚拟券商派发。节点写锁证明连接持有写权，仓储回执证明对应事实已提交，两者均不能授予运行准入。此决定仅适用于 SIM；LIVE 授权依照[项目宪章](../../PROJECT_CONSTITUTION.md)。
+
+### 模拟账户与虚拟券商配置的精确读取
+
+负责人于 2026-11-24 确认以下 SIM 契约。Rust 后端应用层管理模拟账户定义，在 PostgreSQL 发布不可变账户修订。账户具有稳定的 `account_id`，每份修订记录部署、计价币种、开户资金和绑定的券商 Integration 实例。后端 Integration 配置模块管理该实例已发布的配置修订，虚拟券商插件负责撮合、滑点和延迟等参数的解析与规范化。每次 Run 固定本次使用的账户修订和券商配置修订。配置修订的产品归属及插件解析职责见 [Integration 配置契约](../integration_type_configuration_contract.md)。
+
+启动命令在同一 PostgreSQL 事务 `tx` 中按下表读取两份修订。主体取自认证上下文，券商实例 ID 取自已核验的账户修订。
+
+| 后端读取接口 | 精确核验与返回值 |
+|---|---|
+| `read_sim_account_revision(tx, deployment_id, account_id, account_revision_fingerprint)` | 核对部署、账户 ID 和已发布修订指纹。返回原账户修订及其中的计价币种、开户资金、`broker_integration_id`、允许标的（含价格/数量精度与 `multiplier`）及经风险 owner 校验的非空风控规则。 |
+| `read_virtual_broker_revision(tx, integration_id, revision_fingerprint)` | 核对实例 ID、已发布修订指纹、`BROKER` 类别和虚拟券商类型。返回已核验的 Integration 修订、类型、配置正文及 `runtime_configuration_fingerprint`。 |
+
+负责人于 2026-11-25 明确：**SIM 允许交易标的、标的精度/`multiplier` 和交易风控规则由模拟账户修订显式绑定**（不默认空风控，至少包含一条 `ENFORCING` 规则，且全部规则由风险 owner `onlyalpha-risk` 经 `onlyalpha-execution::Components` 校验与规范化，禁止覆盖或改写 `SYSTEM` / `system.*` 强制系统规则，符合 [ADR 0012](0012-risk-pipeline-profile-and-reservation.md)）。由 `SimAccountRevision::trading_binding(&self, run_id, generation, kernel, strategy, universe)` 构造单策略单 Cluster（`cluster = "strategy"`，按 [ADR 0034](0034-fixed-capital-multi-cluster-performance-authority.md) 承接原账户全部开户资金）的 SIM `TradingBinding`：`engine` 使用稳定名 `"onlyalpha-sim"`，`runtime` 取原 `run_id`（UUIDv4），`account` 取原账户 ID，`gateway` 取绑定的虚拟券商实例 ID，`generation` 取原 Generation 绑定，`profiles.strategy.revision` 取已核验策略指纹。装配前必须证明冻结策略声明的 `universe` 全部属于本账户修订批准的标的集，且生成的 `profiles.strategy.instruments` 与 `instruments` 清单仅限该批冻结且获准的标的。数据库层通过新增迁移 `0092_sim_account_trading_policy.sql` 约束现行唯一契约，不覆盖已存在迁移文件。
+
+Human 的 `sim_start` 授权项中，`broker_configuration_fingerprint` 使用第二个接口读回的 `runtime_configuration_fingerprint`，与策略版本指纹、账户 ID 一起匹配同一主体的同一授权条目。Run 持久化账户和券商的精确修订引用，以 `revision_fingerprint` 定位原券商发布记录。装配方核验实际插件工件，使用原配置构造插件，并核对 `source_binding()` 中的工件、作用域、开户资金和规范化配置。
+
+首次接手和重启均从已提交的 Run 准入记录重读这两份修订，核对原 Generation 和执行绑定。开户资金只用于账户初始化；恢复时从原交易事实重建资金与仓位，并与同一虚拟场所的订单和成交观察对账。多个 Run 使用同一账户时，必须证明它们接续或共享同一份账户状态。[账户与券商事实归属](0015-account-broker-ports-and-virtual-broker.md)
+
+两个读取接口均区分三种失败：完整查询后确认修订不存在、修订归属或内容不匹配、存储不可读。工件不可读同样保留为不可核验。上述情况均阻止新增派发；恢复时保留原 Run 和订单身份，继续允许观察原单及对账。
+
+### 回测资格指标与初始 SIM 政策契约
+
+负责人于 2026-11-25 确认 `BACKTEST_TO_SIM` 资格评估消费的 PG 回测发布（`PG_JOB_RESULT_V1`）权威标量契约。评估器仅消费经 `onlyalpha_execution::verify_finite_backtest_result` 与 `onlyalpha_backtest::verify_finite_backtest` 全量验签后的 `VerifiedBacktestEvidence`（仅接受真实 Research Freeze 链来源，拒绝 `MANUAL_BACKTEST`），绝不在评估器内重算收益、回撤或分析指标：
+
+- 执行完整性与计数标量（`u64`）：`backtest.execution_completed`（已验签发布恒为 `1`）、`backtest.close_curve_point_count`（`CLOSE_CURVE` 总行数，核对 `binding.market.sample_rows`）、`backtest.valuation_count`（`summary.valuation_count`）、`backtest.order_count`（`execution.order_count`）、`backtest.fill_count`（`execution.trade_count`）、`backtest.roundtrip_count`（`ECONOMIC_RESULT.body.roundtrip_count`）。
+- 账户权威经济与风险标量（来自 `economic_result.runtime_performance.summary`）：`backtest.return_since_start`（8 位小数；无有效定义时为 `null`）、`backtest.maximum_drawdown`（8 位非正小数；高水位非正时为 `null`）、`backtest.net_pnl`、`backtest.realized_pnl`、`backtest.unrealized_pnl`、`backtest.fees`、`backtest.final_equity`。
+- 规范化与 fail-closed 边界：全部 `observed_value` 归约为与 Policy `threshold` 一致的无尾零、无 `-0`、无科学计数法十进制串；当政策引用某经济指标而该 Run 的 `summary` 值为 `null` 时，评估边界返回 `QUALIFICATION_EVIDENCE_MISSING`；已退役的文件式计数（`backtest.artifact_count`、`backtest.implementation_count`）及未知指标继续返回 `QUALIFICATION_POLICY_UNSUPPORTED`。
+- 初始 `BACKTEST_TO_SIM` 政策：命名空间策略扩展与节点启动核验同步置备并验证无盈利承诺的证据完整性政策 `experimental-sim/1`（`gate = "BACKTEST_TO_SIM"`，`missing_evidence_behavior = "FAIL"`，`aggregation = "ALL"`，要求 `backtest.close_curve_point_count GE 1` 且 `backtest.execution_completed EQ 1`）。运营方后续通过独立 `policy_id/policy_version` 置备含经济或交易阈值的严格 SIM 政策。
+
 ## 2026-11-17 开发阶段实施准则补充
 
 负责人确认：全部任务和代码不考虑历史代码、接口、格式及开发数据兼容。遇到不兼容时，按 [AGENTS.md](../../AGENTS.md#42-开发环境重建与正式数据) 核对 `onlyalpha-dev` 资源并成套删除旧数据卷及配对状态，使用当前契约重新初始化；复用仍适用的环境和缓存。不新增旧格式 reader、fallback 或数据迁移兼容层。当前版本的唯一事实、确定性、权限、UNKNOWN、原子发布及恢复要求不变，不修改 Constitution。此前要求保留旧开发 Run、旧工件查询或恢复接口的实施安排不再执行；明确发行工件不覆盖，正式／真实账户数据不在开发清理范围。

@@ -71,6 +71,9 @@ pub(crate) fn id(v: &Value) -> Result<&str, Error> {
     }
     Ok(s)
 }
+pub fn input_id(input: &Value) -> Result<&str, Error> {
+    id(&input["input_id"])
+}
 pub(crate) fn uint(v: &Value) -> Result<u64, Error> {
     v.as_u64().ok_or_else(|| err("EXECUTION_UNSIGNED"))
 }

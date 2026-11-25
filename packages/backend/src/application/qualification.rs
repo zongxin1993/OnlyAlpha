@@ -43,6 +43,7 @@ impl Request {
         let locator = match row["kind"].as_str() {
             Some("RESEARCH_RESULT") => "locator_fingerprint",
             Some("STRATEGY_VALIDATION") => "preparation_command_id",
+            Some("BACKTEST_EVIDENCE") => "backtest_run_id",
             _ => return Err(INVALID),
         };
         let fields = [
@@ -65,6 +66,7 @@ impl Request {
         let selected = row[locator].as_str().ok_or(INVALID)?;
         if (locator == "locator_fingerprint" && !crate::is_sha256_hex(selected))
             || (locator == "preparation_command_id" && CommandId::new(selected).is_err())
+            || (locator == "backtest_run_id" && CommandId::new(selected).is_err())
         {
             return Err(INVALID);
         }
@@ -116,6 +118,28 @@ impl Request {
         request.matches_manual(evidence)?;
         Ok(request)
     }
+    pub(crate) fn from_backtest(
+        command: CommandId,
+        policy_id: &str,
+        policy_version: &str,
+        evidence: &crate::persistence::qualification_decision::VerifiedBacktestEvidence,
+    ) -> Result<Self> {
+        evidence.verify_cut()?;
+        let request = Self::new(
+            command,
+            evidence.subject_strategy_fingerprint(),
+            policy_id,
+            policy_version,
+            &json!([{
+                "kind":"BACKTEST_EVIDENCE",
+                "evidence_fingerprint":evidence.evidence_fingerprint(),
+                "backtest_run_id":evidence.run_id(),
+                "subject_binding_fingerprint":evidence.freeze_relation_fingerprint()
+            }]),
+        )?;
+        request.matches_backtest(evidence)?;
+        Ok(request)
+    }
     pub(crate) fn evidence_kind(&self) -> &str {
         self.evidence[0]["kind"]
             .as_str()
@@ -140,6 +164,26 @@ impl Request {
             || evidence.subject_strategy_fingerprint() != self.subject()
             || evidence.validation_fingerprint() != self.evidence_fingerprint()
             || evidence.preparation_command_id() != self.preparation_command_id()?
+            || evidence.freeze_relation_fingerprint() != self.relation_fingerprint()
+        {
+            return Err("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH");
+        }
+        Ok(())
+    }
+    pub(crate) fn backtest_run_id(&self) -> Result<&str> {
+        self.evidence[0]["backtest_run_id"]
+            .as_str()
+            .ok_or("QUALIFICATION_EVIDENCE_GATE_MISMATCH")
+    }
+    pub(crate) fn matches_backtest(
+        &self,
+        evidence: &crate::persistence::qualification_decision::VerifiedBacktestEvidence,
+    ) -> Result<()> {
+        evidence.verify_cut()?;
+        if self.evidence_kind() != "BACKTEST_EVIDENCE"
+            || evidence.subject_strategy_fingerprint() != self.subject()
+            || evidence.evidence_fingerprint() != self.evidence_fingerprint()
+            || evidence.run_id() != self.backtest_run_id()?
             || evidence.freeze_relation_fingerprint() != self.relation_fingerprint()
         {
             return Err("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH");
@@ -250,7 +294,7 @@ mod tests {
             let mut rows = evidence();
             match index {
                 0 => rows = json!([]),
-                1 => rows[0]["kind"] = json!("BACKTEST_EVIDENCE"),
+                1 => rows[0]["kind"] = json!("BACKTEST_RUN"),
                 2 => rows[0]["locator_fingerprint"] = Value::Null,
                 3 => rows[0]["subject_binding_fingerprint"] = Value::Null,
                 4 => rows[0]["evidence_fingerprint"] = json!("A".repeat(64)),
@@ -347,6 +391,33 @@ mod manual_reference_tests {
                 .is_err(),
                 "mutation {mutation}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod backtest_reference_tests {
+    use super::*;
+    #[test]
+    fn backtest_reference_binds_publication_run_and_freeze_relation() {
+        let command = CommandId::new("00000000-0000-4000-8000-000000008901").unwrap();
+        let run = "00000000-0000-4000-8000-000000008902";
+        let evidence = json!([{"kind":"BACKTEST_EVIDENCE","evidence_fingerprint":"b".repeat(64),
+            "backtest_run_id":run,"subject_binding_fingerprint":"d".repeat(64)}]);
+        let request = Request::new(command, &"a".repeat(64), "sim-backtest", "1", &evidence).unwrap();
+        assert_eq!(request.backtest_run_id().unwrap(), run);
+        assert_eq!(request.relation_fingerprint(), "d".repeat(64));
+        assert_eq!(request.fingerprint().unwrap(), hash(&json!({"subject_strategy_fingerprint":"a".repeat(64),
+            "policy_id":"sim-backtest","policy_version":"1","evidence":evidence})).unwrap());
+        for mutation in 0..4 {
+            let mut wrong = evidence.clone();
+            match mutation {
+                0 => wrong[0]["backtest_run_id"] = json!("latest"),
+                1 => wrong[0]["backtest_run_id"] = json!("e".repeat(64)),
+                2 => { wrong[0].as_object_mut().unwrap().remove("backtest_run_id"); wrong[0]["locator_fingerprint"] = json!("e".repeat(64)); }
+                _ => wrong[0]["kind"] = json!("RESEARCH_RESULT"),
+            }
+            assert!(Request::new(CommandId::new("00000000-0000-4000-8000-000000008903").unwrap(), &"a".repeat(64), "sim-backtest", "1", &wrong).is_err(), "mutation {mutation}");
         }
     }
 }

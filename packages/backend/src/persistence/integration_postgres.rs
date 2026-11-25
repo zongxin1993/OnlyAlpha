@@ -1022,7 +1022,7 @@ async fn locked_draft(
     .flatten()
     .collect();
     for fingerprint in references {
-        let row=tx.query_opt("SELECT revision_fingerprint,integration_id::text,revision_sequence,type_id,type_descriptor_fingerprint,type_descriptor_document::text,configuration_fingerprint,configuration_document::text,runtime_configuration_fingerprint,probe_configuration_fingerprint,probe_configuration_document::text,secret_binding_fingerprint,created_at FROM integration_revision WHERE revision_fingerprint=$1",&[&fingerprint]).await.map_err(|_|Error::Unavailable)?.ok_or(Error::RevisionCorrupt)?;
+        let row=tx.query_opt("SELECT revision_fingerprint,integration_id::text,revision_sequence,type_id,type_descriptor_fingerprint,type_descriptor_document::text,configuration_fingerprint,configuration_document::text,runtime_configuration_fingerprint,probe_configuration_fingerprint,probe_configuration_document::text,secret_binding_fingerprint,created_at FROM public.integration_revision WHERE revision_fingerprint=$1",&[&fingerprint]).await.map_err(|_|Error::Unavailable)?.ok_or(Error::RevisionCorrupt)?;
         budget.consume(1)?;
         let selected_bindings = self::bindings(tx, fingerprint, false, budget).await?;
         let revision = decode_revision(&row, &selected_bindings, work)?;
@@ -1095,13 +1095,54 @@ async fn validate_bindings(
     }
     Ok(())
 }
+pub(crate) const VIRTUAL_BROKER_TYPE_ID: &str = "onlyalpha.virtual_broker";
+
+pub(crate) async fn read_virtual_broker_revision(
+    tx: &Transaction<'_>,
+    id: &IntegrationId,
+    fingerprint: &str,
+) -> Result<Option<Revision>, Error> {
+    const DOCUMENT_WORK: usize = 64 * 1024 * 1024;
+    if !crate::is_sha256_hex(fingerprint) {
+        return Err(Error::InvalidId);
+    }
+    let Some(revision) = exact_revision(tx, fingerprint, &mut Rows(10000), DOCUMENT_WORK).await? else {
+        return Ok(None);
+    };
+    let record = revision.record();
+    if &record.integration_id != id || record.revision_fingerprint != fingerprint
+        || record.type_id.value() != VIRTUAL_BROKER_TYPE_ID
+    {
+        return Err(Error::RevisionCorrupt);
+    }
+    let descriptor = Descriptor::from_json(record.type_descriptor_document.raw().get(), DOCUMENT_WORK)
+        .map_err(|error| match error {
+            onlyalpha_integration_contract::Error::Unavailable => Error::Unavailable,
+            _ => Error::RevisionCorrupt,
+        })?;
+    if descriptor.id() != &record.type_id
+        || descriptor.category() != onlyalpha_integration_contract::Category::Broker
+        || descriptor.fingerprint() != record.type_descriptor_fingerprint
+    {
+        return Err(Error::RevisionCorrupt);
+    }
+    let owner = tx.query_opt(
+        "SELECT type_id FROM public.integration WHERE integration_id=$1::text::uuid",
+        &[&id.value()],
+    ).await.map_err(|_| Error::Unavailable)?.ok_or(Error::RevisionCorrupt)?;
+    if get::<String>(&owner, "type_id")? != record.type_id.value() {
+        return Err(Error::RevisionCorrupt);
+    }
+    Ok(Some(revision))
+}
+
 async fn exact_revision(
     tx: &Transaction<'_>,
     fingerprint: &str,
     budget: &mut Rows,
     work: usize,
 ) -> Result<Option<Revision>, Error> {
-    let row=tx.query_opt("SELECT revision_fingerprint,integration_id::text,revision_sequence,type_id,type_descriptor_fingerprint,type_descriptor_document::text,configuration_fingerprint,configuration_document::text,runtime_configuration_fingerprint,probe_configuration_fingerprint,probe_configuration_document::text,secret_binding_fingerprint,created_at FROM integration_revision WHERE revision_fingerprint=$1",&[&fingerprint]).await.map_err(|_|Error::Unavailable)?;
+    let row=tx.query_opt("SELECT revision_fingerprint,integration_id::text,revision_sequence,type_id,type_descriptor_fingerprint,type_descriptor_document::text,configuration_fingerprint,configuration_document::text,runtime_configuration_fingerprint,probe_configuration_fingerprint,probe_configuration_document::text,secret_binding_fingerprint,created_at FROM public.integration_revision WHERE revision_fingerprint=$1",&[&fingerprint]).await.map_err(|_|Error::Unavailable)?;
     if row.is_some() {
         budget.consume(1)?;
     }

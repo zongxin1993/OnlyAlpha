@@ -1,5 +1,4 @@
-//! Human's experimental Qualification and Promotion workflow. Original Command
-//! facts are read first; only the actual owning Counts can drive the evaluator.
+//! Human Qualification and Promotion use original Commands and verified owning evidence.
 use crate::{
     application::{
         command::CommandId, frozen_strategy::FrozenStore,
@@ -9,7 +8,7 @@ use crate::{
     bootstrap::{deployment, startup::Directory},
     persistence::{
         qualification_commands::{self, Qualifications},
-        qualification_decision::{Store as Decisions, VerifiedDecision},
+        qualification_decision::{Evidence, Store as Decisions, VerifiedBacktestEvidence, VerifiedDecision},
         research_evidence::{VerifiedResearchCounts, read_published_strategy},
         research_submission,
         strategy_promotion::{self, Promotions, Request as PromotionRequest},
@@ -21,7 +20,7 @@ use crate::{
     transport::{
         host::{Failure, Host, WORK, invalid, now, parameters},
         host_factor_studies::{failed, input},
-        research_wire::{QualificationInput, QualificationResumeInput, QualifiedPromotionInput},
+        research_wire::{BacktestPromotionInput, QualificationInput, QualificationResumeInput, QualifiedPromotionInput},
     },
 };
 use axum::{
@@ -45,8 +44,15 @@ fn deadline(at: Instant) -> Result<()> {
     }
     Ok(())
 }
+struct StrategyCommand<'a> {
+    subject: &'a str,
+    id: &'a CommandId,
+    human: &'a human_access::Session,
+    at: Instant,
+    resume: bool,
+}
 impl Host {
-    fn qualification_stores(&self) -> Result<(Arc<FrozenStore>, Arc<Policies>, Arc<Decisions>)> {
+    pub(super) fn qualification_stores(&self) -> Result<(Arc<FrozenStore>, Arc<Policies>, Arc<Decisions>)> {
         let fd = self.inputs.roots().directory(Directory::Research);
         let frozen = Arc::new(FrozenStore::open(fd).map_err(|e| failed(e.code()))?);
         let policies = Arc::new(Policies::open(fd).map_err(|e| failed(e.code()))?);
@@ -103,19 +109,26 @@ impl Host {
         counts.verify_cut().map_err(failed)?;
         Ok((Arc::new(counts), frozen))
     }
-    async fn qualification_outcome(&self, subject: &str, id: &CommandId) -> Result<Value> {
+    async fn qualification_outcome(&self, subject: &str, id: &CommandId, human: &human_access::Session) -> Result<Value> {
         let mut reader = self.reader.lock().await;
         let client = reader
             .as_mut()
             .ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-        qualification_commands::command_outcome_readonly(
+        let value = qualification_commands::command_outcome_readonly(
             client,
             self.inputs.namespace(),
             subject,
+            human.subject_id()?,
             id,
         )
         .await
-        .map_err(failed)
+        .map_err(failed)?;
+        if !value["request"].is_null() && value["request"]["evidence"][0]["kind"] != "BACKTEST_EVIDENCE"
+            && !self.human_access.local_operator(human.subject_id()?)
+        {
+            return Err(failed("OWNER_OPERATION_DENIED"));
+        }
+        Ok(value)
     }
     async fn qualified_promotion_outcome(
         &self,
@@ -168,11 +181,19 @@ impl Host {
         let first = requests
             .first()
             .ok_or_else(|| failed("QUALIFICATION_DECISION_NOT_FOUND"))?;
+        let actor = human.subject_id()?;
+        if !self.human_access.local_operator(actor)
+            && (first.evidence_kind() != "BACKTEST_EVIDENCE"
+                || !self.human_access.sim_strategy_allowed(actor, first.subject()))
+        {
+            return Err(failed("OWNER_OPERATION_DENIED"));
+        }
         let mut candidates = BTreeSet::new();
         for request in &requests {
             if request.fingerprint().map_err(failed)? != first.fingerprint().map_err(failed)? {
                 return Err(failed("QUALIFICATION_COMMAND_CORRUPT"));
             }
+            if request.evidence_kind() == "BACKTEST_EVIDENCE" { continue; }
             for original in strategy_projection::freeze_research_locators_in_transaction(
                 &tx,
                 self.inputs.namespace(),
@@ -245,7 +266,12 @@ impl Host {
         let path = request.uri().path().to_owned();
         let method = request.method().clone();
         let query = parameters(request.uri())?;
+        let actor = human.subject_id()?;
+        let is_operator = self.human_access.local_operator(actor);
         if method == Method::GET && path == "/api/v2/qualification-policies" {
+            if !is_operator && !self.human_access.has_sim_start_grant(actor) {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
             if !query.is_empty() {
                 return Err(invalid());
             }
@@ -255,6 +281,7 @@ impl Host {
                 .map_err(|e| failed(e.code()))?
                 .into_iter()
                 .map(|p| p.to_record())
+                .filter(|p| is_operator || p["gate"] == "BACKTEST_TO_SIM")
                 .collect::<Vec<_>>();
             self.human_access.check_session(&human)?;
             return Ok(response(
@@ -263,6 +290,9 @@ impl Host {
             ));
         }
         if method == Method::GET && path.starts_with("/api/v2/qualification-policies/") {
+            if !is_operator && !self.human_access.has_sim_start_grant(actor) {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
             if !query.is_empty() {
                 return Err(invalid());
             }
@@ -277,10 +307,17 @@ impl Host {
             let policy = policies
                 .load_exact(parts[0], parts[2], WORK)
                 .map_err(|e| failed(e.code()))?;
+            let record = policy.to_record();
+            if !is_operator && record["gate"] != "BACKTEST_TO_SIM" {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
             self.human_access.check_session(&human)?;
-            return Ok(response(policy.to_record(), &human));
+            return Ok(response(record, &human));
         }
         if method == Method::GET && path.starts_with("/api/v2/qualification-decisions/") {
+            if !is_operator && !self.human_access.has_sim_start_grant(actor) {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
             let id = path.trim_start_matches("/api/v2/qualification-decisions/");
             if !crate::is_sha256_hex(id)
                 || query.len() > 1
@@ -289,6 +326,35 @@ impl Host {
                 return Err(invalid());
             }
             let (selection, candidates) = self.qualification_decision_locators(id, &human).await?;
+            if !is_operator
+                && (selection.evidence_kind() != "BACKTEST_EVIDENCE"
+                    || !self.human_access.sim_strategy_allowed(actor, selection.subject()))
+            {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
+            if selection.evidence_kind() == "BACKTEST_EVIDENCE" {
+                if !query.is_empty() { return Err(invalid()); }
+                let run = selection.backtest_run_id().map_err(failed)?;
+                let (_, policies, decisions) = self.qualification_stores()?;
+                let evidence = self.backtest_evidence(&decisions, run, &human, at).await?;
+                selection.matches_backtest(&evidence).map_err(failed)?;
+                let decision = decisions
+                    .load_evidence(policies, Evidence::Backtest(evidence), id)
+                    .map_err(failed)?;
+                let record = decision.record();
+                if record["subject_strategy_fingerprint"] != selection.subject()
+                    || record["policy_id"] != selection.policy_id()
+                    || record["policy_version"] != selection.policy_version()
+                    || record["evidence"] != *selection.evidence()
+                    || record["gate"] != "BACKTEST_TO_SIM"
+                {
+                    return Err(failed("QUALIFICATION_COMMAND_CORRUPT"));
+                }
+                decision.verify_cut().map_err(failed)?;
+                deadline(at)?;
+                self.human_access.check_session(&human)?;
+                return Ok(response(json!({"schema_version":1,"decision_fingerprint":id,"state":"VERIFIED","decision":decision.record(),"backtest_run_id":run,"research_run_id":null,"research_run_candidates":[]}), &human));
+            }
             let chosen = if let Some(run) = query.get("research_run_id") {
                 if !candidates.contains(run) {
                     return Err(invalid());
@@ -325,7 +391,13 @@ impl Host {
         if !crate::is_sha256_hex(subject) {
             return Err(invalid());
         }
+        if !is_operator && !self.human_access.sim_strategy_allowed(actor, subject) {
+            return Err(failed("OWNER_OPERATION_DENIED"));
+        }
         if method == Method::GET && parts.len() == 1 {
+            if !is_operator {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
             let (frozen, _, _) = self.qualification_stores()?;
             let source = frozen
                 .load_verified(subject, WORK)
@@ -358,6 +430,9 @@ impl Host {
             ));
         }
         if method == Method::GET && parts.len() == 2 && parts[1] == "qualification-decisions" {
+            if !is_operator {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
             let mut reader = self.reader.lock().await;
             let client = reader
                 .as_mut()
@@ -384,10 +459,14 @@ impl Host {
         if method == Method::GET && parts.len() == 4 {
             let id = command_path.as_ref().ok_or_else(invalid)?;
             let value = if promotion {
-                self.qualified_promotion_outcome(subject, id, &human)
-                    .await?
+                let value = self.qualified_promotion_outcome(subject, id, &human)
+                    .await?;
+                if !is_operator && value["state"] == "COMPLETED" && value["record"]["to_stage"] != "SIM" {
+                    return Err(failed("OWNER_OPERATION_DENIED"));
+                }
+                value
             } else {
-                self.qualification_outcome(subject, id).await?
+                self.qualification_outcome(subject, id, &human).await?
             };
             self.human_access.check_session(&human)?;
             return Ok(response(value, &human));
@@ -403,17 +482,27 @@ impl Host {
         {
             return Err(invalid());
         }
+        let command = StrategyCommand { subject, id: &id, human: &human, at, resume };
         if promotion {
             let intent: QualifiedPromotionInput =
                 serde_json::from_value(body).map_err(|_| invalid())?;
             intent.validate(subject).map_err(failed)?;
+            if !is_operator && matches!(intent, QualifiedPromotionInput::Research(_)) {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
             let original = self
                 .qualified_promotion_outcome(subject, &id, &human)
                 .await?;
+            let intent = match intent {
+                QualifiedPromotionInput::Backtest(intent) => {
+                    return self.backtest_promotion(command, intent, original).await;
+                }
+                QualifiedPromotionInput::Research(intent) => intent,
+            };
             let (selection, candidates) = self
                 .qualification_decision_locators(&intent.qualification_decision_fingerprint, &human)
                 .await?;
-            if selection.subject() != subject
+            if selection.evidence_kind() != "RESEARCH_RESULT" || selection.subject() != subject
                 || selection.relation_fingerprint() != intent.freeze_relation_fingerprint
                 || selection.policy_id() != intent.policy_id
                 || selection.policy_version() != intent.policy_version
@@ -489,33 +578,68 @@ impl Host {
             self.human_access.check_session(&human)?;
             return Ok(response(value, &human));
         }
-        let original = {
-            let mut reader = self.reader.lock().await;
-            let client = reader
-                .as_mut()
-                .ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
-            qualification_commands::original_request_readonly(
-                client,
-                self.inputs.namespace(),
-                subject,
-                &id,
-            )
-            .await
-            .map_err(failed)?
-        };
         let (run_id, selection) = if resume {
             let intent: QualificationResumeInput =
                 serde_json::from_value(body).map_err(|_| invalid())?;
             intent.validate().map_err(failed)?;
-            (
-                intent.research_run_id,
-                Some(original.ok_or_else(|| failed("QUALIFICATION_COMMAND_NOT_FOUND"))?),
-            )
+            if !is_operator && matches!(intent, QualificationResumeInput::Research { .. }) {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
+            let original = {
+                let mut reader = self.reader.lock().await;
+                let client = reader
+                    .as_mut()
+                    .ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+                qualification_commands::original_request_readonly(
+                    client,
+                    self.inputs.namespace(),
+                    subject,
+                    &id,
+                )
+                .await
+                .map_err(failed)?
+            }
+            .ok_or_else(|| failed("QUALIFICATION_COMMAND_NOT_FOUND"))?;
+            match intent {
+                QualificationResumeInput::Backtest { backtest_run_id, .. } => {
+                    let policy = (original.policy_id(), original.policy_version());
+                    return self.backtest_qualification(command, &backtest_run_id, policy, Some(&original)).await;
+                }
+                QualificationResumeInput::Research { research_run_id, .. } => {
+                    if original.evidence_kind() != "RESEARCH_RESULT" { return Err(failed("PRODUCT_COMMAND_CONFLICT")); }
+                    (research_run_id, Some(original))
+                }
+            }
         } else {
             let intent: QualificationInput = serde_json::from_value(body).map_err(|_| invalid())?;
             intent.validate(subject).map_err(failed)?;
+            if !is_operator && matches!(intent, QualificationInput::Research(_)) {
+                return Err(failed("OWNER_OPERATION_DENIED"));
+            }
+            let original = {
+                let mut reader = self.reader.lock().await;
+                let client = reader
+                    .as_mut()
+                    .ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+                qualification_commands::original_request_readonly(
+                    client,
+                    self.inputs.namespace(),
+                    subject,
+                    &id,
+                )
+                .await
+                .map_err(failed)?
+            };
+            let intent = match intent {
+                QualificationInput::Backtest(intent) => {
+                    return self.backtest_qualification(
+                        command, &intent.backtest_run_id, (&intent.policy_id, &intent.policy_version), original.as_ref(),
+                    ).await;
+                }
+                QualificationInput::Research(intent) => intent,
+            };
             if let Some(original) = original {
-                if original.policy_id() != intent.policy_id
+                if original.evidence_kind() != "RESEARCH_RESULT" || original.policy_id() != intent.policy_id
                     || original.policy_version() != intent.policy_version
                     || original.relation_fingerprint() != intent.freeze_relation_fingerprint
                 {
@@ -523,7 +647,7 @@ impl Host {
                 }
                 self.human_access.check_session(&human)?;
                 return Ok(response(
-                    self.qualification_outcome(subject, &id).await?,
+                    self.qualification_outcome(subject, &id, &human).await?,
                     &human,
                 ));
             }
@@ -547,12 +671,12 @@ impl Host {
             }
             self.run_qualification(&request, counts, frozen, &human, at)
                 .await?;
-            let value = self.qualification_outcome(subject, &id).await?;
+            let value = self.qualification_outcome(subject, &id, &human).await?;
             self.human_access.check_session(&human)?;
             return Ok(response(value, &human));
         };
         let selection = selection.ok_or_else(invalid)?;
-        let observed = self.qualification_outcome(subject, &id).await?;
+        let observed = self.qualification_outcome(subject, &id, &human).await?;
         if observed["state"] == "COMPLETED" {
             self.human_access.check_session(&human)?;
             return Ok(response(observed, &human));
@@ -563,9 +687,143 @@ impl Host {
         selection.matches_counts(&counts).map_err(failed)?;
         self.run_qualification(&selection, counts, frozen, &human, at)
             .await?;
-        let value = self.qualification_outcome(subject, &id).await?;
+        let value = self.qualification_outcome(subject, &id, &human).await?;
         self.human_access.check_session(&human)?;
         Ok(response(value, &human))
+    }
+    async fn backtest_evidence(
+        &self,
+        decisions: &Arc<Decisions>,
+        run: &str,
+        human: &human_access::Session,
+        at: Instant,
+    ) -> Result<Arc<VerifiedBacktestEvidence>> {
+        deadline(at)?;
+        self.human_access.check_session(human)?;
+        let mut facts = self.job_fact_reader().await?;
+        let mut reader = self.reader.lock().await;
+        let client = reader.as_mut().ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+        let proof = decisions.read_backtest_evidence(
+            client, facts.client_mut().await?, self.inputs.namespace(),
+            &self.research_preparation_config.runtime_root, run, human.subject_id()?,
+        ).await.map_err(failed)?;
+        deadline(at)?;
+        self.human_access.check_session(human)?;
+        Ok(proof)
+    }
+    async fn backtest_qualification(
+        &self,
+        command: StrategyCommand<'_>,
+        run: &str,
+        policy: (&str, &str),
+        original: Option<&QualificationRequest>,
+    ) -> Result<Response> {
+        let StrategyCommand { subject, id, human, at, resume } = command;
+        if let Some(original) = original && (
+            original.evidence_kind() != "BACKTEST_EVIDENCE"
+                || original.backtest_run_id().map_err(failed)? != run
+                || original.policy_id() != policy.0
+                || original.policy_version() != policy.1
+        ) {
+            return Err(failed("PRODUCT_COMMAND_CONFLICT"));
+        }
+        let (frozen, policies, decisions) = self.qualification_stores()?;
+        let evidence = self.backtest_evidence(&decisions, run, human, at).await?;
+        let request = QualificationRequest::from_backtest(id.clone(), policy.0, policy.1, &evidence).map_err(failed)?;
+        if request.subject() != subject { return Err(failed("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH")); }
+        if let Some(original) = original {
+            if original != &request { return Err(failed("PRODUCT_COMMAND_CONFLICT")); }
+            let observed = self.qualification_outcome(subject, id, human).await?;
+            if !resume || observed["state"] == "COMPLETED" {
+                self.human_access.check_session(human)?;
+                return Ok(response(observed, human));
+            }
+        }
+        {
+            let mut writer = self.writer.lock().await;
+            let session = writer.as_mut().ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+            deadline(at)?;
+            Qualifications::new(session, self.inputs.namespace(), policies, decisions, frozen, &self.human_access, human)
+                .execute_backtest(&request, evidence, now()?)
+                .await
+                .map_err(failed)?
+                .verify_cut()
+                .map_err(failed)?;
+        }
+        let value = self.qualification_outcome(subject, id, human).await?;
+        self.human_access.check_session(human)?;
+        Ok(response(value, human))
+    }
+    async fn backtest_promotion(
+        &self,
+        command: StrategyCommand<'_>,
+        intent: BacktestPromotionInput,
+        original: Value,
+    ) -> Result<Response> {
+        let StrategyCommand { subject, id, human, at, resume } = command;
+        match original["state"].as_str() {
+            Some("OUTCOME_UNKNOWN") => return Err(Failure::unavailable("PROMOTION_COMMAND_OUTCOME_UNKNOWN")),
+            Some("NOT_SUBMITTED") if resume => return Err(failed("PROMOTION_COMMAND_NOT_FOUND")),
+            Some("NOT_SUBMITTED" | "COMPLETED") => (),
+            _ => return Err(failed("PROMOTION_LEDGER_CORRUPT")),
+        }
+        let decision = &intent.qualification_decision_fingerprint;
+        let (selection, _) = self.qualification_decision_locators(decision, human).await?;
+        if selection.subject() != subject || selection.evidence_kind() != "BACKTEST_EVIDENCE"
+            || selection.backtest_run_id().map_err(failed)? != intent.backtest_run_id
+            || selection.policy_id() != intent.policy_id || selection.policy_version() != intent.policy_version {
+            return Err(failed("PRODUCT_COMMAND_CONFLICT"));
+        }
+        let (frozen, policies, decisions) = self.qualification_stores()?;
+        let policy = policies.load_exact(&intent.policy_id, &intent.policy_version, WORK)
+            .map_err(|e| failed(e.code()))?.to_record();
+        let policy_fp = policy["policy_fingerprint"].as_str().ok_or_else(|| failed("QUALIFICATION_POLICY_CORRUPT"))?;
+        let proofs = {
+            let mut facts = self.job_fact_reader().await?;
+            let mut reader = self.reader.lock().await;
+            let client = reader.as_mut().ok_or(Failure::unavailable("PRODUCT_READ_DRIVER_UNAVAILABLE"))?;
+            let selection = strategy_promotion::SimPromotionInputSelection {
+                strategy: subject,
+                owner: human.subject_id()?,
+                backtest_run_id: &intent.backtest_run_id,
+                decision,
+                max_work: WORK,
+            };
+            strategy_promotion::read_sim_promotion_inputs(
+                (client, facts.client_mut().await?), self.inputs.namespace(), frozen.clone(),
+                decisions, &self.research_preparation_config.runtime_root, selection,
+            ).await.map_err(failed)?
+        };
+        if proofs.decision.record()["policy_fingerprint"] != policy_fp {
+            return Err(failed("QUALIFICATION_DECISION_POLICY_MISMATCH"));
+        }
+        deadline(at)?;
+        self.human_access.check_session(human)?;
+        if original["state"] == "COMPLETED" {
+            let record = &original["record"];
+            if record["schema_version"] != 2
+                || record["from_stage"] != "BACKTEST"
+                || record["to_stage"] != "SIM"
+                || record["decision"] != "APPROVED"
+                || record["qualification_decision_fingerprint"] != decision.as_str()
+                || record["evidence_fingerprints"] != json!([decision])
+                || record["reason"] != intent.reason
+            {
+                return Err(failed("PRODUCT_COMMAND_CONFLICT"));
+            }
+            return Ok(response(original, human));
+        }
+        let request = PromotionRequest::new(id.clone(), subject, decision, policy_fp, &intent.reason).map_err(failed)?;
+        {
+            let mut writer = self.writer.lock().await;
+            let session = writer.as_mut().ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+            deadline(at)?;
+            Promotions::new(session, self.inputs.namespace(), frozen, &self.human_access, human)
+                .promote_to_sim(&request, &proofs.history, &proofs.backtest_run, proofs.decision, now()?).await.map_err(failed)?;
+        }
+        let value = self.qualified_promotion_outcome(subject, id, human).await?;
+        self.human_access.check_session(human)?;
+        Ok(response(value, human))
     }
     async fn run_qualification(
         &self,

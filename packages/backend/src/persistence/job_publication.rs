@@ -192,17 +192,7 @@ pub(crate) async fn bounded(tx: &Transaction<'_>) -> Result<()> {
 }
 pub(crate) async fn durable(tx: &Transaction<'_>) -> Result<()> {
     bounded(tx).await?;
-    let settings=tx.query_one("SELECT pg_catalog.current_setting('fsync')='on',pg_catalog.current_setting('full_page_writes')='on',pg_catalog.current_setting('synchronous_commit')",&[]).await.map_err(db)?;
-    if !settings.get::<_, bool>(0) || !settings.get::<_, bool>(1) {
-        return Err(PublicationError::Unavailable);
-    }
-    // Preserve remote_apply when the deployment already requires the stronger ack.
-    if settings.get::<_, String>(2) != "remote_apply" {
-        tx.batch_execute("SET LOCAL synchronous_commit=on")
-            .await
-            .map_err(db)?;
-    }
-    Ok(())
+    super::postgres::ensure_commit_durability(tx).await.map_err(|_| PublicationError::Unavailable)
 }
 pub(crate) async fn commit(tx: Transaction<'_>) -> Result<()> {
     tx.commit().await.map_err(|e| {
@@ -270,6 +260,24 @@ pub(crate) async fn read_registered_research(
         return Err(PublicationError::Mismatch);
     }
     reader::load(tx, binding, &key, MutationGuard::Node, None).await?.ok_or(PublicationError::MissingEvidence)
+}
+
+/// 存储闭包与执行证明分开：只有恢复原元数据角色并完成执行核验，才能取出发布结果。
+ pub(crate) struct BacktestStorage(PublishedJobResult, Vec<Value>);
+
+pub(crate) async fn read_registered_backtest(
+    tx: &Transaction<'_>, namespace: &SemanticStoreId, run: &crate::application::backtest_run::VerifiedRun,
+) -> Result<BacktestStorage> {
+    bounded(tx).await?;
+    role(tx, &[JobRole::Reader.name()]).await?;
+    deployment::verify_binding_in_transaction(tx, namespace).await.map_err(deployment_error)?;
+    let key = RunLocator::new(JobKind::Backtest, run.run_id())?;
+    let (binding, spec, admission) = reader::frozen(tx, namespace, run.owner(), &key).await?;
+    if run.namespace() != namespace || spec != run.specification_fingerprint() || admission != run.admission_resolution_fingerprint() {
+        return Err(PublicationError::Mismatch);
+    }
+    let (result, bodies) = reader::load_storage(tx, binding, &key, true).await?.ok_or(PublicationError::MissingEvidence)?;
+    Ok(BacktestStorage(result, bodies))
 }
 
 /// Current PG causal members prove the actual calculation and joined execution.

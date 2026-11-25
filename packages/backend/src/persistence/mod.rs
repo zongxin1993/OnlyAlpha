@@ -41,4 +41,8 @@ pub(crate) mod qualification_commands;
 
 pub mod factor_build;
 pub mod job_publication;
+pub(crate) mod sim_account;
+pub(crate) mod sim_run;
+pub(crate) mod sim_venue;
+pub mod trading_facts;
 pub(crate) mod node_access;

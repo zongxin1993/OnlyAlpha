@@ -272,6 +272,37 @@ def test_virtual_source_storage_dependency_is_exact_and_normal(monkeypatch, muta
         validate_workspace(ROOT)
 
 
+@pytest.mark.parametrize(
+    "package,path",
+    [("onlyalpha-broker", "../../crates/broker"), ("onlyalpha-broker-virtual", "../../plugs/onlyalpha-broker-virtual")],
+)
+@pytest.mark.parametrize("mutation", ["missing", "path", "extra_broker", "dev_only"])
+def test_backend_sim_broker_dependencies_are_exact(monkeypatch, package, path, mutation):
+    from scripts.rust_kernel_check import validate_workspace
+
+    target = ROOT / "packages/backend/Cargo.toml"
+    original = Path.read_text
+    line = f'{package} = {{ path = "{path}" }}'
+
+    def read(file, *args, **kwargs):
+        value = original(file, *args, **kwargs)
+        if file != target:
+            return value
+        assert value.count(line) == 1
+        if mutation == "missing":
+            return value.replace(line, "")
+        if mutation == "path":
+            return value.replace(line, line.replace(path, "../../crates/runtime"))
+        if mutation == "extra_broker":
+            extra = 'onlyalpha-broker-binance = { path = "../../plugs/onlyalpha-broker-binance" }'
+            return value.replace(line, line + "\n" + extra)
+        return value.replace(line, "").replace("[dev-dependencies]", "[dev-dependencies]\n" + line)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
+        validate_workspace(ROOT)
+
+
 def test_backtest_isolation_keeps_every_declared_local_dependency(tmp_path):
     from scripts.rust_kernel_check import isolated_backtest
 

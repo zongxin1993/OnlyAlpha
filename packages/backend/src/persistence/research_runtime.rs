@@ -203,49 +203,12 @@ impl RuntimeEvidenceHold {
             return Err(INVALID);
         }
         self.retained.verify()?;
-        let selected = self.installed_proof_data(algorithm)?;
+        let selected = self.retained.installed_proof_data(algorithm)?;
         self.retained.verify()?;
         Ok(selected)
     }
     fn installed_proof_data(&mut self, algorithm_artifact: &str) -> Result<Value> {
-        let generation = sha(&self.retained.manifest, "runtime_generation_fingerprint")?;
-        let top = protected::open_directory_at(
-            &self.retained.root,
-            OsStr::new("runtime-generation-installed-proof"),
-        )
-        .map_err(|_| UNAVAILABLE)?;
-        let directory =
-            protected::open_directory_at(&top, OsStr::new(&generation)).map_err(|_| UNAVAILABLE)?;
-        let mut remaining = 32768;
-        let names =
-            protected::directory_entries(&directory, &mut remaining).map_err(|_| UNAVAILABLE)?;
-        let mut selected = None;
-        for name in names {
-            let name = name.to_str().ok_or(INVALID)?;
-            let identity = name
-                .strip_suffix(".json")
-                .filter(|s| crate::is_sha256_hex(s))
-                .ok_or(INVALID)?;
-            let proof = self.retained.json(&format!(
-                "runtime-generation-installed-proof/{generation}/{name}"
-            ))?;
-            if digest(&proof, "installed_proof_fingerprint")? != identity {
-                return Err(INVALID);
-            }
-            if proof["schema_version"] != 2
-                || proof["contract"] != "ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2"
-                || proof["runtime_generation_fingerprint"] != generation
-            {
-                return Err(INVALID);
-            }
-            if proof["algorithm_artifact"] != algorithm_artifact {
-                continue;
-            }
-            if selected.replace(proof).is_some() {
-                return Err(INVALID);
-            }
-        }
-        selected.ok_or("RESEARCH_INSTALLED_PROOF_UNAVAILABLE")
+        self.retained.installed_proof_data(algorithm_artifact)
     }
     /// Pure fields of this retained immutable original; no source or execution grant.
     /// A composing caller must retain its own complete actual pre/post cuts.
@@ -886,8 +849,61 @@ impl RuntimeInputHold {
     /// Only the actual running native producer may supply these implementation
     /// manifests. Historical Artifact1 data remains readable and cannot grant
     /// new native capability merely because the caller currently links it.
+    pub(crate) fn installed_proof_data(&mut self, algorithm_artifact: &str) -> Result<Value> {
+        if !crate::is_sha256_hex(algorithm_artifact) {
+            return Err(INVALID);
+        }
+        let generation = sha(&self.manifest, "runtime_generation_fingerprint")?;
+        let top = protected::open_directory_at(
+            &self.root,
+            OsStr::new("runtime-generation-installed-proof"),
+        )
+        .map_err(|_| UNAVAILABLE)?;
+        let directory =
+            protected::open_directory_at(&top, OsStr::new(&generation)).map_err(|_| UNAVAILABLE)?;
+        let mut remaining = 32768;
+        let names =
+            protected::directory_entries(&directory, &mut remaining).map_err(|_| UNAVAILABLE)?;
+        let mut selected = None;
+        for name in names {
+            let name = name.to_str().ok_or(INVALID)?;
+            let identity = name
+                .strip_suffix(".json")
+                .filter(|s| crate::is_sha256_hex(s))
+                .ok_or(INVALID)?;
+            let proof = self.json(&format!(
+                "runtime-generation-installed-proof/{generation}/{name}"
+            ))?;
+            if digest(&proof, "installed_proof_fingerprint")? != identity {
+                return Err(INVALID);
+            }
+            if proof["schema_version"] != 2
+                || proof["contract"] != "ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2"
+                || proof["runtime_generation_fingerprint"] != generation
+            {
+                return Err(INVALID);
+            }
+            if proof["algorithm_artifact"] != algorithm_artifact {
+                continue;
+            }
+            if selected.replace(proof).is_some() {
+                return Err(INVALID);
+            }
+        }
+        selected.ok_or("RESEARCH_INSTALLED_PROOF_UNAVAILABLE")
+    }
     pub(crate) fn native_predicate_implementations(&mut self) -> Result<Value> {
         self.verify_artifacts()?;
+        let loaded = crate::workers::algorithm::loaded_native_image_sha256()
+            .map_err(|_| "RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
+        let implementations = self.native_predicate_implementations_for_loaded(&loaded)?;
+        self.verify()?;
+        Ok(implementations)
+    }
+    pub(crate) fn native_predicate_implementations_for_loaded(
+        &self,
+        loaded_artifact: &str,
+    ) -> Result<Value> {
         let selected = self
             .executor
             .as_ref()
@@ -897,8 +913,11 @@ impl RuntimeInputHold {
         {
             return Err("RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE");
         }
-        let native = crate::workers::algorithm::describe_native_runtime(env!("CARGO_PKG_VERSION"))
-            .map_err(|_| "RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
+        let native = crate::workers::algorithm::describe_native_runtime_with_artifact(
+            env!("CARGO_PKG_VERSION"),
+            loaded_artifact,
+        )
+        .map_err(|_| "RESEARCH_NATIVE_CAPABILITIES_UNAVAILABLE")?;
         if native["image"]["artifact"] != selected["artifact_sha256"]
             || native["image"]["version"] != selected["distribution_version"]
             || selected["artifact_logical_name"]
@@ -930,9 +949,7 @@ impl RuntimeInputHold {
         if selected["implementations"] != json!(summaries) {
             return Err("RESEARCH_NATIVE_IMPLEMENTATION_MISMATCH");
         }
-        let implementations = native["implementations"].clone();
-        self.verify()?;
-        Ok(implementations)
+        Ok(native["implementations"].clone())
     }
     /// Exact immutable runtime/source record from the existing owning artifact namespace.
     pub(crate) fn private_factor(&mut self, fingerprint: &str) -> Result<Value> {

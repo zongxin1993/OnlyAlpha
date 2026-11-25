@@ -44,7 +44,16 @@ result_columns(table_name,column_name,privileges) AS (VALUES
   ('backtest_run','evidence_fingerprint','INSERT,UPDATE'),
   ('backtest_run','result_fingerprint','INSERT,UPDATE'),
   ('backtest_run','determinism_fingerprint','INSERT,UPDATE')),
+sim_inserts(table_name,fields) AS (VALUES
+  ('sim_account_revision'::text, ARRAY['revision_fingerprint','document']::text[]),
+  ('sim_run_reservation', ARRAY['command_id','command_fingerprint','intent','deployment_id','account_id','generation','kernel_artifact']),
+  ('sim_run_admission', ARRAY['command_id','run_id','deployment_id','account_id','scope_key','binding_fingerprint','broker_runtime_fingerprint']),
+  ('sim_venue_log', ARRAY['scope_key','sequence','previous','fingerprint','document'])),
 closed_functions(signature) AS (VALUES
+  ('public.trading_fact_advance()'::text),
+  ('public.sim_run_require_admission()'),
+  ('public.sim_run_require_reservation()'),
+  ('public.sim_venue_require_ready_intent()'),
   ('public.chart_native_context_v1(uuid,uuid,text,text,text)'::text),
   ('public.chart_native_claim_v1(integer,uuid,uuid,bigint,text,text,text,uuid,uuid,interval,integer,timestamptz)'),
   ('public.chart_native_heartbeat_v1(integer,uuid,uuid,bigint,text,text,text,uuid,uuid,integer,interval)')),
@@ -76,6 +85,25 @@ violations(priority,code) AS (
       OR pg_catalog.has_database_privilege(r.oid,pg_catalog.current_database(),'CREATE'))
     OR EXISTS(SELECT 1 FROM checked r CROSS JOIN closed_functions f WHERE
       pg_catalog.has_function_privilege(r.oid,pg_catalog.to_regprocedure(f.signature),'EXECUTE') IS DISTINCT FROM false)
+    OR EXISTS(SELECT 1 FROM groups r WHERE pg_catalog.has_function_privilege(r.oid,
+      pg_catalog.to_regprocedure('public.trading_fact_install_projection(text,bigint)'),'EXECUTE')
+      IS DISTINCT FROM (r.rolname='onlyalpha_node_control'))
+    OR EXISTS(SELECT 1 FROM groups r WHERE r.rolname='onlyalpha_node_control' AND (
+      pg_catalog.has_any_column_privilege(r.oid,'public.trading_fact_ready','INSERT')
+      OR pg_catalog.has_column_privilege(r.oid,'public.trading_fact','written_in','INSERT')
+      OR pg_catalog.has_column_privilege(r.oid,'public.trading_fact_stream','head','INSERT')
+      OR EXISTS(SELECT 1 FROM objects t WHERE t.relname IN ('trading_fact','trading_fact_stream','trading_fact_ready') AND (
+        pg_catalog.has_any_column_privilege(r.oid,t.oid,'UPDATE')
+        OR pg_catalog.has_table_privilege(r.oid,t.oid,'DELETE,TRUNCATE,TRIGGER,MAINTAIN')))))
+    OR EXISTS(SELECT 1 FROM groups r CROSS JOIN sim_inserts s LEFT JOIN objects t ON t.relname=s.table_name
+      WHERE r.rolname='onlyalpha_node_control' AND (t.oid IS NULL
+        OR NOT pg_catalog.has_table_privilege(r.oid,t.oid,'SELECT')
+        OR pg_catalog.has_any_column_privilege(r.oid,t.oid,'UPDATE,REFERENCES')
+        OR pg_catalog.has_table_privilege(r.oid,t.oid,'INSERT,DELETE,TRUNCATE,TRIGGER,MAINTAIN')
+        OR EXISTS(SELECT 1 FROM columns c WHERE c.oid=t.oid AND
+          pg_catalog.has_column_privilege(r.oid,c.oid,c.attnum,'INSERT') IS DISTINCT FROM (c.attname::text=ANY(s.fields)))
+        OR EXISTS(SELECT 1 FROM unnest(s.fields) f(name) WHERE NOT EXISTS(
+          SELECT 1 FROM columns c WHERE c.oid=t.oid AND c.attname=f.name))))
     OR EXISTS(SELECT 1 FROM acl WHERE is_grantable AND (grantee=0 OR grantee IN (SELECT oid FROM checked)))
     OR EXISTS(SELECT 1 FROM groups r CROSS JOIN control_forbidden f WHERE r.rolname='onlyalpha_node_control' AND (
       pg_catalog.has_table_privilege(r.oid,'public.'||f.table_name,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')

@@ -346,6 +346,19 @@ pub(crate) fn experimental_backtest_policy()
         serde_json::json!(hash(&identity).map_err(|_| qualification_policy::Error::Conflict)?);
     qualification_policy::Policy::from_json(&record.to_string(), STRATEGY_WORK)
 }
+/// Experimental BACKTEST_TO_SIM evidence-completeness gate. It makes no profitability claim.
+pub(crate) fn experimental_sim_policy()
+-> std::result::Result<qualification_policy::Policy, qualification_policy::Error> {
+    let mut record = serde_json::json!({"schema_version":1,"policy_id":"experimental-sim","policy_version":"1","gate":"BACKTEST_TO_SIM",
+        "missing_evidence_behavior":"FAIL","aggregation":"ALL","criteria":[
+        {"criterion_id":"close-curve-point-count","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.close_curve_point_count","comparison":"GE","threshold":"1"},
+        {"criterion_id":"execution-completed","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.execution_completed","comparison":"EQ","threshold":"1"}]});
+    let mut identity = record.clone();
+    identity["domain"] = serde_json::json!("onlyalpha.strategy.qualification-policy");
+    record["policy_fingerprint"] =
+        serde_json::json!(hash(&identity).map_err(|_| qualification_policy::Error::Conflict)?);
+    qualification_policy::Policy::from_json(&record.to_string(), STRATEGY_WORK)
+}
 fn strategy_extension(id: &SemanticStoreId) -> Result<Value> {
     let mut value = json!({"schema_version":1,"contract":"ONLYALPHA_STRATEGY_RESEARCH_OWNER_EXTENSION_V1",
         "semantic_store_id":id.value(),"base_profile_fingerprint":PROFILE_FP,
@@ -386,6 +399,14 @@ fn strategy_owners_existing(research: &Directory) -> Result<()> {
         .load_exact("experimental-backtest", "1", STRATEGY_WORK)
         .map_err(|e| e.code())?
         != expected
+    {
+        return Err("RESEARCH_STRATEGY_EXTENSION_INVALID");
+    }
+    let expected_sim = experimental_sim_policy().map_err(|e| e.code())?;
+    if policies
+        .load_exact("experimental-sim", "1", STRATEGY_WORK)
+        .map_err(|e| e.code())?
+        != expected_sim
     {
         return Err("RESEARCH_STRATEGY_EXTENSION_INVALID");
     }
@@ -503,7 +524,10 @@ async fn extend_strategy_owned(
         .admit(
             session,
             &id,
-            &[experimental_backtest_policy().map_err(|e| e.code())?],
+            &[
+                experimental_backtest_policy().map_err(|e| e.code())?,
+                experimental_sim_policy().map_err(|e| e.code())?,
+            ],
             STRATEGY_WORK,
         )
         .await

@@ -436,6 +436,41 @@ async fn postgres_session(pg: Config, stream: TcpStream, readonly: bool) -> Resu
     }
     Ok(owned)
 }
+
+fn installed_authoring_catalog(
+    work: usize,
+) -> Result<AuthoringCatalog, onlyalpha_integration_contract::Error> {
+    use onlyalpha_broker_virtual::{IMPLEMENTATION_VERSION, provider};
+    use onlyalpha_integration_contract::{
+        Category, Descriptor, Error,
+        authoring::{PluginProjection, Registration},
+    };
+
+    let broker = Registration::new(
+        PluginProjection::new(
+            Category::Broker,
+            "virtual",
+            IMPLEMENTATION_VERSION,
+            "1.0",
+            provider::CAPABILITIES.iter().map(|cap| (*cap).to_owned()).collect(),
+        )?,
+        Descriptor::from_json(&provider::descriptor().to_string(), work)?,
+        |configuration, _| {
+            let extensions =
+                serde_json::from_str(configuration.get()).map_err(|_| Error::Configuration)?;
+            provider::normalize_configuration(&extensions)
+                .map(|_| ())
+                .map_err(|_| Error::Configuration)
+        },
+    )?;
+    AuthoringCatalog::new(vec![
+        onlyalpha_data_source_binance::spot_authoring(work)?,
+        onlyalpha_data_source_binance::usdm_authoring(work)?,
+        onlyalpha_data_source_tushare::source::native_authoring(work)?,
+        broker,
+    ])
+}
+
 pub struct Running {
     pub host: Arc<Host>,
     pub ingress: crate::security::ingress::LocalIngress,
@@ -490,15 +525,8 @@ impl Running {
                 .map_err(|e| Failure::unavailable(e.code()))?,
         );
         let catalog = Arc::new(
-            AuthoringCatalog::new(vec![
-                onlyalpha_data_source_binance::spot_authoring(WORK)
-                    .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
-                onlyalpha_data_source_binance::usdm_authoring(WORK)
-                    .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
-                onlyalpha_data_source_tushare::source::native_authoring(WORK)
-                    .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
-            ])
-            .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
+            installed_authoring_catalog(WORK)
+                .map_err(|_| Failure::unavailable("SOURCE_CATALOG_INVALID"))?,
         );
         let trust = read_bounded(&config.trust, FilePolicy::HistoryDocument, 1024 * 1024)
             .map_err(|_| Failure::unavailable("SOURCE_TRUST_INVALID"))?;
@@ -623,6 +651,19 @@ impl Running {
                     .load_exact("experimental-backtest", "1", WORK)
                     .map_err(|e| Failure::unavailable(e.code()))?;
             if policy != expected_policy {
+                return Err(Failure::unavailable(
+                    "QUALIFICATION_POLICY_IDENTITY_CONFLICT",
+                ));
+            }
+            let expected_sim_policy =
+                crate::bootstrap::research_namespace::experimental_sim_policy()
+                    .map_err(|e| Failure::unavailable(e.code()))?;
+            let sim_policy =
+                qualification_policy::Store::open(inputs.roots().directory(Directory::Research))
+                    .map_err(|e| Failure::unavailable(e.code()))?
+                    .load_exact("experimental-sim", "1", WORK)
+                    .map_err(|e| Failure::unavailable(e.code()))?;
+            if sim_policy != expected_sim_policy {
                 return Err(Failure::unavailable(
                     "QUALIFICATION_POLICY_IDENTITY_CONFLICT",
                 ));
@@ -785,6 +826,18 @@ impl Running {
                 .set(running.ingress.source_revoker())
                 .map_err(|_| Failure::unavailable("SOURCE_GATE_INVALID"))?;
             running.host.recover_market_data().await?;
+            {
+                let mut held = running.host.writer.lock().await;
+                let authority = held.as_mut().ok_or(Failure::unavailable("PRODUCT_AUTHORITY_UNAVAILABLE"))?;
+                crate::workers::sim::recover_admitted_orders(
+                    authority,
+                    running.host.inputs.namespace(),
+                    &research_configuration.runtime_root,
+                    &config.user_data.join("research"),
+                )
+                .await
+                .map_err(Failure::unavailable)?;
+            }
             let selected = Arc::clone(&running.host.chart);
             tokio::task::spawn_blocking(move || {
                 selected.registered_capabilities_before(
@@ -1143,6 +1196,28 @@ fn read_bounded(
 #[cfg(test)]
 mod driver_tests {
     use super::*;
+
+    #[test]
+    fn installed_virtual_broker_checks_native_configuration_for_publication() {
+        use onlyalpha_integration_contract::{Category, Error, IntegrationTypeId};
+        use serde_json::value::RawValue;
+
+        let catalog = installed_authoring_catalog(WORK).unwrap();
+        let id = IntegrationTypeId::new(onlyalpha_broker_virtual::provider::VIRTUAL_BROKER_TYPE_ID)
+            .unwrap();
+        let broker = catalog.get(&id).unwrap();
+        assert_eq!(broker.descriptor().category(), Category::Broker);
+        let validate = |text: &str| {
+            let document = RawValue::from_string(text.into()).unwrap();
+            broker.validate_public_configuration(&document, WORK)
+        };
+        assert_eq!(
+            validate(r#"{"maximum_fill_quantity":"0.25","latency":{"submit_ns":10}}"#),
+            Ok(())
+        );
+        assert_eq!(validate(r#"{"maximum_fill_quantity":"0"}"#), Err(Error::Configuration));
+        assert_eq!(validate(r#"{"latency":{"unknown_ns":0}}"#), Err(Error::Configuration));
+    }
     #[test]
     fn absent_human_configuration_and_invalid_explicit_file_are_distinct() {
         assert!(

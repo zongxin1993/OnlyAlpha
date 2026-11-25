@@ -1,6 +1,8 @@
 //! Application responsibilities of the backend product.
 pub mod chart;
 pub mod command;
+pub(crate) mod sim_account;
+pub(crate) mod sim_run;
 pub mod frozen_strategy;
 pub mod integration_catalog;
 pub mod integration_commands;

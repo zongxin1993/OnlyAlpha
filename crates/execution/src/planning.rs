@@ -187,9 +187,8 @@ impl Components {
         {
             return Err(err("EXECUTION_REVISION"));
         }
-        for f in ["input_id", "source_ref"] {
-            id(&input[f])?;
-        }
+        let input_id = input_id(input)?;
+        id(&input["source_ref"])?;
         let n = uint(&input["runtime_sequence"])?;
         if n == 0
             || n > u64::MAX / 64
@@ -197,7 +196,7 @@ impl Components {
         {
             return Err(err("EXECUTION_RUNTIME_SEQUENCE"));
         }
-        if self.meta["inputs"].get(text(&input["input_id"])?).is_some()
+        if self.meta["inputs"].get(input_id).is_some()
             || self.meta["sources"]
                 .get(text(&input["source_ref"])?)
                 .is_some()

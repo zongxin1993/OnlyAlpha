@@ -47,6 +47,23 @@ fn admission_is_not_an_outcome_and_missing_proof_cannot_mean_absence() {
     );
 }
 #[test]
+fn sim_run_receipts_require_the_exact_command_and_outcome_pair() {
+    let start = Admission::new(
+        CommandId::new(ID).unwrap(),
+        CommandKind::StartSimRun,
+        &"a".repeat(64),
+    )
+    .unwrap();
+    let run = Outcome::new(OutcomeKind::SimRun, RUN).unwrap();
+    let at = "2026-08-27T00:00:00Z";
+    assert_eq!(Receipt::new(admission(), run.clone(), at), Err(Error::BindingMismatch));
+    assert_eq!(
+        Receipt::new(start.clone(), Outcome::new(OutcomeKind::ResearchRun, RUN).unwrap(), at),
+        Err(Error::BindingMismatch)
+    );
+    assert_eq!(Receipt::new(start, run.clone(), at).unwrap().outcome(), &run);
+}
+#[test]
 fn canonical_command_identity_rejects_loose_uuid_and_wrong_outcome_family() {
     for id in [
         "bad",
@@ -77,8 +94,7 @@ fn canonical_command_identity_rejects_loose_uuid_and_wrong_outcome_family() {
 }
 #[test]
 fn all_existing_command_and_outcome_families_are_supported_without_new_identities() {
-    // Historical chat vocabulary is retained; A4 adds explicit proposal withdrawal.
-    assert_eq!(CommandKind::ALL.len(), 29);
+    assert_eq!(CommandKind::ALL.len(), 42);
     for (name, kind) in [
         ("FACTOR_CHAT", CommandKind::FactorChat),
         ("CREATE_PROPOSAL_GRANT", CommandKind::CreateProposalGrant),
@@ -98,13 +114,14 @@ fn all_existing_command_and_outcome_families_are_supported_without_new_identitie
     for kind in CommandKind::ALL {
         assert_eq!(kind.as_str().parse::<CommandKind>().unwrap(), *kind);
     }
-    assert_eq!(OutcomeKind::ALL.len(), 14);
+    assert_eq!(OutcomeKind::ALL.len(), 18);
     for kind in OutcomeKind::ALL {
         assert_eq!(kind.as_str().parse::<OutcomeKind>().unwrap(), *kind);
         let uuid = matches!(
             kind,
             OutcomeKind::ResearchRun
                 | OutcomeKind::BacktestRun
+                | OutcomeKind::SimRun
                 | OutcomeKind::Integration
                 | OutcomeKind::ChartCalculationOperation
         );

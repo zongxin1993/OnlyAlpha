@@ -362,7 +362,7 @@ pub(crate) fn admitted_implementations(
         Some(admission.validated_calculations()?),
     )
 }
-fn implementation_records(
+pub(crate) fn implementation_records(
     source: &onlyalpha_strategy::SourceRevision,
     ready: &Value,
     runtime: &Value,

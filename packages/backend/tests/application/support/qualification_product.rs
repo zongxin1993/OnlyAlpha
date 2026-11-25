@@ -48,6 +48,7 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
             session.client_mut().await.unwrap(),
             &namespace,
             subject,
+            OWNER,
             &id,
         )
         .await
@@ -56,6 +57,7 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
             session.client_mut().await.unwrap(),
             &namespace,
             subject,
+            OWNER,
             &id,
         )
         .await
@@ -66,6 +68,7 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
                 session.client_mut().await.unwrap(),
                 &namespace,
                 &"f".repeat(64),
+                OWNER,
                 &id
             )
             .await
@@ -78,6 +81,7 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
                 session.client_mut().await.unwrap(),
                 &wrong,
                 subject,
+                OWNER,
                 &id
             )
             .await
@@ -200,6 +204,7 @@ pub(super) async fn run_phase(session: &mut AuthoritySession, root: &Path, phase
                 session.client_mut().await.unwrap(),
                 &namespace,
                 subject,
+                OWNER,
                 &id,
             )
             .await

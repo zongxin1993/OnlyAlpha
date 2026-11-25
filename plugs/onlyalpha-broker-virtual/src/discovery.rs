@@ -2,12 +2,12 @@
 use super::{VirtualBroker, plan::err};
 use onlyalpha_broker::*;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 /// 对账期间使用同一个串行拥有的 Broker Journal；每次查询重新取得当前前缀。
 struct VenueDiscovery<'a> {
     venue: &'a VirtualBroker,
-    history: Vec<Record>,
+    history: Cow<'a, [Record]>,
     economic_watermark: bool,
     source_sequence: Option<u64>,
 }
@@ -44,6 +44,25 @@ impl VirtualBroker {
         let mut discovery = self.discovery(journal)?;
         broker.resolve(journal, runtime, &mut discovery, id)
     }
+    /// 在恢复到的原场所水位和查询前的协议前缀上重演查询。
+    pub fn verify_discovery(
+        &self,
+        prefix: &[Record],
+        command: &BrokerCommand,
+        expected: &Value,
+    ) -> Result<(), Error> {
+        let observed = VenueDiscovery {
+            venue: self,
+            history: Cow::Borrowed(prefix),
+            economic_watermark: false,
+            source_sequence: None,
+        }
+        .discover(command)?;
+        if observed.record() != *expected {
+            return Err(err("VIRTUAL_DISCOVERY_CONFLICT"));
+        }
+        Ok(())
+    }
     pub(super) fn bound_query(
         &self,
         history: Vec<Record>,
@@ -61,7 +80,7 @@ impl VirtualBroker {
             .ok_or_else(|| err("VIRTUAL_SOURCE_QUERY_COMMAND"))??;
         VenueDiscovery {
             venue: self,
-            history,
+            history: Cow::Owned(history),
             economic_watermark: true,
             source_sequence: Some(sequence),
         }
@@ -71,7 +90,7 @@ impl VirtualBroker {
         let history = journal.records()?;
         Ok(VenueDiscovery {
             venue: self,
-            history,
+            history: Cow::Owned(history),
             economic_watermark: false,
             source_sequence: None,
         })
@@ -82,7 +101,7 @@ impl DiscoveryPort for VenueDiscovery<'_> {
         self.venue.owner(c.scope())?;
         let mut previous = BTreeMap::new();
         let mut head = Value::Null;
-        for row in &self.history {
+        for row in self.history.iter() {
             let r = row.record();
             if r["scope"] != c.scope().record() {
                 return Err(err("VIRTUAL_JOURNAL_SCOPE"));

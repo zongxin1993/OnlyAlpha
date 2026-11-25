@@ -240,6 +240,40 @@ fn qualification_inputs_accept_locators_and_policy_choices_but_refuse_caller_con
     }
 }
 #[test]
+fn backtest_qualification_and_promotion_accept_only_original_run_selectors() {
+    let subject = "a".repeat(64);
+    let selection = json!({"schema_version":1,"backtest_run_id":RUN,"policy_id":"test-sim","policy_version":"1"});
+    let resume = json!({"schema_version":1,"backtest_run_id":RUN});
+    let mut promotion = selection.clone();
+    promotion["qualification_decision_fingerprint"] = json!("c".repeat(64));
+    promotion["reason"] = json!("进入模拟交易");
+    serde_json::from_value::<QualificationInput>(selection.clone()).unwrap().validate(&subject).unwrap();
+    serde_json::from_value::<QualificationResumeInput>(resume.clone()).unwrap().validate().unwrap();
+    serde_json::from_value::<QualifiedPromotionInput>(promotion.clone()).unwrap().validate(&subject).unwrap();
+    for field in ["research_run_id", "freeze_relation_fingerprint", "owner", "counts", "evidence", "outcome", "approved", "to_stage"] {
+        let add = |v: &Value| { let mut bad = v.clone(); bad[field] = json!(RUN); bad };
+        assert!(serde_json::from_value::<QualificationInput>(add(&selection)).is_err(), "{field}");
+        assert!(serde_json::from_value::<QualificationResumeInput>(add(&resume)).is_err(), "{field}");
+        assert!(serde_json::from_value::<QualifiedPromotionInput>(add(&promotion)).is_err(), "{field}");
+    }
+    let mut bad = selection;
+    bad["backtest_run_id"] = json!("latest");
+    assert!(serde_json::from_value::<QualificationInput>(bad).unwrap().validate(&subject).is_err());
+}
+#[test]
+fn exact_backtest_command_and_decision_preserve_the_original_run_locator() {
+    let evidence = json!({"kind":"BACKTEST_EVIDENCE","evidence_fingerprint":"b".repeat(64),"backtest_run_id":RUN,"subject_binding_fingerprint":"d".repeat(64)});
+    let value = json!({"schema_version":1,"command_id":COMMAND,"strategy_fingerprint":"a".repeat(64),"state":"COMPLETED",
+        "request":{"subject_strategy_fingerprint":"a".repeat(64),"policy_id":"test-sim","policy_version":"1","evidence":[evidence]},
+        "prepared_at":"2026-11-02T00:00:00Z","completed_at":"2026-11-02T00:00:01Z","decision_fingerprint":"e".repeat(64)});
+    assert_eq!(serde_json::to_value(serde_json::from_value::<QualificationCommandView>(value.clone()).unwrap()).unwrap(), value);
+    let mut mixed = value;
+    mixed["request"]["evidence"][0]["locator_fingerprint"] = json!("f".repeat(64));
+    assert!(serde_json::from_value::<QualificationCommandView>(mixed).is_err());
+    let decision = json!({"schema_version":1,"decision_fingerprint":"e".repeat(64),"state":"VERIFIED","decision":{"evidence":[evidence]},"research_run_id":null,"research_run_candidates":[],"backtest_run_id":RUN});
+    assert_eq!(serde_json::to_value(serde_json::from_value::<QualificationDecisionReadView>(decision.clone()).unwrap()).unwrap(), decision);
+}
+#[test]
 fn original_command_projection_and_locator_required_view_do_not_fabricate_approved_facts() {
     let value = json!({"schema_version":1,"command_id":COMMAND,"strategy_fingerprint":"a".repeat(64),"state":"PREPARED",
         "request":{"subject_strategy_fingerprint":"a".repeat(64),"policy_id":"experimental-backtest","policy_version":"1",
@@ -299,4 +333,87 @@ fn startup_experimental_policy_is_exact_evidence_completeness_without_a_profit_c
     expected["policy_fingerprint"] =
         json!(crate::application::factor_content::hash(&identity).unwrap());
     assert_eq!(actual, expected);
+
+    let sim_actual = crate::bootstrap::research_namespace::experimental_sim_policy()
+        .unwrap()
+        .to_record();
+    let mut sim_expected = json!({"schema_version":1,"policy_id":"experimental-sim","policy_version":"1","gate":"BACKTEST_TO_SIM",
+        "missing_evidence_behavior":"FAIL","aggregation":"ALL","criteria":[
+        {"criterion_id":"close-curve-point-count","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.close_curve_point_count","comparison":"GE","threshold":"1"},
+        {"criterion_id":"execution-completed","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.execution_completed","comparison":"EQ","threshold":"1"}]});
+    let mut sim_identity = sim_expected.clone();
+    sim_identity["domain"] = json!("onlyalpha.strategy.qualification-policy");
+    sim_expected["policy_fingerprint"] =
+        json!(crate::application::factor_content::hash(&sim_identity).unwrap());
+    assert_eq!(sim_actual, sim_expected);
+}
+
+#[test]
+fn sim_start_and_account_revision_routes_expose_exact_product_contracts() {
+    let (_, document) = declaration();
+    let doc = serde_json::to_value(document).unwrap();
+    for (method, path, verb, response, input, requires_key) in [
+        (
+            Method::POST,
+            "/api/v2/sim/runs",
+            "post",
+            "StartObservation",
+            Some("StartSelection"),
+            true,
+        ),
+        (
+            Method::GET,
+            "/api/v2/sim/commands/{command_id}",
+            "get",
+            "StartObservation",
+            None,
+            false,
+        ),
+        (
+            Method::POST,
+            "/api/v2/sim/accounts/{account_id}/revisions",
+            "post",
+            "SimAccountRevisionView",
+            Some("SimAccountRevisionPublishInput"),
+            false,
+        ),
+        (
+            Method::GET,
+            "/api/v2/sim/accounts/{account_id}/revisions/{revision_fingerprint}",
+            "get",
+            "SimAccountRevisionView",
+            None,
+            false,
+        ),
+    ] {
+        assert_eq!(operation(&method, path), Some(Operation::Implemented), "{method} {path}");
+        let actual = &doc["paths"][path][verb];
+        assert_eq!(actual["security"], json!([{"LocalDeveloperCookie": []}]));
+        assert_eq!(
+            actual["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            format!("#/components/schemas/{response}")
+        );
+        for status in ["400", "401", "403", "404", "409", "503"] {
+            assert_eq!(
+                actual["responses"][status]["content"]["application/json"]["schema"]["$ref"],
+                "#/components/schemas/NativeErrorEnvelope"
+            );
+        }
+        if let Some(input) = input {
+            assert_eq!(
+                actual["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+                format!("#/components/schemas/{input}")
+            );
+        }
+        if requires_key {
+            assert!(
+                actual["parameters"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|p| p["in"] == "header" && p["name"] == "Idempotency-Key" && p["required"] == true)
+            );
+        }
+        assert_eq!(operation(&Method::DELETE, path), None);
+    }
 }
