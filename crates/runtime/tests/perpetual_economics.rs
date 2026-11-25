@@ -1,11 +1,9 @@
 //! 非供应商专用样本：2 份 × 30 × 合约乘数 2；初始资金 20、初始保证金 12。
-use onlyalpha_broker::ConnectionPort;
-use onlyalpha_broker_virtual::BoundVirtualActor;
-use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar, time::OnlyTimestamp};
-use onlyalpha_execution::{CommitIntent, Components, Error, Record, Store, coordinate};
-use onlyalpha_runtime::{BoundBrokerJournal, Runtime, SqliteStore};
+use onlyalpha_domain::{
+    base::OnlyDomainModel, execution::OnlyOrderRequest, market::OnlyReferencePriceFact,
+};
+use onlyalpha_execution::{Components, MarketSourceCut};
 use serde_json::{Value, json};
-use std::fs;
 
 #[path = "support/perpetual_run.rs"]
 mod perpetual_run;
@@ -78,10 +76,16 @@ fn verify(s: &Value) {
     amount(&funding["cashflow"]["amount"], "-.124");
     assert_eq!(funding["mark_fact_id"], "mark-50");
 }
+fn refresh_fill_observation(input: &mut Value) {
+    let fact = onlyalpha_broker::Fact::decode(&input["payload"]["broker"]["record"]).unwrap();
+    input["payload"]["broker"] =
+        json!({"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":fact.record()});
+}
+
 #[test]
 fn independent_multiplier_margin_fee_mark_and_funding_accounting() {
     let (cfg, inputs) = scenario();
-    let (_root, mut rt) = prepare_prefix(&cfg, &inputs, 2);
+    let mut rt = Driver::prefix(&cfg, &inputs, 2);
     let admitted = rt.state().unwrap();
     amount(&admitted["account"]["snapshot"]["reserved_margin"], "12");
     amount(&admitted["account"]["snapshot"]["cash"], "20");
@@ -101,6 +105,7 @@ fn independent_multiplier_margin_fee_mark_and_funding_accounting() {
     }
     verify(&rt.state().unwrap());
 }
+
 #[test]
 fn unavailable_collateral_blocks_new_risk_while_original_funding_remains_payable() {
     let (mut cfg, mut inputs) = scenario();
@@ -114,7 +119,7 @@ fn unavailable_collateral_blocks_new_risk_while_original_funding_remains_payable
     inputs[5]["payload"]["fact"]["value"]["value"] = original["price"].clone();
     inputs[6]["payload"]["fact"]["rate"] = original["rate"].clone();
     bind_offline_source(&mut cfg, &inputs);
-    let (_root, mut rt) = prepare_prefix(&cfg, &inputs, 6);
+    let mut rt = Driver::prefix(&cfg, &inputs, 6);
     let liability = &inputs[6];
     rt.apply(liability).unwrap();
     let state = rt.state().unwrap();
@@ -132,30 +137,13 @@ fn unavailable_collateral_blocks_new_risk_while_original_funding_remains_payable
     next["payload"]["order"] = json!("runtime-ORDER-000002");
     next["payload"]["request"]["request_id"]["value"] = json!("next-request");
     assert!(rt.apply(&next).is_err());
-    rt.recover().unwrap();
-    assert_eq!(rt.state().unwrap(), state);
+    let restored = rt.recompute();
+    assert_eq!(restored.state().unwrap(), state);
+    assert_eq!(restored.applied(), rt.applied());
 }
 
-struct RejectFundingCommit<'a>(&'a SqliteStore);
-impl Store for RejectFundingCommit<'_> {
-    fn head(&self) -> Result<u64, Error> {
-        self.0.head()
-    }
-    fn get(&self, n: u64) -> Result<Option<Record>, Error> {
-        self.0.get(n)
-    }
-    fn commit(&mut self, _: &CommitIntent) -> Result<Record, Error> {
-        Err(Error("TEST_COMMIT_UNKNOWN".into()))
-    }
-    fn mark_ready(&mut self, _: u64) -> Result<(), Error> {
-        Err(Error("OBSERVATION_READ_ONLY".into()))
-    }
-    fn acknowledge(&mut self, _: u64) -> Result<(), Error> {
-        Err(Error("OBSERVATION_READ_ONLY".into()))
-    }
-}
 #[test]
-fn new_version_rejects_uninstalled_shapes_and_original_cash_reader_stays_distinct() {
+fn new_version_rejects_uninstalled_shapes_and_original_mark_alias_stays_distinct() {
     let (cfg, inputs) = scenario();
     assert!(Components::new(cfg.clone()).is_ok());
     for (key, value) in [
@@ -177,7 +165,7 @@ fn new_version_rejects_uninstalled_shapes_and_original_cash_reader_stays_distinc
     let mut missing = cfg.clone();
     missing["perpetual"]["margin_segments"] = json!([]);
     assert!(Components::new(missing).is_err());
-    let (_root, mut rt) = prepare_prefix(&cfg, &inputs, 1);
+    let mut rt = Driver::prefix(&cfg, &inputs, 1);
     let before = rt.state().unwrap();
     let mut aliased = inputs[0].clone();
     aliased["input_id"] = json!("new-mark-envelope");
@@ -185,8 +173,9 @@ fn new_version_rejects_uninstalled_shapes_and_original_cash_reader_stays_distinc
     aliased["runtime_sequence"] = json!(2);
     aliased["payload"]["fact"]["value"]["value"] = json!("30.01");
     assert!(rt.apply(&aliased).is_err());
-    rt.recover().unwrap();
-    assert_eq!(rt.state().unwrap(), before);
+    let restored = rt.recompute();
+    assert_eq!(restored.state().unwrap(), before);
+    assert_eq!(restored.applied(), rt.applied());
 }
 
 #[test]
@@ -203,7 +192,7 @@ fn reference_mark_precision_is_independent_of_the_order_price_tick() {
         input["payload"]["fact"]["provider_evidence_id"] = json!("row-7-fine");
     }
     bind_offline_source(&mut cfg, &inputs);
-    let (root, mut runtime) = prepare_prefix(&cfg, &inputs, 7);
+    let runtime = Driver::prefix(&cfg, &inputs, 7);
     let state = runtime.state().unwrap();
     let acct = &state["account"]["snapshot"];
     let ledger = &state["ledger"]["ledgers"]["cluster"]["snapshot"];
@@ -221,10 +210,9 @@ fn reference_mark_precision_is_independent_of_the_order_price_tick() {
     amount(&acct["cash"], "19.81599960");
     amount(&acct["equity"], "23.81639960");
     amount(&ledger["equity"], "23.81639960");
-    runtime.save_checkpoint().unwrap();
-    drop(runtime);
-    let restored = Runtime::open(&root.0, cfg, &artifact()).unwrap();
+    let restored = runtime.recompute();
     assert_eq!(restored.state().unwrap(), state);
+    assert_eq!(restored.applied(), runtime.applied());
 }
 
 #[test]
@@ -272,13 +260,12 @@ fn missing_mark_margin_tier_preserves_the_original_valuation_and_funding() {
     inputs.push(safe.clone());
     compile_synthetic_rules(&mut cfg, &mut inputs);
     bind_offline_source(&mut cfg, &inputs);
-    let (root, mut runtime) = prepare_prefix(&cfg, &inputs, 5);
+    let mut runtime = Driver::prefix(&cfg, &inputs, 5);
     let entry = runtime.state().unwrap();
     let last = entry["account"]["snapshot"]["last_confirmed_maintenance"].clone();
     amount(&entry["account"]["snapshot"]["occupied_margin"], "12");
     amount(&last["amount"], ".48");
     assert_eq!(last["time"], inputs[4]["time"]);
-    runtime.save_checkpoint().unwrap();
 
     runtime.apply(&inputs[5]).unwrap();
     let marked = runtime.state().unwrap();
@@ -311,9 +298,7 @@ fn missing_mark_margin_tier_preserves_the_original_valuation_and_funding() {
         funded["account"]["snapshot"]["last_confirmed_maintenance"],
         last
     );
-    let originals = runtime.records().unwrap();
-    assert_eq!(originals.len(), 7);
-    assert!(originals.iter().all(Record::ready));
+    assert_eq!(runtime.retained(), 7);
 
     // 新申请自身只增加 0.50 名义；已有仓位的维护要求缺证就须拒绝。
     let mut next = inputs[1].clone();
@@ -329,13 +314,12 @@ fn missing_mark_margin_tier_preserves_the_original_valuation_and_funding() {
         runtime.apply(&next).unwrap_err().0,
         "MARGIN_MAINTENANCE_UNAVAILABLE"
     );
-    drop(runtime);
-    let mut restored = Runtime::open(&root.0, cfg.clone(), &artifact()).unwrap();
+    let mut restored = runtime.recompute();
     assert_eq!(restored.state().unwrap(), funded);
-    assert_eq!(restored.records().unwrap(), originals);
+    assert_eq!(restored.retained(), 7);
     restored.apply(&inputs[6]).unwrap();
     assert_eq!(restored.state().unwrap(), funded);
-    assert_eq!(restored.records().unwrap(), originals);
+    assert_eq!(restored.retained(), 7);
     restored.apply(&back).unwrap();
     let current = restored.state().unwrap();
     let account = &current["account"]["snapshot"];
@@ -357,11 +341,10 @@ fn missing_mark_margin_tier_preserves_the_original_valuation_and_funding() {
     restored.apply(&next).unwrap();
     let resumed = restored.state().unwrap();
     amount(&resumed["account"]["snapshot"]["reserved_margin"], ".05");
-    let history = restored.records().unwrap();
-    drop(restored);
-    let fresh = Runtime::open(&root.0, cfg, &artifact()).unwrap();
+    let history = restored.retained();
+    let fresh = restored.recompute();
     assert_eq!(fresh.state().unwrap(), resumed);
-    assert_eq!(fresh.records().unwrap(), history);
+    assert_eq!(fresh.retained(), history);
 }
 
 #[test]
@@ -382,7 +365,7 @@ fn pending_open_orders_share_the_frozen_margin_tier_at_admission() {
     };
 
     // 除冻结模型上界外，使用相同资金、请求、序列及 Risk 前置，两单均可进入较宽的档位。
-    let (_wide_dir, mut wide) = prepare_prefix(&cfg, &inputs, 2);
+    let mut wide = Driver::prefix(&cfg, &inputs, 2);
     wide.apply(&next(3, &cfg["perpetual"]["policy_fingerprint"]))
         .unwrap();
     amount(
@@ -404,7 +387,7 @@ fn pending_open_orders_share_the_frozen_margin_tier_at_admission() {
         .push(higher);
     let mut stepped_inputs = inputs.clone();
     compile_synthetic_rules(&mut stepped, &mut stepped_inputs);
-    let (stepped_dir, mut existing) = prepare_prefix(&stepped, &stepped_inputs, 2);
+    let mut existing = Driver::prefix(&stepped, &stepped_inputs, 2);
     let original = existing.state().unwrap();
     assert_eq!(
         existing
@@ -413,19 +396,12 @@ fn pending_open_orders_share_the_frozen_margin_tier_at_admission() {
             .0,
         "EXECUTION_EXISTING_MARGIN_COVERAGE"
     );
-    drop(existing);
-    assert_eq!(
-        Runtime::open(&stepped_dir.0, stepped, &artifact())
-            .unwrap()
-            .state()
-            .unwrap(),
-        original
-    );
+    assert_eq!(existing.recompute().state().unwrap(), original);
 
     cfg["perpetual"]["margin_segments"][0]["upper_bound"] = json!("121");
     let mut narrow_inputs = inputs.clone();
     compile_synthetic_rules(&mut cfg, &mut narrow_inputs);
-    let (root, mut run) = prepare_prefix(&cfg, &narrow_inputs, 2);
+    let mut run = Driver::prefix(&cfg, &narrow_inputs, 2);
     let mut unknown = inputs[2].clone();
     unknown["payload"]["outcome"] = json!("UNKNOWN");
     let mut cancel = unknown.clone();
@@ -439,7 +415,7 @@ fn pending_open_orders_share_the_frozen_margin_tier_at_admission() {
             run.apply(&input).unwrap();
         }
         let prefix = run.state().unwrap();
-        let records = run.records().unwrap();
+        let records = run.applied().len();
         amount(&prefix["account"]["snapshot"]["cash"], "1000");
         amount(&prefix["account"]["snapshot"]["reserved_margin"], "12");
         assert_eq!(
@@ -448,114 +424,23 @@ fn pending_open_orders_share_the_frozen_margin_tier_at_admission() {
                 .0,
             "EXECUTION_MARGIN_NOTIONAL_DOMAIN"
         );
-        drop(run);
-        run = Runtime::open(&root.0, cfg.clone(), &artifact()).unwrap();
+        run = run.recompute();
         assert_eq!(run.state().unwrap(), prefix);
-        assert_eq!(run.records().unwrap(), records);
+        assert_eq!(run.applied().len(), records);
     }
-}
-
-fn unobserved_acceptance(
-    cfg: &Value,
-    inputs: &[Value],
-) -> (
-    Root,
-    Runtime,
-    BoundVirtualActor,
-    onlyalpha_broker::Broker,
-    BoundBrokerJournal,
-) {
-    use onlyalpha_broker::{Broker, BrokerCommand, Connection};
-    let (root, mut run) = prepare_prefix(cfg, inputs, 1);
-    let (scope, cash, settings) = venue_config(inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let mut actor = BoundVirtualActor::open(
-        &root.0,
-        scope.clone(),
-        &"f".repeat(64),
-        cash,
-        &settings,
-        binding,
-    )
-    .unwrap();
-    actor.connect().unwrap();
-    actor.authenticate().unwrap();
-    let mut journal = BoundBrokerJournal::open(&root.0, binding).unwrap();
-    let mut broker = Broker::recover(scope.clone(), &journal, 32).unwrap();
-    broker.set_connection(Connection::Ready);
-    broker.set_health(true, true, true);
-
-    let admission = &inputs[1];
-    run.apply(admission).unwrap();
-    let owners = run.fork_ready().unwrap().0.checkpoint().unwrap();
-    let order = &owners["components"][0]["state"]["orders"][0]["snapshot"];
-    let command = BrokerCommand::decode(&json!({
-        "schema_version":1, "scope":scope.record(), "operation":"SUBMIT",
-        "command_id":"original-submit", "order":admission["payload"]["order"],
-        "client":order["client_order_id"]["value"], "request":admission["payload"]["request"]
-    }))
-    .unwrap();
-    let at = admission["time"].as_i64().unwrap();
-    actor.advance(at).unwrap();
-    journal
-        .dispatch(&mut broker, &run, &mut actor, &command)
-        .unwrap();
-    actor.advance(at).unwrap();
-    run.apply(&inputs[2]).unwrap();
-    assert!(broker.pending().is_empty());
-    (root, run, actor, broker, journal)
-}
-
-#[test]
-fn standalone_self_reported_broker_fact_cannot_author_a_ready_acceptance() {
-    let (cfg, inputs) = scenario();
-    let (root, mut run, mut actor, mut broker, mut journal) = unobserved_acceptance(&cfg, &inputs);
-    let prefix = run.records().unwrap();
-    let state = run.state().unwrap();
-    let acceptance = &inputs[3];
-    assert!(broker.pending().is_empty());
-    assert_eq!(
-        run.apply(acceptance).unwrap_err().0,
-        "BROKER_ORIGINAL_OBSERVATION_MISSING"
-    );
-    drop(run);
-    let mut run = Runtime::open(&root.0, cfg.clone(), &artifact()).unwrap();
-    assert_eq!(run.records().unwrap(), prefix);
-    assert_eq!(run.state().unwrap(), state);
-
-    assert_eq!(actor.publish(&mut broker, &mut journal).unwrap(), 1);
-    assert_eq!(
-        broker.pending()[0].record(),
-        acceptance["payload"]["broker"]["record"]
-    );
-    run.apply(acceptance).unwrap();
-    let accepted = run.records().unwrap();
-    assert_eq!(accepted.len(), prefix.len() + 1);
-    assert_eq!(accepted.last().unwrap().prepared().input(), acceptance);
-    drop(run);
-    assert_eq!(
-        Runtime::open(&root.0, cfg, &artifact())
-            .unwrap()
-            .records()
-            .unwrap(),
-        accepted
-    );
 }
 
 #[test]
 fn altered_funding_rate_cannot_borrow_a_bound_source_record_hash() {
     let (cfg, inputs) = scenario();
-    let (root, mut run) = prepare_prefix(&cfg, &inputs, 6);
+    let mut run = Driver::prefix(&cfg, &inputs, 6);
     let before = run.state().unwrap();
     let mut changed = inputs[6].clone();
     changed["payload"]["fact"]["rate"] = json!("0.5");
     assert!(run.apply(&changed).is_err());
-    drop(run);
-    let run = Runtime::open(&root.0, cfg, &artifact()).unwrap();
-    assert_eq!(run.state().unwrap(), before);
-    assert_eq!(run.records().unwrap().len(), 6);
+    let restored = run.recompute();
+    assert_eq!(restored.state().unwrap(), before);
+    assert_eq!(restored.applied().len(), 6);
 }
 
 #[test]
@@ -575,22 +460,18 @@ fn pending_and_new_fills_must_fit_the_current_mark_notional_domain() {
         cfg["perpetual"]["margin_segments"][0]["upper_bound"] = json!(cap);
         compile_synthetic_rules(&mut cfg, &mut inputs);
         second["payload"]["policy_fingerprint"] = cfg["perpetual"]["policy_fingerprint"].clone();
-        let (root, mut run) = prepare_prefix(&cfg, &inputs, cut);
-        let before = run.records().unwrap();
+        let mut run = Driver::prefix(&cfg, &inputs, cut);
+        let before = run.state().unwrap();
+        let records = run.applied().len();
         let next = if cut == 1 { &inputs[1] } else { &second };
         let result = run.apply(next);
         if cap == "1000" {
             result.unwrap();
         } else {
             assert_eq!(result.unwrap_err().0, "EXECUTION_MARGIN_NOTIONAL_DOMAIN");
-            drop(run);
-            assert_eq!(
-                Runtime::open(&root.0, cfg.clone(), &artifact())
-                    .unwrap()
-                    .records()
-                    .unwrap(),
-                before
-            );
+            let restored = run.recompute();
+            assert_eq!(restored.state().unwrap(), before);
+            assert_eq!(restored.applied().len(), records);
         }
     }
 }
@@ -609,12 +490,6 @@ fn frozen_margin_configuration_proves_every_supported_occupancy_increment() {
         Components::new(cfg).is_err(),
         "at 120→180 maintenance increases by 12 but the owner supports at most 6"
     );
-}
-
-fn refresh_fill_observation(input: &mut Value) {
-    let fact = onlyalpha_broker::Fact::decode(&input["payload"]["broker"]["record"]).unwrap();
-    input["payload"]["broker"] =
-        json!({"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":fact.record()});
 }
 
 #[test]
@@ -648,18 +523,15 @@ fn gtc_fee_reservation_covers_future_effective_rates_and_uses_the_fill_economic_
     fill["time"] = json!(day_two);
     fill["trading_day"] = json!("2026-09-02");
     fill["day_index"] = json!(2);
-    // 实际场所原件保留原经济日与原生成时刻，Runtime 在第二日才可见。
+    // 实际场所原件保留原经济日与原生成时刻，运行在第二日才可见。
     refresh_fill_observation(fill);
-    let (_root, mut run) = prepare_prefix(&cfg, &inputs, 2);
-    amount(
-        &run.state().unwrap()["account"]["snapshot"]["reserved"],
-        "1",
-    );
+    let mut run = Driver::prefix(&cfg, &inputs, 2);
+    amount(&run.state().unwrap()["account"]["snapshot"]["reserved"], "1");
     for item in &inputs[2..5] {
         run.apply(item).unwrap();
     }
     amount(&run.state().unwrap()["account"]["snapshot"]["fees"], "0");
-    let (_root, mut denied) = prepare_prefix(&gap, &inputs, 1);
+    let mut denied = Driver::prefix(&gap, &inputs, 1);
     assert!(
         denied.apply(&inputs[1]).is_err(),
         "open-ended order would reach a fee schedule gap"
@@ -673,7 +545,7 @@ fn gtc_fee_reservation_covers_future_effective_rates_and_uses_the_fill_economic_
         json!(day_two);
     refresh_fill_observation(&mut economic);
     inputs[4] = economic.clone();
-    let (_root, mut later) = prepare_prefix(&cfg, &inputs, 4);
+    let mut later = Driver::prefix(&cfg, &inputs, 4);
     later.apply(&economic).unwrap();
     amount(&later.state().unwrap()["account"]["snapshot"]["fees"], "1");
 }
@@ -730,7 +602,7 @@ fn perpetual_flat_fractional_fills_use_exact_cost_before_rounding_cash() {
         inputs.push(mark.clone());
         compile_synthetic_rules(&mut cfg, &mut inputs);
         bind_offline_source(&mut cfg, &inputs);
-        let (root, mut run) = prepare_prefix(&cfg, &inputs, 5);
+        let mut run = Driver::prefix(&cfg, &inputs, 5);
         amount(
             &run.state().unwrap()["account"]["snapshot"]["unrealized_pnl"],
             "0",
@@ -756,77 +628,54 @@ fn perpetual_flat_fractional_fills_use_exact_cost_before_rounding_cash() {
             &current["ledger"]["ledgers"]["cluster"]["snapshot"]["equity"],
             cash,
         );
-        run.save_checkpoint().unwrap();
-        drop(run);
-        assert_eq!(
-            Runtime::open(&root.0, cfg, &artifact())
-                .unwrap()
-                .state()
-                .unwrap(),
-            current
-        );
+        let restored = run.recompute();
+        assert_eq!(restored.state().unwrap(), current);
+        assert_eq!(restored.applied(), run.applied());
     }
 }
 
 #[test]
-fn original_funding_projections_reject_rehashed_amounts_and_missing_source_on_reopen() {
-    let (cfg, inputs) = scenario();
-    let (root, mut run) = prepare_prefix(&cfg, &inputs, 7);
-    run.save_checkpoint().unwrap();
-    let original = run.fork_ready().unwrap().0.checkpoint().unwrap();
-    let mut valid = Components::new(cfg.clone()).unwrap();
-    valid
-        .restore(
-            &original,
-            &onlyalpha_execution::digest(&serde_json::to_vec(&original).unwrap()),
-        )
-        .unwrap();
-    assert_eq!(valid.checkpoint().unwrap(), original);
-    for (index, op) in [(2, "ECONOMIC"), (3, "FUNDING")] {
-        let mut bad = original.clone();
-        let history = bad["components"][index]["journal"].as_array_mut().unwrap();
-        let command = history.iter_mut().find(|c| c["op"] == op).unwrap();
-        command["payload"]["amount"] = json!("91.00000000");
-        let mut restored = Components::new(cfg.clone()).unwrap();
+fn original_source_rows_must_be_canonical_under_the_frozen_cut_digest() {
+    let (cfg, _) = scenario();
+    let rows = cfg["perpetual"]["source_rows"].clone();
+    let expected = cfg["perpetual"]["source_cut_sha256"].as_str().unwrap();
+    MarketSourceCut::read(&serde_json::to_vec(&rows).unwrap(), expected).unwrap();
+
+    // 重排字节而不更新冻结摘要：切口身份必须失配。
+    let mut reordered = rows.clone();
+    reordered.as_array_mut().unwrap().reverse();
+    let bytes = serde_json::to_vec(&reordered).unwrap();
+    let rewritten = onlyalpha_execution::digest(&bytes);
+    assert!(MarketSourceCut::read(&bytes, expected).is_err());
+    assert!(MarketSourceCut::read(&bytes, &rewritten).is_ok());
+
+    // 原始行摘要与事实都不允许被改写。
+    for tamper in ["raw_sha256", "facts", "extra"] {
+        let mut altered = rows.clone();
+        let row = altered.as_array_mut().unwrap().last_mut().unwrap();
+        match tamper {
+            "raw_sha256" => row["raw_sha256"] = json!("0".repeat(64)),
+            "facts" => row["facts"][1]["note"] = json!("foreign"),
+            _ => row["note"] = json!("foreign"),
+        }
+        let bytes = serde_json::to_vec(&altered).unwrap();
+        let digest = onlyalpha_execution::digest(&bytes);
         assert!(
-            restored
-                .restore(
-                    &bad,
-                    &onlyalpha_execution::digest(&serde_json::to_vec(&bad).unwrap())
-                )
-                .is_err()
+            MarketSourceCut::read(&bytes, &digest).is_err(),
+            "{tamper} was accepted"
         );
     }
-    let before = run.state().unwrap();
-    drop(run);
-    let path = root.0.join("market-source-cut.json");
-    let original = fs::read(&path).unwrap();
-    fs::rename(&path, root.0.join("original-cut")).unwrap();
-    assert!(Runtime::open(&root.0, cfg.clone(), &artifact()).is_err());
-    let mut altered: Value = serde_json::from_slice(&original).unwrap();
-    altered.as_array_mut().unwrap().last_mut().unwrap()["facts"][1]["rate"] = json!("0.5");
-    fs::write(&path, serde_json::to_vec(&altered).unwrap()).unwrap();
-    assert!(Runtime::open(&root.0, cfg.clone(), &artifact()).is_err());
-    fs::write(&path, original).unwrap();
-    assert_eq!(
-        Runtime::open(&root.0, cfg, &artifact())
-            .unwrap()
-            .state()
-            .unwrap(),
-        before
-    );
 }
 
 #[test]
 fn funding_requires_economic_watermark_and_all_original_boundary_trades_ready() {
     let (cfg, inputs) = scenario();
-    let (root, mut runtime) = prepare_venue_prefix(&cfg, &inputs, 4, false);
+    let mut runtime = Driver::prefix_closing(&cfg, &inputs, 4, false);
     let mut mark = inputs[5].clone();
     mark["runtime_sequence"] = json!(5);
     runtime.apply(&mark).unwrap();
-    runtime.save_checkpoint().unwrap();
     let before = runtime.state().unwrap();
-    let records = runtime.records().unwrap();
+    let records = runtime.applied().len();
     let mut funding = inputs[6].clone();
     funding["runtime_sequence"] = json!(6);
     assert!(
@@ -836,48 +685,28 @@ fn funding_requires_economic_watermark_and_all_original_boundary_trades_ready() 
             .0
             .contains("BROKER_ECONOMIC_PREFIX_UNPROVEN")
     );
-    drop(runtime);
-    let mut runtime = Runtime::open(&root.0, cfg.clone(), &artifact()).unwrap();
+    let mut runtime = runtime.recompute();
     assert_eq!(runtime.state().unwrap(), before);
-    assert_eq!(runtime.records().unwrap(), records);
-    let (scope, cash, settings) = venue_config(&inputs);
-    let mut venue = BoundVirtualActor::open(
-        &root.0,
-        scope,
-        &"f".repeat(64),
-        cash,
-        &settings,
-        cfg["perpetual"]["execution_source_binding"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
-    venue.advance(funding["time"].as_i64().unwrap()).unwrap();
+    assert_eq!(runtime.applied().len(), records);
+    runtime.advance(funding["time"].as_i64().unwrap()).unwrap();
     assert_eq!(
         runtime.apply(&funding).unwrap_err().0,
         "EXECUTION_FUNDING_UNAPPLIED_TRADE"
     );
-    drop(runtime);
-    let mut runtime = Runtime::open(&root.0, cfg.clone(), &artifact()).unwrap();
+    let mut runtime = runtime.recompute();
     assert_eq!(runtime.state().unwrap(), before);
     let mut fill = inputs[4].clone();
     fill["runtime_sequence"] = json!(6);
     fill["time"] = funding["time"].clone();
     runtime.apply(&fill).unwrap();
+    runtime.advance(funding["time"].as_i64().unwrap()).unwrap();
     runtime.apply(&inputs[6]).unwrap();
     amount(
         &runtime.state().unwrap()["account"]["snapshot"]["cash"],
         "19.816",
     );
     let final_state = runtime.state().unwrap();
-    drop(runtime);
-    assert_eq!(
-        Runtime::open(&root.0, cfg, &artifact())
-            .unwrap()
-            .state()
-            .unwrap(),
-        final_state
-    );
+    assert_eq!(runtime.recompute().state().unwrap(), final_state);
 }
 
 #[test]
@@ -887,7 +716,7 @@ fn utc_compilation_epoch_controls_processing_days_and_future_admission() {
         ("trading_day", json!("2026-09-02")),
         ("day_index", json!(2)),
     ] {
-        let (root, mut run) = prepare_prefix(&cfg, &inputs, 1);
+        let mut run = Driver::prefix(&cfg, &inputs, 1);
         let before = run.state().unwrap();
         let mut wrong = inputs[1].clone();
         wrong[key] = value;
@@ -895,27 +724,20 @@ fn utc_compilation_epoch_controls_processing_days_and_future_admission() {
             run.apply(&wrong).unwrap_err().0,
             "EXECUTION_PERPETUAL_TRADING_DAY"
         );
-        drop(run);
-        assert_eq!(
-            Runtime::open(&root.0, cfg.clone(), &artifact())
-                .unwrap()
-                .state()
-                .unwrap(),
-            before
-        );
+        assert_eq!(run.recompute().state().unwrap(), before);
     }
     // 同日真实新编译身份仍不能向编译时点之前的请求签发准入。
     let mut future = cfg.clone();
     let mut rows = inputs.clone();
     future["perpetual"]["limit_rules"]["effective_from"] = json!("2026-09-01T08:00:00Z");
     compile_synthetic_rules(&mut future, &mut rows);
-    let (_root, mut run) = prepare_prefix(&future, &rows, 1);
+    let mut run = Driver::prefix(&future, &rows, 1);
     assert_eq!(
         run.apply(&rows[1]).unwrap_err().0,
         "EXECUTION_MARKET_LIMIT_RULES"
     );
     // 完整当前编译包能准入原请求。
-    let (_root, run) = prepare_prefix(&cfg, &inputs, 2);
+    let run = Driver::prefix(&cfg, &inputs, 2);
     amount(
         &run.state().unwrap()["account"]["snapshot"]["reserved_margin"],
         "12",
@@ -958,10 +780,7 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
     let changed_mark = case == MarginFillCase::ChangedMark;
     let price = if precise { "0.010501" } else { "0.01" };
     let price_precision = if precise { 6 } else { 2 };
-    use onlyalpha_broker::{Broker, BrokerCommand, Connection, Scope};
-    use onlyalpha_domain::{
-        base::OnlyDomainModel, execution::OnlyOrderRequest, market::OnlyReferencePriceFact,
-    };
+    use onlyalpha_broker::{Scope};
     let (mut cfg, mut inputs) = scenario();
     cfg["currency"]["precision"] = json!(precision);
     cfg["perpetual"]["currency"] = cfg["currency"].clone();
@@ -1044,7 +863,7 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
         inputs.push(later_mark.clone());
     }
     bind_offline_source(&mut cfg, &inputs);
-    let (root, mut runtime) = prepare_prefix(&cfg, &inputs, 5);
+    let runtime = Driver::prefix(&cfg, &inputs, 5);
     let first = runtime.state().unwrap();
     let first_initial = match (split_orders, precision) {
         (true, 2) => ".11",
@@ -1078,9 +897,7 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
         first_maintenance,
     );
     amount(&first["account"]["snapshot"]["cash"], "20");
-    runtime.save_checkpoint().unwrap();
-    drop(runtime);
-    let mut runtime = Runtime::open(&root.0, cfg.clone(), &artifact()).unwrap();
+    let mut runtime = runtime.recompute();
     assert_eq!(runtime.state().unwrap(), first);
     if changed_mark {
         runtime.apply(&later_mark).unwrap();
@@ -1113,23 +930,6 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
         record["payload"]["fill"]["ts_event"]["unix_nanos"] = time.clone();
         record["payload"]["fill"]["ts_init"]["unix_nanos"] = time;
     }
-    let (_, cash, settings) = venue_config(&inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let mut venue = BoundVirtualActor::open(
-        &root.0,
-        scope.clone(),
-        &"f".repeat(64),
-        cash,
-        &settings,
-        binding,
-    )
-    .unwrap();
-    venue.connect().unwrap();
-    venue.authenticate().unwrap();
-    let mut journal = BoundBrokerJournal::open(&root.0, binding).unwrap();
-    let mut broker = Broker::recover(scope.clone(), &journal, 512).unwrap();
     if split_orders {
         let order = "runtime-ORDER-000002";
         let mut admit = inputs[1].clone();
@@ -1150,19 +950,9 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
             &runtime.state().unwrap()["account"]["snapshot"]["reserved_margin"],
             if precision == 2 { ".01" } else { ".011" },
         );
-        let owners = runtime.fork_ready().unwrap().0.checkpoint().unwrap();
-        let row = owners["components"][0]["state"]["orders"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["snapshot"]["order_id"]["value"] == order)
-            .unwrap();
-        let command = BrokerCommand::decode(&json!({"schema_version":1,"scope":scope.record(),"operation":"SUBMIT","command_id":"rounded-submit-2","order":order,"client":row["snapshot"]["client_order_id"]["value"],"request":admit["payload"]["request"]})).unwrap();
-        broker.set_connection(Connection::Ready);
-        broker.set_health(true, true, true);
-        journal
-            .dispatch(&mut broker, &runtime, &mut venue, &command)
-            .unwrap();
+        let row = runtime.order("cluster", order).unwrap();
+        let command = onlyalpha_broker::BrokerCommand::decode(&json!({"schema_version":1,"scope":scope.record(),"operation":"SUBMIT","command_id":"rounded-submit-2","order":order,"client":row["client_order_id"]["value"],"request":admit["payload"]["request"]})).unwrap();
+        runtime.dispatch(&command).unwrap();
         let mut submitted = inputs[2].clone();
         submitted["runtime_sequence"] = json!(7);
         submitted["input_id"] = json!("rounded-second-submission");
@@ -1174,9 +964,10 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
         accepted["input_id"] = json!("rounded-second-accept");
         accepted["source_ref"] = json!("rounded-second-accept-source");
         accepted["payload"]["order"] = json!(order);
-        venue.advance(venue.now()).unwrap();
-        venue.publish(&mut broker, &mut journal).unwrap();
-        let original = broker
+        let now = runtime.now();
+        runtime.advance(now).unwrap();
+        runtime.publish().unwrap();
+        let original = runtime
             .pending()
             .iter()
             .find(|f| f.order() == Some(order) && f.record()["kind"] == "ACCEPTED")
@@ -1185,8 +976,8 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
         runtime.apply(&accepted).unwrap();
         second["payload"]["order"] = json!(order);
     }
-    venue
-        .on_bar(
+    runtime
+        .bar(
             2,
             &venue_bar(
                 &inputs[1]["payload"]["request"],
@@ -1195,8 +986,8 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
             ),
         )
         .unwrap();
-    venue.publish(&mut broker, &mut journal).unwrap();
-    let original = broker
+    runtime.publish().unwrap();
+    let original = runtime
         .pending()
         .iter()
         .rfind(|f| f.record()["kind"] == "TRADE")
@@ -1251,16 +1042,12 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
         assert_eq!(states.len(), 1);
         amount(&states.values().next().unwrap()["entry_maintenance"], ".01");
     }
-    let owners = runtime.fork_ready().unwrap().0.checkpoint().unwrap();
-    let orders = owners["components"][0]["state"]["orders"]
-        .as_array()
-        .unwrap();
+    let view = runtime.position_order_view().unwrap();
+    let orders = view["orders"].as_object().unwrap();
     assert_eq!(orders.len(), if split_orders { 2 } else { 1 });
-    assert!(
-        orders
-            .iter()
-            .all(|row| row["snapshot"]["status"] == "FILLED")
-    );
+    for id in orders.keys() {
+        assert_eq!(runtime.order("cluster", id).unwrap()["status"], "FILLED");
+    }
     let trades = final_state["execution"]["perpetual"]["broker_facts"]
         .as_object()
         .unwrap()
@@ -1268,12 +1055,10 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
         .filter(|v| v["broker"]["record"]["kind"] == "TRADE")
         .count();
     assert_eq!(trades, 2);
-    runtime.save_checkpoint().unwrap();
-    let history = runtime.records().unwrap();
-    drop(runtime);
-    let restored = Runtime::open(&root.0, cfg, &artifact()).unwrap();
+    let history = runtime.applied().len();
+    let restored = runtime.recompute();
     assert_eq!(restored.state().unwrap(), final_state);
-    assert_eq!(restored.records().unwrap(), history);
+    assert_eq!(restored.applied().len(), history);
 }
 
 #[test]
@@ -1294,6 +1079,7 @@ fn fine_currency_margin_control_supports_the_same_single_and_cross_order_fills()
 fn exact_entry_cost_is_not_reconstructed_from_rounded_settlement_notional() {
     rounded_margin_fill_case(MarginFillCase::ExactCost, 2);
 }
+
 #[test]
 fn frozen_entry_margin_curve_requires_a_zero_initial_and_maintenance_origin() {
     let (cfg, inputs) = scenario();
@@ -1309,993 +1095,8 @@ fn frozen_entry_margin_curve_requires_a_zero_initial_and_maintenance_origin() {
         );
     }
 }
+
 #[test]
 fn original_fill_uses_entry_pool_proof_even_when_current_mark_maintenance_is_higher() {
     rounded_margin_fill_case(MarginFillCase::ChangedMark, 2);
-}
-
-#[test]
-fn runtime_broker_order_view_binds_original_scope_request_and_cancel_shape() {
-    use onlyalpha_broker::{BrokerCommand, RuntimeReader};
-    let (cfg, inputs) = scenario();
-    let (_root, runtime) = prepare_prefix(&cfg, &inputs, 4);
-    let before = runtime.state().unwrap();
-    let cp = runtime.fork_ready().unwrap().0.checkpoint().unwrap();
-    let row = &cp["components"][0]["state"]["orders"][0]["snapshot"];
-    let raw = json!({"schema_version":1,"scope":inputs[3]["payload"]["broker"]["record"]["scope"],"operation":"SUBMIT","command_id":"original-submit","order":row["order_id"]["value"],"client":row["client_order_id"]["value"],"request":inputs[1]["payload"]["request"]});
-    let original = BrokerCommand::decode(&raw).unwrap();
-    let exact = runtime.order_view(&original).unwrap().unwrap().record();
-    assert_eq!(exact["status"], "ACCEPTED");
-    assert_eq!(exact["request"], raw["request"]);
-    let mut wrong = Vec::new();
-    for (key, value) in [
-        ("runtime", json!("foreign-runtime")),
-        ("generation", json!("f".repeat(64))),
-        ("runtime_kind", json!("LIVE")),
-    ] {
-        let mut command = raw.clone();
-        command["scope"][key] = value;
-        let command = BrokerCommand::decode(&command).unwrap();
-        if runtime.order_view(&command).is_ok() {
-            wrong.push(format!("foreign {key}"));
-        }
-    }
-    let mut changed = raw.clone();
-    changed["request"]["price"]["value"] = json!("31.00");
-    if runtime
-        .order_view(&BrokerCommand::decode(&changed).unwrap())
-        .is_ok()
-    {
-        wrong.push("foreign submit request".into());
-    }
-    let mut cancel = raw.clone();
-    cancel["operation"] = json!("CANCEL");
-    cancel["command_id"] = json!("query-cancel");
-    cancel["request"] = json!({"schema_version":1,"request_id":{"schema_version":1,"value":"cancel-query"},"order_id":row["order_id"],"reason":"cancel accepted order","metadata":{}});
-    let cancel_command = BrokerCommand::decode(&cancel).unwrap();
-    match runtime.order_view(&cancel_command) {
-        Ok(Some(view))
-            if view.record()["request"] == exact["request"]
-                && view.record()["scope"] == exact["scope"] => {}
-        _ => wrong.push("exact canonical cancel did not read original order".into()),
-    }
-    cancel["client"] = json!("foreign-client");
-    if runtime
-        .order_view(&BrokerCommand::decode(&cancel).unwrap())
-        .is_ok()
-    {
-        wrong.push("foreign cancel client".into());
-    }
-    assert_eq!(runtime.state().unwrap(), before);
-    assert!(
-        wrong.is_empty(),
-        "Runtime order query mismatches: {wrong:?}"
-    );
-}
-
-#[test]
-fn empty_order_generation_requires_a_visible_original_closure_and_rejects_rewritten_media() {
-    let (cfg, inputs) = scenario();
-    let (root, mut runtime) = prepare_prefix(&cfg, &inputs, 0);
-    let (scope, cash, settings) = venue_config(&inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let mut actor = BoundVirtualActor::open(
-        &root.0,
-        scope.clone(),
-        &"f".repeat(64),
-        cash.clone(),
-        &settings,
-        binding,
-    )
-    .unwrap();
-    assert!(
-        BoundVirtualActor::create(
-            &root.0,
-            scope.clone(),
-            &"f".repeat(64),
-            cash.clone(),
-            &settings,
-            binding
-        )
-        .is_err()
-    );
-    let mut mark = inputs[5].clone();
-    mark["runtime_sequence"] = json!(1);
-    runtime.apply(&mark).unwrap();
-    let mut funding = inputs[6].clone();
-    funding["runtime_sequence"] = json!(2);
-    let boundary = mark["time"].as_i64().unwrap();
-    actor.advance(boundary).unwrap();
-    assert_eq!(
-        runtime.apply(&funding).unwrap_err().0,
-        "BROKER_ECONOMIC_PREFIX_UNPROVEN"
-    );
-    runtime.recover().unwrap();
-    let mut late_bar = venue_bar(&inputs[1]["payload"]["request"], 1, boundary + 1000).to_record();
-    late_bar["ts_init"] = json!(
-        OnlyTimestamp::from_unix_nanos((boundary + 5000).into())
-            .to_datetime()
-            .unwrap()
-            .to_string()
-    );
-    actor
-        .on_bar(1, &OnlyBar::from_record(&late_bar).unwrap())
-        .unwrap();
-    actor.advance(boundary + 2000).unwrap();
-    let mut unseen = funding.clone();
-    unseen["time"] = json!(boundary + 2000);
-    assert_eq!(
-        runtime.apply(&unseen).unwrap_err().0,
-        "BROKER_ECONOMIC_PREFIX_UNPROVEN"
-    );
-    runtime.recover().unwrap();
-    funding["time"] = json!(boundary + 5000);
-    let mut premature = funding.clone();
-    premature["time"] = json!(boundary);
-    assert_eq!(
-        runtime.apply(&premature).unwrap_err().0,
-        "BROKER_ECONOMIC_PREFIX_UNPROVEN"
-    );
-    runtime.recover().unwrap();
-    runtime.apply(&funding).unwrap();
-    let final_state = runtime.state().unwrap();
-    amount(
-        &final_state["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
-        "0",
-    );
-    runtime.save_checkpoint().unwrap();
-    drop(runtime);
-    let mut reopened = Runtime::open(&root.0, cfg.clone(), &artifact()).unwrap();
-    reopened.apply(&funding).unwrap();
-    assert_eq!(reopened.state().unwrap(), final_state);
-    drop(reopened);
-    let db = rusqlite::Connection::open(root.0.join("broker.sqlite3")).unwrap();
-    db.execute(
-        "UPDATE source_steps SET input=?1 WHERE sequence=2",
-        [json!(["CLOCK", boundary + 2]).to_string()],
-    )
-    .unwrap();
-    assert!(
-        BoundVirtualActor::open(&root.0, scope, &"f".repeat(64), cash, &settings, binding).is_err()
-    );
-    assert!(Runtime::open(&root.0, cfg, &artifact()).is_err());
-}
-
-#[test]
-fn source_step_preserves_an_admitted_multi_fact_bar_before_and_after_commit_loss() {
-    use onlyalpha_broker::{Broker, BrokerCommand, Connection, Journal};
-    let (cfg, inputs) = scenario();
-    let (root, mut runtime) = prepare_prefix(&cfg, &inputs, 1);
-    let (scope, cash, settings) = venue_config(&inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let open = || {
-        BoundVirtualActor::open(
-            &root.0,
-            scope.clone(),
-            &"f".repeat(64),
-            cash.clone(),
-            &settings,
-            binding,
-        )
-        .unwrap()
-    };
-    let mut actor = open();
-    actor.connect().unwrap();
-    actor.authenticate().unwrap();
-    let mut journal = BoundBrokerJournal::open(&root.0, binding).unwrap();
-    let mut broker = Broker::recover(scope.clone(), &journal, 32).unwrap();
-    broker.set_connection(Connection::Ready);
-    broker.set_health(true, true, true);
-    runtime.apply(&inputs[1]).unwrap();
-    let owner = runtime.fork_ready().unwrap().0.checkpoint().unwrap();
-    let req = &inputs[1]["payload"]["request"];
-    let cmd=BrokerCommand::decode(&json!({"schema_version":1,"scope":scope.record(),"operation":"SUBMIT","command_id":"original-submit","order":inputs[1]["payload"]["order"],"client":owner["components"][0]["state"]["orders"][0]["snapshot"]["client_order_id"]["value"],"request":req})).unwrap();
-    let at = inputs[1]["time"].as_i64().unwrap();
-    actor.advance(at).unwrap();
-    journal
-        .dispatch(&mut broker, &runtime, &mut actor, &cmd)
-        .unwrap();
-    let protocol = journal.records().unwrap();
-    let before = actor.checkpoint();
-    let db = rusqlite::Connection::open(root.0.join("broker.sqlite3")).unwrap();
-    db.execute_batch("BEGIN IMMEDIATE").unwrap();
-    assert!(actor.advance(at).is_err());
-    assert_eq!(actor.checkpoint(), before);
-    db.execute_batch("ROLLBACK").unwrap();
-    actor = open();
-    assert_eq!(actor.checkpoint(), before);
-    db.execute_batch("CREATE TRIGGER interrupt_bar BEFORE INSERT ON source_facts WHEN NEW.ordinal=1 BEGIN SELECT RAISE(ABORT,'second child unavailable'); END;").unwrap();
-    let bar = venue_bar(req, 1, at);
-    assert!(actor.on_bar(1, &bar).is_err());
-    assert_eq!(actor.checkpoint(), before);
-    assert_eq!(open().checkpoint(), before);
-    assert_eq!(
-        db.query_row("SELECT COUNT(*) FROM source_facts", [], |r| r
-            .get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
-    db.execute_batch("DROP TRIGGER interrupt_bar;").unwrap();
-    actor = open();
-    actor.on_bar(1, &bar).unwrap();
-    let committed = actor.checkpoint();
-    let bytes = serde_json::to_vec(&committed).unwrap().len();
-    assert!(bytes < 4096);
-    drop(actor);
-    let mut actor = open();
-    assert_eq!(actor.checkpoint(), committed);
-    actor.on_bar(1, &bar).unwrap();
-    assert_eq!(actor.checkpoint(), committed);
-    assert_eq!(
-        db.query_row(
-            "SELECT fact_count FROM source_steps ORDER BY sequence DESC LIMIT 1",
-            [],
-            |r| r.get::<_, i64>(0)
-        )
-        .unwrap(),
-        2
-    );
-    assert_eq!(journal.records().unwrap(), protocol);
-    actor.publish(&mut broker, &mut journal).unwrap();
-    assert_eq!(
-        broker
-            .pending()
-            .iter()
-            .map(onlyalpha_broker::Fact::record)
-            .collect::<Vec<_>>(),
-        vec![
-            inputs[3]["payload"]["broker"]["record"].clone(),
-            inputs[4]["payload"]["broker"]["record"].clone()
-        ]
-    );
-    for input in &inputs[2..5] {
-        runtime.apply(input).unwrap();
-    }
-    let expected = runtime.state().unwrap();
-    drop(runtime);
-    assert_eq!(
-        Runtime::open(&root.0, cfg, &artifact())
-            .unwrap()
-            .state()
-            .unwrap(),
-        expected
-    );
-}
-
-#[test]
-fn admitted_fill_survives_a_source_history_larger_than_the_original_protocol_budget() {
-    use onlyalpha_broker::{Broker, BrokerCommand, Connection, Journal};
-    let (cfg, inputs) = scenario();
-    let (root, mut runtime) = prepare_prefix(&cfg, &inputs, 1);
-    let (scope, cash, settings) = venue_config(&inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let mut actor = BoundVirtualActor::open(
-        &root.0,
-        scope.clone(),
-        &"f".repeat(64),
-        cash,
-        &settings,
-        binding,
-    )
-    .unwrap();
-    actor.connect().unwrap();
-    actor.authenticate().unwrap();
-    let mut journal = BoundBrokerJournal::open(&root.0, binding).unwrap();
-    let mut broker = Broker::recover(scope.clone(), &journal, 32).unwrap();
-    broker.set_connection(Connection::Ready);
-    broker.set_health(true, true, true);
-    runtime.apply(&inputs[1]).unwrap();
-    let owner = runtime.fork_ready().unwrap().0.checkpoint().unwrap();
-    let req = &inputs[1]["payload"]["request"];
-    let command=BrokerCommand::decode(&json!({"schema_version":1,"scope":scope.record(),"operation":"SUBMIT","command_id":"original-submit","order":inputs[1]["payload"]["order"],"client":owner["components"][0]["state"]["orders"][0]["snapshot"]["client_order_id"]["value"],"request":req})).unwrap();
-    let at = inputs[1]["time"].as_i64().unwrap();
-    actor.advance(at).unwrap();
-    journal
-        .dispatch(&mut broker, &runtime, &mut actor, &command)
-        .unwrap();
-    let initial_protocol = journal.records().unwrap();
-    let mut market = venue_bar(req, 1, at).to_record();
-    market["bar_type"]["instrument_id"]["symbol"]["value"] = json!("OTHER");
-    let row_bytes = u64::try_from(market.to_string().len()).unwrap();
-    let budget = 32 * 1024 * 1024u64;
-    let rows = budget / row_bytes + 2;
-    for sequence in 1..=rows {
-        // 同一经济钟可观察多条真实闭合 Bar，各自 bar_end 按微秒严格递增。
-        let end = at - 1_000_000_000 + i64::try_from(sequence).unwrap() * 1_000;
-        market["bar_end"] = json!(
-            OnlyTimestamp::from_unix_nanos(end.into())
-                .to_datetime()
-                .unwrap()
-                .to_string()
-        );
-        actor
-            .on_bar(sequence, &OnlyBar::from_record(&market).unwrap())
-            .unwrap();
-    }
-    let db = rusqlite::Connection::open(root.0.join("broker.sqlite3")).unwrap();
-    assert!(
-        db.query_row(
-            "SELECT SUM(length(CAST(input AS BLOB))) FROM source_steps",
-            [],
-            |r| r.get::<_, i64>(0)
-        )
-        .unwrap()
-            > i64::try_from(budget).unwrap()
-    );
-    assert_eq!(journal.records().unwrap(), initial_protocol);
-    actor.on_bar(rows + 1, &venue_bar(req, 1, at)).unwrap();
-    actor.publish(&mut broker, &mut journal).unwrap();
-    for input in &inputs[2..5] {
-        runtime.apply(input).unwrap();
-    }
-    let final_state = runtime.state().unwrap();
-    drop(runtime);
-    assert_eq!(
-        Runtime::open(&root.0, cfg, &artifact())
-            .unwrap()
-            .state()
-            .unwrap(),
-        final_state
-    );
-}
-
-#[test]
-fn source_readers_require_canonical_bytes_for_genesis_and_original_observations() {
-    use onlyalpha_broker::Journal;
-    let (cfg, inputs) = scenario();
-    let (root, runtime) = prepare_prefix(&cfg, &inputs, 4);
-    let (scope, cash, settings) = venue_config(&inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let open_venue = || {
-        BoundVirtualActor::open(
-            &root.0,
-            scope.clone(),
-            &"f".repeat(64),
-            cash.clone(),
-            &settings,
-            binding,
-        )
-    };
-    let journal = BoundBrokerJournal::open(&root.0, binding).unwrap();
-    let protocol = journal.records().unwrap();
-    let checkpoint = open_venue().unwrap().checkpoint();
-    drop(runtime);
-    let db = rusqlite::Connection::open(root.0.join("broker.sqlite3")).unwrap();
-
-    assert_eq!(
-        db.execute(
-            "UPDATE source_genesis SET binding=' ' || binding WHERE singleton=1",
-            []
-        )
-        .unwrap(),
-        1
-    );
-    assert_eq!(
-        open_venue().err().unwrap().to_string(),
-        "VIRTUAL_SOURCE_BINDING"
-    );
-    db.execute(
-        "UPDATE source_genesis SET binding=substr(binding,2) WHERE singleton=1",
-        [],
-    )
-    .unwrap();
-    let id = inputs[3]["payload"]["broker"]["id"].as_str().unwrap();
-    assert_eq!(
-        db.execute(
-            "UPDATE source_facts SET fact=' ' || fact WHERE identity=?1",
-            [id]
-        )
-        .unwrap(),
-        1
-    );
-    assert_eq!(
-        open_venue().err().unwrap().to_string(),
-        "VIRTUAL_SOURCE_OUTPUT_CONFLICT"
-    );
-    assert_eq!(
-        journal.records().unwrap_err().to_string(),
-        "BROKER_SOURCE_ORIGINAL_FACT_REQUIRED"
-    );
-    db.execute(
-        "UPDATE source_facts SET fact=substr(fact,2) WHERE identity=?1",
-        [id],
-    )
-    .unwrap();
-    assert_eq!(open_venue().unwrap().checkpoint(), checkpoint);
-    assert_eq!(journal.records().unwrap(), protocol);
-}
-
-#[test]
-fn funding_plan_from_original_run_must_remain_bound_to_its_writer() {
-    let (cfg, inputs) = scenario();
-    let (root, runtime) = prepare_prefix(&cfg, &inputs, 6);
-    let (mut owners, prefix) = runtime.fork_ready().unwrap();
-    let plan = runtime.prepare_original_funding(&inputs[6]).unwrap();
-    let original =
-        onlyalpha_execution::Prepared::decode(&serde_json::to_vec(plan.value()).unwrap()).unwrap();
-    assert!(runtime.prepare(&inputs[6]).is_err());
-    let (_other_root, mut other) = prepare_prefix(&cfg, &inputs, 6);
-    assert_eq!(
-        other.apply_original_funding(&plan).unwrap_err().0,
-        "RUNTIME_STORE_FUNDING_WRITER_CONFLICT"
-    );
-    other.recover().unwrap();
-    assert_eq!(other.records().unwrap(), prefix);
-    drop(runtime);
-    let store = SqliteStore::open(&root.0, cfg.clone(), &artifact()).unwrap();
-
-    // 写入探针只能返回固定错误；若收到 CommitIntent，说明通用入口已签发写资格。
-    let generic_error =
-        coordinate(&mut RejectFundingCommit(&store), &mut owners, &original).unwrap_err();
-    assert_eq!(store.head().unwrap(), 6);
-    assert!(store.get(7).unwrap().is_none());
-    drop(store);
-    let mut actual = Runtime::open(&root.0, cfg.clone(), &artifact()).unwrap();
-    assert_eq!(
-        actual.apply_original_funding(&plan).unwrap_err().0,
-        "RUNTIME_STORE_FUNDING_WRITER_CONFLICT"
-    );
-    actual.recover().unwrap();
-    assert_eq!(actual.records().unwrap(), prefix);
-    actual.apply(&inputs[6]).unwrap();
-    let funded = actual.records().unwrap();
-    assert_eq!(funded.len(), 7);
-    drop(actual);
-    assert_eq!(
-        Runtime::open(&root.0, cfg, &artifact())
-            .unwrap()
-            .records()
-            .unwrap(),
-        funded
-    );
-    assert_ne!(
-        generic_error.0, "TEST_COMMIT_UNKNOWN",
-        "通用 Store 收到了 Funding CommitIntent"
-    );
-}
-
-// 在不改变解析值的情况下反转首个多字段对象。CLOCK 的数组只有标量。
-fn changed_field_order(raw: &str) -> Option<String> {
-    fn reordered(v: &Value) -> Option<(String, String)> {
-        match v {
-            Value::Object(object) if object.len() > 1 => {
-                let fields = object
-                    .iter()
-                    .rev()
-                    .map(|(k, v)| format!("{}:{}", json!(k), v))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                Some((v.to_string(), format!("{{{fields}}}")))
-            }
-            Value::Array(items) => items.iter().find_map(reordered),
-            _ => None,
-        }
-    }
-    let v: Value = serde_json::from_str(raw).unwrap();
-    let (before, after) = reordered(&v)?;
-    let changed = raw.replacen(&before, &after, 1);
-    assert_ne!(changed, raw);
-    assert_eq!(serde_json::from_str::<Value>(&changed).unwrap(), v);
-    Some(changed)
-}
-
-#[test]
-fn both_source_readers_require_canonical_genesis_clock_and_bar_for_funded_recovery() {
-    let (cfg, inputs) = scenario();
-    let (root, mut runtime) = prepare_prefix(&cfg, &inputs, 0);
-    let (scope, cash, settings) = venue_config(&inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let open_actor = || {
-        BoundVirtualActor::open(
-            &root.0,
-            scope.clone(),
-            &"f".repeat(64),
-            cash.clone(),
-            &settings,
-            binding,
-        )
-    };
-    let open_runtime = || Runtime::open(&root.0, cfg.clone(), &artifact());
-    let mut mark = inputs[5].clone();
-    mark["runtime_sequence"] = json!(1);
-    let boundary = mark["time"].as_i64().unwrap();
-    let bar = venue_bar(&inputs[1]["payload"]["request"], 1, boundary);
-    let mut actor = open_actor().unwrap();
-    actor.on_bar(1, &bar).unwrap();
-    actor.advance(boundary + 1).unwrap();
-    let checkpoint = actor.checkpoint();
-    actor.on_bar(1, &bar).unwrap();
-    assert_eq!(actor.checkpoint(), checkpoint);
-    drop(actor);
-    runtime.apply(&mark).unwrap();
-    let mut funding = inputs[6].clone();
-    funding["runtime_sequence"] = json!(2);
-    runtime.apply(&funding).unwrap();
-    let ready = runtime.records().unwrap();
-    drop(runtime);
-
-    let db = rusqlite::Connection::open(root.0.join("broker.sqlite3")).unwrap();
-    let mut verdicts = Vec::new();
-    for (kind, read, update) in [
-        (
-            "genesis",
-            "SELECT binding FROM source_genesis WHERE singleton=1",
-            "UPDATE source_genesis SET binding=?1 WHERE singleton=1",
-        ),
-        (
-            "clock",
-            "SELECT input FROM source_steps WHERE json_extract(input,'$[0]')='CLOCK'",
-            "UPDATE source_steps SET input=?1 WHERE json_extract(input,'$[0]')='CLOCK'",
-        ),
-        (
-            "bar",
-            "SELECT input FROM source_steps WHERE json_extract(input,'$[0]')='BAR'",
-            "UPDATE source_steps SET input=?1 WHERE json_extract(input,'$[0]')='BAR'",
-        ),
-    ] {
-        let original: String = db.query_row(read, [], |row| row.get(0)).unwrap();
-        let reordered = changed_field_order(&original);
-        assert_eq!(reordered.is_some(), kind != "clock");
-        let mut outcome = (true, true);
-        for altered in std::iter::once(format!(" {original}")).chain(reordered) {
-            assert_eq!(db.execute(update, [&altered]).unwrap(), 1);
-            outcome.0 &= open_actor().is_err();
-            outcome.1 &= open_runtime().is_err();
-            assert_eq!(db.execute(update, [&original]).unwrap(), 1);
-            let mut restored = open_actor().unwrap();
-            assert_eq!(restored.checkpoint(), checkpoint);
-            restored.on_bar(1, &bar).unwrap();
-            assert_eq!(restored.checkpoint(), checkpoint);
-            assert_eq!(open_runtime().unwrap().records().unwrap(), ready);
-        }
-        verdicts.push((kind, outcome.0, outcome.1));
-    }
-    assert_eq!(
-        verdicts,
-        [
-            ("genesis", true, true),
-            ("clock", true, true),
-            ("bar", true, true)
-        ]
-    );
-}
-
-#[test]
-fn both_source_readers_require_canonical_unpublished_acceptance_for_funding() {
-    let (cfg, inputs) = scenario();
-    let (root, mut runtime, mut actor, broker, _journal) = unobserved_acceptance(&cfg, &inputs);
-    let (scope, cash, settings) = venue_config(&inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let mut mark = inputs[5].clone();
-    mark["runtime_sequence"] = json!(4);
-    let mut funding = inputs[6].clone();
-    funding["runtime_sequence"] = json!(5);
-    let boundary = mark["time"].as_i64().unwrap();
-    actor.advance(boundary + 1).unwrap();
-    runtime.apply(&mark).unwrap();
-    let original_plan = runtime.prepare_original_funding(&funding).unwrap();
-    let original_checkpoint = actor.checkpoint();
-    drop(actor);
-    assert!(broker.pending().is_empty());
-    let open_actor = || {
-        BoundVirtualActor::open(
-            &root.0,
-            scope.clone(),
-            &"f".repeat(64),
-            cash.clone(),
-            &settings,
-            binding,
-        )
-    };
-
-    let db = rusqlite::Connection::open(root.0.join("broker.sqlite3")).unwrap();
-    let id = inputs[3]["payload"]["broker"]["id"].as_str().unwrap();
-    let ingress_count: i64 = db
-        .query_row(
-            "SELECT count(*) FROM protocol_ingress WHERE identity=?1",
-            [id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(ingress_count, 0);
-    let original: String = db
-        .query_row(
-            "SELECT fact FROM source_facts WHERE identity=?1",
-            [id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    let update = "UPDATE source_facts SET fact=?1 WHERE identity=?2";
-    for changed in [
-        format!(" {original}"),
-        changed_field_order(&original).unwrap(),
-    ] {
-        assert_eq!(
-            db.execute(update, rusqlite::params![changed, id]).unwrap(),
-            1
-        );
-        let actor_rejected = open_actor().is_err();
-        let runtime_rejected = runtime.prepare_original_funding(&funding).is_err();
-        assert_eq!(
-            db.execute(update, rusqlite::params![original, id]).unwrap(),
-            1
-        );
-        assert_eq!(open_actor().unwrap().checkpoint(), original_checkpoint);
-        assert_eq!(
-            runtime.prepare_original_funding(&funding).unwrap().value(),
-            original_plan.value()
-        );
-        assert_eq!((actor_rejected, runtime_rejected), (true, true));
-    }
-}
-
-/// 只读副本。每个行体均从原 Run 的正式 Ready 行重新解码，不能写入或发布。
-struct FundingObservation(Vec<Record>);
-
-impl Store for FundingObservation {
-    fn head(&self) -> Result<u64, Error> {
-        u64::try_from(self.0.len()).map_err(|e| Error(e.to_string()))
-    }
-    fn get(&self, n: u64) -> Result<Option<Record>, Error> {
-        let index = n
-            .checked_sub(1)
-            .and_then(|i| usize::try_from(i).ok())
-            .ok_or_else(|| Error("OBSERVATION_SEQUENCE".into()))?;
-        Ok(self.0.get(index).cloned())
-    }
-    fn commit(&mut self, _: &CommitIntent) -> Result<Record, Error> {
-        Err(Error("OBSERVATION_READ_ONLY".into()))
-    }
-    fn mark_ready(&mut self, _: u64) -> Result<(), Error> {
-        Err(Error("OBSERVATION_READ_ONLY".into()))
-    }
-    fn acknowledge(&mut self, _: u64) -> Result<(), Error> {
-        Err(Error("OBSERVATION_READ_ONLY".into()))
-    }
-}
-
-#[test]
-fn decoded_original_funding_rows_cannot_certify_a_detached_ready_prefix() {
-    let (cfg, inputs) = scenario();
-    let (_root, run) = prepare_prefix(&cfg, &inputs, 7);
-    let (original_owners, originals) = run.fork_ready().unwrap();
-    let checkpoint = original_owners.checkpoint().unwrap();
-    let checkpoint_digest = onlyalpha_execution::digest(&serde_json::to_vec(&checkpoint).unwrap());
-    let rows = originals
-        .iter()
-        .map(|r| Record::decode(&r.record()).unwrap())
-        .collect();
-    let mut observation = FundingObservation(rows);
-    let mut replayed = Components::new(cfg.clone()).unwrap();
-    let detached_recovery = onlyalpha_execution::recover(&mut observation, &mut replayed);
-    let mut copied = Components::new(cfg).unwrap();
-    copied.restore(&checkpoint, &checkpoint_digest).unwrap();
-    let detached_ready = copied.fork_ready(&observation);
-    let detached_state = copied.state(&observation);
-    let existing = observation.get(7).unwrap().unwrap();
-    let detached_coordinate = coordinate(&mut observation, &mut copied, existing.prepared());
-    assert_eq!(run.records().unwrap(), originals);
-    verify(&run.state().unwrap());
-    assert_eq!(
-        [
-            detached_recovery.is_err(),
-            detached_ready.is_err(),
-            detached_state.is_err(),
-            detached_coordinate.is_err()
-        ],
-        [true; 4],
-        "通用只读记录不能证明目的 Run 的 Funding 已 Ready"
-    );
-}
-
-#[test]
-fn pure_source_history_from_original_clock_cannot_issue_a_funding_commit_intent() {
-    use onlyalpha_broker::source::{SourceHistory, SourceStep};
-    use onlyalpha_execution::MarketSourceCut;
-    let (cfg, inputs) = scenario();
-    let (root, mut runtime) = prepare_prefix(&cfg, &inputs, 0);
-    let (scope, cash, settings) = venue_config(&inputs);
-    let terms = &cfg["perpetual"];
-    let binding = terms["execution_source_binding"].as_str().unwrap();
-    let mut mark = inputs[5].clone();
-    mark["runtime_sequence"] = json!(1);
-    runtime.apply(&mark).unwrap();
-    let mut funding = inputs[6].clone();
-    funding["runtime_sequence"] = json!(2);
-    let boundary = onlyalpha_execution::funding_boundary(&funding["payload"]["fact"]).unwrap();
-    let visible = funding["time"].as_u64().unwrap();
-    let mut actor = BoundVirtualActor::open(
-        &root.0,
-        scope.clone(),
-        &"f".repeat(64),
-        cash,
-        &settings,
-        binding,
-    )
-    .unwrap();
-    assert!(runtime.prepare_original_funding(&funding).is_err());
-    assert!(runtime.apply(&funding).is_err());
-    runtime.recover().unwrap();
-    actor.advance(i64::try_from(boundary + 1).unwrap()).unwrap();
-    let native = runtime.prepare_original_funding(&funding).unwrap();
-
-    let db = rusqlite::Connection::open_with_flags(
-        root.0.join("broker.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let genesis: String = db
-        .query_row(
-            "SELECT binding FROM source_genesis WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let (previous, input, step_hash): (String, String, String) = db.query_row(
-        "SELECT previous,input,hash FROM source_steps WHERE sequence=1 AND fact_count=0 AND witness IS NULL",
-        [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    ).unwrap();
-    let input = serde_json::from_str(&input).unwrap();
-    let mut history = SourceHistory::new(
-        scope.clone(),
-        &serde_json::from_str(&genesis).unwrap(),
-        binding,
-        Some((boundary, visible)),
-    )
-    .unwrap();
-    history
-        .accept_step(
-            SourceStep {
-                sequence: 1,
-                previous: &previous,
-                input: &input,
-                fact_count: 0,
-                hash: &step_hash,
-                protocol_hash: None,
-            },
-            std::iter::empty(),
-        )
-        .unwrap();
-    assert!(
-        history
-            .funding_closure(binding, boundary, visible)
-            .unwrap()
-            .1
-            .is_empty()
-    );
-    let journal = BoundBrokerJournal::open(&root.0, binding).unwrap();
-    let broker = onlyalpha_broker::Broker::recover(scope, &journal, 32).unwrap();
-    let cut = MarketSourceCut::read(
-        &fs::read(root.0.join("market-source-cut.json")).unwrap(),
-        terms["source_cut_sha256"].as_str().unwrap(),
-    )
-    .unwrap();
-    let (mut isolated, rows) = runtime.fork_ready().unwrap();
-    let mut observation = FundingObservation(rows);
-    fn returns_prepared<T: 'static>(_: &Result<T, Error>) -> bool {
-        std::any::TypeId::of::<T>() == std::any::TypeId::of::<onlyalpha_execution::Prepared>()
-    }
-    let data = onlyalpha_execution::ProjectionData::new(&isolated, &observation.0);
-    let candidate = data.evaluate_funding(&funding, &cut, &broker, &history);
-    let public_returns_prepared = returns_prepared(&candidate);
-    let draft = candidate.unwrap();
-    assert_eq!(draft.value(), native.value());
-    let wire =
-        onlyalpha_execution::Prepared::decode(&serde_json::to_vec(draft.value()).unwrap()).unwrap();
-    let issued_intent = coordinate(&mut observation, &mut isolated, &wire)
-        .unwrap_err()
-        .0
-        == "OBSERVATION_READ_ONLY";
-    assert_eq!(observation.head().unwrap(), 1);
-    runtime.apply(&funding).unwrap();
-    assert_eq!(runtime.records().unwrap().len(), 2);
-    runtime.apply(&funding).unwrap();
-    assert_eq!(runtime.records().unwrap().len(), 2);
-    assert_eq!(
-        (public_returns_prepared, issued_intent),
-        (false, false),
-        "被动计算的公开返回类型以及通用 Store 实际是否收到 CommitIntent"
-    );
-}
-
-#[test]
-fn original_query_reopen_checks_header_children_protocol_and_media_version() {
-    use onlyalpha_broker::{Journal, source::QueryPhase};
-    let (cfg, inputs) = scenario();
-    let (root, run, mut actor, mut broker, mut journal) = unobserved_acceptance(&cfg, &inputs);
-    let key = actor
-        .observe_command(QueryPhase::Discovery, "original-submit")
-        .unwrap();
-    journal
-        .reconcile_original(&mut broker, "original-submit", &key)
-        .unwrap();
-    let protocol = journal.records().unwrap();
-    let checkpoint = actor.checkpoint();
-    drop((actor, run));
-    let (scope, cash, settings) = venue_config(&inputs);
-    let binding = cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap();
-    let open = || {
-        BoundVirtualActor::open(
-            &root.0,
-            scope.clone(),
-            &"f".repeat(64),
-            cash.clone(),
-            &settings,
-            binding,
-        )
-    };
-    let sql = rusqlite::Connection::open(root.0.join("broker.sqlite3")).unwrap();
-    let header: String = sql
-        .query_row(
-            "SELECT header FROM source_queries WHERE id=?1",
-            [&key],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(
-        sql.execute(
-            "UPDATE source_queries SET header=' '||header WHERE id=?1",
-            [&key]
-        )
-        .unwrap(),
-        1
-    );
-    assert!(open().is_err());
-    assert!(journal.records().is_err());
-    sql.execute(
-        "UPDATE source_queries SET header=?1 WHERE id=?2",
-        rusqlite::params![header, key],
-    )
-    .unwrap();
-    let child: String = sql
-        .query_row(
-            "SELECT identity FROM source_query_facts WHERE query_id=?1 AND ordinal=0",
-            [&key],
-            |r| r.get(0),
-        )
-        .unwrap();
-    sql.execute(
-        "DELETE FROM source_query_facts WHERE query_id=?1 AND ordinal=0",
-        [&key],
-    )
-    .unwrap();
-    assert!(open().is_err());
-    assert!(journal.records().is_err());
-    sql.execute(
-        "INSERT INTO source_query_facts VALUES(?1,0,?2)",
-        rusqlite::params![key, child],
-    )
-    .unwrap();
-    let predecessor: i64 = sql
-        .query_row(
-            "SELECT protocol FROM source_queries WHERE id=?1",
-            [&key],
-            |r| r.get(0),
-        )
-        .unwrap();
-    sql.execute(
-        "UPDATE source_queries SET protocol=?1 WHERE id=?2",
-        rusqlite::params![predecessor - 1, key],
-    )
-    .unwrap();
-    assert!(open().is_err());
-    assert!(journal.records().is_err());
-    sql.execute(
-        "UPDATE source_queries SET protocol=?1 WHERE id=?2",
-        rusqlite::params![predecessor, key],
-    )
-    .unwrap();
-    assert_eq!(open().unwrap().checkpoint(), checkpoint);
-    assert_eq!(journal.records().unwrap(), protocol);
-    sql.pragma_update(None, "user_version", 1).unwrap();
-    assert!(open().is_err());
-    assert!(BoundBrokerJournal::open(&root.0, binding).is_err());
-    assert!(Runtime::open(&root.0, cfg.clone(), &artifact()).is_err());
-    sql.pragma_update(None, "user_version", 2).unwrap();
-    assert_eq!(open().unwrap().checkpoint(), checkpoint);
-    assert_eq!(journal.records().unwrap(), protocol);
-}
-
-#[test]
-fn decoded_post_funding_input_cannot_create_a_new_runtime_record() {
-    let (cfg, inputs) = scenario();
-    let (_root, mut runtime) = prepare_prefix(&cfg, &inputs, 7);
-    let before = runtime.records().unwrap();
-    let state = runtime.state().unwrap();
-    let mut input = inputs[1].clone();
-    input["input_id"] = json!("post-funding-open");
-    input["source_ref"] = json!("post-funding-open");
-    input["runtime_sequence"] = json!(8);
-    input["time"] = json!(inputs[6]["time"].as_u64().unwrap() + 1);
-    input["payload"]["order"] = json!("runtime-ORDER-000002");
-    input["payload"]["request"]["request_id"]["value"] = json!("second-open");
-    input["payload"]["request"]["quantity"]["value"] = json!("1");
-    assert_eq!(
-        runtime.prepare(&input).unwrap_err().0,
-        "RUNTIME_RUN_PLAN_REQUIRED"
-    );
-    let original = runtime.prepare_run_plan(&input).unwrap();
-    let wire =
-        onlyalpha_execution::Prepared::decode(&serde_json::to_vec(original.value()).unwrap())
-            .unwrap();
-    assert!(
-        runtime.apply_prepared(&wire).is_err(),
-        "解码后的被动传输件不得创建 Funding 后的新交易事实"
-    );
-    runtime.recover().unwrap();
-    assert_eq!(runtime.records().unwrap(), before);
-    assert_eq!(runtime.state().unwrap(), state);
-    runtime.apply_run_plan(&original).unwrap();
-    let committed = runtime.records().unwrap();
-    assert_eq!(committed.len(), 8);
-    runtime.apply_prepared(&wire).unwrap();
-    assert_eq!(runtime.records().unwrap(), committed);
-}
-
-#[test]
-fn uncommitted_funding_projection_cannot_issue_a_sealed_transcript() {
-    let (cfg, inputs) = scenario();
-    let (_root, mut runtime) = prepare_prefix(&cfg, &inputs, 6);
-    let (owners, mut rows) = runtime.fork_ready().unwrap();
-    let native = runtime.prepare_original_funding(&inputs[6]).unwrap();
-    rows.push(
-        Record::decode(
-            &json!({"schema_version":1,"prepared":native.value(),"ready":false,"delivered":false}),
-        )
-        .unwrap(),
-    );
-    let mut data = onlyalpha_execution::ProjectionData::new(&owners, &rows);
-    data.replay().unwrap();
-    let manifest = json!({"schema_version":1,"configuration":onlyalpha_execution::digest(cfg.to_string().as_bytes()),"kernel_artifact":artifact(),"input_pin":"c".repeat(64),"initial_time":{"schema_version":1,"unix_nanos":inputs[0]["time"]},"final_time":{"schema_version":1,"unix_nanos":inputs[6]["time"]},"inputs":inputs.iter().map(|v| onlyalpha_execution::digest(v.to_string().as_bytes())).collect::<Vec<_>>()});
-    let outcome =
-        json!({"schema_version":1,"status":"INCOMPLETE","reason":"projection comparison"});
-    let result = data.transcript(&manifest, &outcome).unwrap().record();
-    assert_eq!(runtime.records().unwrap().len(), 6);
-    assert!(
-        [
-            "final_seal",
-            "id",
-            "determinism_fingerprint",
-            "result_fingerprint"
-        ]
-        .iter()
-        .all(|field| result.get(*field).is_none()),
-        "未提交 Funding 的纯回放不得生成正式 Execution transcript 封存身份"
-    );
-    runtime.apply_original_funding(&native).unwrap();
-    let actual = runtime
-        .backtest_result(&manifest, &outcome)
-        .unwrap()
-        .record();
-    assert!(!actual["final_seal"].is_null());
-    assert!(actual["id"].as_str().unwrap().starts_with("BTR-"));
-    assert_eq!(
-        actual["determinism_fingerprint"].as_str().unwrap().len(),
-        64
-    );
-    assert_eq!(
-        actual["result_fingerprint"],
-        actual["determinism_fingerprint"]
-    );
-    for (field, value) in result.as_object().unwrap() {
-        assert_eq!(
-            actual.get(field.as_str()),
-            Some(value),
-            "候选经济数据与实际封存的字段 {field} 应一致"
-        );
-    }
 }

@@ -4,15 +4,14 @@ from pathlib import Path
 
 from scripts.rust_benchmark import (
     benchmark_input_identity,
+    chain_reports,
     compare_report_sets,
     compare_reports,
     criterion_reports,
     criterion_samples,
-    legacy_reports,
     result_identity,
     retained_reports,
     storage_conditions,
-    validate_complete_trace,
     validate_fixture_provenance,
     validate_inventory,
 )
@@ -33,8 +32,8 @@ class BenchmarkContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "benchmark"):
                 validate_inventory(root, [case])
             (root / "crates/account/benches/recovery.rs").write_text("BENCHMARK_SAMPLE")
-            retained = dict(case, sizes=[1481], external_input="OA_BENCH_RUNTIME", rounds=3)
-            validate_inventory(root, [retained])
+            fixed = dict(case, sizes=[128], rounds=3)
+            validate_inventory(root, [fixed])
 
     def test_comparison_requires_equal_work_and_output(self):
         base = dict(
@@ -68,15 +67,15 @@ class BenchmarkContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "storage"):
             compare_reports(report, report)
 
-    def test_retained_comparison_requires_the_actual_input_storage_role(self):
+    def test_storage_comparison_requires_the_temporary_location_role(self):
         report = dict(
             schema_version=1,
-            case="runtime/retained/source.read",
+            case="runtime/retained/memory.execute",
             input_sha256="i",
             result_sha256="r",
-            environment={"storage": STORAGE},
-            unit="rows",
-            work_items=1,
+            environment={"storage": {"schema_version": 1, "locations": {"other": STORAGE["locations"]["temporary"]}}},
+            unit="records",
+            work_items=128,
             samples_ns=[1, 2, 3],
         )
         with self.assertRaisesRegex(ValueError, "storage"):
@@ -246,7 +245,7 @@ class BenchmarkContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 retained_reports("\n".join(broken), metadata)
 
-    def test_legacy_chain_cannot_use_historical_artifact_as_current_binary(self):
+    def test_chain_reports_cannot_use_historical_artifact_as_current_binary(self):
         import json
 
         meta = dict(
@@ -254,7 +253,7 @@ class BenchmarkContracts(unittest.TestCase):
         )
         lines = ["BACKTEST_BENCHMARK_META " + json.dumps(meta)]
         for n in range(1, 4):
-            for stage in ("read", "chain.total"):
+            for stage in ("memory.session.execute", "chain.total"):
                 lines.append(
                     "BACKTEST_BENCHMARK "
                     + json.dumps(dict(round=n, stage=stage, elapsed_ns="100", result_sha256="same-result"))
@@ -271,24 +270,9 @@ class BenchmarkContracts(unittest.TestCase):
             source={},
             binary_sha256="current",
         )
-        self.assertEqual(len(legacy_reports("\n".join(lines), metadata)), 2)
+        self.assertEqual(len(chain_reports("\n".join(lines), metadata)), 2)
         with self.assertRaisesRegex(ValueError, "binary"):
-            legacy_reports("\n".join(lines), dict(metadata, binary_sha256="historical kernel"))
-
-    def test_header_extract_cannot_replace_original_complete_trace(self):
-        import json
-
-        with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "trace.json"
-            fixture = {"binding": {"work": "original"}, "inputs": {"records": []}}
-            path.write_text(json.dumps(fixture))
-            with self.assertRaisesRegex(ValueError, "complete trace"):
-                validate_complete_trace(path, fixture)
-            full = dict(fixture, schema_version=2, kind="controlled", state={}, steps=[])
-            path.write_text(json.dumps(full))
-            self.assertEqual(len(validate_complete_trace(path, fixture)), 64)
-            with self.assertRaisesRegex(ValueError, "binding"):
-                validate_complete_trace(path, dict(fixture, binding={"work": "foreign"}))
+            chain_reports("\n".join(lines), dict(metadata, binary_sha256="historical kernel"))
 
     def test_input_identity_binds_harness_and_fixtures_but_allows_library_changes(self):
         case = {"crate": "account", "target": "recovery"}

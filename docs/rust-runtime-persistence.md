@@ -1,6 +1,6 @@
 # Rust Runtime 状态、持久化与恢复
 
-本契约落实[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)，取代本页原SQLite、文件Source、逐Barcheckpoint和强制续接要求。值接口见[有限作业契约](job-execution-contract.md)，经济规则仍由Execution及各组件契约负责。当前仅第一阶段定义，现有`SqliteStore`、`Runtime::create/open`和只读快照还在代码中，按计划五至八阶段迁移，不新增兼容入口。
+本契约落实[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)，取代本页原SQLite、文件Source、逐Barcheckpoint和强制续接要求。值接口见[有限作业契约](job-execution-contract.md)，经济规则仍由Execution及各组件契约负责。旧`SqliteStore`、`Runtime::create/open`、文件 journal 与只读快照已完整退役，不保留兼容入口。
 
 ## 职责与接口
 

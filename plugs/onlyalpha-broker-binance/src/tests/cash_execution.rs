@@ -16,15 +16,14 @@ use onlyalpha_domain::{
     fee::*,
     value::{OnlyCurrency, OnlyMoney},
 };
-use onlyalpha_execution::{Components, Store as ExecutionStore, coordinate, recover};
-use onlyalpha_runtime::SqliteStore;
+use onlyalpha_execution::{CommitIntent, Components, Error as ExecutionError, Record as ExecutionRecord, Store as ExecutionStore, coordinate};
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::Write,
-    path::{Path, PathBuf},
+    path::PathBuf,
     rc::Rc,
     sync::{
         Arc,
@@ -46,7 +45,7 @@ impl Root {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&path).unwrap();
-        for name in ["journal", "observations", "execution"] {
+        for name in ["journal", "observations"] {
             fs::create_dir(path.join(name)).unwrap();
         }
         Self(path)
@@ -316,26 +315,78 @@ fn admission(scope: &Scope, symbol: &str) -> Value {
     )
 }
 
+// 执行工作只保留在内存；重启是按同一输入从头确定性重算，不存在可重新读取的持久前缀。
+// 每条序号只提交一次，已有序号的载荷不得被替换。
+#[derive(Default)]
+struct Memory(Vec<ExecutionRecord>);
+impl ExecutionStore for Memory {
+    fn head(&self) -> std::result::Result<u64, ExecutionError> {
+        Ok(self.0.len() as u64)
+    }
+    fn commit(&mut self, intent: &CommitIntent) -> std::result::Result<ExecutionRecord, ExecutionError> {
+        let p = intent.prepared();
+        if let Some(row) = self.0.get((p.sequence() - 1) as usize) {
+            if row.prepared() != p {
+                return Err(ExecutionError("EXECUTION_STORE_PAYLOAD_CONFLICT".into()));
+            }
+            return Ok(row.clone());
+        }
+        if p.sequence() != self.0.len() as u64 + 1 {
+            return Err(ExecutionError("EXECUTION_SEQUENCE_CONFLICT".into()));
+        }
+        let row = ExecutionRecord::new(intent);
+        self.0.push(row.clone());
+        Ok(row)
+    }
+    fn get(&self, n: u64) -> std::result::Result<Option<ExecutionRecord>, ExecutionError> {
+        Ok(self.0.get((n - 1) as usize).cloned())
+    }
+    fn mark_ready(&mut self, n: u64) -> std::result::Result<(), ExecutionError> {
+        let mut row = self.0[(n - 1) as usize].record();
+        row["ready"] = json!(true);
+        self.0[(n - 1) as usize] = ExecutionRecord::decode(&row)?;
+        Ok(())
+    }
+    fn acknowledge(&mut self, n: u64) -> std::result::Result<(), ExecutionError> {
+        let mut row = self.0[(n - 1) as usize].record();
+        if row["ready"] != true {
+            return Err(ExecutionError("EXECUTION_NOT_READY".into()));
+        }
+        row["delivered"] = json!(true);
+        self.0[(n - 1) as usize] = ExecutionRecord::decode(&row)?;
+        Ok(())
+    }
+}
+
 struct Cash {
+    config: Value,
     owners: Components,
-    store: SqliteStore,
+    store: Memory,
+    applied: Vec<Value>,
 }
 impl Cash {
-    fn open(dir: &Path, cfg: &Value, fresh: bool) -> Self {
-        let artifact = "a".repeat(64);
-        let mut store = if fresh {
-            SqliteStore::create(dir, cfg.clone(), &artifact)
-        } else {
-            SqliteStore::open(dir, cfg.clone(), &artifact)
+    fn create(cfg: &Value) -> Self {
+        Self::replay(cfg, &[])
+    }
+    fn restart(&self) -> Self {
+        Self::replay(&self.config, &self.applied)
+    }
+    fn replay(cfg: &Value, applied: &[Value]) -> Self {
+        let mut cash = Self {
+            config: cfg.clone(),
+            owners: Components::new(cfg.clone()).unwrap(),
+            store: Memory::default(),
+            applied: Vec::new(),
+        };
+        for row in applied {
+            cash.apply(row);
         }
-        .unwrap();
-        let mut owners = Components::new(cfg.clone()).unwrap();
-        recover(&mut store, &mut owners).unwrap();
-        Self { owners, store }
+        cash
     }
     fn apply(&mut self, row: &Value) -> onlyalpha_execution::Prepared {
         let p = self.owners.prepare(&self.store, row).unwrap();
         coordinate(&mut self.store, &mut self.owners, &p).unwrap();
+        self.applied.push(row.clone());
         p
     }
     fn snapshot(&self) -> Result<Value> {
@@ -596,7 +647,6 @@ fn scenario(symbol: &str, wrong_reference: bool) {
     let f = Fixture::new();
     let scope = &f.config.scope;
     let cfg = configuration(scope, symbol);
-    let dir = root.0.join("execution");
     let logs = Logs(root.0.clone());
     let venue = Rc::new(VenueState {
         order: RefCell::new(Value::Null),
@@ -604,7 +654,7 @@ fn scenario(symbol: &str, wrong_reference: bool) {
         requests: RefCell::new(Vec::new()),
         filled: symbol == "BTCUSDT",
     });
-    let mut cash = Cash::open(&dir, &cfg, true);
+    let mut cash = Cash::create(&cfg);
     let admit = admission(scope, symbol);
     cash.apply(&admit);
     let command = cash.command(scope, &admit);
@@ -628,8 +678,10 @@ fn scenario(symbol: &str, wrong_reference: bool) {
         "SUBMISSION",
         json!({"schema_version":1,"order":ORDER,"outcome":"UNKNOWN"}),
     ));
+    // 冷重启只按同一冻结输入确定性重算；没有可重新读取的执行前缀。
+    let restart = cash.restart();
     drop((g, cash));
-    let mut cash = Cash::open(&dir, &cfg, false);
+    let mut cash = restart;
     let mut g = gateway(&f, &logs, &venue, Some(&cp));
     let reader = Reader {
         cash: &cash,
@@ -671,8 +723,9 @@ fn scenario(symbol: &str, wrong_reference: bool) {
     assert_eq!(cash.store.head().unwrap(), 3);
     assert_eq!(cash.snapshot().unwrap(), after);
     let cp = g.checkpoint().unwrap();
+    let restart = cash.restart();
     drop((g, cash));
-    let cash = Cash::open(&dir, &cfg, false);
+    let cash = restart;
     let mut g = gateway(&f, &logs, &venue, Some(&cp));
     connect(&mut g);
     let reader = Reader {
@@ -757,7 +810,7 @@ fn scenario(symbol: &str, wrong_reference: bool) {
 }
 
 #[test]
-fn original_unknown_spot_orders_recover_against_cold_cash_execution_and_exact_journal_facts() {
+fn original_unknown_spot_orders_recompute_against_exact_journal_facts_and_receipts() {
     scenario("BTCUSDT", false);
     scenario("ETHUSDT", false);
     scenario("BTCUSDT", true);

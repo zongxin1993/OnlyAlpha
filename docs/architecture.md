@@ -513,24 +513,23 @@ Position 与 Allocation 的数量、精确累计成本、released cost 和 reali
 
 ## 15. Persistence / Checkpoint / Recovery
 
-Runtime Persistence Store 当前支持 Memory 与 SQLite。Persistence 提供 durable storage，不重新决定经济语义。Checkpoint 在明确完成边界原子创建并读回验证，包含精确 MarketData cursor、participant schema/version、authority/config fingerprints 和稳定序列化，不包含 secret 或不稳定对象地址。
+业务状态只有两类归属。Research / Backtest 有限作业在内存中执行，权威输入是冻结的 Run、精确程序与参数、Kernel 工件和
+Market Data 切片；内存工作可丢失，恢复等于在同一 Run 下按同一冻结输入确定性重算。SIM / LIVE 的正式成交事实、事实索引和
+Projection Ready 进度由 PostgreSQL 保存，进程丢失后恢复 typed owner 并对未知外部结果继续观察对账。业务 SQLite、文件 journal
+和逐 Bar Runtime checkpoint 已按 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 退役。
 
-恢复顺序：
+恢复按 runtime 类型区分：
 
 ```text
-Restore Durable State
-→ Validate Authority
-→ Resolve Transaction Tail
-→ Resume Ordered Projection
-→ Rebuild Derived Index
-→ Validate Aggregate
-→ Open Runtime
-→ Deliver Continuation Events
+有限作业：观察原发布与未知提交 → 同一 Run 新 Attempt 重算 → 原子发布
+连续交易：校验绑定／水位／记录 → 继续原 Projection → 外部对账 → 恢复派单
 ```
 
-OnlyAlpha 只支持 Forward Recovery。Committed fact 不删除、不回滚、不按当前规则重算；失败 projection 不跳过；schema/identity/fingerprint 不兼容时 fail closed。
+Forward recovery 的约束不变：committed fact 不删除、不回滚、不按当前规则重算；失败 projection 不跳过；schema、identity 或
+fingerprint 不兼容时 fail closed。
 
-Backtest 与 SIM 均具备各自 lifecycle 下的 durable checkpoint/restart/recovery 产品闭环并共享 forward recovery semantics；Live 与长期生产 recovery 仍是后续任务。
+Backtest 与 SIM 各自具备其 lifecycle 下的进程丢失恢复闭环并共享 forward recovery semantics；Live 与长期生产 recovery 仍是
+后续任务。
 
 ## 16. Result / Analytics / Artifact
 

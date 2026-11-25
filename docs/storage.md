@@ -24,12 +24,11 @@ OnlyRedisCache
 ## 3. Trading Runtime Persistence
 
 ```text
-OnlyRuntimePersistenceStorePort
-├── immutable Prepared / Committed Runtime Transactions
-├── stable transaction indexes
-├── Projection Ready progress
-├── durable at-least-once Outbox intents
-└── complete Runtime Checkpoint headers / components
+正式交易事实（PostgreSQL）
+├── immutable Prepared / Committed trading facts
+├── 稳定事实索引与 TradingBinding
+├── Projection Ready 进度
+└── 控制关联与必要的投递意图
 ```
 
 Transaction Store 是成交 durable authority。Applied Projection Ledger 只记录 Projection 幂等进度，可由 committed
@@ -37,7 +36,11 @@ transaction 重建，不是第二份成交真值。Order、Position、Allocation
 保存各自 projection state；它们不得替代逐笔 committed fact，也不得通过最终 Snapshot 反推交易历史。
 
 该边界只属于 Trading Runtime。Research Runtime 保存 Dataset、Calculation、Research Result 与 Artifact state，不为结构
-对称创建 Order、Position、Account、Broker 或 Trading Transaction Store。
+对称创建 Order、Position、Account、Broker 或 Trading Transaction Store。有限 Research / Backtest 会话在内存中执行，
+不经由 Trading Runtime Persistence 保存状态。
+
+业务 SQLite、文件 journal 与逐 Bar Runtime checkpoint 已按 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)
+退役。
 
 ## 4. 要求
 
@@ -57,26 +60,21 @@ transaction 重建，不是第二份成交真值。Order、Position、Allocation
 当前提供：
 
 - 内存 Cache；
-- Memory Runtime Persistence Store（不可 restart，checkpoint 必须关闭）；
-- SQLite Runtime Persistence Store schema v5；
-- Runtime Checkpoint schema v3；
-- 不兼容 schema 显式拒绝，不做静默迁移或 Memory fallback；
+- 内存 Runtime 会话（有限 Research / Backtest，不可 restart；丢失即按冻结输入确定性重算）；
+- PostgreSQL 交易事实仓储（`TradingFactRepository` 实现 `onlyalpha_runtime::durability::DurableFactPort`）；
+- Research Calculation Result Store（见 6.1）；
+- 不兼容 schema、身份或指纹显式拒绝，不做静默迁移或内存 fallback；
 - 不在 Domain 层写 SQL。
 
 ## 6. 恢复
 
-正式恢复顺序是：
+恢复按 runtime 类型区分：
 
-1. 打开 Store，验证 Runtime identity、Persistence schema 与配置/Participant fingerprint；
-2. 读取并验证 latest complete Runtime checkpoint；
-3. 按稳定 Participant Registry 顺序恢复各自 authority；
-4. 分析 checkpoint 后连续的 committed transaction tail；
-5. 在精确 MarketData/Broker 因果边界恢复 ordered Projection，并重建 Applied Projection Ledger；
-6. 验证 Transaction、Projection、Manager、Broker、Outbox 与聚合 authority；
-7. 原子写入并读回 post-recovery checkpoint；
-8. Runtime Open 后才投递 continuation Outbox 并恢复 workload。
+1. 有限 Research / Backtest：先观察原发布与未知提交，确认未发布后，在同一 Run 下新建 Attempt，按冻结输入重算并原子发布终态结果；
+2. SIM / LIVE：从 PostgreSQL 正式交易事实恢复 typed owner，校验绑定、水位、记录数、逐行 Prepared 计划、Projection Ready
+   前缀和对账状态，未知外部结果继续观察原场所事实，不盲目重发指令。
 
-OnlyAlpha 只做 Forward Recovery：commit 后不跨 Manager rollback，不删除或改写历史 transaction，也不跳过失败 Projection。
+OnlyAlpha 只做 Forward Recovery：commit 后不跨 Manager rollback，不删除或改写历史 transaction，不跳过失败 Projection。
 完整协议见 `execution_runtime_recovery.md`。
 
 ## 6.1 Research Calculation Result Storage

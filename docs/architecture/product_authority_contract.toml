@@ -1111,7 +1111,7 @@ approved_paths = ["src/onlyalpha/research/worker_main.py"]
 id = "K08"
 capability = "C12"
 symbol = "onlyalpha.engine.engine.OnlyEngine"
-approved_paths = ["scripts/regenerate_recovery_baselines.py", "scripts/regenerate_result_fixtures.py", "src/onlyalpha/backtest/worker.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
+approved_paths = ["scripts/regenerate_result_fixtures.py", "src/onlyalpha/backtest/worker.py", "src/onlyalpha/research/execution/worker.py", "src/onlyalpha/scenario/runner.py"]
 [[constructors]]
 id = "K09"
 capability = "C13"

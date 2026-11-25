@@ -248,27 +248,3 @@ pub(crate) fn account_capacity_history(flat: bool) -> crate::Candidate {
     }
     panic!("real owner history did not reach the unchanged admission-only capacity");
 }
-pub(crate) fn close_and_cancel_at_capacity(candidate: &mut crate::Candidate) {
-    let close = capacity_admission(candidate, false);
-    candidate.apply(&close).unwrap();
-    let stage = capacity_input(
-        candidate,
-        "SUBMISSION",
-        json!({"schema_version":1,"order":"runtime-ORDER-000002","outcome":"UNKNOWN"}),
-    );
-    candidate.apply(&stage).unwrap();
-    let cancel = capacity_input(
-        candidate,
-        "CANCEL",
-        json!({"schema_version":1,"order":"runtime-ORDER-000002","request_id":"capacity-cancel","reason":"USER_CANCELLED"}),
-    );
-    candidate.apply(&cancel).unwrap();
-    let fill = capacity_fill(candidate, true, "2.00", "24.00");
-    candidate.apply(&fill).unwrap();
-    let terminal = capacity_input(
-        candidate,
-        "TERMINAL",
-        json!({"schema_version":1,"order":"runtime-ORDER-000002","outcome":"CANCELLED","collateral":{"schema_version":1,"kind":"NONE","instruction":null,"close_allocation":null}}),
-    );
-    candidate.apply(&terminal).unwrap();
-}

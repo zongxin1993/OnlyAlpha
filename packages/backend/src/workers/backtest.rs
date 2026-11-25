@@ -1,8 +1,7 @@
 //! Exact experimental participant construction. Values grant no Freeze, promotion, Run or LIVE authority.
 use bigdecimal::num_bigint::BigInt;
-use onlyalpha_backtest::{Error, Inputs, NextOpenPolicy, Trading};
+use onlyalpha_backtest::{Error, Inputs, NextOpenPolicy};
 use onlyalpha_calculation::product::Graph;
-use onlyalpha_calculation_bridge::StrategyPreparation;
 use onlyalpha_domain::{
     base::OnlyDomainModel,
     numeric::OnlyDecimal,
@@ -10,7 +9,7 @@ use onlyalpha_domain::{
     value::{OnlyPrice, OnlyQuantity},
 };
 use onlyalpha_market_crypto::spot::{SpotRuleSnapshot, SpotSimulationPolicy};
-use onlyalpha_strategy::{NodePort, SourceRevision};
+use onlyalpha_strategy::SourceRevision;
 use serde_json::{Value, json};
 const BAR_NS: u64 = 60_000_000_000;
 const WORK: usize = 8 * 1024 * 1024;
@@ -67,31 +66,6 @@ impl NextOpenPolicy for BinanceNextOpenPolicy {
 /// grants no Product preparation, Runtime admission or publication authority.
 pub fn next_open_policy(policy: SpotSimulationPolicy) -> Box<dyn NextOpenPolicy> {
     Box::new(BinanceNextOpenPolicy(policy))
-}
-/// Reconstruct only the original immutable plugin policy for terminal source
-/// verification. The retained rules and complete policy capture must agree;
-/// current exchange rules, SDKs and authoring state are never consulted.
-pub fn terminal_policy(
-    settings: &Value,
-    native_policy: &Value,
-) -> Result<Box<dyn NextOpenPolicy>, Error> {
-    let snapshot = boundary(SpotRuleSnapshot::from_record(
-        &native_policy["rules_snapshot"],
-    ))?;
-    let policy = boundary(SpotSimulationPolicy::new(
-        snapshot,
-        settings["execution"].clone(),
-    ))?;
-    let mut original = native_policy.clone();
-    original
-        .as_object_mut()
-        .ok_or_else(|| invalid("TERMINAL_POLICY"))?
-        .remove("execution_model")
-        .ok_or_else(|| invalid("TERMINAL_POLICY"))?;
-    if policy.binding() != original {
-        return Err(invalid("TERMINAL_POLICY"));
-    }
-    Ok(next_open_policy(policy))
 }
 /// Immutable construction values only. Owning readers and Product admission must authenticate them separately.
 #[derive(Clone)]
@@ -264,29 +238,6 @@ impl PreparedNextOpen {
     }
     pub fn initial_ns(&self) -> &BigInt {
         &self.initial_ns
-    }
-    /// Consume the exact value preparation; this grants no Product or journal admission.
-    pub fn into_participants<C: NodePort>(
-        self,
-        preparation: StrategyPreparation<C>,
-    ) -> Result<Trading<C>, Error> {
-        let revision = preparation.strategy().program().revision();
-        if !revision.is_product_materialization()
-            || revision.fingerprint() != self.source.fingerprint()
-            || revision.to_record()["product"]["source"] != self.source.to_record()
-            || preparation.strategy().program().source()
-                != self.inputs.record()["sources"][0]["source"]
-                    .as_str()
-                    .ok_or_else(|| invalid("SOURCE_SCOPE"))?
-        {
-            return Err(invalid("PARTICIPANT_SOURCE"));
-        }
-        Trading::next_open(
-            preparation,
-            self.settings,
-            next_open_policy(self.policy),
-            self.initial_ns,
-        )
     }
 }
 

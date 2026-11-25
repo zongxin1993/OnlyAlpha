@@ -30,4 +30,3 @@ sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"] }
 
 [dev-dependencies]
 onlyalpha-execution = { path = "../../crates/execution" }
-onlyalpha-runtime = { path = "../../crates/runtime" }

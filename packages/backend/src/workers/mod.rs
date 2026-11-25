@@ -1,6 +1,5 @@
 pub mod algorithm;
 pub mod backtest;
-pub mod backtest_result;
 pub mod research;
 pub mod research_environment;
 pub mod sim;

@@ -40,12 +40,7 @@ facts被抑制且不补发。Continuation transaction 的 durable Outbox 保持 
 Runtime READY 且 start 打开 Router 后才交付，随后才 resume Cluster 并发布 `RUNTIME_STARTED`。
 Committed-but-not-ready transaction 只进入恢复/管理 diagnostic，即使失败运行构建部分 Result，也不会成为正式 execution fact。
 
-持久恢复语义必须通过 typed Runtime specification 显式给出；测试 fixture 中的相同字段只用于验证 parser/Kernel behavior。
-未配置时为 `MEMORY`，不会创建 state 目录。SQLite 默认路径为
-`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`。绝对路径、空路径和 `..` 逃逸被拒绝；Store
-identity、Participant Registry、schema 或 checkpoint hash 不匹配不会覆盖旧库或 fallback。SQLite Runtime Persistence 使用
-schema version 3，明确拒绝旧 version 1/2 且不迁移；Virtual Broker participant checkpoint schema 仍为 2。初始稳定边界和
-每个完整 Bar 都写 checkpoint；写入失败阻止后续 Bar。
+依据 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 与 [Rust 回测事件执行与恢复契约](rust-backtest-replay.md)，现行原生回测统一采用内存 `BacktestRun` / `Session` 执行，不创建文件目录或 SQLite；终态结果经后端 PostgreSQL 原子发布，中断或进程丢失后由原 Run 的新 Attempt 按冻结输入重算。旧 SQLite `runtime.sqlite3` 文件持久化路径已完整退役。
 
 Only ReplayService advances the data-driven Clock. The product loop never reads DataFrames or online APIs and never calls
 Pipeline, Cluster or Managers directly. Runtime marks Account and Strategy values from closed Bars before Broker

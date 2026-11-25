@@ -22,6 +22,4 @@ Virtual Broker 的发行单元是 `plugin-onlyalpha-broker-virtual`，Cargo 包�
 
 历史 Python entry point、wheel 及 schema 1–3 属原实现。读取历史事实须使用原身份与精确工件；缺失绑定时保持不可恢复。原生实现、同版本号和 Git 源码归档均不能代替旧 wheel。原始设计与交易状态约束见 [ADR 0015](adr/0015-account-broker-ports-and-virtual-broker.md) 与 [ADR 0066](adr/0066-durable-broker-driven-order-lifecycle.md)。
 
-新 BACKTEST 配置 3 通过 BoundVirtualActor 持有对应原 Run 的 broker.sqlite3。一个来源步在真实场所状态上运行原输入，核对前驱、原命令或发布证据，在同一 SQLite 事务中逐行保存实际新增事实。只有提交可读时才推进公开游标。失败后按同一序号和摘要读回，旧实例须从原库重开。绑定检查点只保存原绑定与位置；重开按序重跑真实撮合并核对每一条输出。配置 1/2 和独立 Virtual checkpoint4 继续使用原 Reader。
-
-显式绑定模拟场所使用 broker.sqlite3 v2。每次命令生效时原 DISPATCHED 必须仍是当前协议头，场所结果和本步出生事实一并提交。observe_command 保存当前协议前缀和场所前缀上的发现结果，包括尚未流发布的事实及空查询；重开在相同位置重放。正常流发布按实际 stream_at 推进，已由查询观察的事实复用原观察。规范 genesis、CLOCK/BAR/命令和出生事实正文按原始 UTF-8 字节读取。
+依据 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)，有限回测由 `MemoryVirtualActor` 独占原生场所和 `MemoryBroker` 在内存完成回放与协议追踪；持续模拟交易的正式事实和恢复由后端 PostgreSQL 持久化承接。旧 `BoundVirtualActor` 与 `broker.sqlite3` 文件型绑定介质已完整退役。

@@ -200,11 +200,23 @@ def test_ledger_consumes_position_effects_without_provider_implementation(monkey
             validate_strategy_ledger_sources(ROOT)
 
 
-@pytest.mark.parametrize("source", ["src/lib.rs", "src/plan.rs"])
-@pytest.mark.parametrize("expression", ["use rusqlite::Connection;", "use rusqlite as hidden_store;"])
-def test_virtual_sqlite_stays_in_the_source_host(monkeypatch, source, expression):
+@pytest.mark.parametrize(
+    "source",
+    [
+        "plugs/onlyalpha-broker-virtual/src/lib.rs",
+        "plugs/onlyalpha-broker-virtual/src/plan.rs",
+        "crates/runtime/src/lib.rs",
+        "crates/backtest/src/lib.rs",
+        "packages/backend/src/lib.rs",
+    ],
+)
+@pytest.mark.parametrize(
+    "expression",
+    ["use rusqlite::Connection;", "use rusqlite as hidden_store;", "use libsqlite3_sys;"],
+)
+def test_sqlite_source_references_are_rejected_across_workspace(monkeypatch, source, expression):
     original = Path.read_text
-    target = ROOT / "plugs/onlyalpha-broker-virtual" / source
+    target = ROOT / source
 
     def read(path, *args, **kwargs):
         value = original(path, *args, **kwargs)
@@ -216,60 +228,92 @@ def test_virtual_sqlite_stays_in_the_source_host(monkeypatch, source, expression
 
 
 @pytest.mark.parametrize(
-    "expression, admitted",
+    "manifest_rel, section, declaration",
     [
-        ('fn explicit_store() { let _ = rusqlite::Connection::open("owned.sqlite3"); }', True),
-        ('fn explicit_store() { let _ = std::fs::metadata("owned.sqlite3"); }', True),
-        ('fn ambient_input() { let _ = std::env::var("DATABASE_PATH"); }', False),
-        ("fn ambient_input() { let _ = std::time::SystemTime::now(); }", False),
-        ('fn ambient_input() { let _ = std::process::Command::new("sqlite3"); }', False),
-        ('fn ambient_input() { let _ = std::net::TcpStream::connect("127.0.0.1:1"); }', False),
-        ("fn ambient_input() { let _ = std::io::stdin(); }", False),
-        ('fn ambient_input() { let _ = include_str!("undeclared.db"); }', False),
+        (
+            "plugs/onlyalpha-broker-virtual/Cargo.toml",
+            "[dependencies]",
+            'rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }',
+        ),
+        (
+            "plugs/onlyalpha-broker-virtual/Cargo.toml",
+            "[dependencies]",
+            'store = { package = "rusqlite", version = "=0.40.2", default-features = false, features = ["bundled"] }',
+        ),
+        (
+            "crates/runtime/Cargo.toml",
+            "[dependencies]",
+            'db = { package = "libsqlite3-sys", version = "=0.37.0" }',
+        ),
+        (
+            "crates/backtest/Cargo.toml",
+            "[dev-dependencies]",
+            'legacy_sqlite = { package = "rusqlite", version = "=0.40.2" }',
+        ),
+        (
+            "packages/backend/Cargo.toml",
+            "[dependencies]",
+            'sqlx_store = { package = "sqlx-sqlite", version = "=0.8.0" }',
+        ),
     ],
 )
-def test_virtual_source_host_admits_only_owned_storage(monkeypatch, expression, admitted):
-    original = Path.read_text
-    target = ROOT / "plugs/onlyalpha-broker-virtual/src/source_host.rs"
-
-    def read(path, *args, **kwargs):
-        value = original(path, *args, **kwargs)
-        return value + "\n" + expression if path == target else value
-
-    monkeypatch.setattr(Path, "read_text", read)
-    if admitted:
-        validate_infrastructure_sources(ROOT)
-    else:
-        with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
-            validate_infrastructure_sources(ROOT)
-
-
-@pytest.mark.parametrize("mutation", ["version", "features", "defaults", "alias", "kind"])
-def test_virtual_source_storage_dependency_is_exact_and_normal(monkeypatch, mutation):
+def test_sqlite_manifest_dependencies_and_aliases_are_rejected(monkeypatch, manifest_rel, section, declaration):
     from scripts.rust_kernel_check import validate_workspace
 
-    target = ROOT / "plugs/onlyalpha-broker-virtual/Cargo.toml"
+    target = ROOT / manifest_rel
     original = Path.read_text
-    line = 'rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }'
 
     def read(path, *args, **kwargs):
         value = original(path, *args, **kwargs)
         if path != target:
             return value
-        assert value.count(line) == 1
-        if mutation == "version":
-            return value.replace(line, line.replace("=0.40.2", "^0.40"))
-        if mutation == "features":
-            return value.replace(line, line.replace('["bundled"]', '["bundled", "functions"]'))
-        if mutation == "defaults":
-            return value.replace(line, line.replace("false", "true"))
-        if mutation == "alias":
-            return value.replace(line, line.replace("rusqlite = {", 'store = { package = "rusqlite",'))
-        return value.replace(line, "") + "\n[dev-dependencies]\n" + line + "\n"
+        if section in value:
+            return value.replace(section, section + "\n" + declaration, 1)
+        return value + "\n" + section + "\n" + declaration + "\n"
 
     monkeypatch.setattr(Path, "read_text", read)
     with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
         validate_workspace(ROOT)
+
+
+@pytest.mark.parametrize(
+    "injected_lock_entry",
+    [
+        '\n[[package]]\nname = "rusqlite"\nversion = "0.40.2"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "'
+        + "a" * 64
+        + '"\n',
+        '\n[[package]]\nname = "libsqlite3-sys"\nversion = "0.37.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "'
+        + "b" * 64
+        + '"\n',
+        '\n[[package]]\nname = "transitive-wrapper"\nversion = "0.1.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "'
+        + "c" * 64
+        + '"\ndependencies = [\n "libsqlite3-sys",\n]\n',
+    ],
+)
+def test_transitive_sqlite_lockfile_dependencies_are_rejected(monkeypatch, injected_lock_entry):
+    from scripts.rust_kernel_check import validate_workspace
+
+    target = ROOT / "Cargo.lock"
+    original = Path.read_text
+
+    def read(path, *args, **kwargs):
+        value = original(path, *args, **kwargs)
+        return value + injected_lock_entry if path == target else value
+
+    monkeypatch.setattr(Path, "read_text", read)
+    with pytest.raises(ValueError, match="RUST_MODULE_BOUNDARY_INVALID"):
+        validate_workspace(ROOT)
+
+
+def test_pure_rust_and_postgres_workspace_wiring_is_admitted():
+    from scripts.rust_kernel_check import validate_workspace
+
+    validate_workspace(ROOT)
+    validate_infrastructure_sources(ROOT)
+    assert not (ROOT / "plugs/onlyalpha-broker-virtual/src/source_host.rs").exists()
+    backend_manifest = tomllib.loads((ROOT / "packages/backend/Cargo.toml").read_text())
+    assert "postgres" in backend_manifest["dependencies"]
+    assert "onlyalpha-broker-virtual" in backend_manifest["dependencies"]
 
 
 @pytest.mark.parametrize(
@@ -325,13 +369,13 @@ def test_backtest_isolation_keeps_every_declared_local_dependency(tmp_path):
 @pytest.mark.parametrize(
     "owner,expression",
     [
-        ("crates/runtime/tests/support/perpetual_run.rs", 'include_str!("undeclared-funding.json")'),
-        ("crates/runtime/src/tests/funding_commit.rs", '#[path = "undeclared-funding.rs"] mod hidden;'),
-        ("crates/runtime/src/transcript.rs", '#[path = "undeclared-source.rs"] mod hidden;'),
-        ("crates/runtime/src/transcript.rs", 'include_str!("undeclared-result.json")'),
+        ("crates/runtime/src/durability.rs", '#[path = "undeclared-funding.rs"] mod hidden;'),
+        ("crates/runtime/src/durability.rs", 'include_str!("undeclared-funding.json")'),
+        ("crates/runtime/src/tests/durability_tests.rs", '#[path = "undeclared-source.rs"] mod hidden;'),
+        ("crates/runtime/src/session.rs", 'include_str!("undeclared-result.json")'),
     ],
 )
-def test_funding_fault_helpers_reject_undeclared_inputs(monkeypatch, owner, expression):
+def test_infrastructure_sources_reject_undeclared_inputs(monkeypatch, owner, expression):
     original = Path.read_text
 
     def read(path, *args, **kwargs):

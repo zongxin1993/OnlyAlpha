@@ -4,19 +4,15 @@ mod inputs;
 pub use finite::verify_finite_backtest;
 mod memory;
 pub use memory::{BacktestRun, CompletedBacktest, ExecutionBinding, MemoryRunSpec};
-mod native_read;
 mod next_open;
 mod run;
-mod terminal;
-mod trace;
 mod trading;
 pub use inputs::{Inputs, MarketInput, OpeningInput, Source};
 pub use next_open::NextOpenPolicy;
 pub use onlyalpha_execution::Error;
-pub use run::{Candidate, Participants, RunLoop, RunSpec, StepAndDeliverError};
+pub use run::Candidate;
 use serde_json::Value;
-pub use terminal::TerminalSnapshot;
-pub use trading::Trading;
+
 fn err(s: &str) -> Error {
     Error(format!("BACKTEST_REPLAY_{s}"))
 }

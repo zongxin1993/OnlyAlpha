@@ -6,7 +6,7 @@ from scripts.run_rust_benchmarks import select_benchmarks
 from scripts.rust_benchmark import storage_conditions
 
 STORAGE = storage_conditions(
-    "1 0 0:1 / / rw - overlay overlay rw\n", {"temporary": "/tmp", "retained_input": "/workspace/test-results/runtime"}
+    "1 0 0:1 / / rw - overlay overlay rw\n", {"temporary": "/tmp"}
 )
 
 

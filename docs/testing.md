@@ -112,15 +112,9 @@ Collector 等纯下游测试应读取该不可变结果，不应为了验证渲�
 uv run python scripts/regenerate_result_fixtures.py
 ```
 
-Recovery Baseline 位于 `test-data/recovery/`。提交的是规范投影、Manifest 和内容寻址的只读 SQLite 压缩源；测试运行时
-在 `.test-cache/recovery/` 原子物化并校验完整性，再复制到各自的 `tmp_path`。不得提交 `.test-cache/`，也不得让 Worker
-共享可写数据库。需要维护基线时显式执行：
+持续交易与有限作业恢复测试采用 Rust 内存会话、PostgreSQL 正式事实恢复（`packages/backend/tests/application/trading_facts.rs`）与有限回测原子发布用例（`packages/backend/tests/application/job_publication.rs`）；旧 Python SQLite `test-data/recovery/*/*.sqlite3.gz` 及 `scripts/regenerate_recovery_baselines.py` 已随业务 SQLite 一并退役。
 
-```powershell
-uv run python scripts/regenerate_recovery_baselines.py
-```
-
-Golden Evidence 治理（永久规则）：Recovery Baseline、Golden Snapshot、已认证 Canonical Projection
+Golden Evidence 治理（永久规则）：Golden Snapshot、已认证 Canonical Projection
 或期望历史 Fingerprint 的任何变更，都必须附带显式书面 justification，并落成 `docs/audits/` 下的
 独立 re-certification 记录（例如 `docs/audits/recovery_baseline_recertification.md`），说明旧/新
 身份、语义原因、迁移理由、受影响工件与可复现的证明方式。仅为让 CI 变绿而重生成 golden 证据是被

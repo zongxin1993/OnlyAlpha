@@ -19,8 +19,8 @@
 | integration-contract | source type规范化/选择 | benches/workload.rs：16/128/740 type identifiers | 只测当前source类型入口，不包含网络probe |
 | broker | 原生BrokerCommand校验 | benches/workload.rs：16/128/740 submits | 使用原OrderRequest并显式绑定受控account_id，未发送订单，不包含模拟成交或网络 |
 | execution | typed组件cold restore / 准入规划 | benches/recovery.rs | 同前缀ADMIT规划、成功/资金不足拒绝的cold/reused检查与恢复分开，完整输入与结果断言 |
-| runtime | 原执行日志、checkpoint前缀与切面 | benches/recovery.rs：8/32/128估值历史的恢复和apply/日志追加；retained.rs固定次数 | 三档公开API生成有效持久化状态；完整原始Source只认一个runtime参考 |
-| backtest | 终态/native原始回放核验 | benches/retained.rs，固定次数 | 真实策略/规则/输入，包含内部重复复核，原API预算不改变 |
+| runtime | 内存会话执行、PG 正式事实恢复与结果读取 | benches/retained.rs：memory.execute／result.read／durability.recovery；recovery.rs：8/32/128 事实行恢复与 apply | 事实行由公开 prepare 接口生成，不依赖 SQLite 快照或文件日志 |
+| backtest | 有限内存回测与终态结果读取 | benches/retained.rs，固定次数 | 真实策略/规则/输入，包含内部重复复核 |
 
 ## 尚未认定实际执行的候选
 
