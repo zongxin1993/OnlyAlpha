@@ -1,15 +1,32 @@
 //! Immutable evaluator-owned Qualification Decision1 facts (ADR 0118).
 //! Publication never grants progression, Runtime admission or LIVE authority.
-use crate::persistence::build_fact_read::BuildFactRead;
+use crate::{
+    application::{
+        backtest_run::VerifiedRun,
+        frozen_strategy::FrozenStore,
+        job_contract::{JobKind, MemberKind},
+    },
+    bootstrap::deployment::SemanticStoreId,
+    persistence::{
+        backtest_run,
+        build_fact_read::BuildFactRead,
+        job_publication::PublishedJobResult,
+        strategy_promotion::{self, BacktestAdmissionSelection, VerifiedBacktestHistory},
+    },
+};
 use crate::{
     application::{
         factor_content::hash,
         frozen_strategy::VerifiedManualBacktestEvidence,
-        qualification_policy::{EvaluatedDecision, Policy, Store as Policies},
+        qualification_policy::{
+            BacktestQualificationMetrics, EvaluatedDecision, Policy, Store as Policies,
+            canonical_plain_decimal,
+        },
     },
     persistence::research_evidence::VerifiedResearchCounts,
     security::immutable_json::{Directory, SourceLock, inspect_source_layout, put_at, read_path},
 };
+use onlyalpha_domain::numeric::OnlyDecimal;
 use serde_json::Value;
 use std::{os::fd::AsFd, path::Path, sync::Arc};
 type Result<T> = std::result::Result<T, &'static str>;
@@ -47,24 +64,28 @@ pub(super) fn manual_decision(prepared: &Value) -> Result<&Value> {
 pub(crate) enum Evidence {
     Research(Arc<VerifiedResearchCounts>),
     Manual(Arc<VerifiedManualBacktestEvidence>),
+    Backtest(Arc<VerifiedBacktestEvidence>),
 }
 impl Evidence {
     pub(crate) fn verify_cut(&self) -> Result<()> {
         match self {
             Self::Research(v) => v.verify_cut(),
             Self::Manual(v) => v.verify_cut(),
+            Self::Backtest(v) => v.verify_cut(),
         }
     }
     pub(crate) fn source_locks(&self) -> Vec<Arc<SourceLock>> {
         match self {
             Self::Research(v) => v.source_locks(),
             Self::Manual(v) => v.source_locks(),
+            Self::Backtest(v) => v.source_locks(),
         }
     }
     pub(crate) fn evaluate(&self, policy: &Policy) -> Result<EvaluatedDecision> {
         match self {
             Self::Research(v) => policy.evaluate_research_counts(v),
             Self::Manual(v) => policy.evaluate_manual_validation(v),
+            Self::Backtest(v) => policy.evaluate_backtest_evidence(v),
         }
     }
     pub(crate) fn matches(
@@ -74,6 +95,7 @@ impl Evidence {
         match self {
             Self::Research(v) => request.matches_counts(v),
             Self::Manual(v) => request.matches_manual(v),
+            Self::Backtest(v) => request.matches_backtest(v),
         }
     }
     pub(crate) async fn require_running_parent_in_transaction(
@@ -98,6 +120,7 @@ impl Evidence {
         match self {
             Self::Research(v) => v.verify_in_transaction(tx, namespace).await?,
             Self::Manual(v) => v.verify_in_transaction(tx, namespace).await?,
+            Self::Backtest(v) => v.verify_in_transaction(tx, namespace).await?,
         }
         self.verify_cut()
     }
@@ -180,6 +203,15 @@ impl Store {
     ) -> Result<VerifiedDecision> {
         self.load_evidence_captured(policies, Evidence::Manual(evidence.clone()), id, cut)
     }
+    pub(crate) fn load_backtest_verified_captured(
+        self: &Arc<Self>,
+        policies: Arc<Policies>,
+        evidence: &Arc<VerifiedBacktestEvidence>,
+        id: &str,
+        cut: Arc<SourceLock>,
+    ) -> Result<VerifiedDecision> {
+        self.load_evidence_captured(policies, Evidence::Backtest(evidence.clone()), id, cut)
+    }
     fn load_evidence_captured(
         self: &Arc<Self>,
         policies: Arc<Policies>,
@@ -238,7 +270,10 @@ impl Store {
         if &decision.namespace()? != namespace {
             return Err("RESEARCH_SEMANTIC_STORE_MISMATCH");
         }
-        decision.verify_in_transaction(tx,namespace).await?;
+        decision.verify_cut()?;
+        crate::bootstrap::deployment::verify_binding_in_transaction(tx, namespace)
+            .await
+            .map_err(|e| e.code())?;
         Ok(decision)
     }
     pub(crate) fn namespace(&self) -> Result<crate::bootstrap::deployment::SemanticStoreId> {
@@ -294,8 +329,260 @@ impl Store {
         Ok(value)
     }
 }
+
+fn parse_member_json(
+    publication: &PublishedJobResult,
+    key: &str,
+    kind: MemberKind,
+) -> Result<Value> {
+    let raw = publication.content(key).ok_or(INVALID)?;
+    let value: Value = serde_json::from_str(raw).map_err(|_| INVALID)?;
+    if value["schema_version"] != 1 || value["kind"] != serde_json::json!(kind) {
+        return Err(INVALID);
+    }
+    Ok(value)
+}
+
+fn parse_optional_decimal(object: &Value, key: &str) -> Result<Option<String>> {
+    match object.get(key) {
+        Some(Value::Null) => Ok(None),
+        Some(Value::String(raw)) => Ok(Some(canonical_plain_decimal(raw).map_err(|_| INVALID)?)),
+        _ => Err(INVALID),
+    }
+}
+
+fn parse_required_decimal(object: &Value, key: &str) -> Result<String> {
+    match object.get(key) {
+        Some(Value::String(raw)) => canonical_plain_decimal(raw).map_err(|_| INVALID),
+        _ => Err(INVALID),
+    }
+}
+
+fn extract_backtest_metrics_from_values(
+    sample_rows: u64,
+    close_curve_point_count: u64,
+    economics: &Value,
+) -> Result<BacktestQualificationMetrics> {
+    if close_curve_point_count != sample_rows {
+        return Err(INVALID);
+    }
+    let result = &economics["economic_result"];
+    if result["run"]["status"] != "COMPLETED" {
+        return Err(INVALID);
+    }
+    let execution = &result["execution"];
+    let summary = &result["runtime_performance"]["summary"];
+    if summary["authority"] != "ACCOUNT" {
+        return Err(INVALID);
+    }
+    let valuation_count = summary["valuation_count"].as_u64().ok_or(INVALID)?;
+    let order_count = execution["order_count"].as_u64().ok_or(INVALID)?;
+    let fill_count = execution["trade_count"].as_u64().ok_or(INVALID)?;
+    let roundtrip_count = economics["roundtrip_count"].as_u64().ok_or(INVALID)?;
+    let return_since_start = parse_optional_decimal(summary, "return_since_start")?;
+    let maximum_drawdown = parse_optional_decimal(summary, "maximum_drawdown")?;
+    if let Some(ref drawdown) = maximum_drawdown {
+        let parsed = drawdown.parse::<OnlyDecimal>().map_err(|_| INVALID)?;
+        let zero = "0".parse::<OnlyDecimal>().map_err(|_| INVALID)?;
+        if parsed > zero {
+            return Err(INVALID);
+        }
+    }
+    Ok(BacktestQualificationMetrics {
+        close_curve_point_count,
+        valuation_count,
+        order_count,
+        fill_count,
+        roundtrip_count,
+        return_since_start,
+        maximum_drawdown,
+        net_pnl: parse_required_decimal(summary, "net_pnl")?,
+        realized_pnl: parse_required_decimal(summary, "realized_pnl")?,
+        unrealized_pnl: parse_required_decimal(summary, "unrealized_pnl")?,
+        fees: parse_required_decimal(summary, "fees")?,
+        final_equity: parse_required_decimal(summary, "final_equity")?,
+    })
+}
+
+fn extract_backtest_metrics(
+    publication: &PublishedJobResult,
+) -> Result<BacktestQualificationMetrics> {
+    if publication.binding().kind() != JobKind::Backtest {
+        return Err(INVALID);
+    }
+    let sample_rows = publication.binding().record()["market"]["sample_rows"]
+        .as_u64()
+        .ok_or(INVALID)?;
+    let mut curve_rows = 0_u64;
+    for key in publication.member_keys(MemberKind::CloseCurve) {
+        let member = parse_member_json(publication, key, MemberKind::CloseCurve)?;
+        let rows = member["rows"].as_array().ok_or(INVALID)?;
+        let count = u64::try_from(rows.len()).map_err(|_| INVALID)?;
+        curve_rows = curve_rows.checked_add(count).ok_or(INVALID)?;
+    }
+    let mut econ_keys = publication.member_keys(MemberKind::EconomicResult);
+    let econ_key = econ_keys.next().ok_or(INVALID)?;
+    if econ_keys.next().is_some() {
+        return Err(INVALID);
+    }
+    let econ_member = parse_member_json(publication, econ_key, MemberKind::EconomicResult)?;
+    let economics = econ_member.get("body").filter(|v| v.is_object()).ok_or(INVALID)?;
+    extract_backtest_metrics_from_values(sample_rows, curve_rows, economics)
+}
+
+/// 精确 PG 发布和原回测准入的联合证明。私有字段只由完整核验构造。
+pub(crate) struct VerifiedBacktestEvidence {
+    run: VerifiedRun,
+    history: VerifiedBacktestHistory,
+    publication: PublishedJobResult,
+    metrics: BacktestQualificationMetrics,
+}
+impl VerifiedBacktestEvidence {
+    pub(crate) fn run_id(&self) -> &str { self.run.run_id() }
+    pub(crate) fn owner(&self) -> &str { self.run.owner() }
+    pub(crate) fn subject_strategy_fingerprint(&self) -> &str { self.history.strategy_fingerprint() }
+    pub(crate) fn evidence_fingerprint(&self) -> &str { self.publication.fingerprint() }
+    pub(crate) fn freeze_relation_fingerprint(&self) -> &str { self.history.freeze_relation_fingerprint() }
+    pub(crate) fn qualification_decision_fingerprint(&self) -> &str { self.history.qualification_decision_fingerprint() }
+    pub(crate) fn promotion_fingerprint(&self) -> &str { self.history.promotion_fingerprint() }
+    pub(crate) fn metrics(&self) -> &BacktestQualificationMetrics { &self.metrics }
+    pub(crate) fn source_locks(&self) -> Vec<Arc<SourceLock>> { Vec::new() }
+    pub(crate) fn validated_decision(&self) -> Result<&Value> { self.history.validated_decision() }
+    pub(crate) fn validated_calculations(&self) -> Result<&Value> { self.history.validated_calculations() }
+    pub(crate) fn verify_cut(&self) -> Result<()> {
+        self.history.verify_cut()?;
+        if self.history.is_manual() || self.run.namespace() != self.history.namespace() { return Err(INVALID); }
+        Ok(())
+    }
+    pub(crate) async fn verify_in_transaction(&self, tx: &BuildFactRead<'_, '_>, namespace: &SemanticStoreId) -> Result<()> {
+        if self.history.namespace() != namespace { return Err("RESEARCH_SEMANTIC_STORE_MISMATCH"); }
+        self.verify_cut()?;
+        let reloaded = backtest_run::load_in_transaction(tx, namespace, self.run.run_id()).await?;
+        if reloaded.resolution() != self.run.resolution() || reloaded.completion_fingerprints() != self.run.completion_fingerprints() { return Err(INVALID); }
+        let storage = tx.read_backtest_publication(namespace, &self.run).await.map_err(|error| error.code())?;
+        let publication = storage.verify(tx).await.map_err(|error| error.code())?;
+        let fp = publication.fingerprint();
+        if fp != self.publication.fingerprint()
+            || reloaded.completion_fingerprints() != Some((fp, fp, fp))
+            || extract_backtest_metrics(&publication)? != self.metrics
+        {
+            return Err(INVALID);
+        }
+        self.verify_cut()
+    }
+}
+
+pub(crate) async fn read_backtest_evidence(
+    decisions: &Arc<Store>,
+    tx: &BuildFactRead<'_, '_>,
+    namespace: &SemanticStoreId,
+    runtime_root: &Path,
+    run_id: &str,
+    expected_owner: Option<&str>,
+    expected_strategy: Option<&str>,
+) -> Result<Arc<VerifiedBacktestEvidence>> {
+    let run = backtest_run::load_in_transaction(tx, namespace, run_id).await?;
+    if let Some(owner) = expected_owner
+        && run.owner() != owner
+    {
+        return Err("BACKTEST_ACCESS_DENIED");
+    }
+    let strategy = pinned(run.resolution(), "strategy_fingerprint")?;
+    if let Some(expected) = expected_strategy
+        && strategy != expected
+    {
+        return Err("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH");
+    }
+    // The retained locator names the first-segment RESEARCH_TO_BACKTEST decision.
+    // Reopen only that gate: the generic verifier dispatches BACKTEST_TO_SIM back here.
+    let _ = runtime_root;
+    let decision = read_research_admission(decisions, tx, namespace, text(run.resolution(), "qualification_decision_fingerprint")?).await?;
+    let history = strategy_promotion::read_verified_history_in_transaction(tx, namespace, Arc::new(FrozenStore::open(decisions.research.fd.as_fd()).map_err(|error| error.code())?), decision, BacktestAdmissionSelection {
+        strategy,
+        relation: text(run.resolution(), "freeze_relation_fingerprint")?,
+        promotion: text(run.resolution(), "promotion_fingerprint")?,
+        max_work: WORK,
+    }).await?;
+    let storage = tx.read_backtest_publication(namespace, &run).await.map_err(|error| error.code())?;
+    let publication = storage.verify(tx).await.map_err(|error| error.code())?;
+    let fp = publication.fingerprint();
+    if run.completion_fingerprints() != Some((fp, fp, fp)) {
+        return Err(INVALID);
+    }
+    let metrics = extract_backtest_metrics(&publication)?;
+    let proof = Arc::new(VerifiedBacktestEvidence { run, history, publication, metrics });
+    proof.verify_cut()?;
+    Ok(proof)
+}
+
+impl Store {
+    pub(crate) async fn read_backtest_evidence(
+        self: &Arc<Self>, metadata: &mut tokio_postgres::Client, facts: &mut tokio_postgres::Client, namespace: &SemanticStoreId,
+        runtime_root: &Path, run_id: &str, owner: &str,
+    ) -> Result<Arc<VerifiedBacktestEvidence>> {
+        let tx = metadata.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.map_err(|_| UNAVAILABLE)?;
+        let facts_tx = facts.build_transaction().read_only(true).start().await.map_err(|_| UNAVAILABLE)?;
+        let context = BuildFactRead::reader(&tx, &facts_tx, namespace).await.map_err(|_| UNAVAILABLE)?;
+        let proof = read_backtest_evidence(self, &context, namespace, runtime_root, run_id, Some(owner), None).await?;
+        facts_tx.commit().await.map_err(|_| UNAVAILABLE)?;
+        tx.commit().await.map_err(|_| UNAVAILABLE)?;
+        Ok(proof)
+    }
+}
 fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     value[key].as_str().ok_or(INVALID)
+}
+fn pinned<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
+    let value = text(value, key)?;
+    if crate::is_sha256_hex(value) { Ok(value) } else { Err(INVALID) }
+}
+fn exact_fields(value: &Value, keys: &[&str]) -> Result<()> {
+    let object = value.as_object().ok_or(INVALID)?;
+    if object.len() == keys.len() && keys.iter().all(|key| object.contains_key(*key)) { Ok(()) } else { Err(INVALID) }
+}
+
+/// Reopen the exact RESEARCH_TO_BACKTEST decision named by a backtest admission.
+/// This never enters the generic source verifier, whose BACKTEST_TO_SIM branch
+/// reads backtest evidence and would recurse into the caller.
+async fn read_research_admission(
+    decisions: &Arc<Store>, tx: &BuildFactRead<'_, '_>, namespace: &SemanticStoreId, id: &str,
+) -> Result<Arc<VerifiedDecision>> {
+    use crate::application::qualification_policy::Store as Policies;
+    use crate::persistence::research_evidence::ResearchPublication;
+    if &decisions.namespace()? != namespace { return Err("RESEARCH_SEMANTIC_STORE_MISMATCH"); }
+    let source = Arc::new(SourceLock::publication(&decisions.directory.path)?);
+    let candidate = decisions.source_candidate(id, &source)?;
+    if candidate["gate"] != "RESEARCH_TO_BACKTEST" { return Err("QUALIFICATION_EVIDENCE_GATE_MISMATCH"); }
+    let rows = candidate["evidence"].as_array().filter(|rows| rows.len() == 1).ok_or(INVALID)?;
+    let evidence = &rows[0];
+    exact_fields(evidence, &["kind", "evidence_fingerprint", "locator_fingerprint", "subject_binding_fingerprint"])?;
+    if evidence["kind"] != "RESEARCH_RESULT" { return Err("NOVELTY_PROOF_UNAVAILABLE"); }
+    let result = pinned(evidence, "evidence_fingerprint")?;
+    let plan = pinned(evidence, "locator_fingerprint")?;
+    let relation = pinned(evidence, "subject_binding_fingerprint")?;
+    let subject = pinned(&candidate, "subject_strategy_fingerprint")?;
+    let original = crate::application::strategy_projection::freeze_research_locators_in_transaction(tx, namespace, None, subject, relation)
+        .await?.into_iter().next().ok_or("NOVELTY_PROOF_UNAVAILABLE")?;
+    let run = crate::persistence::research_submission::load_in_transaction(tx, &original.run_id, Some(&original.owner)).await?;
+    if !run.completed() { return Err("RESEARCH_OPERATIONAL_COMPLETION_REQUIRED"); }
+    let published = tx.read_research_publication(namespace, &run).await.map_err(|error| error.code())?;
+    let publication = ResearchPublication::from_published(&run, published).map_err(|error| error.code())?;
+    if publication.candidate_fingerprint() != original.candidate { return Err(INVALID); }
+    let frozen = Arc::new(FrozenStore::open(decisions.research.fd.as_fd()).map_err(|error| error.code())?);
+    let counts = Arc::new(VerifiedResearchCounts::from_publication(publication, frozen, relation)?);
+    if counts.subject_strategy_fingerprint() != subject
+        || counts.research_result_fingerprint() != result
+        || counts.research_result_plan_fingerprint() != plan
+        || counts.freeze_relation_fingerprint() != relation
+    {
+        return Err(INVALID);
+    }
+    let policies = Arc::new(Policies::open(decisions.research.fd.as_fd()).map_err(|error| error.code())?);
+    let decision = Arc::new(decisions.load_verified_captured(policies, &counts, id, source)?);
+    if decision.record() != &candidate { return Err(INVALID); }
+    decision.verify_cut()?;
+    if &decision.namespace()? != namespace { return Err("RESEARCH_SEMANTIC_STORE_MISMATCH"); }
+    Ok(decision)
 }
 
 /// Owning-read proof, retaining exact Policy, Decision and Research cuts.
@@ -316,6 +603,7 @@ impl VerifiedDecision {
         match &self.evidence {
             Evidence::Research(v) => research_decision(v.validated_calculations()?),
             Evidence::Manual(v) => manual_decision(v.validated_calculations()?),
+            Evidence::Backtest(v) => v.validated_decision(),
         }
     }
     pub(crate) fn validated_calculations(&self) -> Result<&Value> {
@@ -323,6 +611,7 @@ impl VerifiedDecision {
         match &self.evidence {
             Evidence::Research(v) => v.validated_calculations(),
             Evidence::Manual(v) => v.validated_calculations(),
+            Evidence::Backtest(v) => v.validated_calculations(),
         }
     }
     pub fn record(&self) -> &Value {
@@ -363,6 +652,12 @@ impl VerifiedDecision {
     pub(crate) fn manual_evidence(&self) -> Option<&Arc<VerifiedManualBacktestEvidence>> {
         match &self.evidence {
             Evidence::Manual(v) => Some(v),
+            _ => None,
+        }
+    }
+    pub(crate) fn backtest_evidence(&self) -> Option<&Arc<VerifiedBacktestEvidence>> {
+        match &self.evidence {
+            Evidence::Backtest(v) => Some(v),
             _ => None,
         }
     }

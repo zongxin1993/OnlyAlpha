@@ -655,38 +655,48 @@ pub struct BacktestConfirmationOutcome {
 /// Human selects exact existing scientific facts. Counts and conclusions are
 /// intentionally absent; the owning evaluator reads them from durable evidence.
 #[derive(Deserialize, Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum QualificationInput {
+    Research(ResearchQualificationInput),
+    Backtest(BacktestQualificationInput),
+}
+#[derive(Deserialize, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
-pub struct QualificationInput {
+pub struct ResearchQualificationInput {
     pub schema_version: u8,
     pub research_run_id: String,
     pub freeze_relation_fingerprint: String,
     pub policy_id: String,
     pub policy_version: String,
 }
+#[derive(Deserialize, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BacktestQualificationInput {
+    pub schema_version: u8,
+    pub backtest_run_id: String,
+    pub policy_id: String,
+    pub policy_version: String,
+}
 impl QualificationInput {
     pub fn validate(&self, subject: &str) -> Result<(), &'static str> {
-        qualification_selection(
-            self.schema_version,
-            &self.research_run_id,
-            subject,
-            &self.freeze_relation_fingerprint,
-            &self.policy_id,
-            &self.policy_version,
-        )
+        match self {
+            Self::Research(i) => qualification_selection(i.schema_version, &i.research_run_id, subject, Some(&i.freeze_relation_fingerprint), &i.policy_id, &i.policy_version),
+            Self::Backtest(i) => qualification_selection(i.schema_version, &i.backtest_run_id, subject, None, &i.policy_id, &i.policy_version),
+        }
     }
 }
 fn qualification_selection(
     schema: u8,
     run: &str,
     subject: &str,
-    relation: &str,
+    relation: Option<&str>,
     policy: &str,
     revision: &str,
 ) -> Result<(), &'static str> {
     if schema != 1
         || !crate::application::command::uuid4(run)
         || !crate::is_sha256_hex(subject)
-        || !crate::is_sha256_hex(relation)
+        || relation.is_some_and(|fp| !crate::is_sha256_hex(fp))
         || policy.is_empty()
         || policy.len() > 128
         || !policy.as_bytes()[0].is_ascii_alphanumeric()
@@ -703,22 +713,32 @@ fn qualification_selection(
     Ok(())
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct QualificationResumeInput {
-    pub schema_version: u8,
-    pub research_run_id: String,
+#[serde(untagged, deny_unknown_fields)]
+pub enum QualificationResumeInput {
+    Research { schema_version: u8, research_run_id: String },
+    Backtest { schema_version: u8, backtest_run_id: String },
 }
 impl QualificationResumeInput {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if self.schema_version != 1 || !crate::application::command::uuid4(&self.research_run_id) {
+        let (schema, run) = match self {
+            Self::Research { schema_version, research_run_id } => (schema_version, research_run_id),
+            Self::Backtest { schema_version, backtest_run_id } => (schema_version, backtest_run_id),
+        };
+        if *schema != 1 || !crate::application::command::uuid4(run) {
             return Err("QUALIFICATION_REQUEST_INVALID");
         }
         Ok(())
     }
 }
 #[derive(Deserialize, Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum QualifiedPromotionInput {
+    Research(ResearchPromotionInput),
+    Backtest(BacktestPromotionInput),
+}
+#[derive(Deserialize, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
-pub struct QualifiedPromotionInput {
+pub struct ResearchPromotionInput {
     pub schema_version: u8,
     pub research_run_id: String,
     pub freeze_relation_fingerprint: String,
@@ -727,20 +747,32 @@ pub struct QualifiedPromotionInput {
     pub qualification_decision_fingerprint: String,
     pub reason: String,
 }
+#[derive(Deserialize, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BacktestPromotionInput {
+    pub schema_version: u8,
+    pub backtest_run_id: String,
+    pub policy_id: String,
+    pub policy_version: String,
+    pub qualification_decision_fingerprint: String,
+    pub reason: String,
+}
 impl QualifiedPromotionInput {
     pub fn validate(&self, subject: &str) -> Result<(), &'static str> {
-        qualification_selection(
-            self.schema_version,
-            &self.research_run_id,
-            subject,
-            &self.freeze_relation_fingerprint,
-            &self.policy_id,
-            &self.policy_version,
-        )?;
-        if !crate::is_sha256_hex(&self.qualification_decision_fingerprint)
-            || self.reason.trim().is_empty()
-            || self.reason.len() > 4096
-            || self.reason.contains('\0')
+        let (decision, reason) = match self {
+            Self::Research(i) => {
+                qualification_selection(i.schema_version, &i.research_run_id, subject, Some(&i.freeze_relation_fingerprint), &i.policy_id, &i.policy_version)?;
+                (&i.qualification_decision_fingerprint, &i.reason)
+            }
+            Self::Backtest(i) => {
+                qualification_selection(i.schema_version, &i.backtest_run_id, subject, None, &i.policy_id, &i.policy_version)?;
+                (&i.qualification_decision_fingerprint, &i.reason)
+            }
+        };
+        if !crate::is_sha256_hex(decision)
+            || reason.trim().is_empty()
+            || reason.len() > 4096
+            || reason.contains('\0')
         {
             return Err("PROMOTION_REQUEST_INVALID");
         }
@@ -755,12 +787,11 @@ pub enum QualificationCommandState {
     Completed,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct QualificationEvidenceReference {
-    pub kind: String,
-    pub evidence_fingerprint: String,
-    pub locator_fingerprint: String,
-    pub subject_binding_fingerprint: String,
+#[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+pub enum QualificationEvidenceReference {
+    ResearchResult { evidence_fingerprint: String, locator_fingerprint: String, subject_binding_fingerprint: String },
+    StrategyValidation { evidence_fingerprint: String, preparation_command_id: String, subject_binding_fingerprint: String },
+    BacktestEvidence { evidence_fingerprint: String, backtest_run_id: String, subject_binding_fingerprint: String },
 }
 #[derive(Deserialize, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -820,6 +851,8 @@ pub struct QualificationDecisionReadView {
     pub decision: Option<Value>,
     pub research_run_id: Option<String>,
     pub research_run_candidates: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backtest_run_id: Option<String>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]

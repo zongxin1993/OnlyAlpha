@@ -13,6 +13,8 @@ use std::{
 use tokio_postgres::{Client, NoTls};
 #[path = "job_publication_guard_tests.rs"]
 mod guarded;
+#[path = "sim_run_reservation_tests.rs"]
+mod sim_run_reservation_tests;
 const NS: &str = "99999999-9999-4999-8999-999999999999";
 const TEST_LOGIN: &str = "onlyalpha_job_storage_test_login";
 const OWNER: &str = "human:publication-test";
@@ -341,6 +343,11 @@ async fn stage6_node_profile_rejects_unsafe_reuse_without_repairing() {
         ("GRANT CREATE ON SCHEMA public TO onlyalpha_node_control", "REVOKE CREATE ON SCHEMA public FROM onlyalpha_node_control", "SELECT has_schema_privilege('onlyalpha_node_control','public','CREATE')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
         ("GRANT CREATE ON SCHEMA public TO PUBLIC", "REVOKE CREATE ON SCHEMA public FROM PUBLIC", "SELECT has_schema_privilege('onlyalpha_node_control','public','CREATE')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
         ("GRANT EXECUTE ON FUNCTION public.chart_native_context_v1(uuid,uuid,text,text,text) TO onlyalpha_node_control", "REVOKE EXECUTE ON FUNCTION public.chart_native_context_v1(uuid,uuid,text,text,text) FROM onlyalpha_node_control", "SELECT has_function_privilege('onlyalpha_node_control','public.chart_native_context_v1(uuid,uuid,text,text,text)','EXECUTE')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
+        ("GRANT UPDATE(document) ON sim_account_revision TO onlyalpha_node_control", "REVOKE UPDATE(document) ON sim_account_revision FROM onlyalpha_node_control", "SELECT has_column_privilege('onlyalpha_node_control','sim_account_revision','document','UPDATE')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
+        ("GRANT INSERT(run_id) ON sim_run_reservation TO onlyalpha_node_control", "REVOKE INSERT(run_id) ON sim_run_reservation FROM onlyalpha_node_control", "SELECT has_column_privilege('onlyalpha_node_control','sim_run_reservation','run_id','INSERT')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
+        ("GRANT INSERT(command_kind) ON sim_run_reservation TO onlyalpha_node_control", "REVOKE INSERT(command_kind) ON sim_run_reservation FROM onlyalpha_node_control", "SELECT has_column_privilege('onlyalpha_node_control','sim_run_reservation','command_kind','INSERT')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
+        ("GRANT DELETE ON sim_run_admission TO onlyalpha_node_control", "REVOKE DELETE ON sim_run_admission FROM onlyalpha_node_control", "SELECT has_table_privilege('onlyalpha_node_control','sim_run_admission','DELETE')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
+        ("GRANT EXECUTE ON FUNCTION public.sim_run_require_admission() TO PUBLIC", "REVOKE EXECUTE ON FUNCTION public.sim_run_require_admission() FROM PUBLIC", "SELECT has_function_privilege('onlyalpha_node_control','public.sim_run_require_admission()','EXECUTE')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
         ("GRANT SELECT ON research_run TO onlyalpha_job_reader WITH GRANT OPTION", "REVOKE GRANT OPTION FOR SELECT ON research_run FROM onlyalpha_job_reader", "SELECT has_table_privilege('onlyalpha_job_reader','research_run','SELECT WITH GRANT OPTION')", "NODE_CAPABILITY_PERMISSION_REFUSED"),
         ("CREATE TABLE public.node_permission_test_object(id integer); ALTER TABLE public.node_permission_test_object OWNER TO onlyalpha_node_control", "DROP TABLE public.node_permission_test_object", "SELECT pg_catalog.pg_get_userbyid(relowner)='onlyalpha_node_control' FROM pg_catalog.pg_class WHERE oid='public.node_permission_test_object'::regclass", "NODE_ROLE_DIRECT_AUTHORITY_REFUSED"),
     ];
@@ -402,6 +409,48 @@ async fn stage6_node_control_permissions_exclude_result_publication_and_factor_b
     }
     assert!(!c.client.query_one("SELECT has_schema_privilege($1,'public','CREATE')", &[&role]).await.unwrap().get::<_,bool>(0));
 }
+#[tokio::test]
+async fn trading_fact_grants_allow_append_without_history_rewrites_or_head_edits() {
+    let database = database().await;
+    let client = &database.client;
+    for table in ["trading_fact_stream", "trading_fact", "trading_fact_ready"] {
+        let row = client.query_one(
+            "SELECT has_table_privilege('onlyalpha_node_control',$1,'SELECT'),
+                    has_any_column_privilege('onlyalpha_node_control',$1,'INSERT'),
+                    has_any_column_privilege('onlyalpha_node_control',$1,'UPDATE'),
+                    has_table_privilege('onlyalpha_node_control',$1,'DELETE,TRUNCATE'),
+                    has_any_column_privilege('onlyalpha_job_publisher',$1,'SELECT,INSERT,UPDATE'),
+                    has_any_column_privilege('onlyalpha_job_reader',$1,'SELECT,INSERT,UPDATE')",
+            &[&table],
+        ).await.unwrap();
+        assert!(row.get::<_, bool>(0), "{table}");
+        assert_eq!(row.get::<_, bool>(1), table != "trading_fact_ready", "{table}");
+        for index in 2..6 { assert!(!row.get::<_, bool>(index), "{table} {index}"); }
+    }
+    let row = client.query_one(
+        "SELECT has_column_privilege('onlyalpha_node_control','public.trading_fact_stream','head','INSERT,UPDATE'),
+                has_function_privilege('onlyalpha_node_control','public.trading_fact_advance()','EXECUTE'),
+                has_column_privilege('onlyalpha_node_control','public.trading_fact','written_in','INSERT'),
+                has_function_privilege('onlyalpha_node_control','public.trading_fact_install_projection(text,bigint)','EXECUTE'),
+                has_function_privilege('onlyalpha_job_reader','public.trading_fact_install_projection(text,bigint)','EXECUTE'),
+                has_function_privilege('onlyalpha_job_publisher','public.trading_fact_install_projection(text,bigint)','EXECUTE')", &[],
+    ).await.unwrap();
+    for index in 0..6 { assert_eq!(row.get::<_, bool>(index), index == 3); }
+}
+
+#[tokio::test]
+async fn formal_commit_preserves_remote_apply_and_upgrades_weaker_session_modes() {
+    let mut database = database().await;
+    for (setting, expected) in [("off", "on"), ("local", "on"), ("remote_write", "on"), ("on", "on"), ("remote_apply", "remote_apply")] {
+        let tx = database.client.transaction().await.unwrap();
+        tx.query_one("SELECT set_config('synchronous_commit',$1,true)", &[&setting]).await.unwrap();
+        crate::persistence::postgres::ensure_commit_durability(&tx).await.unwrap();
+        let row = tx.query_one("SHOW synchronous_commit", &[]).await.unwrap();
+        assert_eq!(row.get::<_, &str>(0), expected);
+        tx.rollback().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn frozen_binding_read_does_not_claim_execution_or_result_readiness() {
     let mut c = database().await;

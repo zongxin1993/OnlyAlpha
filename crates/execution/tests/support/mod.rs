@@ -54,7 +54,7 @@ pub fn open(n: u64, side: &str) -> Value {
     input(
         n,
         "ADMIT",
-        json!({"schema_version":1,"request":f["request"],"fee_contract":contract,"fee_budget":"1.00","market":{"schema_version":1,"verdict":"ACCEPT","source_ref":format!("market-{n}"),"request_digest":onlyalpha_risk::digest(f["request"].to_string().as_bytes()),"notional":settlement_money(f["request"]["price"]["value"].as_str().unwrap(),f["request"]["quantity"]["value"].as_str().unwrap()),"rounding":"HALF_EVEN"},"order":oid}),
+        json!({"schema_version":1,"request":f["request"],"fee_contract":contract,"fee_budget":"1.00","market":{"schema_version":1,"verdict":"ACCEPT","source_ref":format!("market-{n}"),"request_digest":onlyalpha_execution::digest(f["request"].to_string().as_bytes()),"notional":settlement_money(f["request"]["price"]["value"].as_str().unwrap(),f["request"]["quantity"]["value"].as_str().unwrap()),"rounding":"HALF_EVEN"},"order":oid}),
     )
 }
 pub fn order(ordinal: u64) -> String {

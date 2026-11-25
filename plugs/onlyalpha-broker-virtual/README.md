@@ -10,6 +10,8 @@
 
 ## 公开接口
 
+[`provider::VIRTUAL_BROKER_TYPE_ID`、`descriptor` 和 `normalize_configuration`](src/provider.rs) 分别提供 Product 类型 `onlyalpha.virtual_broker`、类别为 `BROKER` 的公开描述符，以及原生配置的规范化结果。当前公开描述符接受 `latency`（各操作纳秒数）与 `maximum_fill_quantity`（精确十进制字符串）。宿主先按描述符核验公开字段和类型，再把原配置交给插件解析。解析失败返回 Broker 错误；成功结果供核对 `source_binding()["configuration"]`，创建场所仍使用原配置。生产节点按 `BROKER` 类别注册该描述符和原生校验函数，使用 [IMPLEMENTATION_VERSION](src/lib.rs) 核对已链接的插件版本，并用 [provider::CAPABILITIES](src/provider.rs) 核对场所支持的操作。
+
 [`BoundVirtualActor`](src/source_host.rs) 为显式配置 3 的新 Run 创建或重开 broker.sqlite3，绑定 scope、代际、插件工件、初始场所现金和撮合配置。CLOCK、BAR、命令和发布先在私有场所候选执行，再以原头 CAS 将一步与每条新增事实原子提交。旧实例持有的前驱失效须重开。原 Virtual checkpoint4 仍由 `VirtualBroker::restore` 读取，绑定宿主的紧凑 checkpoint 指向原来源库的确定前缀。
 
 新增 Discovery 的 economic_through_ns 仅声明 `now - 1ns` 的封闭前缀，使用实际有符号时钟 checked subtraction，最小值溢出时拒绝。Virtual 未来事实使用当时的 now，时钟不倒退，因此当前纳秒仍可继续出现成交，不能当作 inclusive 封口。该语义不修改旧 CLOCK、Bar 或 checkpoint 编码；真实 driver 应先消费边界成交，再将时钟推进越过边界并读取前缀。as_of 保持供应商序列，Runtime 另核对原成交 Ready 投影。
@@ -32,6 +34,12 @@
 ## 状态与生命周期
 
 `publish` 通过 `Broker::ingest` 按到期时间和相同到期时刻的生成顺序逐笔发布。外部成交先进入可查投影，队列溢出或 Journal 写入结果未知时保留当前待发布事实。恢复后重交相同事实，Broker 按语义身份和内容去重。撤单释放余量，已经发生的成交仍可查询和发布。若撤单先于已排程的接受到期，原订单进入 CANCELLED，恢复后后续接受动作不会重新开单。
+
+`VirtualBroker::restore_inputs` 按原 Scope、工件、开户资金和配置恢复一个完整输入前缀。日志分段提交时，宿主将上一个已核验的场所实例、下一段有序输入和该次提交的检查点摘要交给 [`restore_input_segment`](src/lib.rs)。每次调用核对原始输入和该段结束时的完整场所摘要，成功后返回可继续重放的实例。核验失败时返回 Broker 错误并丢弃候选实例。
+
+[`dispatch_result`](src/lib.rs) 按完整原命令查询当前前缀中的派发回执。场所已收到命令时返回当时的 `Received` 或 `Rejected`，尚无该命令时返回 `None`。Scope 或同 ID 命令正文错配时返回错误。查询保持时钟、订单和待决动作不变。
+
+场所恢复到历史查询的水位后，[`verify_discovery`](src/discovery.rs) 使用查询前的 Broker 协议记录和原命令重新查询该时刻的订单，核对完整观察，包括订单视图、供应商水位、证据和有序事实。查询结果错配时拒绝恢复。
 
 宿主必须按运行的持久化协议保存原始输入和原检查点引用，先确保场所成交可恢复再对外发布。检查点保存原配置与工件绑定、事件输入、不可变计划与游标、待决命令和未发布事实。恢复必须由原拥有方提供正确 Scope、原工件与独立持久化的检查点摘要；重放后逐项比对状态。恢复实例需要重新连接才能发送新命令。历史 Python wheel 或旧检查点仅能交原绑定环境和原始归档处理，原生 schema 4 不接受历史 Python schema 1–3，同版本不能代替原工件。
 

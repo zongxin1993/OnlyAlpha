@@ -34,6 +34,7 @@ pub(crate) mod host_backtest;
 mod host_strategy;
 
 mod host_qualification;
+mod host_sim;
 
 mod host_manual_backtest_context;
 

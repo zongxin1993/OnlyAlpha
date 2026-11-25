@@ -1644,10 +1644,15 @@ impl Store for SqliteStore {
     }
 }
 // Isolated proof replay only. It cannot commit new authority or publish external Events.
+#[derive(Default)]
 pub(crate) struct Replay {
     rows: Vec<Record>,
 }
 impl Replay {
+    pub(crate) fn push_observed(&mut self, row: Record) {
+        self.rows.push(row);
+    }
+
     pub(crate) fn has_funding(&self) -> bool {
         self.rows
             .iter()

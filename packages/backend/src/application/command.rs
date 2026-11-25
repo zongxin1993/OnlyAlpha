@@ -93,7 +93,7 @@ text_enum!(CommandKind, InvalidCommandKind, {
     CreateResearchRun => "CREATE_RESEARCH_RUN", CancelResearchRun => "CANCEL_RESEARCH_RUN",
     FreezeStrategy => "FREEZE_STRATEGY", PromoteStrategy => "PROMOTE_STRATEGY",
     CreateBacktestRun => "CREATE_BACKTEST_RUN", CancelBacktestRun => "CANCEL_BACKTEST_RUN",
-    EvaluateQualification => "EVALUATE_QUALIFICATION",
+    StartSimRun => "START_SIM_RUN", EvaluateQualification => "EVALUATE_QUALIFICATION",
     CreateSymbolicSearchExperiment => "CREATE_SYMBOLIC_SEARCH_EXPERIMENT",
     CreateParameterSearchExperiment => "CREATE_PARAMETER_SEARCH_EXPERIMENT",
     AdvanceSearchExperiment => "ADVANCE_SEARCH_EXPERIMENT", CreateIntegration => "CREATE_INTEGRATION",
@@ -112,6 +112,7 @@ text_enum!(OutcomeKind, InvalidOutcomeKind, {
     FactorProposalOperation => "FACTOR_PROPOSAL_OPERATION",
     FactorChatEvent => "FACTOR_CHAT_EVENT",
     ResearchRun => "RESEARCH_RUN", Strategy => "STRATEGY", StrategyPromotion => "STRATEGY_PROMOTION",
+    SimRun => "SIM_RUN",
     BacktestRun => "BACKTEST_RUN", QualificationDecision => "QUALIFICATION_DECISION", SearchExperiment => "SEARCH_EXPERIMENT",
     Integration => "INTEGRATION", IntegrationRevision => "INTEGRATION_REVISION",
     ChartCalculationOperation => "CHART_CALCULATION_OPERATION", WatchlistRevision => "WATCHLIST_REVISION", WorkspaceRevision => "WORKSPACE_REVISION", PrivateFactorAuthoring => "PRIVATE_FACTOR_AUTHORING",
@@ -122,6 +123,7 @@ impl OutcomeKind {
             self,
             Self::ResearchRun
                 | Self::BacktestRun
+                | Self::SimRun
                 | Self::Integration
                 | Self::ChartCalculationOperation
         )
@@ -189,6 +191,9 @@ pub struct Receipt {
 }
 impl Receipt {
     pub fn new(admission: Admission, outcome: Outcome, accepted_at: &str) -> Result<Self, Error> {
+        if (admission.kind() == CommandKind::StartSimRun) != (outcome.kind() == OutcomeKind::SimRun) {
+            return Err(Error::BindingMismatch);
+        }
         let accepted_at = accepted_at.parse().map_err(|_| Error::InvalidAcceptedAt)?;
         Ok(Self {
             admission,

@@ -214,6 +214,20 @@ impl<'a> Commands<'a> {
         }
     }
 }
+pub(crate) async fn ensure_commit_durability(tx: &Transaction<'_>) -> Result<(), Error> {
+    let row = tx.query_one(
+        "SELECT pg_catalog.current_setting('fsync'), pg_catalog.current_setting('full_page_writes'), pg_catalog.current_setting('synchronous_commit')",
+        &[],
+    ).await.map_err(|_| Error::Unavailable)?;
+    if row.get::<_, &str>(0) != "on" || row.get::<_, &str>(1) != "on" {
+        return Err(Error::Unavailable);
+    }
+    if !matches!(row.get::<_, &str>(2), "on" | "remote_apply") {
+        tx.batch_execute("SET LOCAL synchronous_commit=on").await.map_err(|_| Error::Unavailable)?;
+    }
+    Ok(())
+}
+
 pub async fn bounds(tx: &Transaction<'_>) -> Result<(), Error> {
     // Preserve a stricter caller budget. PostgreSQL reports these GUCs in ms;
     // zero explicitly means unlimited, so it acquires this authority's cap.

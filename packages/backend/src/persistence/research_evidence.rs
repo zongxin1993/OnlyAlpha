@@ -1205,6 +1205,44 @@ impl<'cut> SourceVerification<'cut> {
             self.verify_cut()?;
             return Ok(record);
         }
+        if candidate["gate"] == "BACKTEST_TO_SIM" {
+            let evidence = candidate["evidence"].as_array().filter(|rows| rows.len() == 1).ok_or(INVALID)?;
+            let evidence = &evidence[0];
+            exact(evidence, &["kind", "evidence_fingerprint", "backtest_run_id", "subject_binding_fingerprint"])?;
+            if evidence["kind"] != "BACKTEST_EVIDENCE" { return Err(INVALID); }
+            let subject = pin(&candidate, "subject_strategy_fingerprint")?;
+            let namespace = decisions.namespace()?;
+            let root = Directory::open(research)?;
+            let proof = super::qualification_decision::read_backtest_evidence(
+                &decisions,
+                tx,
+                &namespace,
+                self.runtime_root.as_deref().ok_or("NOVELTY_PROOF_UNAVAILABLE")?,
+                text(evidence, "backtest_run_id")?,
+                None,
+                Some(subject),
+            )
+            .await?;
+            if proof.evidence_fingerprint() != pin(evidence, "evidence_fingerprint")?
+                || proof.freeze_relation_fingerprint() != pin(evidence, "subject_binding_fingerprint")?
+            {
+                return Err(INVALID);
+            }
+            let decision = Arc::new(decisions.load_backtest_verified_captured(
+                Arc::new(Policies::open(root.fd.as_fd()).map_err(|error| error.code())?),
+                &proof,
+                locator,
+                source,
+            )?);
+            if decision.record() != &candidate { return Err(INVALID); }
+            decision.verify_cut()?;
+            let record = (locator.to_owned(), decision.record().clone());
+            self.bytes = self.bytes.checked_add(serde_json::to_vec(&record.1).map_err(|_| INVALID)?.len()).filter(|n| *n <= LIMIT).ok_or(UNAVAILABLE)?;
+            self.qualification_cuts.push(decision);
+            self.facts.insert(key, record.clone());
+            self.verify_cut()?;
+            return Ok(record);
+        }
         if candidate["gate"] != "RESEARCH_TO_BACKTEST" {
             return Err("NOVELTY_PROOF_UNAVAILABLE");
         }

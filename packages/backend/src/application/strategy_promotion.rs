@@ -209,6 +209,47 @@ impl PromotionChain {
     pub fn head_fingerprint(&self) -> Option<&str> {
         self.records.last().map(PromotionRecord::fingerprint)
     }
+
+    /// The current ledger must still end at the selected Research-backed grant,
+    /// or at its one qualified SIM successor. An unrelated or later head cannot
+    /// stand in for the requested progression.
+    pub(crate) fn sim_successor(
+        &self,
+        history: &[PromotionRecord],
+        backtest: &str,
+        decision: &str,
+    ) -> Result<Option<&PromotionRecord>> {
+        if !crate::is_sha256_hex(backtest) || !crate::is_sha256_hex(decision) {
+            return Err(INVALID);
+        }
+        let grant = history.last().ok_or(INVALID)?;
+        if grant.fingerprint() != backtest
+            || grant.record()["schema_version"] != 2
+            || grant.record()["from_stage"] != "RESEARCH"
+            || grant.record()["to_stage"] != "BACKTEST"
+            || grant.record()["decision"] != "APPROVED"
+        {
+            return Err("QUALIFIED_PROMOTION_PROOF_REQUIRED");
+        }
+        match self.records.strip_prefix(history) {
+            Some([]) if self.stage == "BACKTEST" => Ok(None),
+            Some([record]) if self.stage == "SIM" => {
+                let row = record.record();
+                if row["schema_version"] != 2
+                    || row["from_stage"] != "BACKTEST"
+                    || row["to_stage"] != "SIM"
+                    || row["decision"] != "APPROVED"
+                    || row["previous_record_fingerprint"] != backtest
+                    || row["qualification_decision_fingerprint"] != decision
+                    || row["evidence_fingerprints"] != serde_json::json!([decision])
+                {
+                    return Err("QUALIFIED_PROMOTION_PROOF_REQUIRED");
+                }
+                Ok(Some(record))
+            }
+            _ => Err("ILLEGAL_PROMOTION_TRANSITION"),
+        }
+    }
 }
 
 // These public value vectors grant no progression or Runtime admission.
@@ -443,5 +484,198 @@ mod manual_promotion_tests {
                 "mutation {mutation}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod sim_promotion_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sign(mut value: Value) -> Value {
+        value.as_object_mut().unwrap().remove("record_fingerprint");
+        value["record_fingerprint"] = json!(hash(&value).unwrap());
+        value
+    }
+
+    fn research_backtest(strategy: &str, decision: &str, relation: &str) -> PromotionRecord {
+        let mut evidence = vec![decision, relation];
+        evidence.sort_unstable();
+        PromotionRecord::from_record(&sign(json!({
+            "schema_version": 2,
+            "strategy_fingerprint": strategy,
+            "from_stage": "RESEARCH",
+            "to_stage": "BACKTEST",
+            "evidence_fingerprints": evidence,
+            "decision": "APPROVED",
+            "reason": "research qualification passed",
+            "actor": "local-developer",
+            "recorded_at": "2026-11-02T00:00:00+00:00",
+            "previous_record_fingerprint": null,
+            "qualification_decision_fingerprint": decision,
+        })))
+        .unwrap()
+    }
+
+    fn sim_grant(strategy: &str, previous: &str, decision: &str) -> PromotionRecord {
+        PromotionRecord::from_record(&sign(json!({
+            "schema_version": 2,
+            "strategy_fingerprint": strategy,
+            "from_stage": "BACKTEST",
+            "to_stage": "SIM",
+            "evidence_fingerprints": [decision],
+            "decision": "APPROVED",
+            "reason": "backtest qualification passed",
+            "actor": "local-developer",
+            "recorded_at": "2026-11-03T00:00:00+00:00",
+            "previous_record_fingerprint": previous,
+            "qualification_decision_fingerprint": decision,
+        })))
+        .unwrap()
+    }
+
+    #[test]
+    fn sim_successor_accepts_research_backtest_tail_or_exact_sim_grant() {
+        let strategy = "a".repeat(64);
+        let research_decision = "b".repeat(64);
+        let relation = "c".repeat(64);
+        let sim_decision = "d".repeat(64);
+        let backtest = research_backtest(&strategy, &research_decision, &relation);
+        let history = vec![backtest.clone()];
+
+        let pre_sim = PromotionChain::from_records(&strategy, history.clone()).unwrap();
+        assert_eq!(
+            pre_sim
+                .sim_successor(&history, backtest.fingerprint(), &sim_decision)
+                .unwrap(),
+            None
+        );
+
+        let sim = sim_grant(&strategy, backtest.fingerprint(), &sim_decision);
+        let post_sim =
+            PromotionChain::from_records(&strategy, vec![backtest.clone(), sim.clone()]).unwrap();
+        assert_eq!(post_sim.stage(), "SIM");
+        assert_eq!(
+            post_sim
+                .sim_successor(&history, backtest.fingerprint(), &sim_decision)
+                .unwrap(),
+            Some(&sim)
+        );
+    }
+
+    #[test]
+    fn sim_successor_rejects_manual_root_wrong_evidence_wrong_decision_and_later_stages() {
+        let strategy = "a".repeat(64);
+        let research_decision = "b".repeat(64);
+        let relation = "c".repeat(64);
+        let sim_decision = "d".repeat(64);
+        let other_decision = "e".repeat(64);
+        let validation = "f".repeat(64);
+
+        let manual = PromotionRecord::from_record(&sign(json!({
+            "schema_version": 3,
+            "strategy_fingerprint": strategy,
+            "from_stage": "FROZEN",
+            "to_stage": "BACKTEST",
+            "origin": {
+                "kind": "MANUAL_BACKTEST",
+                "strategy_validation_fingerprint": validation,
+            },
+            "evidence_fingerprints": [research_decision, relation, validation],
+            "decision": "APPROVED",
+            "reason": "manual experimental backtest",
+            "actor": "local-developer",
+            "recorded_at": "2026-11-02T00:00:00+00:00",
+            "previous_record_fingerprint": null,
+            "qualification_decision_fingerprint": research_decision,
+        })))
+        .unwrap();
+        let manual_chain =
+            PromotionChain::from_records(&strategy, vec![manual.clone()]).unwrap();
+        assert_eq!(
+            manual_chain.sim_successor(&[manual.clone()], manual.fingerprint(), &sim_decision),
+            Err("QUALIFIED_PROMOTION_PROOF_REQUIRED")
+        );
+
+        let backtest = research_backtest(&strategy, &research_decision, &relation);
+        let sim = sim_grant(&strategy, backtest.fingerprint(), &sim_decision);
+        let post_sim =
+            PromotionChain::from_records(&strategy, vec![backtest.clone(), sim.clone()]).unwrap();
+
+        // Different SIM decision fails closed.
+        assert_eq!(
+            post_sim.sim_successor(&[backtest.clone()], backtest.fingerprint(), &other_decision),
+            Err("QUALIFIED_PROMOTION_PROOF_REQUIRED")
+        );
+        // Mismatched BACKTEST fingerprint fails closed.
+        assert_eq!(
+            post_sim.sim_successor(&[backtest.clone()], &other_decision, &sim_decision),
+            Err("QUALIFIED_PROMOTION_PROOF_REQUIRED")
+        );
+
+        // Extra evidence fingerprint in SIM row fails closed.
+        let mut extra_evidence = sim.record().clone();
+        let mut refs = vec![relation.clone(), sim_decision.clone()];
+        refs.sort_unstable();
+        extra_evidence["evidence_fingerprints"] = json!(refs);
+        let bad_sim = PromotionRecord::from_record(&sign(extra_evidence)).unwrap();
+        let bad_chain =
+            PromotionChain::from_records(&strategy, vec![backtest.clone(), bad_sim]).unwrap();
+        assert_eq!(
+            bad_chain.sim_successor(&[backtest.clone()], backtest.fingerprint(), &sim_decision),
+            Err("QUALIFIED_PROMOTION_PROOF_REQUIRED")
+        );
+
+        // Schema-1 legacy SIM row fails closed.
+        let mut legacy_sim = sim.record().clone();
+        legacy_sim["schema_version"] = json!(1);
+        legacy_sim
+            .as_object_mut()
+            .unwrap()
+            .remove("qualification_decision_fingerprint");
+        let legacy_sim = PromotionRecord::from_record(&sign(legacy_sim)).unwrap();
+        let legacy_chain =
+            PromotionChain::from_records(&strategy, vec![backtest.clone(), legacy_sim]).unwrap();
+        assert_eq!(
+            legacy_chain.sim_successor(&[backtest.clone()], backtest.fingerprint(), &sim_decision),
+            Err("QUALIFIED_PROMOTION_PROOF_REQUIRED")
+        );
+
+        // Rejected SIM row is not SIM eligibility.
+        let mut rejected = sim.record().clone();
+        rejected["decision"] = json!("REJECTED");
+        let rejected = PromotionRecord::from_record(&sign(rejected)).unwrap();
+        let rejected_chain =
+            PromotionChain::from_records(&strategy, vec![backtest.clone(), rejected]).unwrap();
+        assert_eq!(
+            rejected_chain.sim_successor(
+                &[backtest.clone()],
+                backtest.fingerprint(),
+                &sim_decision
+            ),
+            Err("ILLEGAL_PROMOTION_TRANSITION")
+        );
+
+        // Later LIVE_ELIGIBLE row after SIM is not a single SIM successor.
+        let live = PromotionRecord::from_record(&sign(json!({
+            "schema_version": 2,
+            "strategy_fingerprint": strategy,
+            "from_stage": "SIM",
+            "to_stage": "LIVE_ELIGIBLE",
+            "evidence_fingerprints": [other_decision],
+            "decision": "APPROVED",
+            "reason": "later live row",
+            "actor": "local-developer",
+            "recorded_at": "2026-11-04T00:00:00+00:00",
+            "previous_record_fingerprint": sim.fingerprint(),
+            "qualification_decision_fingerprint": other_decision,
+        })))
+        .unwrap();
+        let live_chain =
+            PromotionChain::from_records(&strategy, vec![backtest.clone(), sim, live]).unwrap();
+        assert_eq!(
+            live_chain.sim_successor(&[backtest.clone()], backtest.fingerprint(), &sim_decision),
+            Err("ILLEGAL_PROMOTION_TRANSITION")
+        );
     }
 }

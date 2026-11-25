@@ -1564,6 +1564,8 @@ dependencies = [
  "libc",
  "onlyalpha-account",
  "onlyalpha-backtest",
+ "onlyalpha-broker",
+ "onlyalpha-broker-virtual",
  "onlyalpha-calculation",
  "onlyalpha-calculation-bridge",
  "onlyalpha-clock",

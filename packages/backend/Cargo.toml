@@ -18,6 +18,8 @@ onlyalpha-observability = { path = "../../crates/observability" }
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 onlyalpha-market-crypto = { path = "../../plugs/onlyalpha-market-crypto" }
 onlyalpha-backtest = { path = "../../crates/backtest" }
+onlyalpha-broker = { path = "../../crates/broker" }
+onlyalpha-broker-virtual = { path = "../../plugs/onlyalpha-broker-virtual" }
 onlyalpha-execution = { path = "../../crates/execution" }
 onlyalpha-account = { path = "../../crates/account" }
 arrow-array = { version = "=59.3.2", default-features = false }
@@ -222,3 +224,7 @@ path = "tests/application/observability.rs"
 [[test]]
 name = "application_job_publication"
 path = "tests/application/job_publication.rs"
+
+[[test]]
+name = "application_trading_facts"
+path = "tests/application/trading_facts.rs"

@@ -3,6 +3,12 @@ pub mod backtest;
 pub mod backtest_result;
 pub mod research;
 pub mod research_environment;
+pub mod sim;
+mod sim_orders;
+
+#[cfg(test)]
+#[path = "../tests/sim_order_recovery_tests.rs"]
+mod sim_order_recovery_tests;
 pub(crate) mod research_service;
 pub mod trading_nodes;
 

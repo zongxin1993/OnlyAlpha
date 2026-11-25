@@ -208,6 +208,64 @@ fn decimal(s: &str) -> bool {
         None => !(negative && integer == "0"),
     }
 }
+/// 将权威纯十进制串规范化为与 Policy `threshold` 一致的无尾零、无 `-0`、无科学计数法格式。
+pub(crate) fn canonical_plain_decimal(raw: &str) -> std::result::Result<String, &'static str> {
+    const INVALID: &str = "QUALIFICATION_EVIDENCE_CORRUPT";
+    let (negative, unsigned) = raw.strip_prefix('-').map_or((false, raw), |v| (true, v));
+    let (integer, fraction) = unsigned
+        .split_once('.')
+        .map_or((unsigned, None), |(i, f)| (i, Some(f)));
+    if integer.is_empty()
+        || !integer.bytes().all(|b| b.is_ascii_digit())
+        || (integer.len() > 1 && integer.starts_with('0'))
+    {
+        return Err(INVALID);
+    }
+    let trimmed = match fraction {
+        Some(f) if !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit()) => {
+            f.trim_end_matches('0')
+        }
+        Some(_) => return Err(INVALID),
+        None => "",
+    };
+    let canonical = if integer == "0" && trimmed.is_empty() {
+        "0".to_string()
+    } else if trimmed.is_empty() {
+        if negative {
+            format!("-{integer}")
+        } else {
+            integer.to_string()
+        }
+    } else if negative {
+        format!("-{integer}.{trimmed}")
+    } else {
+        format!("{integer}.{trimmed}")
+    };
+    if !decimal(&canonical) || canonical.parse::<OnlyDecimal>().is_err() {
+        return Err(INVALID);
+    }
+    Ok(canonical)
+}
+/// 经 PG 原子发布与经济/因果全量验签的回测权威标量；由证据所有者提取，评估器不重算指标。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BacktestQualificationMetrics {
+    pub(crate) close_curve_point_count: u64,
+    pub(crate) valuation_count: u64,
+    pub(crate) order_count: u64,
+    pub(crate) fill_count: u64,
+    pub(crate) roundtrip_count: u64,
+    pub(crate) return_since_start: Option<String>,
+    pub(crate) maximum_drawdown: Option<String>,
+    pub(crate) net_pnl: String,
+    pub(crate) realized_pnl: String,
+    pub(crate) unrealized_pnl: String,
+    pub(crate) fees: String,
+    pub(crate) final_equity: String,
+}
+enum ScalarValue {
+    Present(String),
+    Missing,
+}
 pub struct Store {
     research: OwnedFd,
 }
@@ -492,8 +550,14 @@ impl Policy {
                 "locator_fingerprint":evidence.research_result_plan_fingerprint(),
                 "subject_binding_fingerprint":evidence.freeze_relation_fingerprint()}),
             &BTreeMap::from([
-                ("research.calculation_result_count",evidence.calculation_result_count()),
-                ("research.statistics_result_count",evidence.statistics_result_count()),
+                (
+                    "research.calculation_result_count",
+                    ScalarValue::Present(evidence.calculation_result_count().to_string()),
+                ),
+                (
+                    "research.statistics_result_count",
+                    ScalarValue::Present(evidence.statistics_result_count().to_string()),
+                ),
             ]),
         )
     }
@@ -510,20 +574,107 @@ impl Policy {
             json!({"kind":"STRATEGY_VALIDATION","evidence_fingerprint":evidence.validation_fingerprint(),
                 "preparation_command_id":evidence.preparation_command_id(),
                 "subject_binding_fingerprint":evidence.freeze_relation_fingerprint()}),
-            &BTreeMap::from([("strategy.execution_validation_passed",1)]),
+            &BTreeMap::from([(
+                "strategy.execution_validation_passed",
+                ScalarValue::Present("1".into()),
+            )]),
         )
     }
-    // Both real typed owners use one exact scalar evaluator. This private value
+    /// 仅消费经 PG 原子发布与经济/因果全量验签后的回测权威标量；
+    /// 已退役的文件式计数（artifact_count / implementation_count）与未知指标继续 fail-closed。
+    pub(crate) fn evaluate_backtest_evidence(
+        &self,
+        evidence: &crate::persistence::qualification_decision::VerifiedBacktestEvidence,
+    ) -> std::result::Result<EvaluatedDecision, &'static str> {
+        evidence.verify_cut()?;
+        self.evaluate_backtest_scalars(
+            evidence.subject_strategy_fingerprint(),
+            evidence.evidence_fingerprint(),
+            evidence.run_id(),
+            evidence.freeze_relation_fingerprint(),
+            evidence.metrics(),
+        )
+    }
+    fn evaluate_backtest_scalars(
+        &self,
+        subject: &str,
+        evidence_fingerprint: &str,
+        run_id: &str,
+        freeze_relation_fingerprint: &str,
+        metrics: &BacktestQualificationMetrics,
+    ) -> std::result::Result<EvaluatedDecision, &'static str> {
+        let optional = |value: &Option<String>| match value {
+            Some(v) => ScalarValue::Present(v.clone()),
+            None => ScalarValue::Missing,
+        };
+        let scalars = BTreeMap::from([
+            ("backtest.execution_completed", ScalarValue::Present("1".into())),
+            (
+                "backtest.close_curve_point_count",
+                ScalarValue::Present(metrics.close_curve_point_count.to_string()),
+            ),
+            (
+                "backtest.valuation_count",
+                ScalarValue::Present(metrics.valuation_count.to_string()),
+            ),
+            (
+                "backtest.order_count",
+                ScalarValue::Present(metrics.order_count.to_string()),
+            ),
+            (
+                "backtest.fill_count",
+                ScalarValue::Present(metrics.fill_count.to_string()),
+            ),
+            (
+                "backtest.roundtrip_count",
+                ScalarValue::Present(metrics.roundtrip_count.to_string()),
+            ),
+            (
+                "backtest.return_since_start",
+                optional(&metrics.return_since_start),
+            ),
+            (
+                "backtest.maximum_drawdown",
+                optional(&metrics.maximum_drawdown),
+            ),
+            (
+                "backtest.net_pnl",
+                ScalarValue::Present(metrics.net_pnl.clone()),
+            ),
+            (
+                "backtest.realized_pnl",
+                ScalarValue::Present(metrics.realized_pnl.clone()),
+            ),
+            (
+                "backtest.unrealized_pnl",
+                ScalarValue::Present(metrics.unrealized_pnl.clone()),
+            ),
+            ("backtest.fees", ScalarValue::Present(metrics.fees.clone())),
+            (
+                "backtest.final_equity",
+                ScalarValue::Present(metrics.final_equity.clone()),
+            ),
+        ]);
+        self.evaluate_scalars(
+            "BACKTEST_TO_SIM",
+            subject,
+            json!({"kind":"BACKTEST_EVIDENCE","evidence_fingerprint":evidence_fingerprint,
+                "backtest_run_id":run_id,"subject_binding_fingerprint":freeze_relation_fingerprint}),
+            &scalars,
+        )
+    }
+    // All real typed owners use one exact scalar evaluator. This private value
     // helper cannot publish a Decision or manufacture an owning evidence handle.
     fn evaluate_scalars(
         &self,
         gate: &str,
         subject: &str,
         reference: Value,
-        metrics: &BTreeMap<&str, u64>,
+        metrics: &BTreeMap<&str, ScalarValue>,
     ) -> std::result::Result<EvaluatedDecision, &'static str> {
         const UNSUPPORTED: &str = "QUALIFICATION_POLICY_UNSUPPORTED";
         const GATE: &str = "QUALIFICATION_EVIDENCE_GATE_MISMATCH";
+        const MISSING: &str = "QUALIFICATION_EVIDENCE_MISSING";
         if self.record["gate"] != gate {
             return Err(GATE);
         }
@@ -540,10 +691,14 @@ impl Policy {
             if criterion["evidence_kind"] != reference["kind"] {
                 return Err(GATE);
             }
-            let observed = metrics
+            let raw = match metrics
                 .get(criterion["metric"].as_str().ok_or(UNSUPPORTED)?)
                 .ok_or(UNSUPPORTED)?
-                .to_string();
+            {
+                ScalarValue::Present(raw) => raw,
+                ScalarValue::Missing => return Err(MISSING),
+            };
+            let observed = canonical_plain_decimal(raw)?;
             let value = observed.parse::<OnlyDecimal>().map_err(|_| UNSUPPORTED)?;
             let threshold = criterion["threshold"]
                 .as_str()
@@ -824,5 +979,232 @@ mod manual_policy_declaration_tests {
         identity["domain"] = json!("onlyalpha.strategy.qualification-policy");
         wrong["policy_fingerprint"] = json!(record_fingerprint(&identity));
         assert!(Policy::from_json(&wrong.to_string(), DOCUMENT_WORK).is_err());
+    }
+}
+
+#[cfg(test)]
+mod backtest_policy_declaration_tests {
+    use super::*;
+
+    fn signed_policy(mut body: Value) -> Policy {
+        body.as_object_mut().unwrap().remove("policy_fingerprint");
+        let mut identity = body.clone();
+        identity["domain"] = json!("onlyalpha.strategy.qualification-policy");
+        body["policy_fingerprint"] = json!(record_fingerprint(&identity));
+        Policy::from_json(&body.to_string(), DOCUMENT_WORK).unwrap()
+    }
+
+    fn backtest_policy(criteria: Value) -> Policy {
+        signed_policy(json!({
+            "schema_version": 1,
+            "policy_id": "sim-backtest",
+            "policy_version": "1",
+            "gate": "BACKTEST_TO_SIM",
+            "missing_evidence_behavior": "FAIL",
+            "aggregation": "ALL",
+            "criteria": criteria
+        }))
+    }
+
+    fn sample_metrics() -> BacktestQualificationMetrics {
+        BacktestQualificationMetrics {
+            close_curve_point_count: 120,
+            valuation_count: 124,
+            order_count: 6,
+            fill_count: 4,
+            roundtrip_count: 2,
+            return_since_start: Some("0.10000000".into()),
+            maximum_drawdown: Some("-0.08333333".into()),
+            net_pnl: "1000.50000000".into(),
+            realized_pnl: "1000.50000000".into(),
+            unrealized_pnl: "-0.00000000".into(),
+            fees: "12.34000000".into(),
+            final_equity: "11000.50000000".into(),
+        }
+    }
+
+    #[test]
+    fn canonical_plain_decimal_normalizes_zeros_trailing_zeros_and_small_values_without_exponent() {
+        for (raw, expected) in [
+            ("0.10000000", "0.1"),
+            ("-0.08333333", "-0.08333333"),
+            ("0.00000000", "0"),
+            ("-0.00000000", "0"),
+            ("-0", "0"),
+            ("0.00000001", "0.00000001"),
+            ("-0.00000001", "-0.00000001"),
+            ("10000.00", "10000"),
+            ("-12.3400", "-12.34"),
+            ("18446744073709551615", "18446744073709551615"),
+        ] {
+            assert_eq!(canonical_plain_decimal(raw).unwrap(), expected, "{raw}");
+        }
+        for bad in ["", " 1", "1 ", "+1", "01", "-01", "1.", ".1", "1e0", "1E-8", "1_000", "NaN"] {
+            assert!(canonical_plain_decimal(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn backtest_policy_rejects_counts_the_current_publication_does_not_own() {
+        let metrics = sample_metrics();
+        for metric in [
+            "backtest.artifact_count",
+            "backtest.implementation_count",
+            "backtest.unknown_metric",
+        ] {
+            let policy = backtest_policy(json!([
+                {"criterion_id":"count","evidence_kind":"BACKTEST_EVIDENCE","metric":metric,"comparison":"GE","threshold":"1"}
+            ]));
+            let error = policy
+                .evaluate_backtest_scalars(
+                    &"a".repeat(64),
+                    &"b".repeat(64),
+                    "11111111-1111-4111-8111-111111111111",
+                    &"c".repeat(64),
+                    &metrics,
+                )
+                .err()
+                .expect("unowned backtest metric must fail closed at evaluation");
+            assert_eq!(error, "QUALIFICATION_POLICY_UNSUPPORTED", "{metric}");
+        }
+    }
+
+    #[test]
+    fn backtest_policy_evaluates_all_thirteen_owned_metrics_with_canonical_observed_values() {
+        let policy = backtest_policy(json!([
+            {"criterion_id":"01-execution","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.execution_completed","comparison":"EQ","threshold":"1"},
+            {"criterion_id":"02-curve","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.close_curve_point_count","comparison":"GE","threshold":"100"},
+            {"criterion_id":"03-valuation","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.valuation_count","comparison":"GE","threshold":"120"},
+            {"criterion_id":"04-orders","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.order_count","comparison":"GE","threshold":"1"},
+            {"criterion_id":"05-fills","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.fill_count","comparison":"GE","threshold":"4"},
+            {"criterion_id":"06-roundtrips","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.roundtrip_count","comparison":"GE","threshold":"2"},
+            {"criterion_id":"07-return","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.return_since_start","comparison":"GE","threshold":"0.05"},
+            {"criterion_id":"08-drawdown","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.maximum_drawdown","comparison":"GE","threshold":"-0.2"},
+            {"criterion_id":"09-net-pnl","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.net_pnl","comparison":"GT","threshold":"1000.499999999"},
+            {"criterion_id":"10-realized","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.realized_pnl","comparison":"EQ","threshold":"1000.5"},
+            {"criterion_id":"11-unrealized","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.unrealized_pnl","comparison":"EQ","threshold":"0"},
+            {"criterion_id":"12-fees","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.fees","comparison":"LE","threshold":"12.34"},
+            {"criterion_id":"13-final-equity","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.final_equity","comparison":"GE","threshold":"11000.5"}
+        ]));
+        let first = policy
+            .evaluate_backtest_scalars(
+                &"a".repeat(64),
+                &"b".repeat(64),
+                "11111111-1111-4111-8111-111111111111",
+                &"c".repeat(64),
+                &sample_metrics(),
+            )
+            .unwrap();
+        let record = first.to_record();
+        assert_eq!(record["outcome"], "APPROVED");
+        let observed: Vec<&str> = record["criterion_results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["observed_value"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            observed,
+            vec![
+                "1",
+                "120",
+                "124",
+                "6",
+                "4",
+                "2",
+                "0.1",
+                "-0.08333333",
+                "1000.5",
+                "1000.5",
+                "0",
+                "12.34",
+                "11000.5"
+            ]
+        );
+        // 尾零不同的等价权威小数产出完全相同的 decision_fingerprint
+        let mut trimmed_metrics = sample_metrics();
+        trimmed_metrics.return_since_start = Some("0.1".into());
+        trimmed_metrics.unrealized_pnl = "0".into();
+        trimmed_metrics.net_pnl = "1000.5".into();
+        let second = policy
+            .evaluate_backtest_scalars(
+                &"a".repeat(64),
+                &"b".repeat(64),
+                "11111111-1111-4111-8111-111111111111",
+                &"c".repeat(64),
+                &trimmed_metrics,
+            )
+            .unwrap();
+        assert_eq!(first.fingerprint(), second.fingerprint());
+    }
+
+    #[test]
+    fn backtest_policy_rejects_drawdown_breach_and_fails_closed_on_null_economic_scalars() {
+        let drawdown_policy = backtest_policy(json!([
+            {"criterion_id":"01-fills","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.fill_count","comparison":"GE","threshold":"999"},
+            {"criterion_id":"02-drawdown","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.maximum_drawdown","comparison":"GE","threshold":"-0.05"}
+        ]));
+        let rejected = drawdown_policy
+            .evaluate_backtest_scalars(
+                &"a".repeat(64),
+                &"b".repeat(64),
+                "11111111-1111-4111-8111-111111111111",
+                &"c".repeat(64),
+                &sample_metrics(),
+            )
+            .unwrap()
+            .to_record();
+        assert_eq!(rejected["outcome"], "REJECTED");
+        assert_eq!(rejected["criterion_results"][1]["outcome"], "FAIL");
+
+        // 即使前一条规则已经 FAIL，后续引用 null 经济指标仍必须 fail-closed（绝不掩盖为 REJECTED）
+        let mut missing_drawdown = sample_metrics();
+        missing_drawdown.maximum_drawdown = None;
+        assert_eq!(
+            drawdown_policy
+                .evaluate_backtest_scalars(
+                    &"a".repeat(64),
+                    &"b".repeat(64),
+                    "11111111-1111-4111-8111-111111111111",
+                    &"c".repeat(64),
+                    &missing_drawdown,
+                )
+                .unwrap_err(),
+            "QUALIFICATION_EVIDENCE_MISSING"
+        );
+
+        let return_policy = backtest_policy(json!([
+            {"criterion_id":"01-return","evidence_kind":"BACKTEST_EVIDENCE","metric":"backtest.return_since_start","comparison":"GE","threshold":"0"}
+        ]));
+        let mut missing_return = sample_metrics();
+        missing_return.return_since_start = None;
+        assert_eq!(
+            return_policy
+                .evaluate_backtest_scalars(
+                    &"a".repeat(64),
+                    &"b".repeat(64),
+                    "11111111-1111-4111-8111-111111111111",
+                    &"c".repeat(64),
+                    &missing_return,
+                )
+                .unwrap_err(),
+            "QUALIFICATION_EVIDENCE_MISSING"
+        );
+
+        // 未引用 null 指标的完整性政策（如 experimental-sim/1）不受 null 经济指标阻塞
+        let completeness_policy =
+            crate::bootstrap::research_namespace::experimental_sim_policy().unwrap();
+        let approved = completeness_policy
+            .evaluate_backtest_scalars(
+                &"a".repeat(64),
+                &"b".repeat(64),
+                "11111111-1111-4111-8111-111111111111",
+                &"c".repeat(64),
+                &missing_return,
+            )
+            .unwrap()
+            .to_record();
+        assert_eq!(approved["outcome"], "APPROVED");
+        assert_eq!(approved["policy_id"], "experimental-sim");
     }
 }

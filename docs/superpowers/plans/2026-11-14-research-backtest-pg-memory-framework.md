@@ -241,6 +241,7 @@
 **接口**
 
 - `DurableFactPort::commit(&mut self, prepared: &PreparedTradingFacts) -> Result<DurableCommitReceipt, DurabilityError>` 和 `load_recovery(&mut self, binding: &TradingBinding) -> Result<RecoveryFacts, DurabilityError>` 均为 async 方法。PreparedTradingFacts／TradingBinding／RecoveryFacts／DurabilityError 定义于 runtime/durability.rs，组合现有事实类型；port 使用 Rust 原生异步能力，Backend Driver 等待数据库完成，不在纯库引入客户端或 tokio，内存 Session::apply 保持纯同步经济计算。
+- SIM Driver 接手或恢复运行时，按 [ADR 0151 的单次 SIM 运行准入决定](../../adr/0151-postgresql-business-publication-and-memory-work.md#单次-sim-运行准入归属) 核验后端应用层为原 Run 和 Generation 持久化的授权与绑定。
 - `DurableCommitReceipt` 绑定事实身份、计划、版本和提交状态；它本身不是实盘权限。Backend 实际派单入口额外要求私有 `DispatchPermit`，仅由已注册 PostgreSQL 仓储确认正式提交及现有准入授权后构造，不能从任意 port 实现、调用方布尔值／DTO／MemorySession 自动转换。纯库回执与后端正式派单许可分型。
 - 正式意图和 outbox 先提交；外部响应／未知／成交按稳定身份幂等记录；committed-unready 恢复原投影。Driver 按 prepare → await commit → 原计划投影／提交资格检查 → dispatch 的顺序接线；不能在同步经济计算中阻塞等待包裹 IO。
 

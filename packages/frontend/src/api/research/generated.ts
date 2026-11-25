@@ -1876,6 +1876,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/sim/accounts/{account_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 运营方发布不可变模拟账户修订，显式绑定开户资金、虚拟券商、允许标的与强制风控规则。 */
+        post: operations["publish_sim_account_revision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sim/accounts/{account_id}/revisions/{revision_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 运营方按部署、账户与修订指纹精确回读模拟账户修订。 */
+        get: operations["read_sim_account_revision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sim/commands/{command_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 按原启动命令查询本主体的预留或准入状态。 */
+        get: operations["observe_sim_start"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sim/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 在账户与券商授权范围内，按已核验的回测晋级记录接纳一次 SIM 运行。 */
+        post: operations["start_sim_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/strategies/{strategy_fingerprint}": {
         parameters: {
             query?: never;
@@ -2409,6 +2477,22 @@ export interface components {
         /** @enum {string} */
         BacktestPrepareRefusalState: "NOT_ACCEPTED";
         BacktestPrepareReply: components["schemas"]["BacktestPreparationViewV2"] | components["schemas"]["BacktestPrepareRefusal"];
+        BacktestPromotionInput: {
+            backtest_run_id: string;
+            policy_id: string;
+            policy_version: string;
+            qualification_decision_fingerprint: string;
+            reason: string;
+            /** Format: int32 */
+            schema_version: number;
+        };
+        BacktestQualificationInput: {
+            backtest_run_id: string;
+            policy_id: string;
+            policy_version: string;
+            /** Format: int32 */
+            schema_version: number;
+        };
         BacktestReportAvailability: {
             code?: string | null;
             state: components["schemas"]["BacktestReportState"];
@@ -4026,6 +4110,7 @@ export interface components {
         /** @enum {string} */
         QualificationDecisionReadState: "VERIFIED" | "LOCATOR_REQUIRED";
         QualificationDecisionReadView: {
+            backtest_run_id?: string | null;
             decision?: unknown;
             decision_fingerprint: string;
             research_run_candidates: string[];
@@ -4036,22 +4121,28 @@ export interface components {
         };
         QualificationEvidenceReference: {
             evidence_fingerprint: string;
-            kind: string;
+            /** @enum {string} */
+            kind: "RESEARCH_RESULT";
             locator_fingerprint: string;
+            subject_binding_fingerprint: string;
+        } | {
+            evidence_fingerprint: string;
+            /** @enum {string} */
+            kind: "STRATEGY_VALIDATION";
+            preparation_command_id: string;
+            subject_binding_fingerprint: string;
+        } | {
+            backtest_run_id: string;
+            evidence_fingerprint: string;
+            /** @enum {string} */
+            kind: "BACKTEST_EVIDENCE";
             subject_binding_fingerprint: string;
         };
         /**
          * @description Human selects exact existing scientific facts. Counts and conclusions are
          *     intentionally absent; the owning evaluator reads them from durable evidence.
          */
-        QualificationInput: {
-            freeze_relation_fingerprint: string;
-            policy_id: string;
-            policy_version: string;
-            research_run_id: string;
-            /** Format: int32 */
-            schema_version: number;
-        };
+        QualificationInput: components["schemas"]["ResearchQualificationInput"] | components["schemas"]["BacktestQualificationInput"];
         QualificationPolicyCriterionView: {
             comparison: string;
             criterion_id: string;
@@ -4079,6 +4170,10 @@ export interface components {
             research_run_id: string;
             /** Format: int32 */
             schema_version: number;
+        } | {
+            backtest_run_id: string;
+            /** Format: int32 */
+            schema_version: number;
         };
         /** @enum {string} */
         QualifiedPromotionCommandState: "NOT_SUBMITTED" | "OUTCOME_UNKNOWN" | "COMPLETED";
@@ -4090,16 +4185,7 @@ export interface components {
             state: components["schemas"]["QualifiedPromotionCommandState"];
             strategy_fingerprint: string;
         };
-        QualifiedPromotionInput: {
-            freeze_relation_fingerprint: string;
-            policy_id: string;
-            policy_version: string;
-            qualification_decision_fingerprint: string;
-            reason: string;
-            research_run_id: string;
-            /** Format: int32 */
-            schema_version: number;
-        };
+        QualifiedPromotionInput: components["schemas"]["ResearchPromotionInput"] | components["schemas"]["BacktestPromotionInput"];
         ResearchCalculationCatalogDto: {
             calculations: components["schemas"]["ResearchCalculationCatalogItemDto"][];
             schema_version?: components["schemas"]["Version2"] | null;
@@ -4145,6 +4231,24 @@ export interface components {
             type: string;
             uppercase: boolean;
         };
+        ResearchPromotionInput: {
+            freeze_relation_fingerprint: string;
+            policy_id: string;
+            policy_version: string;
+            qualification_decision_fingerprint: string;
+            reason: string;
+            research_run_id: string;
+            /** Format: int32 */
+            schema_version: number;
+        };
+        ResearchQualificationInput: {
+            freeze_relation_fingerprint: string;
+            policy_id: string;
+            policy_version: string;
+            research_run_id: string;
+            /** Format: int32 */
+            schema_version: number;
+        };
         ResearchRunView: components["schemas"]["FactorResearchRunView"] | components["schemas"]["StrategyResearchRunView"];
         ResearchScalarDto: {
             type: components["schemas"]["ResearchScalarDtoType"];
@@ -4177,10 +4281,77 @@ export interface components {
             schema_version: components["schemas"]["Version3"];
             workspaces: components["schemas"]["NamedWorkspaceDto"][];
         };
+        SimAccountRevisionPublishInput: {
+            broker_integration_id: string;
+            instruments: components["schemas"]["SimInstrumentPolicyWire"][];
+            opening_cash: components["schemas"]["SimOpeningCashWire"];
+            risk_rules: components["schemas"]["SimRiskRuleWire"][];
+            /** Format: int32 */
+            schema_version: number;
+        };
+        SimAccountRevisionView: {
+            account_id: string;
+            broker_integration_id: string;
+            deployment_id: string;
+            instruments: components["schemas"]["SimInstrumentPolicyWire"][];
+            opening_cash: components["schemas"]["SimOpeningCashWire"];
+            revision_fingerprint: string;
+            risk_rules: components["schemas"]["SimRiskRuleWire"][];
+            /** Format: int32 */
+            schema_version: number;
+        };
+        SimCurrencyWire: {
+            code: string;
+            currency_type: string;
+            /** Format: int32 */
+            precision: number;
+        };
+        SimInstrumentPolicyWire: {
+            id: string;
+            multiplier: string;
+            /** Format: int32 */
+            price_precision: number;
+            /** Format: int32 */
+            quantity_precision: number;
+        };
+        SimOpeningCashWire: {
+            amount: string;
+            currency: components["schemas"]["SimCurrencyWire"];
+        };
+        SimRiskRuleWire: {
+            id: string;
+            kind: string;
+            limit: string;
+            mode: string;
+            /** Format: int64 */
+            order: number;
+            /** Format: int32 */
+            schema_version: number;
+            scope: string;
+        };
         /** @enum {string} */
         SourceHistoryPolicy: "EXACT_SEALED_PROOF";
         /** @enum {string} */
         SourceNewWorkStatus: "AVAILABLE" | "UNAVAILABLE";
+        StartObservation: {
+            command_id: string;
+            run_id: string;
+            /** Format: int32 */
+            schema_version: number;
+            state: components["schemas"]["StartState"];
+        };
+        StartSelection: {
+            account_id: string;
+            account_revision_fingerprint: string;
+            backtest_run_id: string;
+            broker_revision_fingerprint: string;
+            decision_fingerprint: string;
+            policy_fingerprint: string;
+            promotion_fingerprint: string;
+            strategy_fingerprint: string;
+        };
+        /** @enum {string} */
+        StartState: "RESERVED" | "ACCEPTED";
         StrategyCreationContextView: {
             draft: components["schemas"]["PrivateStrategyDraftDto"];
             existing_preparations: unknown[];
@@ -12537,6 +12708,340 @@ export interface operations {
                 };
             };
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    publish_sim_account_revision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimAccountRevisionPublishInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimAccountRevisionView"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    read_sim_account_revision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+                revision_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimAccountRevisionView"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    observe_sim_start: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                command_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartObservation"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+        };
+    };
+    start_sim_run: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 启动命令 UUID4；结果未知时按同一命令查询 */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSelection"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartObservation"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeErrorEnvelope"];
+                };
+            };
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

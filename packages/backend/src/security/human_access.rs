@@ -50,6 +50,28 @@ struct SubjectConfig {
     closed_history: Vec<HistoryScope>,
     #[serde(default)]
     frozen_strategy_fingerprints: Vec<String>,
+    #[serde(default)]
+    sim_start: Vec<SimStartScope>,
+}
+
+#[derive(Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct SimStartScope {
+    strategy_fingerprint: String,
+    account_id: String,
+    broker_configuration_fingerprint: String,
+}
+
+impl SimStartScope {
+    fn valid(&self) -> bool {
+        crate::is_sha256_hex(&self.strategy_fingerprint)
+            && crate::is_sha256_hex(&self.broker_configuration_fingerprint)
+            && !self.account_id.is_empty()
+            && self.account_id.len() <= 256
+            && self.account_id.trim() == self.account_id
+            && !self.account_id.contains('*')
+            && !self.account_id.chars().any(char::is_control)
+    }
 }
 
 #[derive(Deserialize, PartialEq)]
@@ -211,6 +233,10 @@ impl Access {
                         !crate::is_sha256_hex(value)
                             || config.frozen_strategy_fingerprints[..index].contains(value)
                     })
+                || config.sim_start.len() > 32
+                || config.sim_start.iter().enumerate().any(|(index, scope)| {
+                    !scope.valid() || config.sim_start[..index].contains(scope)
+                })
                 || config.closed_history.len() > 32
                 || config
                     .closed_history
@@ -265,6 +291,55 @@ impl Access {
                 .iter()
                 .any(|fp| fp == strategy_fingerprint)
         })
+    }
+    pub(crate) fn has_sim_start_grant(&self, subject: &str) -> bool {
+        self.subject(subject)
+            .is_some_and(|s| !s.config.sim_start.is_empty())
+    }
+    pub(crate) fn sim_strategy_allowed(
+        &self,
+        subject: &str,
+        strategy_fingerprint: &str,
+    ) -> bool {
+        self.subject(subject).is_some_and(|s| {
+            s.config
+                .sim_start
+                .iter()
+                .any(|scope| scope.strategy_fingerprint == strategy_fingerprint)
+        })
+    }
+    pub(crate) fn check_sim_selection(
+        &self, session: &Session, strategy: &str, account: &str,
+    ) -> Result<(), Error> {
+        self.check_session(session)?;
+        let subject = self.subject(session.subject_id()?).ok_or(Error::Forbidden)?;
+        if subject.config.sim_start.iter().any(|grant|
+            grant.strategy_fingerprint == strategy && grant.account_id == account
+        ) {
+            Ok(())
+        } else {
+            Err(Error::Forbidden)
+        }
+    }
+
+    pub(crate) fn authorize_sim_start(
+        &self,
+        session: &Session,
+        strategy_fingerprint: &str,
+        account_id: &str,
+        broker_configuration_fingerprint: &str,
+    ) -> Result<(), Error> {
+        self.check_session(session)?;
+        let subject = self.subject(session.subject_id()?).ok_or(Error::Forbidden)?;
+        if subject.config.sim_start.iter().any(|scope| {
+            scope.strategy_fingerprint == strategy_fingerprint
+                && scope.account_id == account_id
+                && scope.broker_configuration_fingerprint == broker_configuration_fingerprint
+        }) {
+            Ok(())
+        } else {
+            Err(Error::Forbidden)
+        }
     }
     pub(crate) fn check_active(&self) -> Result<(), Error> {
         match &self.mode {
@@ -667,6 +742,54 @@ mod entropy_tests {
                 Err(Error::InvalidConfiguration)
             ));
         }
+    }
+    #[test]
+    fn sim_start_requires_one_exact_grant_on_the_authenticated_subject() {
+        use serde_json::json;
+        let strategy = "a".repeat(64);
+        let broker = "b".repeat(64);
+        let other_broker = "c".repeat(64);
+        let token = "d".repeat(64);
+        let other_token = "e".repeat(64);
+        let config = json!([{
+            "subject_id":"a", "credential_sha256":credential_digest(&token), "closed_history":[],
+            "sim_start":[
+                {"strategy_fingerprint":strategy,"account_id":"first","broker_configuration_fingerprint":broker},
+                {"strategy_fingerprint":strategy,"account_id":"second","broker_configuration_fingerprint":other_broker}
+            ]
+        }, {
+            "subject_id":"b", "credential_sha256":credential_digest(&other_token), "closed_history":[],
+            "frozen_strategy_fingerprints":[strategy]
+        }]);
+        let bytes = serde_json::to_vec(&config).unwrap();
+        let access = Access::configured(&bytes).unwrap();
+        let (a, _) = access.login(&format!("Bearer {token}")).unwrap();
+        let (b, _) = access.login(&format!("Bearer {other_token}")).unwrap();
+        assert!(access.has_sim_start_grant("a"));
+        assert!(!access.has_sim_start_grant("b"));
+        assert!(access.sim_strategy_allowed("a", &strategy));
+        assert!(!access.sim_strategy_allowed("a", &other_broker));
+        assert!(!access.sim_strategy_allowed("b", &strategy));
+        assert_eq!(access.authorize_sim_start(&a, &strategy, "first", &broker), Ok(()));
+        for (subject, revision, account, configuration) in [
+            (&a, &other_broker, "first", &broker),
+            (&a, &strategy, "second", &broker),
+            (&a, &strategy, "first", &other_broker),
+            (&b, &strategy, "first", &broker),
+        ] {
+            assert_eq!(access.authorize_sim_start(subject, revision, account, configuration), Err(Error::Forbidden));
+        }
+        let other_access = Access::configured(&bytes).unwrap();
+        assert_eq!(other_access.authorize_sim_start(&a, &strategy, "first", &broker), Err(Error::Unauthorized));
+        access.logout(&a).unwrap();
+        assert_eq!(access.authorize_sim_start(&a, &strategy, "first", &broker), Err(Error::Unauthorized));
+
+        let mut invalid = config.clone();
+        invalid[0]["sim_start"][0]["account_id"] = json!("*");
+        assert!(matches!(Access::configured(&serde_json::to_vec(&invalid).unwrap()), Err(Error::InvalidConfiguration)));
+        let mut duplicate = config;
+        duplicate[0]["sim_start"][1] = duplicate[0]["sim_start"][0].clone();
+        assert!(matches!(Access::configured(&serde_json::to_vec(&duplicate).unwrap()), Err(Error::InvalidConfiguration)));
     }
     #[test]
     fn entropy_failure_has_no_fallback_credential_or_issuer() {

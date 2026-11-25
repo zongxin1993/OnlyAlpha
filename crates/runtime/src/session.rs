@@ -8,10 +8,10 @@ use std::{collections::BTreeMap, sync::Arc};
 fn error(code: &str) -> Error {
     Error(code.into())
 }
-fn fingerprint(v: &Value) -> String {
+pub(crate) fn fingerprint(v: &Value) -> String {
     digest(v.to_string().as_bytes())
 }
-fn sha(s: &str) -> bool {
+pub(crate) fn sha(s: &str) -> bool {
     s.len() == 64
         && s.bytes()
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))

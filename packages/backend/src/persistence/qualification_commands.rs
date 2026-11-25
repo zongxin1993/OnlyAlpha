@@ -136,6 +136,12 @@ impl<'a> Qualifications<'a> {
             {
                 return Err(Failure::Known("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH"));
             }
+            Evidence::Backtest(proof)
+                if proof.freeze_relation_fingerprint() != relation.fingerprint()
+                    || proof.subject_strategy_fingerprint() != source.fingerprint() =>
+            {
+                return Err(Failure::Known("QUALIFICATION_EVIDENCE_SUBJECT_MISMATCH"));
+            }
             _ => {}
         }
         Ok(())
@@ -156,6 +162,15 @@ impl<'a> Qualifications<'a> {
         at: OnlyUtcDateTime,
     ) -> Result<Arc<VerifiedDecision>> {
         self.execute_evidence(request, Evidence::Manual(evidence), at)
+            .await
+    }
+    pub(crate) async fn execute_backtest(
+        &mut self,
+        request: &Request,
+        evidence: Arc<crate::persistence::qualification_decision::VerifiedBacktestEvidence>,
+        at: OnlyUtcDateTime,
+    ) -> Result<Arc<VerifiedDecision>> {
+        self.execute_evidence(request, Evidence::Backtest(evidence), at)
             .await
     }
     async fn execute_evidence(
@@ -590,8 +605,12 @@ pub(crate) async fn command_outcome_readonly(
     client: &mut tokio_postgres::Client,
     namespace: &SemanticStoreId,
     subject: &str,
+    caller: &str,
     id: &crate::application::command::CommandId,
 ) -> Result<Value> {
+    if caller.is_empty() || caller.len() > 512 || caller.chars().any(char::is_control) {
+        return Err("QUALIFICATION_ACCESS_DENIED");
+    }
     let tx = client
         .build_transaction()
         .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
@@ -600,11 +619,21 @@ pub(crate) async fn command_outcome_readonly(
         .await
         .map_err(|_| UNAVAILABLE)?;
     transaction(&tx, namespace).await.map_err(code)?;
-    let value = projection(
-        subject,
-        id,
-        original_in_transaction(&tx, namespace, subject, id).await?,
-    );
+    let original = original_in_transaction(&tx, namespace, subject, id).await?;
+    if let Some((request, _)) = &original
+        && request.evidence_kind() == "BACKTEST_EVIDENCE"
+    {
+        let run = super::backtest_run::load_in_transaction(&tx, namespace, request.backtest_run_id()?)
+            .await
+            .map_err(|_| "QUALIFICATION_ACCESS_DENIED")?;
+        if run.owner() != caller {
+            return Err("BACKTEST_ACCESS_DENIED");
+        }
+        if run.resolution()["strategy_fingerprint"] != subject {
+            return Err(INVALID);
+        }
+    }
+    let value = projection(subject, id, original);
     tx.commit().await.map_err(|_| UNAVAILABLE)?;
     Ok(value)
 }

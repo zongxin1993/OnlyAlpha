@@ -520,6 +520,7 @@ CONTROLLED_BACKTEST_OWNER_FIXTURE_COMMANDS = [
         "missing-program",
         "missing-market-seal",
         "missing-market-row",
+        "sim-start-refusals",
     )
 ]
 

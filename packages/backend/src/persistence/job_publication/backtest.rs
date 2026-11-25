@@ -15,7 +15,10 @@ use crate::{
 };
 use onlyalpha_backtest::{ExecutionBinding, Inputs};
 use onlyalpha_calculation::product::Graph;
-use onlyalpha_calculation_bridge::native_operators::OperatorCalculation;
+use onlyalpha_calculation_bridge::{
+    native_operators::OperatorCalculation,
+    native_predicates::PredicateCalculation,
+};
 use onlyalpha_domain::{base::OnlyDomainModel, time::OnlyTimestamp};
 use onlyalpha_runtime::{RunBinding, RunConfiguration};
 use onlyalpha_strategy::{Program, Scope, SourceRevision};
@@ -268,7 +271,14 @@ fn program(source: &SourceRevision, ready: &Value, image: &str, cfg: &Value, clu
         let binding = array(&record["implementation_bindings"])?.iter().find(|entry| entry["node_fingerprint"] == id).ok_or(INTEGRITY)?;
         let implementation = text(&binding["trading_implementation_fingerprint"])?;
         let (capability, schema) = match text(&definition["kind"])? {
-            "PREDICATE" => continue,
+            "PREDICATE" => {
+                let predicate = PredicateCalculation::from_record(&definition).map_err(invalid)?;
+                let manifest = predicate.implementation_manifest("TRADING", image).map_err(invalid)?;
+                if manifest["implementation_fingerprint"] != implementation || !implementations.contains(&manifest) {
+                    return Err(MISMATCH);
+                }
+                continue;
+            }
             "INDICATOR" => {
                 let operator = OperatorCalculation::from_record(&definition).map_err(invalid)?;
                 let manifest = operator.implementation_manifest("TRADING", image).map_err(invalid)?;
@@ -302,6 +312,24 @@ pub(super) async fn verify(
     values: &[Value],
 ) -> Result<()> {
     let bodies = Bodies::read(members, values)?;
+    let execution = &bodies.causal.ok_or(PublicationError::MissingEvidence)?["execution"];
+    let originals = original(tx, origin, binding, execution).await?;
+    verify_original(originals, binding, bodies)
+}
+
+impl BacktestStorage {
+    pub(crate) async fn verify(self, tx: &crate::persistence::build_fact_read::BuildFactRead<'_, '_>) -> Result<PublishedJobResult> {
+        let Self(result, values) = self;
+        let bodies = Bodies::read(&result.members, &values)?;
+        let execution = &bodies.causal.ok_or(PublicationError::MissingEvidence)?["execution"];
+        let originals = original_metadata(tx, &result.binding, execution).await?;
+        tx.verify_calculation(&execution["calculation_build"]).await.map_err(owner_error)?;
+        verify_original(originals, &result.binding, bodies)?;
+        Ok(result)
+    }
+}
+
+fn verify_original(originals: Original, binding: &FrozenJobBinding, bodies: Bodies<'_>) -> Result<()> {
     let causal = bodies.causal.ok_or(PublicationError::MissingEvidence)?;
     let economics = bodies.economics.ok_or(PublicationError::MissingEvidence)?;
     exact(causal, &["binding", "execution", "members"]).map_err(invalid)?;
@@ -324,14 +352,14 @@ pub(super) async fn verify(
     {
         return Err(INTEGRITY);
     }
-    let (run, operation, revision) = original(tx, origin, binding, execution).await?;
+    let (run, operation, revision) = originals;
     let ready = &operation.outputs["ready"];
     let source = SourceRevision::from_json(&execution["source"].to_string(), WORK).map_err(invalid)?;
     let source_record = source.to_record();
     let proof_context = &execution["calculation_build"]["context"];
     let signal = calculation_build::signal_preparation(ready).map_err(owner_error)?;
-    let (factors, _) = calculation_factor_inputs(ready).map_err(model::owner_error)?;
     let image = text(&ready["native_image"]["artifact"])?;
+    let (factors, _) = calculation_factor_inputs(ready).map_err(model::owner_error)?;
     if source_record != execution["source"] || source.fingerprint() != text(&frozen["strategy_revision"])?
         || ready["admission"]["strategy_fingerprint"] != source.fingerprint()
         || execution["native_image"] != ready["native_image"]

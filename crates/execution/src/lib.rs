@@ -8,7 +8,7 @@ mod perpetual_fees;
 mod planning;
 mod working;
 pub use components::Components;
-pub use model::{Error, Prepared, digest};
+pub use model::{Error, Prepared, digest, input_id};
 pub use planning::AdmissionPreview;
 pub use working::{
     CompletedWorkingState, MemoryAdmission, OriginalEvidence, WorkingState, WorkingStep,

@@ -174,6 +174,17 @@ pub(super) async fn load(
     guard: MutationGuard,
     origin: Option<backtest::Origin<'_, '_>>,
 ) -> Result<Option<PublishedJobResult>> {
+    let verify = key.kind == JobKind::Backtest && matches!(guard, MutationGuard::Node);
+    let Some((result, bodies)) = load_storage(tx, binding, key, verify).await? else { return Ok(None) };
+    if verify {
+        backtest::verify(tx, origin.ok_or(PublicationError::Denied)?, &result.binding, &result.members, &bodies).await?;
+    }
+    Ok(Some(result))
+}
+
+pub(super) async fn load_storage(
+    tx: &Transaction<'_>, binding: FrozenJobBinding, key: &RunLocator, retain_bodies: bool,
+) -> Result<Option<(PublishedJobResult, Vec<Value>)>> {
     let p=tx.query_opt("SELECT publication_fingerprint,CASE WHEN octet_length(manifest_payload)<=1048576 THEN manifest_payload END,binding_fingerprint,attempt_id::text,worker_id::text,attempt_number,fence FROM public.job_publication WHERE job_kind=$1 AND run_id=$2::text::uuid",&[&kind(key.kind),&key.run]).await.map_err(db)?;
     let Some(p) = p else { return Ok(None) };
     if p.get::<_, String>(2) != binding.fingerprint() {
@@ -198,7 +209,6 @@ pub(super) async fn load(
     if rows.len() > 1024 {
         return Err(PublicationError::BudgetExceeded);
     }
-    let verify_backtest = key.kind == JobKind::Backtest && matches!(guard, MutationGuard::Node);
     let mut members = Vec::new();
     let mut bodies = Vec::new();
     let mut bytes = 0usize;
@@ -233,7 +243,7 @@ pub(super) async fn load(
             }
             _ => {}
         }
-        if verify_backtest {
+        if retain_bodies {
             bodies.push(value);
         }
         members.push(PreparedMember {
@@ -334,10 +344,7 @@ pub(super) async fn load(
     {
         return Err(PublicationError::Integrity);
     }
-    if verify_backtest {
-        backtest::verify(tx, origin.ok_or(PublicationError::Denied)?, &binding, &members, &bodies).await?;
-    }
-    Ok(Some(PublishedJobResult {
+    Ok(Some((PublishedJobResult {
         binding,
         winner,
         specification: root.get(1),
@@ -346,7 +353,7 @@ pub(super) async fn load(
         manifest: expected,
         research_result,
         members,
-    }))
+    }, bodies)))
 }
 pub(super) fn manifest(binding: &FrozenJobBinding, members: &[PreparedMember]) -> Result<String> {
     encode(

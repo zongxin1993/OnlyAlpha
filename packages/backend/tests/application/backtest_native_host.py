@@ -1809,6 +1809,16 @@ def exercise_native_backtest_host(
                 "initialize_fresh_runtime": False,
                 "backtest_command_id": future,
             }
+            if owner_fault == "sim-start-refusals":
+                from functools import partial
+
+                from packages.backend.tests.transport.sim_start_product import exercise_sim_subjects, operator_inputs
+
+                broker, operator_run = operator_inputs(http, payload)
+                warm_host.close()
+                exercise_sim_subjects(partial(original_host, executable, configuration, output), data / "secrets",
+                                      payload, broker, operator_run, dsn)
+                return
             if owner_fault == "human-owner-isolation":
                 from packages.backend.tests.application.backtest_human_owners import (
                     assert_single_human_session,

@@ -94,6 +94,7 @@ def test_backtest_owner_controlled_https_admits_only_the_approved_nodes(monkeypa
             "missing-program",
             "missing-market-seal",
             "missing-market-row",
+            "sim-start-refusals",
         )
     ]
     assert {tuple(command) for command in verification.CONTROLLED_BACKTEST_OWNER_FIXTURE_COMMANDS} == {

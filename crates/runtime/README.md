@@ -24,6 +24,10 @@
 
 `memory.admission` 和 `memory.apply` 复用 observability 的显式订阅器；诊断字段不进入业务身份、检查点或结果。
 
+[`durability`](src/durability.rs) 提供持续交易的 `DurableFactPort`。`TradingBinding` 从校验过的 SIM／LIVE 配置、内核工件绑定流身份和版本。`RecoveryFacts::from_records` 需要同一快照内的绑定、水位和原事务，按序验证每条原输入、计划及经济投影，重建六个执行组件并对账。绑定冲突、缺行、投影前驱未就绪或经济内容不符时拒绝恢复。仅末条可处于已提交待投影状态；此时可读取恢复后的投影和原记录，必须由仓储确认原事务 Ready，重新读取后才能继续准备。`prepare` 生成的 `PreparedTradingFacts` 绑定原前驱、计划和事件；PG 适配器应在同一事务核对前驱并提交。`DurableCommitReceipt` 核对绑定与完整提交计划，只提供提交观察。数据库暂不可读和提交结果未知分别返回 `Unavailable`、`UnknownCommit`，由驱动继续核对原交易。
+
+场所重复投递时，先用 `RecoveryFacts::observe_input` 按 `input_id` 查询当前已验证水位内的全部原记录，包括已提交待投影的末条事务。输入正文完全一致时返回原 `Record`，保留其 Ready 状态。同一身份对应不同正文时返回 `TRADING_INPUT_CONFLICT`，非法或缺失的身份返回内核校验错误。只有该身份在此快照中确实不存在时才返回 `None`，随后可按正常序列规则调用 `prepare`。
+
 [`BoundBrokerJournal`](src/broker_source_store.rs) 读取配置 3 原 Run 的 broker.sqlite3，按序读取来源步和该步的原事实子行。Broker 协议沿用原 record 和 32 MiB 总观察预算，来源步、逐事实原文和准入时刻分别保存。Runtime 以原 market-source-cut.json、原来源/协议库和 runtime.sqlite3 重建并核对每个 Prepared，具体撮合在绑定场所宿主重放。新代际使用 BoundBrokerJournal::dispatch，并在同目录真实 Runtime 的 Ready 前缀上取得原命令资格。
 
 新 Broker RuntimeReader 的派发资格和订单读回都读取本 Run 原 Ready ADMIT 的范围和规范请求。SUBMIT 要求请求完全一致；CANCEL 查询要求正确的本地订单及 client，并返回原 SUBMIT 请求对应的 OrderView。返回 scope 来自原 Run，不回显未证明的来件。order_view 只读不授予取消派发资格，ready_intent 的操作限制保持。

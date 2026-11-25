@@ -48,6 +48,21 @@ impl<'a,'t> BuildFactRead<'a,'t> {
         }
     }
 
+    pub(crate) async fn read_backtest_publication(
+        &self,
+        namespace: &SemanticStoreId,
+        run: &crate::application::backtest_run::VerifiedRun,
+    ) -> Result<super::job_publication::BacktestStorage, PublicationError> {
+        use super::job_publication::read_registered_backtest;
+        deployment::verify_binding_in_transaction(self, namespace).await.map_err(deployment_error)?;
+        match self.location {
+            Location::Control { tx, owner } => read_control_facts(tx, owner, |facts| async move {
+                read_registered_backtest(facts, namespace, run).await
+            }).await?,
+            Location::Reader { facts, .. } => read_registered_backtest(facts, namespace, run).await,
+        }
+    }
+
     pub(crate) async fn verify_calculation(&self,proof:&Value) -> Result<(),&'static str> {
         match self.location {
             Location::Control {tx,owner}=>read_control_facts(tx,owner,|facts| async move {

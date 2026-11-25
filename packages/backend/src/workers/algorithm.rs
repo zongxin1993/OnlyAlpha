@@ -386,6 +386,13 @@ mod lifecycle_faults {
 /// Exact native image descriptor for the existing Runtime builder, no activation.
 pub fn describe_research_runtime(version: &str) -> Result<serde_json::Value> {
     let artifact = loaded_native_image_sha256()?;
+    describe_research_runtime_with_artifact(version, &artifact)
+}
+
+pub(crate) fn describe_research_runtime_with_artifact(
+    version: &str,
+    artifact: &str,
+) -> Result<serde_json::Value> {
     let target = if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
         "aarch64-unknown-linux-gnu"
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
@@ -401,7 +408,7 @@ pub fn describe_research_runtime(version: &str) -> Result<serde_json::Value> {
 /// Hash the actual Linux executable inode, including after its pathname has
 /// been atomically replaced. /proc/self/exe is the kernel's selected image,
 /// not an untrusted filesystem locator or a custom executable loader.
-fn loaded_native_image_sha256() -> Result<String> {
+pub(crate) fn loaded_native_image_sha256() -> Result<String> {
     #[cfg(target_os = "linux")]
     {
         use sha2::{Digest, Sha256};
@@ -421,7 +428,7 @@ fn loaded_native_image_sha256() -> Result<String> {
         }
         let mut hash = Sha256::new();
         let mut read = 0_u64;
-        let mut buffer = [0_u8; 8192];
+        let mut buffer = [0_u8; 65536];
         loop {
             let count = image.read(&mut buffer).map_err(|_| WorkerError::Invalid)?;
             if count == 0 {
@@ -453,7 +460,18 @@ pub fn describe_native_runtime(version: &str) -> Result<serde_json::Value> {
     if version != env!("CARGO_PKG_VERSION") {
         return Err(WorkerError::Invalid);
     }
-    let image = describe_research_runtime(version)?;
+    let artifact = loaded_native_image_sha256()?;
+    describe_native_runtime_with_artifact(version, &artifact)
+}
+
+pub(crate) fn describe_native_runtime_with_artifact(
+    version: &str,
+    artifact: &str,
+) -> Result<serde_json::Value> {
+    if version != env!("CARGO_PKG_VERSION") {
+        return Err(WorkerError::Invalid);
+    }
+    let image = describe_research_runtime_with_artifact(version, artifact)?;
     let mut implementations =
         onlyalpha_calculation_bridge::native_predicates::implementation_manifests(
             image["artifact"].as_str().ok_or(WorkerError::Invalid)?,

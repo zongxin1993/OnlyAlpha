@@ -5,6 +5,7 @@ pub use memory::{CompletedMemoryVenue, MemoryVirtualActor, SourceAction, SourceT
 mod discovery;
 mod plan;
 mod projection;
+pub mod provider;
 mod source_host;
 mod venue;
 pub use source_host::BoundVirtualActor;
@@ -15,6 +16,8 @@ use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar, value::OnlyMoney}
 use plan::err;
 use serde_json::{Value, json};
 use venue::State;
+
+pub const IMPLEMENTATION_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// 原始有序输入与导出检查点由调用方持久化。实例只处理一个 BACKTEST/SIM Scope。
 pub struct VirtualBroker {
@@ -45,7 +48,7 @@ impl VirtualBroker {
         }
         let config = Config::parse(extensions)?;
         let binding = json!({"implementation":"rust","plugin_id":"virtual","release_id":"plugin-onlyalpha-broker-virtual",
-            "version":env!("CARGO_PKG_VERSION"),"artifact_sha256":artifact_sha256,"scope":scope.record(),
+            "version":IMPLEMENTATION_VERSION,"artifact_sha256":artifact_sha256,"scope":scope.record(),
             "initial_cash":initial_cash.to_record(),"configuration":config.record});
         Ok(Self {
             scope,
@@ -94,21 +97,27 @@ impl VirtualBroker {
         }
         self.update(input, |s, cfg| s.bar(cfg, sequence, bar))
     }
+    /// 在当前场所前缀查询原始派发回执，尚未收到命令时返回 None。
+    pub fn dispatch_result(&self, command: &BrokerCommand) -> Result<Option<DispatchResult>, Error> {
+        self.owner(command.scope())?;
+        let Some(original) = self.state.commands.get(command.id()) else { return Ok(None) };
+        if original != command {
+            return Err(err("VIRTUAL_COMMAND_CONFLICT"));
+        }
+        Ok(Some(if self.state.rejected.contains(command.id()) {
+            DispatchResult::Rejected
+        } else {
+            DispatchResult::Received
+        }))
+    }
+
     fn receive(
         &mut self,
         c: &BrokerCommand,
         ready_at_dispatch: bool,
     ) -> Result<DispatchResult, Error> {
-        self.owner(c.scope())?;
-        if let Some(old) = self.state.commands.get(c.id()) {
-            if old != c {
-                return Err(err("VIRTUAL_COMMAND_CONFLICT"));
-            }
-            return Ok(if self.state.rejected.contains(c.id()) {
-                DispatchResult::Rejected
-            } else {
-                DispatchResult::Received
-            });
+        if let Some(result) = self.dispatch_result(c)? {
+            return Ok(result);
         }
         let cause = if ready_at_dispatch {
             "COMMAND"
@@ -220,6 +229,36 @@ impl VirtualBroker {
         }
         Ok(v)
     }
+    /// 从持久化原始输入重建场所，并对照原提交的检查点指纹。
+    pub fn restore_inputs(
+        scope: Scope,
+        artifact_sha256: &str,
+        initial_cash: OnlyMoney,
+        extensions: &Value,
+        inputs: &[Value],
+        expected_sha256: &str,
+    ) -> Result<Self, Error> {
+        Self::new(scope, artifact_sha256, initial_cash, extensions)?
+            .restore_input_segment(inputs, expected_sha256)
+    }
+    /// 从上一个已核验的场所状态重放一段输入，核验失败时丢弃候选状态。
+    pub fn restore_input_segment(
+        mut self,
+        inputs: &[Value],
+        expected_sha256: &str,
+    ) -> Result<Self, Error> {
+        if self.connection != Connection::Disconnected {
+            return Err(err("VIRTUAL_RESTORE_REQUIRES_DISCONNECTED"));
+        }
+        let start = self.inputs.len();
+        for input in inputs {
+            self.replay_input(input)?;
+        }
+        if &self.inputs[start..] != inputs || digest(&self.checkpoint()) != expected_sha256 {
+            return Err(err("VIRTUAL_CHECKPOINT_STATE_CONFLICT"));
+        }
+        Ok(self)
+    }
     fn replay_input(&mut self, input: &Value) -> Result<(), Error> {
         match input[0].as_str() {
             Some("CLOCK") => {
@@ -264,25 +303,7 @@ impl ConnectionPort for VirtualBroker {
 }
 impl TradingPort for VirtualBroker {
     fn capabilities(&self) -> Capabilities {
-        Capabilities::new(&[
-            "CONNECT",
-            "AUTHENTICATE",
-            "SUBMIT_ORDER",
-            "CANCEL_ORDER",
-            "QUERY_ACCOUNT",
-            "QUERY_BALANCES",
-            "QUERY_POSITIONS",
-            "QUERY_OPEN_ORDERS",
-            "QUERY_ORDERS",
-            "QUERY_TRADES",
-            "QUERY_FEE_EVIDENCE",
-            "MARKET_ORDER",
-            "LIMIT_ORDER",
-            "PARTIAL_FILL",
-            "PUSH_ORDER_UPDATES",
-            "PUSH_TRADE_UPDATES",
-        ])
-        .expect("static Broker capabilities")
+        Capabilities::new(provider::CAPABILITIES).expect("static Broker capabilities")
     }
     fn dispatch(&mut self, c: &BrokerCommand) -> Result<DispatchResult, Error> {
         self.receive(c, self.connection == Connection::Ready)

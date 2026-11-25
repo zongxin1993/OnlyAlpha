@@ -113,6 +113,20 @@ impl Issuer {
 fn backtest_subject_route(method: &Method, path: &str) -> bool {
     let segments: Vec<_> = path.split('/').collect();
     match (method, segments.as_slice()) {
+        (&Method::POST, ["", "api", "v2", "sim", "runs"]) => true,
+        (&Method::GET, ["", "api", "v2", "sim", "commands", id]) => crate::application::command::uuid4(id),
+        (&Method::GET, ["", "api", "v2", "qualification-policies"]) => true,
+        (&Method::GET, ["", "api", "v2", "qualification-policies", id, "revisions", ver]) => {
+            !id.is_empty() && !ver.is_empty()
+        }
+        (&Method::GET, ["", "api", "v2", "qualification-decisions", id]) => crate::is_sha256_hex(id),
+        (&Method::POST, ["", "api", "v2", "strategies", id, "qualifications" | "qualification-promotions"]) => {
+            crate::is_sha256_hex(id)
+        }
+        (&Method::GET, ["", "api", "v2", "strategies", id, "qualifications" | "qualification-promotions", "commands", cmd])
+        | (&Method::POST, ["", "api", "v2", "strategies", id, "qualifications" | "qualification-promotions", "commands", cmd, "resume"]) => {
+            crate::is_sha256_hex(id) && crate::application::command::uuid4(cmd)
+        }
         (&Method::GET, ["", "api", "v2", "market-data", "sources"]) => true,
         (&Method::GET, ["", "api", "v2", "backtest", "creation-context" | "runs"]) => true,
         (&Method::POST, ["", "api", "v2", "backtest", "preparations"]) => true,
@@ -460,6 +474,12 @@ impl Host {
             None => return Err(Failure(StatusCode::NOT_FOUND, "PRODUCT_ROUTE_NOT_FOUND")),
         }
 
+        if path == "/api/v2/sim/runs" || path.starts_with("/api/v2/sim/commands/") {
+            return self.sim_start_command(request, human, deadline).await;
+        }
+        if path.starts_with("/api/v2/sim/accounts/") {
+            return self.sim_account_revision(request, human, deadline).await;
+        }
         if path == "/api/v2/strategy-workflows" || path.starts_with("/api/v2/strategy-workflows/") {
             return self.strategy_workflows(request, &human, deadline).await;
         }
