@@ -4,6 +4,11 @@ Process record under AGENTS.md §9.1 (process documents may carry process identi
 document is the explicit written justification required by the golden-evidence governance rule
 in `docs/testing.md` for the recovery baseline strategy-identity change sealed at `f0c9274c`.
 
+> 历史范围说明（2026-11-26）：本文件此前各节记录的是 Python 时代恢复基线的重认证过程。这些基线
+> （`test-data/recovery/` 下的 4 组工件）与 `scripts/regenerate_recovery_baselines.py` 已随阶段八
+> 退役，退役记录见文末“四组 Python 时代恢复 Golden 基线退役（阶段八）”。文中涉及这些路径与重生成
+> 命令的内容仅作历史记录，现已不可执行；当前恢复证据见该节列出的 Rust 内存/PostgreSQL 用例。
+
 ## 1. Identity change under re-certification
 
 | Item | Value |
@@ -502,3 +507,97 @@ This is replacement of the same 12 test artifacts, not migration of business dat
 | `long_close_whole_baseline` | 10 | `50437ac5ad159e9ccdf8d730292978f86a8351952373acea6834875496718e05` |
 | `multi_cluster_close_baseline` | 20 | `dc07ca90afdfb64ab7d054ee8bd92e270669b0eb29cfec3588225c3906acb820` |
 | `terminal_after_partial_fill_baseline` | 8 | `6db4dc64b7a1f222324345b21d707d7ebcadd35f4dceb64803aa8e962cd1dcc4` |
+
+
+## 四组 Python 时代恢复 Golden 基线退役（阶段八，2026-11-26）
+
+本节是 `docs/testing.md` “Golden Evidence 治理（永久规则）”要求的显式书面 justification：
+阶段八（提交 `79a549c0`，基点 `2ff08063`）随业务 SQLite、文件 journal 与 Python 运行时一并退役了
+4 组恢复基线。本节记录旧身份、语义原因、迁移理由、受影响工件与只读复现方式，不构成新的验收
+Authority，也不认证任何新 Golden。
+
+### 1. 旧身份
+
+四组基线均由 Python `OnlyEngine` 生成，每组包含 `manifest.json`、`canonical_projection.json` 与
+`database.sqlite3.gz`。基点处 manifest 均为 `baseline_schema_version: 2`、
+`persistence_schema_version: "5"`、`onlyalpha_version: "0.10.8"`。其身份字段：
+
+| Baseline | checkpoint_id | Strategy fingerprint | Configuration / scenario fingerprint | Result fingerprint | Database fingerprint | Orders / fills / terminal |
+| --- | --- | --- | --- | --- | --- | --- |
+| `long_close_whole_baseline` | `backtest-b010da530c384e9f:30` | `5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3` | `3dff3f473243dcfab5ece2f93c4455372d709320b5f77376697d8d5633d4be48` | `b9f7e9a12b1b7f3f248e20c609a3ce0ae7bd2e2a578223589d9fe15caef3e50c` | `50437ac5ad159e9ccdf8d730292978f86a8351952373acea6834875496718e05` | 2 / 2 / 0 |
+| `long_close_multi_fill_baseline` | `backtest-2f2e277ab946adcf:30` | `5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3` | `a66596f9bd3c0e04b2b08c81eb7ec7d311ea57b26441bc219f9887372a3d2285` | `685931cb1be9a5d6996b2dc95c98ac83407240e14061623c3b3041c411a68ecc` | `05776d6327ff016abdb1d2fa3cf9d69d3db4019fd1ee84e2bab7e3fa2ac9d956` | 2 / 6 / 0 |
+| `multi_cluster_close_baseline` | `backtest-a835c4d607f91d34:30` | `5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3` | `e6dfb4826b2b43315c9cfdc25cc091d671c79205c5eed39221a5fe343006922c` | `17e9b295e0e559c7cd57c6c7b9d714eec8369730dffe7c761577bc970998929f` | `dc07ca90afdfb64ab7d054ee8bd92e270669b0eb29cfec3588225c3906acb820` | 4 / 4 / 0 |
+| `terminal_after_partial_fill_baseline` | `backtest-2f2e277ab946adcf:30` | `5761654082f83dd5208083b426d42d9a7800c127819a634f86e1f0044f0a78c3` | `07b641b0cb091a449ec7b27a71c11fbd13ab6814f930b52979f0828a3c0dac4f` | `66f0492ef478ae021de1c596a1118d552e32184bbf7eadd28253e47c9535b484` | `6db4dc64b7a1f222324345b21d707d7ebcadd35f4dceb64803aa8e962cd1dcc4` | 1 / 2 / 1 |
+
+受影响工件为且仅为以下 12 个文件。内容摘要（SHA-256，在 `2ff08063` 上计算；`shasum -a 256` 或
+`sha256sum`）：
+
+| Baseline | `canonical_projection.json` | `database.sqlite3.gz` | `manifest.json` |
+| --- | --- | --- | --- |
+| `long_close_whole_baseline` | `2675a7438ccb8a5d7cccaea644544398dea3555cfaf48d0b55f8d3d104a84e04` | `2a912da758e165c4551aee1a701d1542d0deee8d499afdccd3168b3c2933cf7b` | `6e9318633cff6ea81a0c19be986c262e6fa4b2afa9e99ec0e1d3a8de1a27d350` |
+| `long_close_multi_fill_baseline` | `76ffcfdba00a332bb02e72d0afee0859c4d3d331e6a9f0b4c4029c7a5d367d05` | `10a563c601b835e06a9bc9dceeccad0373ec5d26e6369973a90b5d557dcf7e47` | `41f4de6aaf71a22a4f92f9bd881731f7a9cbd99409e5d0450dc4abea52f5ab5d` |
+| `multi_cluster_close_baseline` | `e5f4a7e5437f0446c6b29a6c3029ec557df6008edbb1115d4dadcfc64b99e5dd` | `604b0a627bffb2b88c08b1153b198496c91e0b04a9fccffc023c120a7d9a460e` | `9030beeaaee313a84523e510d12a2c80a3a099126e67e1c12066b16fdbd9712c` |
+| `terminal_after_partial_fill_baseline` | `72ebb62c7e6fc4de709326716d6f9839a6bfe0e3fddc66e70f14d994fd54c7a7` | `c0f6386f75e5fe9d9261dc3e6b2c00a907ff609e3e8f9fb8bc2192d038cc9cb7` | `697d0e6b9f01d33fea6a6d2cdfa81a4120c8520c2ce59ee6907c6d1f4c443705` |
+
+这 12 个文件在 `2ff08063` 上的 Git 对象身份可由
+`git ls-tree -r 2ff08063 -- test-data/recovery` 逐项核对；上表是文件内容摘要，不依赖 Git 对象格式。
+
+### 2. 新身份
+
+无。本阶段不生成替代 Golden。被退役工件证明的是 Python 运行时的 SQLite/journal 恢复契约；该契约
+在当前实现中已不存在，任何“新版基线”都会为已退役格式建立第二套事实与读路径。恢复与交易正确性的
+现行证据是 Rust 侧的内存/PostgreSQL 用例（见 §4），不是另一组归档。
+
+### 3. 语义原因与迁移理由
+
+- Python 运行时恢复套件及其 SQLite/journal 读取路径早已退役；在基点 `2ff08063` 上
+  `git grep -n "test-data/recovery"`（排除本文件与 `docs/testing.md`）已无任何代码消费方。这 4 组
+  工件因此是无读者的孤立 Golden，继续保留会以测试数据的形式暗示存在当前实现并不支持的旧持久化
+  契约与恢复语义。
+- ADR 0151 与 AGENTS §5 要求只保留当前契约：Research/Backtest 使用内存，SIM/LIVE 事实以 PostgreSQL
+  为权威；旧 SQLite 归档、旧 journal 格式与旧 reader 一律删除，不做兼容读取、迁移或回退。
+- 这不是“为让 CI 变绿”而删除：没有任何 lane 或测试读取这些工件，删除不改变任何 gate 的通过状态，
+  只是清除不再有消费方的第二份事实。删除前的重认证历史完整保留在本文件此前的章节中。
+- 旧 pipeline 已知的 `runtime_persistence_metadata.created_at` 墙钟不确定性（见本文件第 6 节）随
+  工件一并消失；本记录不主张旧归档字节可重现，因为不再产生归档，也不需要该主张。
+
+### 4. 替代证据
+
+| 证据 | 覆盖 |
+| --- | --- |
+| `crates/runtime/src/tests/durability_tests.rs`（6 个用例） | 绑定编解码、检查点工作、前缀读取、funding 提交与恢复准备（`DurableFactPort`，内存） |
+| `crates/runtime/tests/memory_session.rs`（5）、`memory_perpetual.rs`（7）、`perpetual_economics.rs`（20） | 内存会话与永续经济口径、恢复与重启语义 |
+| `crates/backtest/tests/memory_run.rs`（7） | 手算经济 golden（cash 102.00、fees 2.00、trade_count 2、final_equity 91.00）与终态负向校验 |
+| `packages/backend/tests/workers/next_open_trading.rs` | 内存回测运行、数值 golden（`9994.60119940` / `1.99900060`）、取消/未完成与外来品种拒绝 |
+| `packages/backend/tests/application/trading_facts.rs`（`application_trading_facts`，9 个用例） | PostgreSQL 交易事实提交与恢复：缺证、确定不匹配、未知提交、不可读均 fail closed（需要 PostgreSQL） |
+| `packages/backend/src/tests/job_publication_tests.rs`（经 `packages/backend/tests/application/job_publication.rs` 编译） | 有限回测的原子发布与完成态校验 |
+| `crates/runtime/benches/recovery.rs` | 保留的恢复基准（`test-data/backtest-benchmarks/inventory.json` 中 runtime retained 为 `[128] records`） |
+
+执行方式（宿主机可跑的 Rust 库测试，以及需要 PostgreSQL 的整体测试）：
+
+```bash
+cargo test -p onlyalpha-runtime -p onlyalpha-backtest
+python3 scripts/dev_verification.py run -- cargo test -p onlyalpha-backend --test application_trading_facts
+```
+
+### 5. 只读复现与现行状态核对
+
+```bash
+# 旧工件及其内容摘要；不检出、不重建、不提交
+git ls-tree -r 2ff08063 -- test-data/recovery
+git show 2ff08063:test-data/recovery/long_close_whole_baseline/manifest.json
+git show 2ff08063:test-data/recovery/long_close_whole_baseline/canonical_projection.json | shasum -a 256
+
+# 当前树中不存在这些工件，也没有消费方或重生成脚本
+git ls-tree -r HEAD -- test-data/recovery      # 输出为空
+git grep -n "test-data/recovery" HEAD          # 仅本文件与 docs/testing.md 的历史说明
+ls scripts/regenerate_recovery_baselines.py    # No such file or directory
+```
+
+期望结果：§1 的 manifest 字段与 SHA-256 逐项一致，且当前树不含这些路径。不得为“复现”恢复这些文件
+或重建 Python SQLite 归档；它们只作为 Git 历史存在。
+
+### 6. 生效范围
+
+本记录只处理上述 4 组基线与 12 个文件。它不改变任何交易语义，不认证其它 Golden，不授权重建 Python
+运行时或 SQLite/journal 格式，也不作为发行或部署证据。

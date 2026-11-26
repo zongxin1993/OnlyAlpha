@@ -112,7 +112,7 @@ Collector 等纯下游测试应读取该不可变结果，不应为了验证渲�
 uv run python scripts/regenerate_result_fixtures.py
 ```
 
-持续交易与有限作业恢复测试采用 Rust 内存会话、PostgreSQL 正式事实恢复（`packages/backend/tests/application/trading_facts.rs`）与有限回测原子发布用例（`packages/backend/tests/application/job_publication.rs`）；旧 Python SQLite `test-data/recovery/*/*.sqlite3.gz` 及 `scripts/regenerate_recovery_baselines.py` 已随业务 SQLite 一并退役。
+持续交易与有限作业恢复测试采用 Rust 内存会话、PostgreSQL 正式事实恢复（`packages/backend/tests/application/trading_facts.rs`）与有限回测原子发布用例（`packages/backend/tests/application/job_publication.rs`）；旧 Python SQLite `test-data/recovery/*/*.sqlite3.gz` 及 `scripts/regenerate_recovery_baselines.py` 已随业务 SQLite 一并退役；该退役的 re-certification 记录见 `docs/audits/recovery_baseline_recertification.md` 末节。
 
 Golden Evidence 治理（永久规则）：Golden Snapshot、已认证 Canonical Projection
 或期望历史 Fingerprint 的任何变更，都必须附带显式书面 justification，并落成 `docs/audits/` 下的
