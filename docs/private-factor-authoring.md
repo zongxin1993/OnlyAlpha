@@ -1,5 +1,7 @@
 # Private Factor authoring
 
+> **目标形态（ADR 0152）：** 因子编写不再是受限 Python AST，而是 Qlib 风格表达式（`FactorExpr`）。本文描述的清退前实现——Python 编写／AST 构建前端、`private_factor_execution` 与相关构建路径——列入 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 阶段 4 清退范围。PostgreSQL 草稿／不可变版本、精确构建认证与 READY 绑定的归属不变。
+
 This Product capability derives from ADRs 0104, 0124, 0129 and 0142. PostgreSQL Private Asset tables own mutable Drafts and
 immutable Revisions. The backend owns authoring Commands; Web submits intent and displays returned facts. Saving authoring content never executes source, admits a Calculation, activates a Generation, qualifies a Factor or starts Research/Backtest. Immutable publication requests an independent build under ADR 0151; it does not claim build success.
 

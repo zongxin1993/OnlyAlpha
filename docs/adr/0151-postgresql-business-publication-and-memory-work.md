@@ -6,6 +6,8 @@
 - Constitution Impact：NO
 - 相关：ADR0068、0072、0089、0090、0091、0133、0134、0136、0148、0150
 
+> **部分修订：** [ADR 0152](0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 修订本文第 9 条“Research 与交易共用纯信号层”的表述：Research 改为面向纯因子（`FactorExpr`）与评估标签（`TargetExpr`）的向量化执行，与交易层共用同一套因子定义与双内核算子语义，不再要求 Research 绑定策略修订或信号图。本文第 1–8 条继续有效，包括 PostgreSQL 业务发布与控制归属、ClickHouse K 线归属、内存计算与冻结输入重算、单事务原子发布、SIM／LIVE 逐步持久化、`UNKNOWN` 安全路径，以及开发阶段不做旧契约／旧数据兼容的准则。
+
 ## 背景
 
 当前Runtime与虚拟券商依赖SQLite，Research/Backtest通过文件式证据与SQL控制状态跨介质发布，读取/完成检查重复恢复和验证历史。负责人明确要求：业务发布、控制和留存统一PostgreSQL，K线ClickHouse，过程历史内存；有限作业发布前中断按冻结输入重算；不做旧接口/格式兼容，复用本机Docker Compose dev，不增加额外存储体系或无必要依赖。

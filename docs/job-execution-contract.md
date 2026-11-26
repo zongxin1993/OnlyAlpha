@@ -1,6 +1,6 @@
 # 有限作业的冻结身份、结果计划与接口
 
-本契约落实[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)，约束 Research／Backtest 的新框架。实现入口为 Backend [`application::job_contract`](../packages/backend/src/application/job_contract.rs)。纯值模型之外，第二阶段已提供 PostgreSQL 类型化内容仓储与原子发布原语，见[存储接口说明](postgresql-job-publication.md)；真实构建／结束 owner 和外部 API 尚未接线。旧 worker 尚未迁移，不以其行为推翻本契约，也不宣称目标已经运行。
+本契约落实[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)与 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md)，约束 Research／Backtest 的新框架。实现入口为 Backend [`application::job_contract`](../packages/backend/src/application/job_contract.rs)。纯值模型之外，第二阶段已提供 PostgreSQL 类型化内容仓储与原子发布原语，见[存储接口说明](postgresql-job-publication.md)；真实构建／结束 owner 和外部 API 尚未接线。旧 worker 尚未迁移，不以其行为推翻本契约，也不宣称目标已经运行。
 
 ## 事实归属和权限
 
@@ -16,13 +16,16 @@ PostgreSQL 拥有资产版本、构建程序／认证、Command／Run／Attempt�
 |---|---|
 | kind | RESEARCH／BACKTEST 有限作业类别，不是新的 Runtime 经济模式 |
 | scope.namespace／owner／run_id | 原语义数据库 UUID4、原所有者、原 Run UUID4；复用既有身份语言 |
-| strategy_revision／signal_graph | 不可变策略版本及共同纯信号图 |
-| factor_bindings | 各版本、程序、解析后精确参数、数值规范及精确认证引用 |
+| strategy_revision | 仅 BACKTEST：不可变策略版本（声明式规则或 WASM 策略模块）；Research 不绑定策略修订或信号图 |
+| factor_bindings | Research／Backtest 共用：不可变因子版本、Qlib 表达式规范化内容、算子注册表版本、解析后精确参数、数值规范及精确认证引用 |
+| target_expressions | 仅 RESEARCH：评估标签 `TargetExpr` 的规范化内容与版本；严禁进入交易路径 |
 | kernel_artifact／runtime_generation | 实际 Kernel 工件和既有 Generation 绑定 |
 | initial_state／execution_configuration | 完整初始状态及执行配置的确切内容引用 |
 | calendar／fees／market_rules | 影响结果的日历、费用、规则绑定；不从当前最新环境推断 |
 | market | 原 Dataset snapshot、source revision、Bar 语义、商品集合、时间范围、版本／Seal／segment、轴、行数和内容摘要 |
 | result_plan | 下文完整正式结果成员的声明 |
+
+上表为 ADR 0152 的目标字段；当前源码仍按清退前的 `strategy_revision`／`signal_graph` 组合 Research 绑定。阶段 3–4 更新契约与全部调用方时同步替换字段并删除旧字段，不保留兼容 reader。
 
 已有 Dataset／Source／策略版本指纹保持其所属算法，本模型只组合引用，不重新铸造这些事实身份。除已有 UUID4 身份外，摘要采用64位小写十六进制。引用完整性、真实内容和访问权限仍须 owning reader 验证，格式正确不是真实性证明。
 
@@ -32,11 +35,11 @@ Run 属业务 scope，不能随重试替换。Attempt、lease、fence、PID、�
 
 ## 构建身份和参数认证
 
-共同信号只依赖行情、因子、显式参数；不读仓位／资金／风控／成交。后续交易环节消费信号并负责这些状态。Research batch 与 event 使用同一语义程序，不比较经过交易过滤后的 NO_SIGNAL。
+因子只依赖行情与显式参数；不读仓位／资金／风控／成交，后续交易环节消费因子并负责这些状态。Research 与 Backtest 使用同一份因子定义与规范化精确参数：Research 走 `VectorKernel` 列式批处理，Backtest／SIM／LIVE 走同一因子的 `EventKernel` 增量推进，逐点结果一致，不比较经过交易过滤后的结果。
 
-构建身份绑定源码、编写接口、构建器、类型程序、原语实现和数值规范；精确参数绑定身份独立。`FactorExecutionBinding` 引用 revision／program／parameters／numeric_policy／certificate。parameters 指向现有参数解析器按类型、默认值和约束解析后的完整规范化内容，不能把未解析的用户 JSON 或展示格式当成精确参数。
+构建身份绑定规范化 Qlib 表达式、编写接口版本、算子注册表版本、类型程序、原语实现和数值规范；精确参数绑定身份独立。`FactorExecutionBinding` 引用 revision／program／parameters／numeric_policy／certificate。parameters 指向现有参数解析器按类型、默认值和约束解析后的完整规范化内容，不能把未解析的用户 JSON 或展示格式当成精确参数。
 
-BUILDING／READY／FAILED 仅表示这个精确认证绑定的状态，不是整个参数域或作业状态。READY 且所有绑定相同才满足值一致谓词；真实证书存在、签发 owner、程序内容、关联和状态由 PostgreSQL owning reader 在准入时验证。版本创建自动构建并认证默认参数；新参数只做绑定和受影响认证，同一程序不逐行解析 AST。未就绪作业明确拒绝，不在 Research 热路径补跑认证。
+BUILDING／READY／FAILED 仅表示这个精确认证绑定的状态，不是整个参数域或作业状态。READY 且所有绑定相同才满足值一致谓词；真实证书存在、签发 owner、程序内容、关联和状态由 PostgreSQL owning reader 在准入时验证。版本创建自动构建并认证默认参数；新参数只做绑定和受影响认证，同一表达式版本不重新解析为另一份程序。未就绪作业明确拒绝，不在 Research 热路径补跑认证。
 
 数值规范 `DECIMAL28_HALF_EVEN_Q12_V1`：28位有效数字、HALF_EVEN、输出量化12位小数、统一正零；null／warmup／错误／除零由原语和输出类型显式定义。不能用二进制浮点或运算重排改变值；不能据此修改资金、数量或 Ledger 的所属精度。第一阶段只定义该绑定标识，程序执行和数值认证由第三阶段实现。
 
@@ -46,14 +49,15 @@ BUILDING／READY／FAILED 仅表示这个精确认证绑定的状态，不是整
 
 | 作业 | 必需角色 | 必须留存的实际内容／消费者 |
 |---|---|---|
-| Research | CALCULATION_VALUES | 当前完整图各节点／商品的类型输出、轴和缺失值；计算结果、复现和图验证 |
-| Research | SIGNAL_VALUES | eligibility／entry／exit 及原始信号序列和节点绑定；Strategy Freeze／验证 |
-| Research | STATISTICS | 现有统计计划的实际值、NULL／INSUFFICIENT和样本／方法绑定；Research报告／Qualification；不新增收益关系方法 |
+| Research | CALCULATION_VALUES | 冻结因子各节点／商品的类型值、轴和缺失标记；结果复现、因子检验与 Backtest 因子输入 |
+| Research | STATISTICS | 因子统计计划（IC、RankIC、分层收益、换手率、相关性等）的实际值、NULL／INSUFFICIENT 和样本／方法绑定；Research 报告／Qualification |
 | Research | RESEARCH_REPORT | 当前研究结果计划、报告、candidate／执行绑定及各结果成员引用；结果读取和定版溯源 |
 | 两类 | CAUSAL_EVIDENCE | 输入、版本、实际执行者结束／资源回收、信号与交易因果关联和结果清单；完成／读取／恢复核查 |
 | Backtest | EXECUTION_FACTS | 真实有序意图、拒绝、订单、成交、费用及资金／仓位因果事实；经济复核和审计 |
 | Backtest | ECONOMIC_RESULT | 既有 owning Account／Ledger 结果、完整订单／交易、最终仓位／Allocation、账户及Ledger时间线、诊断；回测报告及Qualification |
 | Backtest | CLOSE_CURVE | 实际 sample Bar 对应的NAV／高水位／回撤／account sequence，原同数量buy-and-hold比较及样本边界关联；Web结果和图表 |
+
+Research 不再发布 `SIGNAL_VALUES`；该角色随策略纯信号图退役，策略只存在于 Backtest／SIM／LIVE 的统一事件链。当前实现仍声明该角色，按 ADR 0152 阶段 4 随旧链路一并清退。
 
 冻结时已知的序列采用精确rows；EXECUTION_FACTS允许rows=null，表示由真实执行owner产生最终计数，而非预知成交数。其实际事实轴也可能执行后才知道：这时axis=null，并必须冻结axis_rule（规范排序、事件身份和分区规则的确切内容摘要）；其他序列仍冻结已知精确axis。最终inventory必须保留相同axis_rule，并由实际owner从全部真实事实计算具体axis、给出实际rows；缺失轴／计数或错规则拒绝。check_inventory只能核对这些描述符，后续完成／发布owner还必须按冻结规则重算实际正文的轴并核对摘要，不能用任意hash代替。不得将“动态计数”误解为可以删事实。经济／报告／因果根各为一条完整结构化内容；带逐行序列的角色必须绑定轴。允许一个角色按逻辑键拆出多成员，但成员全集必须在计划中声明，不能在读取时以缺省空表补齐。轴、schema、行数、逻辑键不同都不能作为相同成员接受。
 
@@ -97,9 +101,9 @@ AttemptClaim 继续由现有认领模块私有构造，不新增可由客户端�
 
 | 当前入口／消费者 | 迁移目的地 | 实施阶段 |
 |---|---|---|
-| private_assets/authoring、private_factor_postgres、Python private_factor_execution | 独立构建／精确认证；同一正式示例路径 | 三 |
-| strategy_research/execution::observe_graph／run_case、workers/research | 构建认证消费；实际输入／输出约束与真实Research执行 | 三、四、六 |
-| workers/trading_program、strategy::Executor、backtest::next_open | 同一信号程序；账户访问仅在信号后的交易环节 | 三、五 |
+| private_assets/authoring、private_factor_postgres、Python private_factor_execution | Qlib 表达式规范化、算子 DAG 编译与精确认证；旧 Python 因子执行路径清退 | 一、四 |
+| strategy_research/execution::observe_graph／run_case、workers/research | 纯因子 Research 向量化执行；解除策略修订与信号图绑定 | 一、三、四、六 |
+| workers/trading_program、strategy::Executor、backtest::next_open | 统一事件主循环；策略读取因子与只读状态，账户访问只在后续交易环节 | 一、三、五 |
 | backtest_service／backtest_worker、RunLoop、Runtime::create/open | 精确输入＋内存会话；新Attempt冻结重算 | 四至六 |
 | job_publication、finite_job | PostgreSQL全成员和唯一发布；GET只读结果 | 二、六 |
 | strategy_validation、frozen_strategy、qualification、strategy_promotion | 读取真实构建与输入验证／正式发布关系；保留各自Authority；其中受控构建证明的直接消费者在第四阶段迁移 | 三、四、六 |
@@ -115,9 +119,9 @@ AttemptClaim 继续由现有认领模块私有构造，不新增可由客户端�
 
 | 口径 | 起止和分母 | 所属后续阶段 |
 |---|---|---|
-| factor.build／factor.certify | 源码解析降级／精确参数认证，各自总耗时；不计入每Bar执行 | 三 |
+| factor.build／factor.certify | 表达式解析、静态因果校验与算子 DAG 编译／精确参数认证，各自总耗时；不计入每Bar执行 | 一、三 |
 | job.input | READY绑定解析至CH实际内容／轴／摘要验证和加载完成；实际输入rows／bytes | 四 |
-| signal.batch／signal.event | 相同程序和输入的原始信号计算；注明warmup与sample | 三、五 |
+| factor.batch／factor.event | 同一因子定义与输入的向量／事件计算；注明warmup与sample | 一、三、五 |
 | trading.execute | 已准备输入至完整交易输入消费与drain，不含CH准备／PG发布；实际K线数，不是OPEN／BAR step数 | 五 |
 | result.prepare | owner结束检查、成员整理、canonical编码和子进程正向回收；分别记子项和墙钟 | 五、六 |
 | result.publish | 原Run锁等待、全成员插入／校验、终态和COMMIT确认；不能漏SQL写入 | 二、六 |
