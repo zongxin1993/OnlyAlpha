@@ -512,9 +512,9 @@ This is replacement of the same 12 test artifacts, not migration of business dat
 ## 四组 Python 时代恢复 Golden 基线退役（阶段八，2026-11-26）
 
 本节是 `docs/testing.md` “Golden Evidence 治理（永久规则）”要求的显式书面 justification：
-阶段八（提交 `79a549c0`，基点 `2ff08063`）随业务 SQLite、文件 journal 与 Python 运行时一并退役了
-4 组恢复基线。本节记录旧身份、语义原因、迁移理由、受影响工件与只读复现方式，不构成新的验收
-Authority，也不认证任何新 Golden。
+阶段八（提交 `79a549c0`，基点 `2ff08063`）随业务 SQLite 与文件 journal 退役了 4 组恢复基线。
+这些基线由更早已退役的 Python 运行时生成，在基点处已无代码消费方，只剩工件本身。本节记录旧身份、
+语义原因、迁移理由、受影响工件与只读复现方式，不构成新的验收 Authority，也不认证任何新 Golden。
 
 ### 1. 旧身份
 
