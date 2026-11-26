@@ -346,7 +346,7 @@ OnlyClusterRunConfig
 ## 8. Market Product Composition
 
 市场相关制度由 `plugs/onlyalpha-market-*` 拥有，通用金融值和交易状态由 Rust 库负责。
-当前源码职责与集成方向以[仓库与产品架构](repository-product-architecture.md)及 [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md) 为准。
+当前源码职责与集成方向以[仓库与产品架构](repository-product-architecture.md)、[ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md) 及 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 为准。
 `onlyalpha-market-cn-ashare` 提供 Reference、PolicyCompiler 和 FeePack；`onlyalpha-market-crypto` 提供版本化现货规则输入。
 插件提供规则不等于获准运行，正式权限、准入、风控和恢复仍由 OnlyAlpha 的所属组件负责。
 

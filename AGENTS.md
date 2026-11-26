@@ -15,20 +15,21 @@
 - 交易内核实现与市场无关的交易语义。随市场、券商、数据源、监管或外部协议变化的规则放在插件边界。遇到无法表达的市场规则，先判断是外部差异还是内核缺少通用概念。
 - 正式事实只有一个归属和一个身份。外部交易场所负责外部成交事实。OnlyAlpha 负责交易意图、风控、策略身份、准入、对账和可恢复状态。正式结果需要确定、可追溯和可复现。结果未知时继续观察、对账和降低风险，禁止盲目重试下单。
 - 人通过正式 Web 界面和版本化 API 操作。Agent 通过正式 API 进行获准的因子研究、回测、模拟交易和证据分析。实盘启用、实盘策略变更和重大实盘风险授权由人明确操作。Web 和 Agent 都不得绕过后端权限、风控和持久化。
-- `crates/` 存放 Rust 交易内核及相关库，均以库形式提供，按功能测试。内置算子和指标分别放在 `crates/operators` 和 `crates/indicators`，采用纯 Rust，实现不提供 Python 接口。
+- `crates/` 存放 Rust 交易内核及相关库，均以库形式提供，按功能测试。内置算子和指标分别放在 `crates/operators` 和 `crates/indicators`，采用纯 Rust，实现不提供 Python 接口。原子算子按 `VectorKernel`／`EventKernel` 双内核实现并维护逐点等价认证；指标与因子只能组合已认证算子构建，不各自维护手写滚动状态。
 - `crates/<lib>/` 的一级目录仅允许 Cargo 默认的 `src/`、`tests/`、`examples/`、`benches/`，按需创建，不补空目录。`src/` 存放库实现和编译所需资源；`tests/` 存放集成测试及专用数据、辅助代码；`examples/` 存放通过公开接口运行的示例；`benches/` 存放性能基准及专用数据。单元测试的内联模块可保留在源码中；每个库的独立单元测试文件统一集中放入本库 `src/tests/`，按被测职责命名；不再逐业务模块创建测试目录。保持原测试模块及 `#[cfg(test)]` 挂载，通过精确 `#[path]` 引用保留私有访问，不扩大公开接口。单元测试专用辅助文件放在 `src/tests/support/`，既有集成测试共享辅助文件保留原归属，但不得将私有单元测试用例作为共享辅助文件留在库根 `tests/`。多处共享的参考数据仍放根目录 `test-data/`。`Cargo.toml`、`README.md` 等必要文件保留在库根目录。
 - 每个 lib 必须维护中文 `README.md`，包含“目的与职责”“边界与依赖”“公开接口”“状态与生命周期”“使用与验证”五个非空章节。逐库说明负责与不负责的范围、事实归属、直接依赖，以及对外模块、主要类型、trait 和函数的用途、输入输出、错误和适用约束，并链接实际公开入口。README 与接口变更同步；详细签名以源码及 Rust 文档为准，README 不新增事实或验收 Authority。结构检查统一由 `scripts/rust_kernel_check.py` 执行。
 - `plugs/` 存放市场交易规则、券商接口实现和数据源接口实现。命名分别采用 `onlyalpha-market-<市场>`、`onlyalpha-broker-<服务商>`、`onlyalpha-data-source-<服务商>`。优先用 Rust，Python 为第二选择。
-- `packages/` 只保留 `backend` 和 `frontend` 两个运行工程。后端业务、权限、持久化和恢复由 Rust 实现。进程、数据库和外部协议接线留在负责它们的边界。正式 API 契约位于 `contracts/`。
+- 扩展与插件按四层承载：L1 内置算子静态编译、L2 Qlib 表达式 DAG、L3 WASM 沙箱、L4 券商与数据源独立子进程。禁止以原生 `.so`／`.dylib` 动态库热卸载；WASM 插件不得获得非确定 WASI 能力，资源越界按 Fail-Closed 处理。
+- `packages/` 只保留 `backend` 和 `frontend` 两个运行工程。后端业务、权限、持久化和恢复由 Rust 实现。进程、数据库和外部协议接线留在负责它们的边界。正式 API 契约位于 `contracts/`。量化计算与交易执行语义统一由 `crates/` 的 `OnlyAlphaRuntime` 门面拥有；Backend 只装配端口、托管生命周期并暴露正式 API，不得自持第二套研究、回测或交易主循环。
 - 根目录 `src/` 已列入退役范围，禁止恢复或新增实现。尚有遗留源码时，只允许退役删除和必要的最小接线调整。先迁移实际调用方和有效测试，再移除被替代实现、入口、依赖和部署接线。开发阶段按第 5 节直接清退旧接口和旧开发数据，不为历史绑定保留旧实现。禁止用旧后端回退、转发层或换目录规避退役。
 
-以上是工程规则。实际迁移、部署和验收状态以当前工作树和可执行证据为准。具体架构见 [仓库与产品架构](docs/repository-product-architecture.md) 和 [ADR 0150](docs/adr/0150-product-layout-and-programmable-quant-assets.md)。
+以上是工程规则。实际迁移、部署和验收状态以当前工作树和可执行证据为准。具体架构见 [仓库与产品架构](docs/repository-product-architecture.md)、[ADR 0150](docs/adr/0150-product-layout-and-programmable-quant-assets.md) 和 [ADR 0152](docs/adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md)。
 
 ### 2.1 因子和策略
 
-算子提供通用数学能力，指标表达稳定的金融含义，因子输出可用于检验假设的值，策略基于输入和交易上下文做决策。因子和策略共用行情事件接口，其正式契约由 Rust 实现，并提供受限的 Python 编写接口。因子处理行情并输出因子值。策略可消费因子值、读取只读仓位和提交买卖意图。风控、订单执行和仓位更新由 OnlyAlpha 负责。
+算子提供通用数学能力，指标表达稳定的金融含义，因子输出可用于检验假设的值，策略基于输入和交易上下文做决策。因子以 Qlib 风格声明式表达式编写，解析为基于已认证算子的类型化 DAG；`FactorExpr` 编译期拒绝前视偏移及账户／仓位／资金／成交等非确定输入，`TargetExpr` 仅用于 Research 评估标签。策略采用声明式规则或 WASM 模块，只能读取声明绑定的因子值与只读状态并产出规范化 `OrderIntent`。Research 以向量内核执行纯因子计算，Backtest／SIM／LIVE 以同一因子的事件内核进入统一事件主循环，逐点结果必须一致。风控、订单执行和仓位更新由 OnlyAlpha 负责。
 
-私有因子和策略在 PostgreSQL 中采用可编辑草稿和不可变版本。冻结版本绑定实际执行的实现、参数和接口版本。已运行的任务继续引用原版本。`examples/private-assets/` 下的公开示例是可导入的非生产资产。正式接口行为影响示例时，同步更新示例，验证它和私有资产使用同一套导入、校验与执行路径。私有资产需要新增能力时先通过正式接口和公开示例证明，缺少覆盖时按 `EXAMPLE_CONTRACT_COVERAGE_REQUIRED` 拒绝。
+私有因子和策略在 PostgreSQL 中采用可编辑草稿和不可变版本。冻结版本绑定规范化表达式或 WASM 工件摘要、算子注册表版本、精确参数和接口版本。已运行的任务继续引用原版本。`examples/private-assets/` 下的公开示例是可导入的非生产资产。正式接口行为影响示例时，同步更新示例，验证它和私有资产使用同一套导入、校验与执行路径。私有资产需要新增能力时先通过正式接口和公开示例证明，缺少覆盖时按 `EXAMPLE_CONTRACT_COVERAGE_REQUIRED` 拒绝。
 
 ## 3. 任务范围与实现
 

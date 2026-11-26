@@ -14,6 +14,13 @@
 
 > [ADR 0149](0149-flat-rust-library-layout.md) supersedes the Rust library placement and selected crate boundaries below.
 
+> [ADR 0152](0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) supersedes the static-only plugin
+> placement and narrows the Backend ownership below. Plugins follow the four-layer model: L1 statically compiled operators,
+> L2 expression DAG, L3 WASM sandbox and L4 separate subprocess IO. Native `.so`/`.dylib` unload remains rejected.
+> Quantitative semantics, factor/strategy calculation and the Backtest/SIM/LIVE trading event loop belong to the
+> `OnlyAlphaRuntime` facade; Backend keeps product API, security, persistence ports, plugin hosting and Run/Attempt
+> orchestration as a thin shell.
+
 ## Decision and rationale
 
 Keep one repository and one root Cargo workspace. `crates/` contains reusable Rust libraries; `packages/backend/` and

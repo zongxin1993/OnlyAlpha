@@ -5,6 +5,8 @@
 - 决策人：仓库负责人
 - Constitution Impact: NO
 
+> **部分替代：** [ADR 0152](0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 替代本文“因子与策略”一节的受限 Python 编写接口及隔离执行安排，改为 Qlib 风格表达式 DAG（`FactorExpr`／`TargetExpr`）与声明式／WASM 策略模块。保留 `packages/` 目录、Agent 经正式 API 工作、`crates/operators` 与 `crates/indicators` 纯 Rust 无 Python 接口、PostgreSQL 草稿与不可变版本，以及本文其余决定。
+
 ## 工程目录和 Agent
 
 `packages/` 只保留 `backend`、`frontend` 两个运行工程。取消独立 `packages/agent` 工程及其发行线，也取消单独的部署、服务 API、存储和 LangGraph 选型要求。Agent 是通过 OnlyAlpha 正式 API 工作的研究客户端。人仍通过正式 Web 界面执行产品操作和授权。后端负责权限、预算、准入、执行、正式证据和恢复，Agent 不拥有实盘权限。已经绑定的事实、工件和未确认操作按各自契约保存及处理。

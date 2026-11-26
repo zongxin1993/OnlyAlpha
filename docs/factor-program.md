@@ -1,5 +1,7 @@
 # 一次构建的因子程序
 
+> **已退役（目标）：** 本文描述的受限 Python AST 因子编写接口由 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 替代。目标实现为 Qlib 风格表达式、算子 DAG 与双内核执行；本文、对应编译器、`packages/backend/python/algorithms/` 及相关构建路径按 ADR 0152 阶段 4 清退。本文仅用于说明清退前的当前源码与既有绑定，不再是目标契约，也不得用于新增实现。
+
 ## 职责与身份
 
 受限的 `calculate(api, inputs, parameters)` 是声明式编写入口。隔离编译器仅解析 AST 并生成数据，不执行用户 Python 字节码。一个构建身份绑定精确源码、API 与输入／参数／输出契约、sealed SDK 构建器、原语／数值工件。相同程序的新参数只做解析、绑定与精确认证，不重新解析源码。算法执行仅消费 Rust `BoundProgram`，不携带源文件读取能力。程序 JSON 的 decode 与 Python AST 解析是两个不同操作。
