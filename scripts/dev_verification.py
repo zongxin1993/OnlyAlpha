@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import json
 import os
+import pwd
 import re
 import shutil
 import signal
@@ -303,110 +304,143 @@ def freeze_source(
                 ):
                     directory.rmdir()
                     directory = directory.parent
-    cut.mkdir(parents=True, exist_ok=True)
-    for name, digest in inputs.items():
-        source, target = root / name, cut / name
-        mode = source.stat().st_mode & 0o555
-        # The whole previous cut was verified above. Reuse its bytes and mtime
-        # only after that guard; final inventories still detect live changes.
-        if previous.get("inputs", {}).get(name) == digest and target.stat().st_mode & 0o777 == mode:
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_name(target.name + ".dev-copy")
-        shutil.copyfile(source, temporary)
-        if hashlib.sha256(temporary.read_bytes()).hexdigest() != digest:
-            temporary.unlink()
+    with _restrictive_umask():
+        _ensure_protected_bind_dir(cut)
+        for name, digest in inputs.items():
+            source, target = root / name, cut / name
+            mode = source.stat().st_mode & 0o555
+            # The whole previous cut was verified above. Reuse its bytes and mtime
+            # only after that guard; final inventories still detect live changes.
+            if previous.get("inputs", {}).get(name) == digest and target.stat().st_mode & 0o777 == mode:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(target.name + ".dev-copy")
+            shutil.copyfile(source, temporary)
+            if hashlib.sha256(temporary.read_bytes()).hexdigest() != digest:
+                temporary.unlink()
+                raise ValueError("DEV_VERIFICATION_SOURCE_CHANGED_DURING_CAPTURE")
+            temporary.chmod(mode)
+            temporary.replace(target)
+        # These are mountpoints, not mutable source. Their writable mounts are checked
+        # separately; build artifacts and dependency caches never enter the source cut.
+        for name in (
+            ".venv",
+            ".ruff_cache",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".hypothesis",
+            ".superpowers",
+            ".test-cache",
+            "test-results",
+            "build",
+            str(WEB / "node_modules"),
+            str(WEB / "dist"),
+        ):
+            (cut / name).mkdir(parents=True, exist_ok=True)
+        output = root / ".test-cache/dev-tool-output"
+        output.mkdir(parents=True, exist_ok=True)
+        for name in ("tsconfig.app.tsbuildinfo", "tsconfig.node.tsbuildinfo"):
+            mountpoint = cut / WEB / name
+            if not mountpoint.exists():
+                mountpoint.touch(exist_ok=False)
+            _ensure_protected_bind_file(output / name)
+        if source_inputs(cut) != inputs or source_inputs(root) != inputs:
             raise ValueError("DEV_VERIFICATION_SOURCE_CHANGED_DURING_CAPTURE")
-        temporary.chmod(mode)
-        temporary.replace(target)
-    # These are mountpoints, not mutable source. Their writable mounts are checked
-    # separately; build artifacts and dependency caches never enter the source cut.
-    for name in (
-        ".venv",
-        ".ruff_cache",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".hypothesis",
-        ".superpowers",
-        ".test-cache",
-        "test-results",
-        "build",
-        str(WEB / "node_modules"),
-        str(WEB / "dist"),
-    ):
-        (cut / name).mkdir(parents=True, exist_ok=True)
-    output = root / ".test-cache/dev-tool-output"
-    output.mkdir(parents=True, exist_ok=True)
-    for name in ("tsconfig.app.tsbuildinfo", "tsconfig.node.tsbuildinfo"):
-        mountpoint = cut / WEB / name
-        if not mountpoint.exists():
-            mountpoint.touch(exist_ok=False)
-        _ensure_container_writable_file(output / name)
-    if source_inputs(cut) != inputs or source_inputs(root) != inputs:
-        raise ValueError("DEV_VERIFICATION_SOURCE_CHANGED_DURING_CAPTURE")
-    git_inputs = {} if product else capture_git(root, cut, previous, required_revisions=required_git_revisions)
-    if research:
-        provenance = resolve_build_provenance_bytes(cut)
-        destination = cut / "src/onlyalpha/_build_provenance.json"
-        if not destination.exists():
-            write_build_provenance(cut, destination, provenance)
-            destination.chmod(0o444)
-            destination.with_suffix(".sha256").chmod(0o444)
-    frozen_inputs = source_inputs(cut)
-    marker.write_text(
-        json.dumps(
-            {
-                "source_root": str(root),
-                "operation_id": operation_id,
-                "inputs": frozen_inputs,
-                "git_inputs": git_inputs,
-                "required_git_revisions": list(required_git_revisions),
-            },
-            sort_keys=True,
+        git_inputs = {} if product else capture_git(root, cut, previous, required_revisions=required_git_revisions)
+        if research:
+            provenance = resolve_build_provenance_bytes(cut)
+            destination = cut / "src/onlyalpha/_build_provenance.json"
+            if not destination.exists():
+                write_build_provenance(cut, destination, provenance)
+                destination.chmod(0o444)
+                destination.with_suffix(".sha256").chmod(0o444)
+        frozen_inputs = source_inputs(cut)
+        marker.write_text(
+            json.dumps(
+                {
+                    "source_root": str(root),
+                    "operation_id": operation_id,
+                    "inputs": frozen_inputs,
+                    "git_inputs": git_inputs,
+                    "required_git_revisions": list(required_git_revisions),
+                },
+                sort_keys=True,
+            )
         )
-    )
     return inputs
 
 
-def _ensure_container_writable_dir(path: Path) -> None:
+@contextmanager
+def _restrictive_umask() -> Iterator[None]:
+    # Ubuntu runners default to umask 0002 (0775 dirs), which backend protected_files rejects.
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+def _dev_container_identity() -> tuple[int, int]:
+    # Linux bind mounts retain host UID; match non-root host identity so container writes
+    # and backend protected_files ownership checks agree without weakening directory modes.
+    if sys.platform == "linux":
+        uid, gid = os.geteuid(), os.getegid()
+        if 1000 <= uid < 65534 and 0 < gid < 65534:
+            return uid, gid
+    return 10001, 10001
+
+
+def _container_user_uid() -> int:
+    try:
+        uid = pwd.getpwnam("onlyalpha").pw_uid
+    except KeyError:
+        return 10001
+    if uid == 0:
+        raise ValueError("DEV_VERIFICATION_ROOT_USER_REFUSED")
+    return uid
+
+
+def _ensure_protected_bind_dir(path: Path) -> None:
     if path.is_symlink():
         raise ValueError("DEV_VERIFICATION_BIND_PATH_SYMLINK_REFUSED")
-    path.mkdir(parents=True, exist_ok=True)
+    with _restrictive_umask():
+        path.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         info = os.fstat(fd)
-        if stat.S_IMODE(info.st_mode) != 0o1777 and info.st_uid == os.geteuid():
-            os.fchmod(fd, 0o1777)
+        mode = stat.S_IMODE(info.st_mode)
+        if (mode & 0o1022) != 0 and info.st_uid == os.geteuid():
+            os.fchmod(fd, mode & ~0o1022)
     finally:
         os.close(fd)
 
 
-def _ensure_container_writable_file(path: Path) -> None:
+def _ensure_protected_bind_file(path: Path) -> None:
     if path.is_symlink():
         raise ValueError("DEV_VERIFICATION_BIND_PATH_SYMLINK_REFUSED")
-    if not path.exists():
-        path.touch(exist_ok=False)
+    with _restrictive_umask():
+        if not path.exists():
+            path.touch(exist_ok=False)
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise ValueError("DEV_VERIFICATION_BIND_PATH_NOT_REGULAR_FILE")
-        if stat.S_IMODE(info.st_mode) != 0o666 and info.st_uid == os.geteuid():
-            os.fchmod(fd, 0o666)
+        mode = stat.S_IMODE(info.st_mode)
+        if (mode & 0o022) != 0 and info.st_uid == os.geteuid():
+            os.fchmod(fd, mode & ~0o022)
     finally:
         os.close(fd)
 
 
 def _ensure_verification_artifact_dirs(root: Path) -> Path:
-    # Linux bind mounts retain host UID; non-recursive 1777 lets container user
-    # onlyalpha (10001) write artifacts while sticky bits prevent cross-user deletes.
     results = root / "test-results"
-    _ensure_container_writable_dir(results)
+    _ensure_protected_bind_dir(results)
     artifacts = results / "dev-verification"
-    _ensure_container_writable_dir(artifacts)
+    _ensure_protected_bind_dir(artifacts)
     metrics = results / "metrics"
     if metrics.exists() or metrics.is_symlink():
-        _ensure_container_writable_dir(metrics)
+        _ensure_protected_bind_dir(metrics)
     return artifacts
 
 
@@ -695,11 +729,11 @@ def controlled_https_root(
     with os.fdopen(marker_fd) as marker:
         if json.load(marker).get("operation_id") != operation_id:
             raise ValueError("DEV_CONTROLLED_HTTPS_SOURCE_CUT_REFUSED")
-    # This must already be the ordinary uid10001 lock. Never create a root-owned lock.
+    # This must already be the ordinary non-root container lock. Never create a root-owned lock.
     lock_fd = os.open(CONTAINER_LOCK, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(lock_fd, "rb") as lock:
         observed = os.fstat(lock.fileno())
-        if not stat.S_ISREG(observed.st_mode) or observed.st_uid != 10001 or observed.st_nlink != 1:
+        if not stat.S_ISREG(observed.st_mode) or observed.st_uid != _container_user_uid() or observed.st_nlink != 1:
             raise ValueError("DEV_CONTROLLED_HTTPS_LOCK_REFUSED")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
@@ -880,12 +914,13 @@ def run_inside(
 ) -> int:
     if not command:
         raise ValueError("DEV_VERIFICATION_COMMAND_REQUIRED")
+    os.umask(0o022)
     required_git_revisions = command_git_revisions(command)
     if (
         controlled_source_https
         != ("--controlled-source-https" in command or controlled_backtest_fixture_command(command))
         or controlled_source_https
-        and (web or os.geteuid() != 10001 or not controlled_https_command(command))
+        and (web or os.geteuid() != _container_user_uid() or not controlled_https_command(command))
     ):
         raise ValueError("DEV_CONTROLLED_HTTPS_COMMAND_REFUSED")
     with CONTAINER_LOCK.open("a") as lock:
@@ -1072,6 +1107,9 @@ def run_host(
         raise ValueError("DEV_VERIFICATION_PROJECT_REFUSED")
     environment = {key: value for key, value in os.environ.items() if not key.startswith("ONLYALPHA_")}
     environment["ONLYALPHA_COMPOSE_NAMESPACE"] = "onlyalpha-dev"
+    dev_uid, dev_gid = _dev_container_identity()
+    environment["ONLYALPHA_DEV_UID"] = str(dev_uid)
+    environment["ONLYALPHA_DEV_GID"] = str(dev_gid)
     compose = [
         "docker",
         "compose",

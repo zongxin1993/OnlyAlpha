@@ -75,6 +75,9 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.dev
       target: browser-test
+      args:
+        ONLYALPHA_DEV_UID: ${ONLYALPHA_DEV_UID:-10001}
+        ONLYALPHA_DEV_GID: ${ONLYALPHA_DEV_GID:-10001}
     init: true
     command: ["python", "-c", "import signal; signal.pause()"]
     environment:
@@ -147,15 +150,15 @@ services:
         image:
           subpath: usr/local/cargo
     tmpfs:
-      - /workspace/.ruff_cache:uid=10001,gid=10001
-      - /workspace/.mypy_cache:uid=10001,gid=10001
-      - /workspace/.pytest_cache:uid=10001,gid=10001
-      - /workspace/.hypothesis:uid=10001,gid=10001
-      - /workspace/.test-cache:uid=10001,gid=10001
-      - /workspace/build:uid=10001,gid=10001
-      - /workspace/packages/frontend/dist:uid=10001,gid=10001
-      - /workspace/packages/frontend/node_modules/.vite:uid=10001,gid=10001
-      - /workspace/packages/frontend/node_modules/.vite-temp:uid=10001,gid=10001
+      - /workspace/.ruff_cache:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/.mypy_cache:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/.pytest_cache:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/.hypothesis:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/.test-cache:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/build:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/packages/frontend/dist:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/packages/frontend/node_modules/.vite:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/packages/frontend/node_modules/.vite-temp:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
     depends_on:
       postgres:
         condition: service_healthy
@@ -221,8 +224,8 @@ services:
         volume:
           nocopy: true
     tmpfs:
-      - /tmp/onlyalpha-web:uid=10001,gid=10001
-      - /workspace/packages/frontend/node_modules/.vite-temp:uid=10001,gid=10001
+      - /tmp/onlyalpha-web:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
+      - /workspace/packages/frontend/node_modules/.vite-temp:uid=${ONLYALPHA_DEV_UID:-10001},gid=${ONLYALPHA_DEV_GID:-10001}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5173/health/ready')"]
       interval: 5s

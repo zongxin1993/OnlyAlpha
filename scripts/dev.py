@@ -23,6 +23,7 @@ from scripts.dev_verification import (
     ENVIRONMENT_RECORD,
     IMAGE,
     ROOT,
+    _dev_container_identity,
     environment_inputs,
     freeze_source,
     host_operation,
@@ -174,7 +175,13 @@ def start_stop(mode: str, artifact: Path | None = None) -> int:
     if os.environ.get("ONLYALPHA_COMPOSE_NAMESPACE", "onlyalpha-dev") != "onlyalpha-dev":
         raise ValueError("DEV_PROJECT_REFUSED")
     environment = {key: value for key, value in os.environ.items() if not key.startswith("ONLYALPHA_")}
-    environment.update(ONLYALPHA_COMPOSE_NAMESPACE="onlyalpha-dev", ONLYALPHA_DEV_EXISTING_USER_DATA="true")
+    dev_uid, dev_gid = _dev_container_identity()
+    environment.update(
+        ONLYALPHA_COMPOSE_NAMESPACE="onlyalpha-dev",
+        ONLYALPHA_DEV_EXISTING_USER_DATA="true",
+        ONLYALPHA_DEV_UID=str(dev_uid),
+        ONLYALPHA_DEV_GID=str(dev_gid),
+    )
     if mode == "start" and "ONLYALPHA_HUMAN_CREDENTIALS_FILE" in os.environ:
         environment["ONLYALPHA_HUMAN_CREDENTIALS_FILE"] = os.environ["ONLYALPHA_HUMAN_CREDENTIALS_FILE"]
     compose = [
