@@ -152,7 +152,7 @@ Task Contract
 
 机器职责：
 
-- [`quality-policy.toml`](quality-policy.toml)：当前持续 CI 的必需作业集合；
+- [`quality-policy.toml`](quality-policy.toml)：持续 CI 的必需作业集合（Rust 库单测与 OpenAPI、Gateway 契约检查）；
 - [`scripts/unit_tests.py`](scripts/unit_tests.py)：仓库唯一的单元测试脚本，运行 `crates/` 下的 Rust 模块自测；
 - [`scripts/test_suite.py`](scripts/test_suite.py)：现有功能和专项验证通道的调度器；
 - [`scripts/verify.py`](scripts/verify.py)：当前工作区的 Impact-Aware 验证选择器；

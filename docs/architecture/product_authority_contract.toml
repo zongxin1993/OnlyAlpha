@@ -53,7 +53,6 @@ sensitive_path_patterns = [
   "packages/backend/src/onlyalpha_http_server/integration_types/*.py",
   "packages/backend/src/onlyalpha_http_server/integrations/*.py",
   "packages/backend/src/onlyalpha_http_server/watchlists/*.py",
-  "scripts/database.py",
   "scripts/regenerate_*.py",
 ]
 
@@ -679,9 +678,6 @@ actor = "A08"
 pattern = "src/onlyalpha/runtime/live/*.py"
 actor = "A09"
 [[actor_paths]]
-pattern = "scripts/database.py"
-actor = "A10"
-[[actor_paths]]
 pattern = "src/onlyalpha/persistence/postgres/migration.py"
 actor = "A10"
 [[actor_paths]]
@@ -855,9 +851,6 @@ actor = "A25"
 [[actor_paths]]
 pattern = "scripts/regenerate_*.py"
 actor = "T01"
-[[actor_paths]]
-pattern = "scripts/export_research_openapi.py"
-actor = "T02"
 [[actor_paths]]
 pattern = "scripts/openapi_contract.py"
 actor = "T02"
@@ -1096,7 +1089,7 @@ approved_paths = ["src/onlyalpha/application/strategy_authority.py"]
 id = "K05"
 capability = "C11"
 symbol = "onlyalpha.persistence.postgres.migration.OnlyPostgresMigrationAuthority"
-approved_paths = ["scripts/database.py"]
+approved_paths = []
 [[constructors]]
 id = "K06"
 capability = "C02"

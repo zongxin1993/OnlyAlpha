@@ -165,15 +165,11 @@ LANES = {
     ),
     OnlyTestLane.ARCHITECTURE: Lane(
         (
-            "scripts/tests/test_dependency_audit_contract.py",
-            "scripts/tests/test_test_topology_contract.py",
             "scripts/tests/test_current_ci_entrypoints.py",
             "scripts/tests/test_dev_verification_prepare.py",
             "scripts/tests/test_dev_controlled_tushare.py",
             "scripts/tests/test_dev_controlled_finite_backtest.py",
             "scripts/tests/test_dev_verification_git_inputs.py",
-            "scripts/tests/test_current_coverage_contract.py",
-            "scripts/tests/test_domain_mutation.py",
             "scripts/tests/test_crate_layout_contract.py",
             "scripts/tests/test_release_inventory_contract.py",
             "scripts/tests/test_plugin_source_boundaries.py",

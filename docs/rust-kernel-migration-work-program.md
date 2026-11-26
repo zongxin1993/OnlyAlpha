@@ -128,8 +128,7 @@ and may proceed where their real dependencies allow. Passing a unit never grants
 
 - Remove `plugs/onlyalpha-plugin-miniqmt/`, its three `scripts/*miniqmt*` tools and adapter-only runtime fixture/configuration.
 - Update root `pyproject.toml`, `uv.lock`, `scripts/test_suite.py`, `scripts/verify.py`, affected pytest layering/metrics selectors,
-  `.github/workflows/ci.yml`, `quality.yml`, `miniqmt-local.yml` and `miniqmt-order.yml`; remove adapter-only entries/jobs and their
-  aggregate dependencies without disabling unrelated lanes or leaving dead wheel/entrypoint checks.
+  and affected workflow definitions; remove adapter-only entries and dependencies without leaving dead wheel/entrypoint checks.
 - Inspect `src/onlyalpha/runtime/streaming/config.py` and `runtime.py`; remove concrete `miniqmt-history-v2` defaults while preserving
   generic historical-worker, streaming and stop/recovery semantics. Any required replacement is an explicit neutral configuration,
   not a silent default/fallback into a different provider.

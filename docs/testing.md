@@ -12,7 +12,10 @@ python3 scripts/unit_tests.py
 
 脚本从 Cargo 工作区选取 `crates/` 下的包，只运行 Cargo `--lib` 测试目标。测试由库内 Rust 模块挂载，
 不运行 Cargo 集成目标、文档测试、后端、插件或其他语言测试，不需要启动应用或数据库。
-GitHub Actions 的测试步骤只调用这个脚本。功能测试、专项测试及其本地入口保留，不接入当前 CI；静态、安全、契约和构建检查不属于测试步骤。
+[持续 CI](../.github/workflows/quality.yml) 中唯一的测试作业运行这个脚本。
+按 [ADR 0103](adr/0103-public-api-contract-governance.md) 和 [ADR 0101](adr/0101-verification-authority-convergence.md)
+保留 OpenAPI、Gateway 历史兼容性检查，[宪法防篡改检查](../.github/workflows/governance.yml)独立运行。这些门禁不执行功能测试。
+其他功能测试及专项验证按实际影响在本地执行，不由 GitHub Actions 自动运行。
 
 ## 功能测试与专项验证
 
@@ -42,10 +45,6 @@ python scripts/dev_verification.py run -- python scripts/test_suite.py release
 所有通道打印实际 pytest 参数、返回真实退出码，并将计数、耗时、最慢测试、Marker 和路径分布写入
 `test-results/metrics/<lane>.json`。即使测试失败，指标仍会写出并保留真实 pytest 退出码。可用 `--workers N`、`--dist worksteal`、`--durations N` 或 `--no-parallel`
 覆盖并行策略；定位进程级、SQLite 锁、顺序敏感或调试器问题时关闭 xdist。
-
-`scripts/test_topology.py` 只消费上述 canonical metrics，生成 lane/node 映射、重复执行、重叠矩阵、长尾和估算 critical
-path；它是 reporting-only，不拥有测试选择权。历史 metrics 若缺少完整 `tests[nodeid]` 映射，报告会明确标为 lower bound，不能被当作完整
-execution graph。
 
 pytest-timeout 由 `scripts/test_suite.py` 按通道配置，只用于发现测试卡死，不是性能预算。pytest 覆盖率测量只允许串行。
 

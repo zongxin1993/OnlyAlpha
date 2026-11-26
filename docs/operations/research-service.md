@@ -1,6 +1,7 @@
 # Research Service Operations
 
-This runbook is the operator contract for the single-host/small-team Research API and Worker. PostgreSQL is the sole operational authority for Runs, Attempts, leases, cancellation intent, and Worker presence. Immutable stores under `USER_DATA_ROOT/research` remain the sole semantic authority.
+本页保留旧 Research API/Worker 的运行与恢复约束，不是当前完整的部署或恢复操作手册。
+当前入口以[部署文档](../deployment.md)和 [Rust 后端规范](../rust-product-backend.md)为准。下文的旧 Python 服务接线不能运行。
 
 ## Supported environment
 
@@ -15,13 +16,8 @@ Worker presence is diagnostic only. Attempt leases remain the execution-ownershi
 
 ## Startup
 
-Start in this order:
-
-1. Start the canonical development topology: `docker compose -f deploy/docker-compose.dev.yml up -d --build --wait`.
-2. The one-shot `bootstrap` service runs the explicit PostgreSQL and ClickHouse migration authorities, binds the semantic store,
-   validates the result, and creates the local encrypted-credential root.
-3. Verify `GET http://localhost:8000/health/live` and `GET http://localhost:8000/health/ready`.
-4. API and Workers mount the same `user-data` volume; Web is available at `http://localhost:5173`.
+当前日常 Web/API 启停使用[部署文档中的原生应用入口](../deployment.md#ordinary-shipping-webapi-startup)。
+旧 Compose `api`、`bootstrap` 和 Python Worker 启动流程已退役，不要按旧顺序执行。
 
 The explicit initialization command creates immutable `research/.onlyalpha-semantic-store.json`, binds that namespace ID to the
 PostgreSQL deployment, and creates the canonical semantic directories. It is idempotent only for the same binding. It refuses a
@@ -71,7 +67,6 @@ If the Worker is forcibly killed, its heartbeat stops. After the lease expires, 
 - `GET /health/live`: HTTP process liveness only. It remains `LIVE` during a database outage.
 - `GET /health/ready`: API responsibility readiness. PostgreSQL unavailable, incompatible schema, unusable roots, or invalid composition returns HTTP 503 with a stable, secret-free reason.
 - `OnlyResearchOperationalDiagnosticService` 是 stale worker、Run/Attempt history 和 failure diagnosis 的唯一 application semantics。
-- `scripts/database.py` 在 operator/infrastructure boundary 复用 PostgreSQL snapshot；不存在 root Product/operations CLI。
 
 Diagnosis codes are derived, read-only facts: `HEALTHY`, `QUEUE_AGED`, `NO_READY_WORKER`, `RUNNING_WITHOUT_ACTIVE_ATTEMPT`, `ACTIVE_LEASE_OVERDUE`, and `CANCELLATION_RECOVERY_PENDING`. They never transition a Run. Scheduler expiry, Worker execution/finalization, and the existing cancellation reconciler remain the only recovery paths.
 
@@ -83,25 +78,17 @@ Each operational snapshot is one PostgreSQL `READ ONLY`, `REPEATABLE READ` trans
 
 Never edit an applied migration, repair the checksum ledger, delete an unknown migration, or use a force flag. `AHEAD`, `CHECKSUM_MISMATCH`, and `HISTORY_DIVERGED` require investigation and fail closed.
 
-Use this exact procedure:
-
-1. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py status`
-2. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py plan`
-3. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py backup /var/lib/onlyalpha-backups/pre-migration.dump`
-4. Create an empty isolated database whose name ends in `_restore_test`.
-5. In an isolated Compose restore environment, set `ONLYALPHA_POSTGRES_RESTORE_TEST_DSN` and run the operator's `database.py restore-test /var/lib/onlyalpha-backups/pre-migration.dump --run-id RUN_ID`.
-6. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py migrate`
-7. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py status`
-8. `docker compose -f deploy/docker-compose.dev.yml exec api python scripts/database.py validate --run-id RUN_ID`
-9. Verify API readiness and Worker startup.
-
-Migration uses an advisory lock and one transaction. Startup never invokes migration.
+当前 PostgreSQL 迁移走 Rust 后端的显式运维命令
+`onlyalpha-backend --migrate-postgres-schema <absolute-sql-directory>`。
+该命令不在启动时运行，使用 advisory lock 和单个事务核验并应用待执行迁移。
+旧 Python `status`、`plan`、`backup`、`restore-test` 和 `validate` 流程已退役；不能把 Rust 迁移命令视为完整替代。
+缺少经过验证的成对备份和恢复路径时，不得对正式数据执行迁移或恢复。
 
 ## Backup and restore
 
-`database.py backup` creates a PostgreSQL custom-format logical backup and an adjacent `.metadata.json` file. Metadata contains the backup SHA-256, creation time, repository version/SHA when available, PostgreSQL server version, pg_dump version, and exact migration IDs/checksums. It contains no DSN or credential.
-
-`restore-test` requires an isolated empty target, verifies backup metadata and checksum, runs `pg_restore`, checks schema compatibility, verified-loads the selected Run and its ordered Attempt history, and confirms the source remains compatible.
+下面记录成对备份与恢复必须满足的条件，不是可直接执行的步骤。
+旧备份和隔离恢复验证脚本已退役，当前没有这一整套已验证的替代入口。
+备份应记录内容校验值、工具与服务器版本及迁移身份，不得包含 DSN 或凭据。
 
 The PostgreSQL backup contains the deployment's expected semantic-store ID. The paired filesystem snapshot contains the immutable
 namespace identity metadata. A restored pair is coherent only when these typed IDs are equal. Missing, corrupt, unsupported or different
@@ -123,25 +110,8 @@ Extra immutable objects are safe. For example, work may commit Result and Artifa
 
 The reverse online order is unsupported: a filesystem snapshot followed by a newer PostgreSQL backup can restore `COMPLETED` references whose semantic objects are absent. Worker drain may be used as a conservative maintenance optimization—drain, allow the current Attempt to finish safely, then take the database backup followed by the immutable snapshot—but drain is not a correctness prerequisite for the database-first procedure.
 
-For an actual disaster restore:
-
-1. Provision an empty PostgreSQL 18.6 database.
-2. Verify backup SHA-256 against its metadata.
-3. Restore with PostgreSQL 18 `pg_restore --exit-on-error`.
-4. Run `database.py status` and `database.py validate` against the restored database.
-5. Restore the paired immutable `USER_DATA_ROOT` snapshot and confirm its capture did not precede the database observation.
-6. Verify the restored semantic-store namespace identity equals the PostgreSQL deployment binding.
-7. Through the existing Research semantic readers, verified-load every exact Research Result and Artifact reference selected for recovery validation. PostgreSQL tooling validates only operational facts and must remain semantic-store blind.
-8. If any referenced terminal semantic object is absent, corrupt, or conflicting, stop and fail closed. Extra verified semantic objects require no repair.
-9. Start API, check readiness, then start Worker.
-10. Verified immutable-store loads and ordinary forward re-entry converge incomplete operational projections.
-
-PostgreSQL backup is not a complete OnlyAlpha backup. Disaster recovery requires both the database backup (operational facts) and the immutable `USER_DATA_ROOT` backup (semantic facts). Use deployment-owned filesystem snapshots or tools such as restic/rsync; OnlyAlpha does not create a second Artifact backup authority.
-
-V1 recovery objectives are:
-
-- RPO: the latest verified logical PostgreSQL backup plus matching immutable user-data snapshot.
-- RTO: the documented manual restore procedure and subsequent verified forward recovery.
+实际灾难恢复必须先证明备份校验、隔离恢复、迁移账本、命名空间绑定和所有相关终态语义对象均满足当前契约。
+任何证明缺失、损坏或不匹配时保持关闭，不得把重算、重置或直接启动当作恢复。单独的 PostgreSQL 备份不是完整恢复集。
 
 PITR/WAL shipping is deployment guidance only and is not part of the P8.5 product authority.
 

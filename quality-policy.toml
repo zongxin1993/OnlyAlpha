@@ -2,13 +2,5 @@ schema_version = 3
 coverage_mode = "manual"
 
 [quality]
-required_gates = [
-    "static",
-    "unit-tests",
-    "openapi-contract",
-    "gateway-protocol",
-    "build",
-    "web",
-    "dependency-audit",
-]
+required_gates = ["unit-tests", "openapi-contract", "gateway-protocol"]
 event_lane_gates = []

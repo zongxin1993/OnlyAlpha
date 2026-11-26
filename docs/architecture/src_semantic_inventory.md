@@ -1,11 +1,7 @@
 # `src/onlyalpha` semantic inventory
 
-This is the durable Kernel-package inventory for the Kernel Semantic Graduation.
-The machine-readable source of the complete module list is
-[`scripts/audit_src_semantic_surface.py`](../../scripts/audit_src_semantic_surface.py).
-Run it from the repository root to print every module, its classification, and
-production importers. The audit is report-only because dynamic loading and
-historical readers require review before deletion.
+This is the historical inventory for Kernel Semantic Graduation. It describes
+`src/onlyalpha` before retirement, not the current workspace. The audit script is retired.
 
 At the time of this change the inventory contains 773 Python modules. Every
 module is classified; there is no `UNKNOWN`, `MAYBE`, or `TEMP_KEEP` category.

@@ -7,7 +7,6 @@ import zipfile
 from pathlib import Path
 
 import pytest
-import yaml
 
 from scripts import build_algorithm_sdk
 from scripts.release_metadata import VersionSyncError, load_release_units, validate_inventory
@@ -39,7 +38,7 @@ def test_retirement_does_not_allow_collateral_removal_or_addition():
         validate_inventory({"backend": "1.0.0"}, {"backend": "1.0.0", RETIRED: "1.0.0"})
 
 
-def test_retired_market_is_absent_from_current_workspace_ci_and_wheels(tmp_path):
+def test_retired_market_is_absent_from_current_workspace_and_wheels(tmp_path):
     distribution = "onlyalpha-" + RETIRED
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
@@ -47,9 +46,6 @@ def test_retired_market_is_absent_from_current_workspace_ci_and_wheels(tmp_path)
     assert "plugs/" + distribution not in project["tool"]["uv"]["workspace"]["members"]
     assert distribution not in {package["name"] for package in lock["package"]}
     assert RETIRED not in load_release_units(ROOT)
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    assert "generic-market-product" not in workflow["jobs"]
-    assert distribution not in (ROOT / ".github/workflows/ci.yml").read_text()
     wheels = build_algorithm_sdk.build(tmp_path)
     assert wheels
     for wheel in wheels:

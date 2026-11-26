@@ -51,8 +51,6 @@ small 的进程累计 VmHWM 为 4,324 kB，large 最高 23,440 kB（/proc 原值
 
 VmHWM 是 Linux 后端测试进程高水位，不含 PG 服务和编译子进程，不是增量内存。独立 supervisor 的子进程 max RSS 另列，包括测试执行期间所派生进程的最大值；排除 cargo 编译阶段。单轮样本不作尾延迟／复杂度证明。本矩阵与旧 Source／SQLite 链路和正式 Web 回测不具有相同输入、职责或结果，不能算优化加速比。
 
-源码解析与校验／降级可另运行 `python3 scripts/benchmark_factor_compiler.py --samples 20 --output <新JSON路径>`：使用实际安装的同一编译函数和公开示例，观测 `ast.parse` 的实际调用／耗时，分别记录 AST 解析与其余校验／降级的原始样本和中位数。它是已加载模块的函数基准，未执行 OS 隔离；真实隔离进程开销由 PG 冷构建项覆盖。不能把这个观测脚本或其输出作为 READY 认证。
-
 ### 2026-11-15 构建与认证测量
 
 固定 Linux aarch64／Rust 1.99.1／release；最终 SDK 复测冻结摘要 `3c617d6a74a0dadbb556797e5d7b24931c4ec0f5b9b5f62f1237e4ca650aaecf`。原始结果 `test-results/strategy-research-framework-stage3-perf-final/build-final-sdk.log`，任务工作树副本同 calculation 基准；程序／证书／二进制摘要均保留。单轮数据，不能作 p95。

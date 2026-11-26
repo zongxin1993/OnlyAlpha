@@ -107,7 +107,16 @@ version_sync.py next --unit frontend --level patch
 version_sync.py set --unit frontend X.Y.Z
 version_sync.py release-selection --context-file release-context.json
 version_sync.py check-transition --base-ref EXACT_BASE --context-file release-context.json
+version_sync.py report-merge --context-file release-context.json
 ```
+
+发行负责人从 GitHub REST API 读取仓库元数据、目标 PR 和该 PR 对应的全部分页 issue events。
+将原始对象分别放入 `release-context.json` 的 `repository`、`pull_request` 和 `events` 字段；
+`events` 保留按 ID 严格递增的 `labeled`、`unlabeled`、`merged` 原始事件，不手工补造、改写或省略历史。
+将文件放在源码树外或固定验证环境的 `test-results/` 下，不提交文件或凭据。
+合并前核对当前源码等于 PR 的 `head.sha`，且包含远端当前 `master` 的精确 SHA；以该 SHA 作为 `EXACT_BASE`。
+合并后在精确的 `merge_commit_sha` 上运行 `report-merge`，依据唯一匹配的合并事件核对历史授权。
+任一来源不全、身份不符或无法确认时停止发行；当前标签或人工重写的输入不能补足历史证据。
 
 The native builder also accepts a minimal, explicit input selection. In the frozen dev tool environment, generate a candidate
 with `python scripts/release_inputs.py candidate /workspace/test-results/selected-inputs.json`. It exclusively creates that
@@ -188,7 +197,7 @@ Docker's `runtime-inputs` checks the same exact selection before runtime compila
 and writes the same manifest. Original fixed-path Python identity is retained: installation is created directly under
 `/opt/onlyalpha/algorithms`. The runtime executable is `/opt/onlyalpha/bin/onlyalpha-backend`, inside the hashed artifact tree.
 The final image verifies that tree as its non-root runtime user, without starting a Product service, database or deployment.
-The default CI runtime smoke remains an explicitly unselected development build; it makes no release-input claim.
+A local runtime build without selected inputs is a development build; it makes no release-input claim.
 
 Local selected image construction uses the existing lifecycle/frozen-source entry and only the fixed `onlyalpha-runtime:dev`
 tag, without creating or starting a new service/project:
@@ -215,27 +224,21 @@ single-dev test namespaces, test-DB guards and ordinary Shipping UI flows remain
 the exact artifact used; it does not confer Generation or trading authority. A normal dev run may still build its own artifact.
 
 `set` edits the selected unit/projections and incoming dependency pins, then refreshes `uv.lock`; it is a source-edit operation,
-not a command to run against the read-only formal source cut. PR checks separately validate locks and graph. The trusted mainline
-publisher derives named source Releases from exact first-parent version changes; no change produces no Release. It preserves
-existing legacy `vX.Y.Z` tags/artifacts, does not publish them again under new names, and retains immutable tags, exact retry and
-partial-publication conflict protections. It does not upload executable artifacts, deploy or activate a Generation. Phase 6
-must still prove immutable dependency content, actual installed artifacts and claimed frontend/backend combinations.
+not a command to run against the read-only formal source cut. GitHub Actions no longer validates release transitions
+or publishes GitHub Releases automatically. The version graph and historical selection checks remain available through
+`version_sync.py` and are required when changing release units. Do not publish without explicit authorization, final
+artifact and provenance verification, and the immutable tag/conflict checks above. Existing Releases and tags are unchanged.
 
 For the existing Python Indicator distribution and its historical artifacts, the minimal installation's base distribution
 version belongs to backend; Indicator Provider provenance must use the installed
 plugin's separately sealed distribution metadata. Never copy backend version into plugin source identity. Missing, duplicate,
 conflicting or changed installed metadata fails closed; startup still requires the base version to match the backend program.
 
-Release-unit changes include manifests/locks, affected Provider distribution provenance, transition checks, release
-selection/notes, planner/publisher, workflows and tests as one coherent change. Preserve read-only PR validation and authorized
-mainline write access. Source changes and this documentation do not authorize a tag, merge, push or publication.
-
 Validation covers selected-unit changes, untouched units, exact target pins and mixed-language projections, canonical version
 transitions, historical label/merge proof, immutable tag conflicts, partial retries and installed plugin provenance. Formal
 artifact/source-composition and API-pair proofs remain phase 6; source tags alone never establish them. Run relevant local checks
 through the single dev environment and retain results. The [work program](repository-migration-work-program.md) supplies
 sequence, not a second gate authority.
-
 
 ## 已退役市场插件
 

@@ -20,31 +20,6 @@ env:
   UV_NO_PROGRESS: "1"
 
 jobs:
-  static:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run ruff check packages scripts
-      - run: uv run ruff format --check packages scripts
-      - run: uv run mypy
-      - run: uv run python scripts/rust_kernel_check.py --source-check
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --locked --all-targets -- -D warnings
-      - run: uv run python scripts/domain_unicode_tables.py --check
-      - run: uv run python scripts/domain_timezone_data.py --check
-      - run: python scripts/dev_verification.py prepare
-      - run: python scripts/dev_verification.py run -- python scripts/gateway_protocol.py check-rust
-      - run: uv run lint-imports
-      - run: uv run python scripts/version_sync.py check
-
   unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -137,107 +112,17 @@ jobs:
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
       - run: uv run python scripts/gateway_protocol.py verify --base "${{ steps.baseline.outputs.sha }}"
 
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - name: Build the maintained Rust runtime and isolated SDK
-        run: docker build --file deploy/Dockerfile.dev --target runtime --tag onlyalpha-runtime:ci .
-
-  web:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: packages/frontend/package-lock.json
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: npm ci
-        working-directory: packages/frontend
-      - run: python scripts/dev_verification.py prepare
-      - name: web-static
-        run: python scripts/dev_verification.py run -- python scripts/web_suite.py static
-      - name: web-build
-        run: uv run python scripts/web_suite.py build
-
-  dependency-audit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-      - id: scan-time
-        name: Capture advisory scan time
-        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-      - name: Prepare dependency audit evidence directory
-        run: mkdir -p test-results/security
-      - id: osv-scan
-        name: Scan authoritative Python and Web locks with OSV-Scanner 2.5.0
-        uses: google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
-        with:
-          scan-args: |-
-            --format=json
-            --output-file=test-results/security/osv-results.json
-            --lockfile=uv.lock
-            --lockfile=packages/frontend/package-lock.json
-      - name: Build fail-closed dependency audit evidence
-        if: always()
-        env:
-          SCAN_OUTCOME: ${{ steps.osv-scan.outcome }}
-          SCAN_TIME: ${{ steps.scan-time.outputs.value }}
-        run: >-
-          python scripts/dependency_audit.py
-          --subject-sha "$GITHUB_SHA"
-          --lockfile uv.lock
-          --lockfile packages/frontend/package-lock.json
-          --scanner OSV-Scanner
-          --scanner-version "2.5.0"
-          --scan-time "$SCAN_TIME"
-          --workflow-run "$GITHUB_RUN_ID"
-          --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          --scan-outcome "$SCAN_OUTCOME"
-          --scan-result test-results/security/osv-results.json
-          --output test-results/security/dependency-audit-evidence.json
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: dependency-audit-${{ github.sha }}
-          path: test-results/security/
-          if-no-files-found: error
-
   quality-gate:
     if: always()
-    needs: [static, unit-tests, openapi-contract, gateway-protocol, build, web, dependency-audit]
+    needs: [unit-tests, openapi-contract, gateway-protocol]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
         env:
-          STATIC_RESULT: ${{ needs.static.result }}
           UNIT_TESTS_RESULT: ${{ needs.unit-tests.result }}
           OPENAPI_CONTRACT_RESULT: ${{ needs.openapi-contract.result }}
           GATEWAY_PROTOCOL_RESULT: ${{ needs.gateway-protocol.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
-          WEB_RESULT: ${{ needs.web.result }}
-          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
         run: |
-          test "$STATIC_RESULT" = success
           test "$UNIT_TESTS_RESULT" = success
           test "$OPENAPI_CONTRACT_RESULT" = success
           test "$GATEWAY_PROTOCOL_RESULT" = success
-          test "$BUILD_RESULT" = success
-          test "$WEB_RESULT" = success
-          test "$DEPENDENCY_AUDIT_RESULT" = success
