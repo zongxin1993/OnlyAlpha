@@ -37,6 +37,8 @@ FROM rust-manifests AS rust-dependencies
 RUN CARGO_NET_RETRY=0 cargo fetch --locked
 
 FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS reference-tools
+ARG ONLYALPHA_DEV_UID=10001
+ARG ONLYALPHA_DEV_GID=10001
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -55,18 +57,21 @@ RUN test -s /etc/ssl/certs/ca-certificates.crt \
         > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
     && apt-get install --yes --no-install-recommends \
-        libpq5=18.6-1.pgdg12+2 \
-        postgresql-client-common=293.pgdg12+1 \
-        postgresql-client-18=18.6-1.pgdg12+2 \
+        libpq5=18.7-1.pgdg12+2 \
+        postgresql-client-common=297.pgdg12+1 \
+        postgresql-client-18=18.7-1.pgdg12+5 \
     && apt-get purge --yes --auto-remove curl gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
-RUN useradd --create-home --uid 10001 onlyalpha \
-    && install -d -o onlyalpha -g onlyalpha /workspace /var/lib/onlyalpha
+RUN if ! getent group "${ONLYALPHA_DEV_GID}" >/dev/null; then \
+        groupadd --gid "${ONLYALPHA_DEV_GID}" onlyalpha; \
+    fi \
+    && useradd --create-home --uid "${ONLYALPHA_DEV_UID}" --gid "${ONLYALPHA_DEV_GID}" --no-user-group onlyalpha \
+    && install -d -o "${ONLYALPHA_DEV_UID}" -g "${ONLYALPHA_DEV_GID}" /workspace /var/lib/onlyalpha
 WORKDIR /workspace
-COPY --chown=onlyalpha:onlyalpha . .
+COPY --chown=${ONLYALPHA_DEV_UID}:${ONLYALPHA_DEV_GID} . .
 USER onlyalpha
 
 # Install the frozen third-party closure. The retired root Python package and
@@ -87,7 +92,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     RUSTUP_AUTO_INSTALL=0 \
     PATH="/usr/local/cargo/bin:${PATH}"
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends git gcc libc6-dev postgresql-18=18.6-1.pgdg12+2 \
+    && apt-get install --yes --no-install-recommends git gcc libc6-dev postgresql-18=18.7-1.pgdg12+5 \
     && rm -rf /var/lib/apt/lists/*
 USER onlyalpha
 RUN git config --global --add safe.directory /workspace
@@ -138,10 +143,12 @@ FROM ${ONLYALPHA_DEV_BROWSER_SOURCE} AS playwright
 # Owner-authorized opt-in loopback Browser/API acceptance, same canonical test service.
 # Broad Python reference dependencies belong only to verification tools.
 FROM test AS browser-test
+ARG ONLYALPHA_DEV_UID=10001
+ARG ONLYALPHA_DEV_GID=10001
 USER root
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
 COPY --from=web /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=web --chown=onlyalpha:onlyalpha /workspace/packages/frontend/node_modules /workspace/packages/frontend/node_modules
+COPY --from=web --chown=${ONLYALPHA_DEV_UID}:${ONLYALPHA_DEV_GID} /workspace/packages/frontend/node_modules /workspace/packages/frontend/node_modules
 COPY --from=playwright /ms-playwright /ms-playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
@@ -178,9 +185,11 @@ RUN NODE_ENV=production VITE_ONLYALPHA_LOCAL_SESSION=true npm run build
 
 # Build the admitted installation directly at its final absolute runtime path.
 FROM reference-tools AS algorithm-installation
+ARG ONLYALPHA_DEV_UID=10001
+ARG ONLYALPHA_DEV_GID=10001
 USER root
-RUN install -d -o onlyalpha -g onlyalpha /opt/onlyalpha
-COPY --from=runtime-inputs --chown=onlyalpha:onlyalpha /source/ /source/
+RUN install -d -o "${ONLYALPHA_DEV_UID}" -g "${ONLYALPHA_DEV_GID}" /opt/onlyalpha
+COPY --from=runtime-inputs --chown=${ONLYALPHA_DEV_UID}:${ONLYALPHA_DEV_GID} /source/ /source/
 WORKDIR /source
 USER onlyalpha
 RUN python scripts/build_algorithm_sdk.py /opt/onlyalpha/wheels --install /opt/onlyalpha/algorithms \
