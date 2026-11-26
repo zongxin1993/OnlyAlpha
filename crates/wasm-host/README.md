@@ -1,0 +1,50 @@
+# onlyalpha-wasm-host
+
+## 目的与职责
+
+本库实现 [ADR 0152](../../docs/adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 阶段 2 定义的 L3 WebAssembly 确定性插件宿主、版本化 WIT 契约校验器、扩展算子双内核自动准入认证器与运行期热加载／热卸载管理器。
+
+- 配置确定性 `wasmtime` 引擎（启用 Component Model、fuel 计量与 Cranelift NaN 规范化；关闭 threads、relaxed SIMD、memory64、epoch interruption 与 debug info）。
+- 严格封禁一切 WASI 与隐式外部导入，并在编译加载阶段静态校验导出的 WIT 接口名、函数集合与完整递归参数／返回值签名（`contracts/wasm/v1/onlyalpha-plugin.wit`，`onlyalpha:plugin@1.0.0`），拒绝多余导出与异步组件函数。
+- 为每次调用设置显式线性内存上限、燃料配额与宿主侧 Component Model lifting 内存配额（`hostcall_fuel`），对 trap、越界、内存超限、lifting 超限与燃料耗尽执行 Fail-Closed 隔离，确保宿主进程与其余插件状态不受影响。
+- 严格按 `DECIMAL28_HALF_EVEN_Q12_V1` 普通十进制字符串格式校验跨边界数值（拒绝科学计数法、`-0`、空白及精度／标度越界）。
+- 对自定义扩展算子 `.wasm` 在准入阶段按累计燃料预算（`max_certification_fuel`）自动执行 `Vector == Event` 逐点等价、多前缀因果、warmup／null 边界（含非全空校验）、跨实例快照恢复（含脏状态覆盖与损坏快照 Fail-Closed 校验）、燃料确定性与独立 golden 认证，仅在全部通过后签发不可变 `ReadyCertificate`。
+- 管理扩展算子、市场规则与策略三类 L3 插件的运行期热加载、精确 SHA-256 与参数绑定回放校验、热卸载与线性内存回收统计。
+
+## 边界与依赖
+
+- **拥有**：L3 WASM 确定性执行沙箱、版本化 WIT 契约校验、扩展算子双内核自动认证与 `ReadyCertificate` 签发、插件运行期热加载／热卸载管理、线性内存与隔离故障计量。
+- **不拥有**：L1 内置算子数值语义（归属 `onlyalpha-operators`）、L2 Qlib 表达式编译执行（归属 `onlyalpha-calculation`）、L4 券商与数据源子进程插件协议、HTTP／WS 路由、持久化存储、风控准入、订单身份或实盘人工授权门槛。
+- **直接依赖**：`onlyalpha-operators`、`wasmtime`（仅启用 `cranelift`、`runtime`、`std`、`component-model`，不含任何 `wasmtime-wasi`）、`sha2`、`serde_json`；测试依赖 `wat` 与 `wit-parser`。全库遵守 workspace `unsafe_code = "forbid"`。
+
+## 公开接口
+
+公开入口位于 [src/lib.rs](src/lib.rs)：
+
+- 配置与指标（[src/config.rs](src/config.rs)）：`ResourceBudget`、`WasmHostEngine`、`HostMetricsSnapshot`、`MIN_MEMORY_BYTES`、`HARD_MAX_MEMORY_BYTES`、`HARD_MAX_ARTIFACT_BYTES`、`MIN_HOST_LIFT_BYTES`、`HARD_MAX_HOST_LIFT_BYTES`、`HARD_MAX_SNAPSHOT_BYTES`、`HARD_MAX_OUTPUT_ITEMS`、`HARD_MAX_TABLE_ELEMENTS`、`HARD_MAX_INSTANCES`、`HARD_MAX_TABLES`、`HARD_MAX_MEMORIES`、`HARD_MAX_FUEL_PER_CALL`、`HARD_MAX_CERTIFICATION_FUEL`。
+- 契约与绑定（[src/contract.rs](src/contract.rs)）：`WIT_CONTRACT_VERSION`、`HOST_RUNTIME_VERSION`、`EXTENDED_OPERATOR_INTERFACE`、`MARKET_RULE_INTERFACE`、`STRATEGY_INTERFACE`、`NUMERIC_POLICY`、`MAX_DECIMAL_PRECISION`、`MAX_DECIMAL_SCALE`、`MAX_CANONICAL_PARAMETERS`、`MAX_PARAMETER_KEY_BYTES`、`MAX_PARAMETER_VALUE_BYTES`、`PluginKind`、`ArtifactBinding`、`ReadyCertificate`、`CallOutcome`、`OperatorMetadata`、`MarketRuleMetadata`、`MarketRuleInput`、`MarketRuleDecision`、`StrategyMetadata`、`NamedFactor`、`ReadonlyPosition`、`ReadonlyAccountState`、`OrderSide`、`OrderType`、`TimeInForce`、`OrderIntent`、`Error`、`Result`、`sha256_hex`、`is_valid_sha256_hex`。
+- 插件句柄与认证（[src/operator_plugin.rs](src/operator_plugin.rs)、[src/certification.rs](src/certification.rs)、[src/market_rule_plugin.rs](src/market_rule_plugin.rs)、[src/strategy_plugin.rs](src/strategy_plugin.rs)）：`WasmExtendedOperator`（实现 `onlyalpha_operators::execution::VectorKernel`）、`WasmOperatorStream`、`MAX_OPERATOR_ARITY`、`MAX_OPERATOR_WARMUP`、`MAX_VECTOR_CELLS`、`CertificationRequest`、`GoldenCase`、`WasmMarketRulePlugin`、`WasmStrategyPlugin`。
+- 热插拔生命周期管理（[src/manager.rs](src/manager.rs)）：`WasmPluginManager`、`LoadedPluginSummary`、`UnloadReceipt`。
+
+所有沙箱、契约、认证与绑定错误均通过 `Error` 以 Fail-Closed 语义返回，不触发宿主进程 panic 或状态污染。
+
+## 状态与生命周期
+
+- `WasmPluginManager` 以 `RwLock<BTreeMap<String, LoadedEntry>>` 持有当前已加载的已编译组件与元数据；扩展算子仅在自动双内核认证全部通过并签发 `ReadyCertificate` 后方可注册为 READY。
+- 每次向量求值、市场规则校验和策略 `on_event` 均在独立的全新 `wasmtime::Store<SandboxState>` 中运行，调用结束后立即销毁 Store 并回收全部线性内存。
+- `WasmOperatorStream` 独占一个隔离 `Store`，保存增量事件状态，支持 `capture_state`／`restore_state` 跨新实例确定性恢复；释放流句柄或调用 `WasmPluginManager::unload` 后立即释放对应引用与线性内存，并通过 `HostMetricsSnapshot::live_linear_memory_bytes` 可观测归零。
+- 历史回放通过 `ArtifactBinding` 与 `WasmPluginManager::verify_binding` 严格核对 `.wasm` SHA-256、WIT 契约版本、宿主版本与规范参数，拒绝静默替换新版本。
+
+## 使用与验证
+
+在 `onlyalpha-dev` 验证容器内执行本库单元测试、clippy 与格式检查：
+
+```bash
+python3 scripts/dev_verification.py run -- cargo test --locked -p onlyalpha-wasm-host
+```
+
+运行仓库级工作区与边界门禁：
+
+```bash
+python3 scripts/dev_verification.py run -- python3 scripts/rust_kernel_check.py --package onlyalpha-wasm-host
+```

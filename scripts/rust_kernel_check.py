@@ -83,6 +83,8 @@ def affected_packages(root: Path, paths: tuple[str, ...]) -> tuple[str, ...]:
                     matches.update(name for name, (member, _) in packages.items() if Path(owner).is_relative_to(member))
         if path.startswith("contracts/gateway/"):
             matches.add("onlyalpha-calculation-bridge")
+        if path.startswith("contracts/wasm/"):
+            matches.add("onlyalpha-wasm-host")
         if not matches:
             raise ValueError(f"RUST_IMPACT_REVIEW_REQUIRED: {path}; supply reviewed --package selections explicitly")
         owners.update(matches)
@@ -135,8 +137,11 @@ def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict
 
 
 # Independently reviewed public registry closure, excluding local release metadata.
-REGISTRY_LOCK_SHA256 = "d60e4f797c3035e0c29dbc87d91edb262736f6868ec17c09d27648e8a2bbb2e0"
+REGISTRY_LOCK_SHA256 = "a288cf23e6848bdaab6113f50ad4d86bd09b5fe9cc2fffb377aa817ce27d1237"
 FORBIDDEN_SQLITE_CRATES = frozenset({"rusqlite", "libsqlite3-sys", "sqlite", "sqlite3", "sqlx-sqlite"})
+FORBIDDEN_WASI_HOST_CRATES = frozenset(
+    {"wasmtime-wasi", "wasmtime-wasi-http", "wasmtime-wasi-nn", "wasmtime-wasi-threads", "wasi-common"}
+)
 DOMAIN_DEPENDENCIES = {
     "tz-rs": {"version": "=0.7.3", "default-features": False, "features": ["alloc"]},
     "jiff": {"version": "=0.2.38", "default-features": False, "features": ["std"]},
@@ -465,6 +470,20 @@ BUILTIN_CALCULATION_DEPENDENCIES = {
         "onlyalpha-operators": {"path": "../operators"},
     },
 }
+WASM_HOST_DEPENDENCIES = {
+    "onlyalpha-operators": {"path": "../operators"},
+    "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
+    "sha2": DOMAIN_DEPENDENCIES["sha2"],
+    "wasmtime": {
+        "version": "=51.0.0",
+        "default-features": False,
+        "features": ["cranelift", "runtime", "std", "component-model"],
+    },
+}
+WASM_HOST_TEST_DEPENDENCIES = {
+    "wat": {"version": "=1.263.0", "default-features": False, "features": ["component-model"]},
+    "wit-parser": {"version": "=0.263.0", "default-features": False, "features": ["std"]},
+}
 
 
 # 仅用于当前回测模块的 Cargo bench；生产依赖仍按原逐库契约检查。
@@ -502,6 +521,11 @@ def _is_forbidden_sqlite_crate(name: str) -> bool:
     return normalized in FORBIDDEN_SQLITE_CRATES or "sqlite" in normalized
 
 
+def _is_forbidden_wasi_host_crate(name: str) -> bool:
+    normalized = name.strip().lower()
+    return normalized in FORBIDDEN_WASI_HOST_CRATES or normalized.startswith("wasmtime-wasi")
+
+
 def validate_workspace(root: Path) -> None:
     modules = {
         "onlyalpha-data-source-binance": "plugs/onlyalpha-data-source-binance",
@@ -514,6 +538,7 @@ def validate_workspace(root: Path) -> None:
         "onlyalpha-calculation": "crates/calculation",
         "onlyalpha-operators": "crates/operators",
         "onlyalpha-indicators": "crates/indicators",
+        "onlyalpha-wasm-host": "crates/wasm-host",
         "onlyalpha-calculation-bridge": "crates/calculation-bridge",
         "onlyalpha-runtime": "crates/runtime",
         "onlyalpha-observability": "crates/observability",
@@ -546,8 +571,13 @@ def validate_workspace(root: Path) -> None:
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     packages = tomllib.loads((root / "Cargo.lock").read_text())["package"]
     for item in packages:
-        if _is_forbidden_sqlite_crate(item.get("name", "")) or any(
-            _is_forbidden_sqlite_crate(dep.split()[0]) for dep in item.get("dependencies", [])
+        if (
+            _is_forbidden_sqlite_crate(item.get("name", ""))
+            or _is_forbidden_wasi_host_crate(item.get("name", ""))
+            or any(
+                _is_forbidden_sqlite_crate(dep.split()[0]) or _is_forbidden_wasi_host_crate(dep.split()[0])
+                for dep in item.get("dependencies", [])
+            )
         ):
             raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     local = [item for item in packages if "source" not in item]
@@ -571,6 +601,7 @@ def validate_workspace(root: Path) -> None:
         ("onlyalpha-observability", OBSERVABILITY_DEPENDENCIES, OBSERVABILITY_TEST_DEPENDENCIES),
         ("onlyalpha-metadata-json", METADATA_JSON_DEPENDENCIES, {}),
         ("onlyalpha-integration-contract", INTEGRATION_CONTRACT_DEPENDENCIES, {}),
+        ("onlyalpha-wasm-host", WASM_HOST_DEPENDENCIES, WASM_HOST_TEST_DEPENDENCIES),
         *((name, dependencies, {}) for name, dependencies in BUILTIN_CALCULATION_DEPENDENCIES.items()),
     ):
         manifest = tomllib.loads((root / modules[name] / "Cargo.toml").read_text())
@@ -605,7 +636,12 @@ def validate_workspace(root: Path) -> None:
             for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
                 for alias, config in section.get(kind, {}).items():
                     dependency = config.get("package", alias) if isinstance(config, dict) else alias
-                    if _is_forbidden_sqlite_crate(alias) or _is_forbidden_sqlite_crate(dependency):
+                    if (
+                        _is_forbidden_sqlite_crate(alias)
+                        or _is_forbidden_sqlite_crate(dependency)
+                        or _is_forbidden_wasi_host_crate(alias)
+                        or _is_forbidden_wasi_host_crate(dependency)
+                    ):
                         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
                     admitted = (
                         name == "onlyalpha-domain"
@@ -652,6 +688,16 @@ def validate_workspace(root: Path) -> None:
                         and kind == "dependencies"
                         and alias == dependency
                         and config == BUILTIN_CALCULATION_DEPENDENCIES[name].get(alias)
+                    )
+                    admitted = admitted or (
+                        name == "onlyalpha-wasm-host"
+                        and section is manifest
+                        and kind in {"dependencies", "dev-dependencies"}
+                        and alias == dependency
+                        and config
+                        == (WASM_HOST_DEPENDENCIES if kind == "dependencies" else WASM_HOST_TEST_DEPENDENCIES).get(
+                            alias
+                        )
                     )
                     admitted = admitted or (
                         name == "onlyalpha-calculation-bridge"
@@ -2180,6 +2226,7 @@ def _isolated_modules(root: Path, destination: Path, modules: tuple[str, ...]) -
             "integration_contract",
             "operators",
             "indicators",
+            "wasm_host",
             "plugin_binance",
             "plugin_tushare",
             "plugin_virtual",
@@ -2335,6 +2382,18 @@ def isolated_metadata_json(root: Path, destination: Path) -> Path:
 
 def isolated_indicators(root: Path, destination: Path) -> Path:
     return _isolated_modules(root, destination, ("operators", "indicators"))
+
+
+def isolated_wasm_host(root: Path, destination: Path) -> Path:
+    manifest = _isolated_modules(root, destination, ("operators", "wasm_host"))
+    wit_rel = Path("contracts/wasm/v1/onlyalpha-plugin.wit")
+    wit_src = root / wit_rel
+    if wit_src.is_symlink() or not wit_src.is_file():
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    wit_dst = destination / wit_rel
+    wit_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(wit_src, wit_dst)
+    return manifest
 
 
 def isolated_integration_contract(root: Path, destination: Path) -> Path:
@@ -3114,6 +3173,29 @@ def validate_crate_layout(root: Path) -> None:
                 raise ValueError(f"RUST_CRATE_README_INVALID: {readme}: {section}")
 
 
+def validate_wasm_host_sources(root: Path) -> None:
+    area = root / module_path("wasm_host")
+    manifest_path = area / "Cargo.toml"
+    if (area / "build.rs").exists():
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    if (
+        manifest.get("package", {}).get("build", False) is not False
+        or manifest.get("lib", {}).get("path", "src/lib.rs") != "src/lib.rs"
+    ):
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    wit_path = root / "contracts/wasm/v1/onlyalpha-plugin.wit"
+    if wit_path.is_symlink() or not wit_path.is_file():
+        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+    for path in area.rglob("*.rs"):
+        if path.is_symlink():
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+        text = path.read_text(encoding="utf-8")
+        code = re.sub(r"(?m)^\s*//.*$", "", text)
+        if re.search(r"\bunsafe\b|\bwasmtime_wasi\b", code):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+
+
 def validate_sources(root: Path) -> None:
     validate_benchmark_sources(root)
     validate_crate_layout(root)
@@ -3127,6 +3209,7 @@ def validate_sources(root: Path) -> None:
     validate_calculation_sources(root)
     _validate_pure_sources(root, "operators", set())
     _validate_pure_sources(root, "indicators", set())
+    validate_wasm_host_sources(root)
     validate_pipeline_sources(root)
     validate_strategy_sources(root)
     validate_order_sources(root)
@@ -3231,6 +3314,7 @@ def main(argv: list[str] | None = None) -> int:
         ("strategy", isolated_strategy),
         ("calculation", isolated_calculation),
         ("indicators", isolated_indicators),
+        ("wasm-host", isolated_wasm_host),
         ("calculation-bridge", isolated_calculation_bridge),
         ("market-data", isolated_pipeline),
         ("domain", isolated_domain),

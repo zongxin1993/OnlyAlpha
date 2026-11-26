@@ -33,7 +33,8 @@ FROM scratch AS rust-lockfile
 COPY --from=rust-dependency-resolution /rust-source/Cargo.lock /Cargo.lock
 
 FROM rust-manifests AS rust-dependencies
-RUN CARGO_NET_RETRY=0 cargo fetch --locked
+RUN CARGO_NET_RETRY=0 cargo fetch --locked \
+    && chmod -R a+rX /usr/local/cargo/registry
 
 FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS reference-tools
 ARG ONLYALPHA_DEV_UID=10001

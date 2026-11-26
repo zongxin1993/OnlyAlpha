@@ -1,0 +1,237 @@
+package onlyalpha:plugin@1.0.0;
+
+/// L3 custom extended operator plugin contract (ADR 0152).
+///
+/// Design invariants:
+/// - Pure computation only: zero WASI clock, random, filesystem, network, process, or env imports.
+/// - Self-contained interface types so every world compiles with strictly ZERO component imports.
+/// - All numeric values cross the ABI boundary as canonical decimal strings under
+///   `DECIMAL28_HALF_EVEN_Q12_V1`, preventing cross-platform floating-point drift.
+/// - Every extended operator MUST export paired vectorized (`eval-vector`) and incremental
+///   event (`init-event`, `step-event`, `capture-state`, `restore-state`) kernels.
+/// - Before admission to READY state, the host automatically certifies pointwise equivalence,
+///   multi-prefix causality, warmup/null handling, and snapshot capture/restore determinism.
+interface extended-operator {
+    /// Canonical base-10 decimal string (finite, no NaN/Inf, normalized sign for zero).
+    type decimal-str = string;
+
+    /// Canonical key-value parameter entry (keys sorted lexicographically by the host).
+    record param-entry {
+        key: string,
+        value: string,
+    }
+
+    /// Structured Fail-Closed error returned by a plugin without trapping the host.
+    record plugin-error {
+        code: string,
+        message: string,
+    }
+
+    /// Contiguous column of optional canonical decimals for vectorized evaluation.
+    record decimal-column {
+        values: list<option<decimal-str>>,
+    }
+
+    record operator-metadata {
+        operator-id: string,
+        version: string,
+        input-arity: u32,
+        warmup: u32,
+        numeric-policy: string,
+    }
+
+    /// Static operator contract metadata.
+    metadata: func() -> operator-metadata;
+
+    /// Vectorized batch kernel over aligned input columns.
+    eval-vector: func(
+        columns: list<decimal-column>,
+        params: list<param-entry>,
+    ) -> result<decimal-column, plugin-error>;
+
+    /// Initialize or reset incremental event-kernel state with canonical parameters.
+    init-event: func(params: list<param-entry>) -> result<_, plugin-error>;
+
+    /// Advance the incremental event kernel by one observation row.
+    step-event: func(
+        values: list<option<decimal-str>>,
+    ) -> result<option<decimal-str>, plugin-error>;
+
+    /// Capture canonical deterministic snapshot bytes of the current event-kernel state.
+    capture-state: func() -> result<list<u8>, plugin-error>;
+
+    /// Restore event-kernel state from snapshot bytes produced by `capture-state`.
+    restore-state: func(snapshot: list<u8>) -> result<_, plugin-error>;
+}
+
+/// L3 market trading rule plugin contract (e.g., tick/lot size, price limits, T+1/settlement checks).
+///
+/// Self-contained interface types so `market-rule-plugin` compiles with strictly ZERO imports.
+interface market-rule {
+    /// Canonical base-10 decimal string (finite, no NaN/Inf, normalized sign for zero).
+    type decimal-str = string;
+
+    /// Structured Fail-Closed error returned by a plugin without trapping the host.
+    record plugin-error {
+        code: string,
+        message: string,
+    }
+
+    /// Canonical order direction.
+    enum order-side {
+        buy,
+        sell,
+    }
+
+    /// Canonical order execution type.
+    enum order-type {
+        market,
+        limit,
+    }
+
+    /// Explicit market-rule validation input provided by the host.
+    record market-rule-input {
+        trading-day: string,
+        instrument-id: string,
+        side: order-side,
+        order-type: order-type,
+        quantity: decimal-str,
+        price: option<decimal-str>,
+        reference-price: option<decimal-str>,
+        settled-quantity: decimal-str,
+        rule-version: string,
+    }
+
+    /// Deterministic market-rule validation decision.
+    /// When `allowed` is false, `reject-code` MUST be present and non-empty (Fail-Closed).
+    record market-rule-decision {
+        allowed: bool,
+        reject-code: option<string>,
+        normalized-quantity: option<decimal-str>,
+        normalized-price: option<decimal-str>,
+        fee-estimate: option<decimal-str>,
+    }
+
+    record market-rule-metadata {
+        plugin-id: string,
+        market-id: string,
+        version: string,
+    }
+
+    /// Static market-rule plugin metadata.
+    metadata: func() -> market-rule-metadata;
+
+    /// Validate and normalize one order against explicit market rule inputs.
+    validate-order: func(
+        input: market-rule-input,
+    ) -> result<market-rule-decision, plugin-error>;
+}
+
+/// L3 programmable strategy plugin contract.
+///
+/// Strategies receive only bound causal factor values and a read-only account/position view,
+/// and return normalized order intents. They never hold risk, order, or LIVE execution authority.
+/// Self-contained interface types so `strategy-plugin` compiles with strictly ZERO imports.
+interface strategy {
+    /// Canonical base-10 decimal string (finite, no NaN/Inf, normalized sign for zero).
+    type decimal-str = string;
+
+    /// Explicit UTC event timestamp in Unix nanoseconds supplied by the host.
+    type timestamp-ns = s64;
+
+    /// Canonical key-value parameter entry (keys sorted lexicographically by the host).
+    record param-entry {
+        key: string,
+        value: string,
+    }
+
+    /// Structured Fail-Closed error returned by a plugin without trapping the host.
+    record plugin-error {
+        code: string,
+        message: string,
+    }
+
+    /// One bound causal factor value supplied to a strategy plugin at the current event.
+    record named-factor {
+        name: string,
+        value: option<decimal-str>,
+    }
+
+    /// Read-only view of a single instrument position.
+    record readonly-position {
+        instrument-id: string,
+        quantity: decimal-str,
+        average-cost: option<decimal-str>,
+    }
+
+    /// Read-only account and portfolio snapshot exposed to a strategy plugin.
+    record readonly-account-state {
+        timestamp-ns: timestamp-ns,
+        cash-available: decimal-str,
+        total-equity: decimal-str,
+        positions: list<readonly-position>,
+    }
+
+    /// Canonical order direction.
+    enum order-side {
+        buy,
+        sell,
+    }
+
+    /// Canonical order execution type.
+    enum order-type {
+        market,
+        limit,
+    }
+
+    /// Canonical order time-in-force policy.
+    enum time-in-force {
+        day,
+        gtc,
+        ioc,
+        fok,
+    }
+
+    /// Canonical order intent emitted by a strategy plugin.
+    /// Risk approval, order identity, broker submission, and ledger authority remain in Kernel.
+    record order-intent {
+        instrument-id: string,
+        side: order-side,
+        order-type: order-type,
+        quantity: decimal-str,
+        limit-price: option<decimal-str>,
+        time-in-force: time-in-force,
+        reason-code: string,
+    }
+
+    record strategy-metadata {
+        strategy-id: string,
+        version: string,
+        required-factors: list<string>,
+    }
+
+    /// Static strategy plugin metadata.
+    metadata: func() -> strategy-metadata;
+
+    /// Evaluate one market event and emit zero or more canonical order intents.
+    on-event: func(
+        factors: list<named-factor>,
+        readonly-state: readonly-account-state,
+        params: list<param-entry>,
+    ) -> result<list<order-intent>, plugin-error>;
+}
+
+/// Pure deterministic world for L3 extended operator plugins (strictly zero imports).
+world extended-operator-plugin {
+    export extended-operator;
+}
+
+/// Pure deterministic world for L3 market rule plugins (strictly zero imports).
+world market-rule-plugin {
+    export market-rule;
+}
+
+/// Pure deterministic world for L3 programmable strategy plugins (strictly zero imports).
+world strategy-plugin {
+    export strategy;
+}
