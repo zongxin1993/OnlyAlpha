@@ -1142,6 +1142,9 @@ def run_host(
             subprocess.run([*compose, "build", *browser_arguments, "validation"], cwd=ROOT, env=environment, check=True)
         image = json.loads(subprocess.check_output(["docker", "image", "inspect", IMAGE], text=True, timeout=15))[0]
         environment["ONLYALPHA_DEV_TOOL_IMAGE_ID"] = image["Id"]
+        # Compose declares this bind with create_host_path false and the directory
+        # is untracked, so a clean checkout has no mount source to attach.
+        (ROOT / "test-results").mkdir(parents=True, exist_ok=True)
         subprocess.run(
             [*compose, "up", "-d", "--no-build", "--pull", "never", "--wait", "postgres", "clickhouse", "validation"],
             cwd=ROOT,

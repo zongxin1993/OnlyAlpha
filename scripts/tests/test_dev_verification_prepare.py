@@ -155,6 +155,13 @@ def test_prepare_pulls_only_pinned_databases_before_build_or_up(docker_calls, av
     assert reservation["completed"] is True
 
 
+def test_prepare_creates_missing_host_bind_source(docker_calls, tmp_path):
+    _, state = docker_calls
+    assert not (tmp_path / "test-results").exists()
+    assert invoke("prepare", {"operation_id": "operation"}) == 0
+    assert (tmp_path / "test-results").is_dir()
+
+
 def test_run_never_pulls_or_builds_images(docker_calls):
     calls, state = docker_calls
     state["running"] = True
