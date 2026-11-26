@@ -44,7 +44,8 @@ fn finite_spot_accept_uses_the_production_payload_contract() {
     configuration["account_checkpoint_version"] = json!(5);
     let kernel = "a".repeat(64);
     let pin = "b".repeat(64);
-    let binding = json!({"configuration":hash(&configuration),"kernel_artifact":kernel,"input_pin":pin});
+    let binding =
+        json!({"configuration":hash(&configuration),"kernel_artifact":kernel,"input_pin":pin});
     let inputs = [
         support::open(1, "BUY"),
         support::stage(2, 1, "UNKNOWN"),
@@ -97,8 +98,7 @@ fn finite_spot_accept_uses_the_production_payload_contract() {
         accept["payload"][field] = value;
         let cause = hash(accept);
         let mut result = completed.result().clone();
-        result["facts"][accept_index] =
-            json!({"sequence":accept_index + 1,"transaction":format!("ETX-{cause}"),"input":accept});
+        result["facts"][accept_index] = json!({"sequence":accept_index + 1,"transaction":format!("ETX-{cause}"),"input":accept});
         result["manifest"]["inputs"][accept_index] = json!(cause);
         result["source"]["inputs"] = json!(hash(&json!(altered_inputs)));
         result["reconciliation"]["source"] = result["source"].clone();

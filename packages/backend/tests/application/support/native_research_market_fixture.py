@@ -22,7 +22,6 @@ import pytest
 
 from packages.backend.tests.application.support.native_probe import build_native_probe as _build_market_probe
 from packages.backend.tests.application.support.native_probe import runtime_diagnostic_lines
-
 from packages.backend.tests.application.test_runtime_installation_postgres import (
     native_environment_case as native_environment_case,
 )

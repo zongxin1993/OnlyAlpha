@@ -82,7 +82,9 @@ fn recovery_history(rounds: u64) -> (TradingBinding, Vec<onlyalpha_execution::Re
     }
     (binding, rows)
 }
-fn record(facts: &onlyalpha_runtime::durability::PreparedTradingFacts) -> onlyalpha_execution::Record {
+fn record(
+    facts: &onlyalpha_runtime::durability::PreparedTradingFacts,
+) -> onlyalpha_execution::Record {
     onlyalpha_execution::Record::decode(&json!({
         "schema_version": 1,
         "prepared": facts.prepared().record(),
@@ -92,7 +94,13 @@ fn record(facts: &onlyalpha_runtime::durability::PreparedTradingFacts) -> onlyal
     .unwrap()
 }
 fn restore(binding: &TradingBinding, rows: &[onlyalpha_execution::Record]) -> RecoveryFacts {
-    RecoveryFacts::from_records(binding, binding.fingerprint(), rows.len() as u64, rows.to_vec()).unwrap()
+    RecoveryFacts::from_records(
+        binding,
+        binding.fingerprint(),
+        rows.len() as u64,
+        rows.to_vec(),
+    )
+    .unwrap()
 }
 fn memory_bench(c: &mut Criterion) {
     use onlyalpha_observability::{Config, Mode, Session as Observation};
@@ -148,9 +156,11 @@ fn memory_bench(c: &mut Criterion) {
         )
     });
     for (name, mode) in [("off", Mode::Off), ("detail", Mode::Detail)] {
-        let observation =
-            Observation::new(Config::new(mode, format!("memory-bench-{name}"), 65536), std::io::sink())
-                .unwrap();
+        let observation = Observation::new(
+            Config::new(mode, format!("memory-bench-{name}"), 65536),
+            std::io::sink(),
+        )
+        .unwrap();
         let dispatch = observation.dispatch().clone();
         let check = tracing::dispatcher::with_default(&dispatch, || {
             let mut o = memory_owner();

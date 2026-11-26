@@ -83,7 +83,10 @@ impl Components {
         Ok(())
     }
     pub(crate) fn margin_command_id(input: &Value, effect: &onlyalpha_margin::Effect) -> String {
-        format!("MACMD-{}", hash(&json!([input["input_id"], effect.record()["id"]])))
+        format!(
+            "MACMD-{}",
+            hash(&json!([input["input_id"], effect.record()["id"]]))
+        )
     }
     pub(crate) fn project_margin(
         &mut self,

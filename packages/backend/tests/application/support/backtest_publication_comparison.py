@@ -4,7 +4,6 @@ import hashlib
 import json
 from uuid import UUID
 
-
 _MEMBER_KEYS = ("close_curve", "economic_result", "execution_facts")
 
 

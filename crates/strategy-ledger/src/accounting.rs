@@ -145,13 +145,8 @@ impl Ledger {
             }
             self.cash += &notional - &fee;
         }
-        self.rounding_residual += realized_rounding_delta(
-            perpetual,
-            buy,
-            &(&cost - &existing.cost),
-            &notional,
-            &rd,
-        );
+        self.rounding_residual +=
+            realized_rounding_delta(perpetual, buy, &(&cost - &existing.cost), &notional, &rd);
         self.realized += rd;
         self.fees += &fee;
         self.trade_sequence = Some(uint(&p["source_sequence"])?);

@@ -267,7 +267,10 @@ impl<'a> Fees<'a> {
             id(&fill["trade_id"]["value"])?,
             uint(&fill["ts_event"]["unix_nanos"])?,
             self.basis(&q, &n),
-            self.basis(&(q + filled_quantity), &(n + cumulative_price_quantity * mult)),
+            self.basis(
+                &(q + filled_quantity),
+                &(n + cumulative_price_quantity * mult),
+            ),
             Some(role),
         ))
     }

@@ -119,19 +119,14 @@ impl Driver {
         Self::build(cfg, inputs, prefix, close, true)
     }
     /// 只建立准入所需的配置与证据，不向内存场所派发命令。
-    fn build(
-        cfg: &Value,
-        inputs: &[Value],
-        prefix: usize,
-        close: bool,
-        orchestrate: bool,
-    ) -> Self {
+    fn build(cfg: &Value, inputs: &[Value], prefix: usize, close: bool, orchestrate: bool) -> Self {
         let (scope, cash, settings) = venue_config(inputs);
         let binding = cfg["perpetual"]["execution_source_binding"]
             .as_str()
             .unwrap();
         let mut venue =
-            MemoryVirtualActor::new(scope.clone(), &"f".repeat(64), cash, &settings, binding).unwrap();
+            MemoryVirtualActor::new(scope.clone(), &"f".repeat(64), cash, &settings, binding)
+                .unwrap();
         venue.connect().unwrap();
         venue.authenticate().unwrap();
         let configuration = RunConfiguration::from_record(cfg.clone()).unwrap();
@@ -168,8 +163,7 @@ impl Driver {
     }
     /// 按同一配置和已执行步骤从头重算；这是内存工作唯一的恢复语义。
     pub(super) fn recompute(&self) -> Self {
-        let mut restored =
-            Self::build(&self.config, &self.inputs, 0, self.close, self.orchestrate);
+        let mut restored = Self::build(&self.config, &self.inputs, 0, self.close, self.orchestrate);
         for (index, step) in self.steps.iter().enumerate() {
             match step {
                 Step::Input(input) => {
@@ -257,10 +251,14 @@ impl Driver {
         );
         let event = if original {
             let source = if input["op"] == "FUNDING" {
-                Some(self.venue.funding_history(
-                    funding_boundary(&input["payload"]["fact"])?,
-                    input["time"].as_u64().unwrap(),
-                ).map_err(broker)?)
+                Some(
+                    self.venue
+                        .funding_history(
+                            funding_boundary(&input["payload"]["fact"])?,
+                            input["time"].as_u64().unwrap(),
+                        )
+                        .map_err(broker)?,
+                )
             } else {
                 None
             };
@@ -304,17 +302,15 @@ impl Driver {
             "order":order,
             "client":snapshot["client_order_id"]["value"],
             "request":request
-        })).map_err(broker)?;
+        }))
+        .map_err(broker)?;
         let at = input["time"].as_i64().unwrap();
         self.venue.advance(at).map_err(broker)?;
-        self.venue.dispatch(&self.session, &command).map_err(broker)?;
+        self.venue
+            .dispatch(&self.session, &command)
+            .map_err(broker)?;
         self.venue.advance(at).map_err(broker)?;
-        for (index, fill) in self
-            .inputs
-            .iter()
-            .filter(|v| v["op"] == "FILL")
-            .enumerate()
-        {
+        for (index, fill) in self.inputs.iter().filter(|v| v["op"] == "FILL").enumerate() {
             let sequence = u64::try_from(index).unwrap() + 1;
             let event = fill["payload"]["broker"]["record"]["ts_event"]
                 .as_i64()

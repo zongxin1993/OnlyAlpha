@@ -44,7 +44,8 @@ def test_diagnostic_startup_markers_do_not_change_native_descriptor(native_relea
     for enabled in (False,True):
         env=dict(os.environ)
         env.pop("ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS",None)
-        if enabled: env["ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS"]="1"
+        if enabled:
+            env["ONLYALPHA_RUNTIME_PREPARATION_DIAGNOSTICS"] = "1"
         result=subprocess.run([str(native_release_probe),"--describe-research-runtime"],env=env,
                               capture_output=True,timeout=30,check=True)
         results.append(json.loads(result.stdout))
