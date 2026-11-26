@@ -933,7 +933,11 @@ impl Components {
                     json!({"mark":self.current_mark(input)?["value"]["value"]}),
                 );
                 let collateral = self.perpetual_collateral(
-                    input, &rel["request"], Some(f), &n, &self.margin_owner()?,
+                    input,
+                    &rel["request"],
+                    Some(f),
+                    &n,
+                    &self.margin_owner()?,
                 )?;
                 next["fee_assessment"] = fee;
                 next["payload"] = json!({"schema_version":1,"order":order,"trade":trade,"venue_trade":f["venue_trade_id"]["value"],"venue_order":venue,"quantity":f["quantity"]["value"],"price":f["price"]["value"],"fees":fee_proof,"settlement":settlement,"valuation":valuation,"collateral":collateral});

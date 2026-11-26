@@ -9,11 +9,13 @@ from typing import Any
 import pytest
 
 from packages.backend.tests.application import test_market_storage_postgres_clickhouse as scenarios
-from packages.backend.tests.application.test_market_storage_postgres_clickhouse import database as database
 from packages.backend.tests.application.support.native_research_market_fixture import (
     _build_market_probe,
+)
+from packages.backend.tests.application.support.native_research_market_fixture import (
     native_environment_case as native_environment_case,
 )
+from packages.backend.tests.application.test_market_storage_postgres_clickhouse import database as database
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.clickhouse, pytest.mark.timeout(120)]
 

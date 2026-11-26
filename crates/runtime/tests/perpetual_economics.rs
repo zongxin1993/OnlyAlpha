@@ -526,7 +526,10 @@ fn gtc_fee_reservation_covers_future_effective_rates_and_uses_the_fill_economic_
     // 实际场所原件保留原经济日与原生成时刻，运行在第二日才可见。
     refresh_fill_observation(fill);
     let mut run = Driver::prefix(&cfg, &inputs, 2);
-    amount(&run.state().unwrap()["account"]["snapshot"]["reserved"], "1");
+    amount(
+        &run.state().unwrap()["account"]["snapshot"]["reserved"],
+        "1",
+    );
     for item in &inputs[2..5] {
         run.apply(item).unwrap();
     }
@@ -780,7 +783,7 @@ fn rounded_margin_fill_case(case: MarginFillCase, precision: u8) {
     let changed_mark = case == MarginFillCase::ChangedMark;
     let price = if precise { "0.010501" } else { "0.01" };
     let price_precision = if precise { 6 } else { 2 };
-    use onlyalpha_broker::{Scope};
+    use onlyalpha_broker::Scope;
     let (mut cfg, mut inputs) = scenario();
     cfg["currency"]["precision"] = json!(precision);
     cfg["perpetual"]["currency"] = cfg["currency"].clone();

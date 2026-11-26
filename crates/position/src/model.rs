@@ -166,7 +166,9 @@ pub fn average_cost(cost: &D, quantity: &D, price_precision: u8) -> Result<Optio
     if quantity.is_zero() {
         return Ok(None);
     }
-    Ok(Some(ratio(cost, quantity, i64::from(price_precision))?.to_plain_string()))
+    Ok(Some(
+        ratio(cost, quantity, i64::from(price_precision))?.to_plain_string(),
+    ))
 }
 
 pub fn release_cost(cost: &D, qty: &D, fill: &D, qp: u8) -> Result<D, Error> {

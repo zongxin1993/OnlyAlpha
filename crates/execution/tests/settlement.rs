@@ -182,7 +182,8 @@ fn deferred_asset_and_cash_are_released_once_with_exact_lifecycle() {
         let original = format!("ETX-{}", fingerprint(fill));
         fill["payload"]["price"] = json!(adverse_price);
         let altered = fingerprint(fill);
-        let fact = json!({"sequence":index + 1,"transaction":format!("ETX-{altered}"),"input":fill});
+        let fact =
+            json!({"sequence":index + 1,"transaction":format!("ETX-{altered}"),"input":fill});
         changed["manifest"]["inputs"][index] = json!(altered);
         changed["facts"][index] = fact.clone();
         *changed["trades"]

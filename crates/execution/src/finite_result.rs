@@ -2,7 +2,9 @@ use crate::{
     Components,
     backtest_result::cluster_summary,
     model::*,
-    perpetual::{funding_pair, mark_fact, nanos, validate_admission_after_funding, validate_mark_order},
+    perpetual::{
+        funding_pair, mark_fact, nanos, validate_admission_after_funding, validate_mark_order,
+    },
     perpetual_fees::{Fees, fill_day},
     planning::{
         admission_quantity_precision, allocation_before, allocation_witness,
@@ -414,21 +416,30 @@ fn expected_occurrences<'a>(
         };
         let input_id = text(&input["input_id"])?;
         for &(kind, suffix) in commands {
-            expected.account.push((cause, kind, format!("{input_id}-{suffix}")));
+            expected
+                .account
+                .push((cause, kind, format!("{input_id}-{suffix}")));
         }
         if op == "SETTLEMENT_MATURITY" && trades.account_payloads.contains_key(cause) {
-            expected.account.push((cause, "SETTLE", format!("{input_id}-0")));
+            expected
+                .account
+                .push((cause, "SETTLE", format!("{input_id}-0")));
         }
         if trades.valuation_positions.contains_key(cause) {
-            expected.account.push((cause, "VALUATION", format!("{input_id}-0")));
+            expected
+                .account
+                .push((cause, "VALUATION", format!("{input_id}-0")));
         }
         if let Some(effects) = trades.margin_effects.get(cause) {
             expected.account.extend(effects.iter().map(|effect| {
-                (cause, "MARGIN", Components::margin_command_id(input, effect))
+                (
+                    cause,
+                    "MARGIN",
+                    Components::margin_command_id(input, effect),
+                )
             }));
         }
-        if matches!(op, "ADMIT" | "FILL" | "TERMINAL")
-            && payload["collateral"]["kind"] == "MARGIN"
+        if matches!(op, "ADMIT" | "FILL" | "TERMINAL") && payload["collateral"]["kind"] == "MARGIN"
         {
             expected.margin.insert(cause);
         }
@@ -974,12 +985,18 @@ fn verify_ledgers(
     let finals = array(&result["final_ledgers"])?;
     let results = array(&result["cluster_results"])?;
     let timelines = array(&result["cluster_equity_timelines"])?;
-    if [finals, results, timelines].iter().any(|rows| rows.len() != clusters.len()) {
+    if [finals, results, timelines]
+        .iter()
+        .any(|rows| rows.len() != clusters.len())
+    {
         return Err(err("RESULT_FINITE_LEDGER_SCOPE"));
     }
     let mut expected = BTreeMap::<_, Vec<_>>::new();
     for point in projected.ledger.equity_occurrences() {
-        expected.entry(text(&point["cluster"])?).or_default().push(point);
+        expected
+            .entry(text(&point["cluster"])?)
+            .or_default()
+            .push(point);
     }
     for (index, cluster) in clusters.iter().enumerate() {
         let timeline = &timelines[index];
@@ -1027,11 +1044,20 @@ fn verify_ledger_snapshot(snapshot: &Value, expected: &Value) -> Result<(), Erro
         return Ok(());
     }
     for (fields, code) in [
-        (&["realized_rounding_adjustment"][..], "RESULT_FINITE_LEDGER_ROUNDING"),
+        (
+            &["realized_rounding_adjustment"][..],
+            "RESULT_FINITE_LEDGER_ROUNDING",
+        ),
         (&["fees"][..], "RESULT_FINITE_TRADE_FEES"),
-        (&["simple_return", "daily_return"][..], "RESULT_FINITE_LEDGER_RETURN"),
+        (
+            &["simple_return", "daily_return"][..],
+            "RESULT_FINITE_LEDGER_RETURN",
+        ),
     ] {
-        if fields.iter().any(|field| snapshot[*field] != expected[*field]) {
+        if fields
+            .iter()
+            .any(|field| snapshot[*field] != expected[*field])
+        {
             return Err(err(code));
         }
     }
@@ -1208,13 +1234,17 @@ fn verify_orders_and_positions<'a>(
                         * &multiplier;
                     genesis.create_order(input, order)?;
                     let snapshot = boundary(genesis.order.get(origin.cluster, order))?;
-                    let contract = Fees::new(configuration, uint(&input["day_index"])?)?
-                        .contract(&snapshot, uint(&input["time"])?, &notional)?;
+                    let contract = Fees::new(configuration, uint(&input["day_index"])?)?.contract(
+                        &snapshot,
+                        uint(&input["time"])?,
+                        &notional,
+                    )?;
                     genesis.bind_order_fee(input, order, &contract)?;
                     genesis.begin_order_submission(input, order)?;
                     let amount = exact(&contract["funding"]["fee_reservation"]["amount"])?;
                     account_payloads.insert(cause.into(), json!({"schema_version":1,"reservation":order,"order":order,"amount":money(&amount,genesis.precision)?}));
-                    let collateral = genesis.perpetual_collateral(input, request, None, &notional, owner)?;
+                    let collateral =
+                        genesis.perpetual_collateral(input, request, None, &notional, owner)?;
                     let effect = boundary(owner.apply(&collateral["instruction"]))?;
                     margin_effects.entry(cause).or_default().push(effect);
                     std::sync::Arc::make_mut(&mut genesis.meta)["orders"][order] =
@@ -1232,14 +1262,20 @@ fn verify_orders_and_positions<'a>(
                     )?;
                 }
                 if boundary(genesis.ledger.snapshot(origin.cluster))?["lifecycle"] == "CREATED" {
-                    let activate = genesis.ledger_command(input, "ACTIVATE", json!({"schema_version":1}), 0);
+                    let activate =
+                        genesis.ledger_command(input, "ACTIVATE", json!({"schema_version":1}), 0);
                     genesis.ledger_apply(&activate)?;
                 }
                 if origin.snapshot["side"] == "SELL" {
                     genesis.reserve_position(input, &origin.instrument)?;
                     genesis.stage_position(input, "SENT_TO_BROKER", 3)?;
                 } else {
-                    let reserve = genesis.ledger_command(input, "RESERVE", account_payloads[cause].clone(), 2);
+                    let reserve = genesis.ledger_command(
+                        input,
+                        "RESERVE",
+                        account_payloads[cause].clone(),
+                        2,
+                    );
                     genesis.ledger_apply(&reserve)?;
                     let stage = genesis.ledger_command(input, "STAGE", json!({"schema_version":1,"reservation":payload["order"],"stage":"SENT_TO_BROKER"}), 3);
                     genesis.ledger_apply(&stage)?;
@@ -1256,7 +1292,11 @@ fn verify_orders_and_positions<'a>(
                     "CANCEL" => genesis.apply_order_cancel(input)?,
                     _ if perpetual => {
                         genesis.perpetual_broker_order(input)?;
-                        genesis.apply_native_order_fact(input, order, &payload["broker"]["record"])?;
+                        genesis.apply_native_order_fact(
+                            input,
+                            order,
+                            &payload["broker"]["record"],
+                        )?;
                     }
                     "ACCEPT" => genesis.apply_spot_order_accept(input, order)?,
                     _ => genesis.apply_order_terminal(input, order)?,
@@ -1273,8 +1313,17 @@ fn verify_orders_and_positions<'a>(
                         _ => {}
                     }
                 } else if op == "TERMINAL" {
-                    let outcome = if perpetual { &payload["broker"]["record"]["kind"] } else { &payload["outcome"] };
-                    let release = genesis.ledger_command(input, "RELEASE", json!({"schema_version":1,"reservation":order,"outcome":outcome}), 0);
+                    let outcome = if perpetual {
+                        &payload["broker"]["record"]["kind"]
+                    } else {
+                        &payload["outcome"]
+                    };
+                    let release = genesis.ledger_command(
+                        input,
+                        "RELEASE",
+                        json!({"schema_version":1,"reservation":order,"outcome":outcome}),
+                        0,
+                    );
                     genesis.ledger_apply(&release)?;
                 } else if let Some(stage) = match op {
                     "ACCEPT" => Some("BROKER_ACKNOWLEDGED"),
@@ -1282,18 +1331,34 @@ fn verify_orders_and_positions<'a>(
                     "SUBMISSION" if payload["outcome"] == "UNKNOWN" => Some("SUBMIT_UNKNOWN"),
                     _ => None,
                 } {
-                    let stage = genesis.ledger_command(input, "STAGE", json!({"schema_version":1,"reservation":order,"stage":stage}), 0);
+                    let stage = genesis.ledger_command(
+                        input,
+                        "STAGE",
+                        json!({"schema_version":1,"reservation":order,"stage":stage}),
+                        0,
+                    );
                     genesis.ledger_apply(&stage)?;
                 }
-                if op == "TERMINAL" && let Some(owner) = &mut margin {
-                    let state = owner.snapshots().into_iter()
+                if op == "TERMINAL"
+                    && let Some(owner) = &mut margin
+                {
+                    let state = owner
+                        .snapshots()
+                        .into_iter()
                         .find(|state| state["order"] == order)
                         .ok_or_else(|| err("EXECUTION_MARGIN_NOT_ADMITTED"))?;
                     let command = Components::derived_margin(
-                        input, &state, "RELEASE_RESERVED", state["unfilled"].clone(),
-                        state["reserved"].clone(), json!("0.00"),
+                        input,
+                        &state,
+                        "RELEASE_RESERVED",
+                        state["unfilled"].clone(),
+                        state["reserved"].clone(),
+                        json!("0.00"),
                     );
-                    margin_effects.entry(cause).or_default().push(boundary(owner.apply(&command))?);
+                    margin_effects
+                        .entry(cause)
+                        .or_default()
+                        .push(boundary(owner.apply(&command))?);
                 }
                 continue;
             }
@@ -1319,7 +1384,10 @@ fn verify_orders_and_positions<'a>(
                 ))?;
                 let flow = effect.record();
                 let command = genesis.ledger_command(input, "FUNDING", Value::Null, 0);
-                if boundary(std::sync::Arc::make_mut(&mut genesis.ledger).apply_funding(&command, &effect))?.status
+                if boundary(
+                    std::sync::Arc::make_mut(&mut genesis.ledger).apply_funding(&command, &effect),
+                )?
+                .status
                     != onlyalpha_strategy_ledger::Status::Applied
                 {
                     return Err(err("RESULT_FINITE_LEDGER_OCCURRENCES"));
@@ -1485,16 +1553,25 @@ fn verify_orders_and_positions<'a>(
         let instrument = origin.instrument.as_str();
         if let (Some(owner), Some(native)) = (&mut margin, native) {
             let collateral = genesis.perpetual_collateral(
-                input, &origin.admission["payload"]["request"], Some(native), &gross, owner,
+                input,
+                &origin.admission["payload"]["request"],
+                Some(native),
+                &gross,
+                owner,
             )?;
             let effect = boundary(owner.apply(&collateral["instruction"]))?;
             let effects = margin_effects.entry(cause).or_default();
             effects.push(effect);
             if terminal {
-                let state = boundary(owner.snapshot(id(&collateral["instruction"]["reservation"])?))?;
+                let state =
+                    boundary(owner.snapshot(id(&collateral["instruction"]["reservation"])?))?;
                 let release = Components::derived_margin(
-                    input, &state, "RELEASE_RESERVED", state["unfilled"].clone(),
-                    state["reserved"].clone(), json!("0.00"),
+                    input,
+                    &state,
+                    "RELEASE_RESERVED",
+                    state["unfilled"].clone(),
+                    state["reserved"].clone(),
+                    json!("0.00"),
                 );
                 effects.push(boundary(owner.apply(&release))?);
             }
@@ -1553,7 +1630,11 @@ fn verify_orders_and_positions<'a>(
         let ledger_trade = genesis.ledger_command(input,"TRADE",json!({"schema_version":1,"trade":trade,"execution":format!("ETX-{cause}"),"venue_trade":venue_trade,"order":order,"fee_instruction":fee["fee_instruction"],"source_sequence":sequence,"side":origin.snapshot["side"],"instrument":instrument,"notional":notional,"charges":fee["charges"],"rebates":fee["rebates"],"reservation":buy.then_some(order),"terminal_fill":terminal,"before":ledger_before,"after":ledger_after,"allocation_evidence":hash(&allocation),"mark":mark.normalized().to_plain_string(),"multiplier":multiplier.normalized().to_plain_string()}),0);
         if perpetual {
             let evidence = boundary(genesis.position.trade_evidence(trade))?;
-            if boundary(std::sync::Arc::make_mut(&mut genesis.ledger).apply_position_trade(&ledger_trade, &evidence))?.status
+            if boundary(
+                std::sync::Arc::make_mut(&mut genesis.ledger)
+                    .apply_position_trade(&ledger_trade, &evidence),
+            )?
+            .status
                 != onlyalpha_strategy_ledger::Status::Applied
             {
                 return Err(err("RESULT_FINITE_LEDGER_OCCURRENCES"));

@@ -52,7 +52,8 @@ fn as_sim(input: Value) -> Value {
             };
             scope.insert("runtime_kind".into(), json!("SIM"));
             proof.remove("source_digest");
-            let digest = onlyalpha_execution::digest(Value::Object(proof.clone()).to_string().as_bytes());
+            let digest =
+                onlyalpha_execution::digest(Value::Object(proof.clone()).to_string().as_bytes());
             proof.insert("source_digest".into(), json!(digest));
         }
     }
@@ -104,13 +105,9 @@ fn main() {
                     &"b".repeat(64),
                 )
                 .unwrap();
-                let mut facts = RecoveryFacts::from_records(
-                    &binding,
-                    binding.fingerprint(),
-                    0,
-                    Vec::new(),
-                )
-                .unwrap();
+                let mut facts =
+                    RecoveryFacts::from_records(&binding, binding.fingerprint(), 0, Vec::new())
+                        .unwrap();
                 let mut rows = Vec::new();
                 for input in inputs() {
                     let prepared = facts.prepare(&as_sim(input)).unwrap();

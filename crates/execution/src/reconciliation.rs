@@ -354,8 +354,16 @@ pub(crate) fn record_fee_input(
     }
     .record();
     let trade = id(&input["payload"]["trade"])?;
-    let entry = fee_application_entry(&application, cluster, id(&input["payload"]["order"])?, trade)?;
-    if expected.insert(trade.into(), json!({"cluster":cluster,"entry":entry})).is_some() {
+    let entry = fee_application_entry(
+        &application,
+        cluster,
+        id(&input["payload"]["order"])?,
+        trade,
+    )?;
+    if expected
+        .insert(trade.into(), json!({"cluster":cluster,"entry":entry}))
+        .is_some()
+    {
         return Err(err("RECONCILIATION_DUPLICATE_TRADE"));
     }
     Ok(())
@@ -373,8 +381,10 @@ pub(crate) fn fee_application_entry(
     {
         return Err(err("RECONCILIATION_FEE_RELATION"));
     }
-    Ok(json!({"trade":trade,"order":order,"fee_instruction":application["id"],
-        "charges":application["charges"],"rebates":application["rebates"]}))
+    Ok(
+        json!({"trade":trade,"order":order,"fee_instruction":application["id"],
+        "charges":application["charges"],"rebates":application["rebates"]}),
+    )
 }
 
 fn array(v: &Value) -> Result<&Vec<Value>, Error> {
@@ -411,9 +421,17 @@ pub(crate) fn compare_snapshot_totals<'a>(
     for (field, account_value, ledger_field) in [
         ("initial_equity", initial, "initial_capital"),
         ("ledger_cash", &account["cash"], "cash"),
-        ("position_market_value", &account["market_value"], "market_value"),
+        (
+            "position_market_value",
+            &account["market_value"],
+            "market_value",
+        ),
         ("realized_pnl", &account["realized_pnl"], "realized_pnl"),
-        ("unrealized_pnl", &account["unrealized_pnl"], "unrealized_pnl"),
+        (
+            "unrealized_pnl",
+            &account["unrealized_pnl"],
+            "unrealized_pnl",
+        ),
         ("fees", &account["fees"], "fees"),
         ("equity", &account["equity"], "equity"),
     ] {

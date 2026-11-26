@@ -116,10 +116,17 @@ fn valuation_keeps_ledger_sequences_inside_the_input_range() {
 
     valuation["runtime_sequence"] = json!(sequence);
     apply(&mut history, &valuation);
-    let points = history.components.ledger.equity_occurrences().collect::<Vec<_>>();
+    let points = history
+        .components
+        .ledger
+        .equity_occurrences()
+        .collect::<Vec<_>>();
     assert_eq!(points.len(), count);
     for (ordinal, point) in points.into_iter().enumerate() {
-        assert_eq!(point["snapshot"]["runtime_sequence"], sequence * 64 + ordinal as u64 + 1);
+        assert_eq!(
+            point["snapshot"]["runtime_sequence"],
+            sequence * 64 + ordinal as u64 + 1
+        );
     }
 }
 
@@ -254,7 +261,11 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
         record["update_id"] = json!("virtual-update-00000003");
         record["source_sequence"] = json!(sequence);
         record["payload"]["venue"] = venue.clone();
-        record["payload"]["reason"] = json!(if kind == "REJECTED" { "venue rejected the order" } else { "" });
+        record["payload"]["reason"] = json!(if kind == "REJECTED" {
+            "venue rejected the order"
+        } else {
+            ""
+        });
         let fact = broker::Fact::decode(&record).unwrap();
         let mut input = inputs[3].clone();
         input["op"] = json!("TERMINAL");
@@ -262,7 +273,8 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
         input["runtime_sequence"] = json!(5);
         input["input_id"] = json!("finite-terminal");
         input["source_ref"] = json!("finite-terminal");
-        input["payload"]["broker"] = json!({"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":record});
+        input["payload"]["broker"] =
+            json!({"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":record});
         (input, fact)
     };
     let venue = &inputs[3]["payload"]["broker"]["record"]["payload"]["venue"];
@@ -323,11 +335,16 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
             let before = history.state().unwrap();
             let stored = history.store.rows.clone();
             let mut rejected_journal = journal.clone();
-            let mut rejected_broker = broker::Broker::recover(scope.clone(), &rejected_journal, 512).unwrap();
-            rejected_broker.ingest(&mut rejected_journal, std::slice::from_ref(fact)).unwrap();
-            let error = history.components
+            let mut rejected_broker =
+                broker::Broker::recover(scope.clone(), &rejected_journal, 512).unwrap();
+            rejected_broker
+                .ingest(&mut rejected_journal, std::slice::from_ref(fact))
+                .unwrap();
+            let error = history
+                .components
                 .prepare_perpetual(&history.store, terminal, &cut, &rejected_broker)
-                .err().unwrap();
+                .err()
+                .unwrap();
             assert_eq!(error.0, *code);
             assert_eq!(history.state().unwrap(), before);
             assert_eq!(history.store.rows, stored);
@@ -530,17 +547,25 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
     let mut wrong_policy = late_admission.clone();
     wrong_policy["payload"]["policy_fingerprint"] = json!("1".repeat(64));
     let mut off_tick = late_admission.clone();
-    off_tick["payload"]["request"]["price"] = json!({"schema_version":1,"precision":3,"value":"30.001"});
+    off_tick["payload"]["request"]["price"] =
+        json!({"schema_version":1,"precision":3,"value":"30.001"});
     let assert_production_refusal = |history: &Harness, input: &Value, code: &str| {
         let before = history.state().unwrap();
-        let error = history.components.prepare(&history.store, input).err().unwrap();
+        let error = history
+            .components
+            .prepare(&history.store, input)
+            .err()
+            .unwrap();
         assert_eq!(error.0, code);
         assert_eq!(history.state().unwrap(), before);
     };
     let mut empty = Harness::new(config.clone()).unwrap();
     assert_production_refusal(&empty, &inputs[1], "EXECUTION_MARK_UNAVAILABLE");
     assert!(empty.store.rows.is_empty());
-    let mark = empty.components.prepare_perpetual(&empty.store, &inputs[0], &cut, &protocol).unwrap();
+    let mark = empty
+        .components
+        .prepare_perpetual(&empty.store, &inputs[0], &cut, &protocol)
+        .unwrap();
     coordinate(&mut empty.store, &mut empty.components, &mark).unwrap();
     let mut hedged = inputs[1].clone();
     hedged["payload"]["request"]["execution_intent"]["position_mode"] = json!("HEDGING");
@@ -577,14 +602,20 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
     let mut funding = inputs[6].clone();
     funding["runtime_sequence"] = json!(8);
     finite_inputs.push(funding);
-    let apply_finite_input = |run: &mut crate::WorkingState, input: &Value, broker: &broker::MemoryBroker| {
-        if matches!(input["op"].as_str(), Some("MARK" | "ACCEPT" | "FILL" | "FUNDING")) {
-            let evidence = run.check_original_input(input, &cut, broker, Some(&source)).unwrap();
-            run.apply_verified(input, evidence).unwrap();
-        } else {
-            run.apply(input).unwrap();
-        }
-    };
+    let apply_finite_input =
+        |run: &mut crate::WorkingState, input: &Value, broker: &broker::MemoryBroker| {
+            if matches!(
+                input["op"].as_str(),
+                Some("MARK" | "ACCEPT" | "FILL" | "FUNDING")
+            ) {
+                let evidence = run
+                    .check_original_input(input, &cut, broker, Some(&source))
+                    .unwrap();
+                run.apply_verified(input, evidence).unwrap();
+            } else {
+                run.apply(input).unwrap();
+            }
+        };
     for input in &finite_inputs {
         apply_finite_input(&mut finite, input, &broker);
         if input["op"] == "ADMIT" {
@@ -670,17 +701,25 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
         initial_ns,
         final_ns,
     );
-    assert_eq!(rejected.err().map(|error| error.0).as_deref(), Some("EXECUTION_RISK_DENIED"));
+    assert_eq!(
+        rejected.err().map(|error| error.0).as_deref(),
+        Some("EXECUTION_RISK_DENIED")
+    );
 
     let reseal_inputs = |result: &mut Value| {
         let (inputs, causes): (Vec<_>, Vec<_>) = result["facts"]
-            .as_array_mut().unwrap().iter_mut().enumerate().map(|(index, fact)| {
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .enumerate()
+            .map(|(index, fact)| {
                 let input = fact["input"].clone();
                 let cause = crate::model::hash(&input);
                 fact["sequence"] = json!(index + 1);
                 fact["transaction"] = json!(format!("ETX-{cause}"));
                 (input, cause)
-            }).unzip();
+            })
+            .unzip();
         result["manifest"]["inputs"] = json!(causes);
         result["source"]["inputs"] = json!(digest(&serde_json::to_vec(&inputs).unwrap()));
         result["source"]["rows"] = json!(inputs.len());
@@ -692,7 +731,9 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
     let assert_refusal = |result: &Value, checkpoint: &Value, last: i64, code: &str| {
         let error = crate::verify_finite_backtest_result(
             result, checkpoint, &config, &kernel, &pin, initial_ns, last,
-        ).err().unwrap();
+        )
+        .err()
+        .unwrap();
         assert_eq!(error.0, code);
     };
     for (input, code) in [
@@ -700,9 +741,12 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
         (off_tick, "EXECUTION_MARKET_LIMIT_RULES"),
     ] {
         let mut changed = completed.result().clone();
-        changed["facts"][1]["input"]["payload"]["policy_fingerprint"] = input["payload"]["policy_fingerprint"].clone();
-        changed["facts"][1]["input"]["payload"]["request"] = inputs[1]["payload"]["request"].clone();
-        changed["facts"][1]["input"]["payload"]["request"]["price"] = input["payload"]["request"]["price"].clone();
+        changed["facts"][1]["input"]["payload"]["policy_fingerprint"] =
+            input["payload"]["policy_fingerprint"].clone();
+        changed["facts"][1]["input"]["payload"]["request"] =
+            inputs[1]["payload"]["request"].clone();
+        changed["facts"][1]["input"]["payload"]["request"]["price"] =
+            input["payload"]["request"]["price"].clone();
         reseal_inputs(&mut changed);
         assert_refusal(&changed, completed.account_checkpoint(), final_ns, code);
     }
@@ -710,7 +754,12 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
     let facts = changed["facts"].as_array_mut().unwrap();
     facts.push(json!({"sequence":facts.len()+1,"transaction":null,"input":late_admission}));
     reseal_inputs(&mut changed);
-    assert_refusal(&changed, completed.account_checkpoint(), final_ns, "EXECUTION_ADMISSION_AT_SETTLED_BOUNDARY");
+    assert_refusal(
+        &changed,
+        completed.account_checkpoint(),
+        final_ns,
+        "EXECUTION_ADMISSION_AT_SETTLED_BOUNDARY",
+    );
 
     let (original_terminal, terminal_fact) = terminal("REJECTED", 3, venue);
     broker.ingest(&[terminal_fact]).unwrap();
@@ -720,21 +769,42 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
         terminal_inputs.push(original_terminal.clone());
         for input in &terminal_inputs {
             if matches!(input["op"].as_str(), Some("MARK" | "ACCEPT" | "TERMINAL")) {
-                let evidence = terminal_run.check_original_input(input, &cut, &broker, None).unwrap();
+                let evidence = terminal_run
+                    .check_original_input(input, &cut, &broker, None)
+                    .unwrap();
                 terminal_run.apply_verified(input, evidence).unwrap();
             } else {
                 terminal_run.apply(input).unwrap();
             }
         }
-        let terminal_result = terminal_run.finish(&terminal_inputs, &binding, initial_ns, final_ns).unwrap();
-        crate::verify_finite_backtest_result(terminal_result.result(), terminal_result.account_checkpoint(), &config, &kernel, &pin, initial_ns, final_ns).unwrap();
-        assert_eq!(terminal_result.result()["orders"][0]["snapshot"]["status"], "REJECTED");
+        let terminal_result = terminal_run
+            .finish(&terminal_inputs, &binding, initial_ns, final_ns)
+            .unwrap();
+        crate::verify_finite_backtest_result(
+            terminal_result.result(),
+            terminal_result.account_checkpoint(),
+            &config,
+            &kernel,
+            &pin,
+            initial_ns,
+            final_ns,
+        )
+        .unwrap();
+        assert_eq!(
+            terminal_result.result()["orders"][0]["snapshot"]["status"],
+            "REJECTED"
+        );
 
         if !accepted {
             let mut changed = terminal_result.result().clone();
             changed["facts"].as_array_mut().unwrap().remove(0);
             reseal_inputs(&mut changed);
-            assert_refusal(&changed, terminal_result.account_checkpoint(), final_ns, "EXECUTION_MARK_UNAVAILABLE");
+            assert_refusal(
+                &changed,
+                terminal_result.account_checkpoint(),
+                final_ns,
+                "EXECUTION_MARK_UNAVAILABLE",
+            );
 
             for (input, code) in &invalid_requests {
                 let mut changed = terminal_result.result().clone();
@@ -742,19 +812,37 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
                 let request = &input["payload"]["request"];
                 changed["orders"][0]["creation"]["request"] = request.clone();
                 changed["orders"][0]["creation"]["cause"] = json!(crate::model::hash(input));
-                changed["orders"][0]["snapshot"]["execution_intent"] = request["execution_intent"].clone();
+                changed["orders"][0]["snapshot"]["execution_intent"] =
+                    request["execution_intent"].clone();
                 changed["orders"][0]["snapshot"]["price"] = request["price"].clone();
                 reseal_inputs(&mut changed);
-                assert_refusal(&changed, terminal_result.account_checkpoint(), final_ns, code);
+                assert_refusal(
+                    &changed,
+                    terminal_result.account_checkpoint(),
+                    final_ns,
+                    code,
+                );
             }
         }
 
         let mut changed = terminal_result.result().clone();
-        changed["orders"][0]["snapshot"]["rejection"]["message"] = json!("different rejection reason");
-        assert_refusal(&changed, terminal_result.account_checkpoint(), final_ns, "RESULT_FINITE_ORDER_SNAPSHOT");
+        changed["orders"][0]["snapshot"]["rejection"]["message"] =
+            json!("different rejection reason");
+        assert_refusal(
+            &changed,
+            terminal_result.account_checkpoint(),
+            final_ns,
+            "RESULT_FINITE_ORDER_SNAPSHOT",
+        );
         let mut changed = terminal_result.result().clone();
-        changed["orders"][0]["snapshot"]["rejected_at"]["unix_nanos"] = original_terminal["payload"]["broker"]["record"]["ts_event"].clone();
-        assert_refusal(&changed, terminal_result.account_checkpoint(), final_ns, "RESULT_FINITE_ORDER_SNAPSHOT");
+        changed["orders"][0]["snapshot"]["rejected_at"]["unix_nanos"] =
+            original_terminal["payload"]["broker"]["record"]["ts_event"].clone();
+        assert_refusal(
+            &changed,
+            terminal_result.account_checkpoint(),
+            final_ns,
+            "RESULT_FINITE_ORDER_SNAPSHOT",
+        );
         let refusals: &[(&(Value, broker::Fact), &str)] = if accepted {
             &[
                 (&wrong_venue, "EXECUTION_BROKER_VENUE"),
@@ -766,7 +854,8 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
         };
         for ((terminal, _), code) in refusals {
             let mut changed = terminal_result.result().clone();
-            changed["facts"].as_array_mut().unwrap().last_mut().unwrap()["input"] = terminal.clone();
+            changed["facts"].as_array_mut().unwrap().last_mut().unwrap()["input"] =
+                terminal.clone();
             if !accepted {
                 let snapshot = &mut changed["orders"][0]["snapshot"];
                 snapshot["status"] = json!("EXPIRED");
@@ -774,7 +863,12 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
                 snapshot["rejection"] = Value::Null;
             }
             reseal_inputs(&mut changed);
-            assert_refusal(&changed, terminal_result.account_checkpoint(), final_ns, code);
+            assert_refusal(
+                &changed,
+                terminal_result.account_checkpoint(),
+                final_ns,
+                code,
+            );
         }
     }
 
@@ -785,7 +879,9 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
             .as_array()
             .unwrap()
             .iter()
-            .filter(|point| point["source"] == "MARGIN" && point["provenance"]["upstream_cause"] == cause)
+            .filter(|point| {
+                point["source"] == "MARGIN" && point["provenance"]["upstream_cause"] == cause
+            })
             .count()
     };
     assert_eq!(margin_count(&mark_cause), 1);
@@ -795,9 +891,12 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
     let mut missing_margin = completed.result().clone();
     let performance = &mut missing_margin["runtime_performance"];
     let timeline = performance["timeline"].as_array_mut().unwrap();
-    let index = timeline.iter().position(|point| {
-        point["source"] == "MARGIN" && point["provenance"]["upstream_cause"] == mark_cause
-    }).unwrap();
+    let index = timeline
+        .iter()
+        .position(|point| {
+            point["source"] == "MARGIN" && point["provenance"]["upstream_cause"] == mark_cause
+        })
+        .unwrap();
     timeline.remove(index);
     for (sequence, point) in timeline.iter_mut().enumerate().skip(index) {
         point["sequence"] = json!(sequence);
@@ -805,7 +904,8 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
         point["snapshot"]["sequence"] = json!(sequence);
     }
     performance["summary"]["valuation_count"] = json!(timeline.len());
-    missing_margin["final_account"] = performance["timeline"].as_array().unwrap().last().unwrap()["snapshot"].clone();
+    missing_margin["final_account"] =
+        performance["timeline"].as_array().unwrap().last().unwrap()["snapshot"].clone();
     let performance = &mut missing_margin["runtime_performance"];
     performance.as_object_mut().unwrap().remove("id");
     performance["id"] = json!(format!("AP-{}", crate::model::hash(performance)));
@@ -834,7 +934,11 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
         })
         .unwrap();
     let confirmed = &mut point["snapshot"]["last_confirmed_maintenance"];
-    assert!(confirmed["amount"].as_str().is_some_and(|amount| amount != "0.00000000"));
+    assert!(
+        confirmed["amount"]
+            .as_str()
+            .is_some_and(|amount| amount != "0.00000000")
+    );
     confirmed["amount"] = json!("0.00000000");
     performance.as_object_mut().unwrap().remove("id");
     performance["id"] = json!(format!("AP-{}", crate::model::hash(performance)));
@@ -882,7 +986,13 @@ fn same_configuration_empty_position_cannot_fund_the_populated_account_and_ledge
     funding["input"]["payload"]["mark_fact_id"] = inputs[0]["payload"]["fact"]["fact_id"].clone();
     funding["transaction"] = json!(format!("ETX-{}", crate::model::hash(&funding["input"])));
     let error = crate::verify_finite_backtest_result(
-        &changed, completed.account_checkpoint(), &config, &kernel, &pin, initial_ns, final_ns,
+        &changed,
+        completed.account_checkpoint(),
+        &config,
+        &kernel,
+        &pin,
+        initial_ns,
+        final_ns,
     )
     .err()
     .unwrap();

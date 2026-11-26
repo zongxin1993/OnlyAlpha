@@ -34,7 +34,8 @@ pub(crate) fn admission_quantity_precision(spec: &Value, request: &Value) -> Res
     {
         return Err(err("EXECUTION_INSTRUMENT_PRECISION"));
     }
-    u8::try_from(uint(&spec["quantity_precision"])?).map_err(|_| err("EXECUTION_QUANTITY_PRECISION"))
+    u8::try_from(uint(&spec["quantity_precision"])?)
+        .map_err(|_| err("EXECUTION_QUANTITY_PRECISION"))
 }
 
 pub(crate) fn validate_fill_price(
@@ -47,8 +48,7 @@ pub(crate) fn validate_fill_price(
     }
     if order["order_type"] != "MARKET" {
         let limit = dec(&order["price"]["value"])?;
-        if (order["side"] == "BUY" && price > &limit)
-            || (order["side"] == "SELL" && price < &limit)
+        if (order["side"] == "BUY" && price > &limit) || (order["side"] == "SELL" && price < &limit)
         {
             return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
         }
@@ -347,11 +347,20 @@ impl Components {
         }
         Ok(())
     }
-    pub(crate) fn bind_order_fee(&mut self, input: &Value, order: &str, contract: &Value) -> Result<(), Error> {
+    pub(crate) fn bind_order_fee(
+        &mut self,
+        input: &Value,
+        order: &str,
+        contract: &Value,
+    ) -> Result<(), Error> {
         self.order_apply(&self.order_fee(input, order, contract))?;
         Ok(())
     }
-    pub(crate) fn begin_order_submission(&mut self, input: &Value, order: &str) -> Result<(), Error> {
+    pub(crate) fn begin_order_submission(
+        &mut self,
+        input: &Value,
+        order: &str,
+    ) -> Result<(), Error> {
         self.order_apply(&self.order_local(input, "BEGIN_SUBMIT", order))?;
         Ok(())
     }
@@ -891,7 +900,11 @@ impl Components {
         ))?;
         Ok(())
     }
-    pub(crate) fn apply_spot_order_accept(&mut self, input: &Value, order: &str) -> Result<(), Error> {
+    pub(crate) fn apply_spot_order_accept(
+        &mut self,
+        input: &Value,
+        order: &str,
+    ) -> Result<(), Error> {
         let payload = &input["payload"];
         row(payload, &["order", "venue_order"])?;
         let venue_order = id(&payload["venue_order"])?;
@@ -960,7 +973,11 @@ impl Components {
         ))?;
         Ok(())
     }
-    pub(crate) fn apply_spot_order_fill(&mut self, input: &Value, order: &str) -> Result<Value, Error> {
+    pub(crate) fn apply_spot_order_fill(
+        &mut self,
+        input: &Value,
+        order: &str,
+    ) -> Result<Value, Error> {
         let p = &input["payload"];
         let before = boundary(self.order.get(text(&input["cluster"])?, order))?.to_record();
         let precision = if before["order_type"] == "MARKET" {
@@ -1464,7 +1481,9 @@ pub(crate) fn allocation_before(allocation: Option<&Value>, precision: u8) -> Re
         return allocation_witness(allocation, precision);
     }
     let zero = money(&BigDecimal::zero(), precision)?;
-    Ok(json!({"schema_version":1,"identity":null,"cycle":0,"realized_exact":zero,"quantity":"0","cost":zero,"realized":zero,"version":0}))
+    Ok(
+        json!({"schema_version":1,"identity":null,"cycle":0,"realized_exact":zero,"quantity":"0","cost":zero,"realized":zero,"version":0}),
+    )
 }
 
 pub(crate) fn allocation_witness(a: &Value, p: u8) -> Result<Value, Error> {

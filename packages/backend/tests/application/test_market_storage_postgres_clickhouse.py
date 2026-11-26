@@ -25,10 +25,9 @@ from typing import Any, cast
 
 import psycopg
 import pytest
-
-from packages.backend.tests.application.support.native_probe import build_native_probe as _build_market_probe
 from onlyalpha.canonical import only_canonical_fingerprint, only_canonical_payload
 
+from packages.backend.tests.application.support.native_probe import build_native_probe as _build_market_probe
 from packages.backend.tests.application.support.native_research_market_fixture import (
     MarketStorageInputs,
     strategy_preparation_case,
