@@ -205,7 +205,10 @@ fn expanded_decimals_share_the_whole_input_budget_and_invalid_nested_scalars_are
     let (parsed, used) = Graph::from_record_with_work(&graph, WORK).unwrap();
     assert!(used >= 20_000);
     assert_eq!(Graph::from_record(&graph, used).unwrap(), parsed);
-    assert_eq!(Graph::from_record(&graph, used - 1), Err(Error::Unavailable));
+    assert_eq!(
+        Graph::from_record(&graph, used - 1),
+        Err(Error::Unavailable)
+    );
     let mut nested = json!(true);
     for _ in 0..64 {
         nested = json!({"nested":nested});

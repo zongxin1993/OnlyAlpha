@@ -9,15 +9,25 @@ use onlyalpha_operators::execution::{EventKernel, VectorKernel};
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct IndicatorState(Vec<Columns>);
+pub struct IndicatorState {
+    step_count: u64,
+    operator_states: Vec<Columns>,
+}
 
 impl IndicatorState {
-    pub fn as_slice(&self) -> &[Columns] {
-        &self.0
+    pub fn step_count(&self) -> u64 {
+        self.step_count
     }
 
-    pub fn from_columns(columns: Vec<Columns>) -> Self {
-        Self(columns)
+    pub fn as_slice(&self) -> &[Columns] {
+        &self.operator_states
+    }
+
+    pub fn from_parts(step_count: u64, operator_states: Vec<Columns>) -> Self {
+        Self {
+            step_count,
+            operator_states,
+        }
     }
 }
 
@@ -145,6 +155,7 @@ impl ComposedIndicator {
         Ok(ComposedStream {
             indicator: self.clone(),
             streams,
+            step_count: 0,
         })
     }
 }
@@ -153,13 +164,22 @@ impl ComposedIndicator {
 pub struct ComposedStream {
     indicator: ComposedIndicator,
     streams: Vec<Option<Stream>>,
+    step_count: u64,
 }
 
 impl ComposedStream {
+    pub fn step_count(&self) -> u64 {
+        self.step_count
+    }
+
     pub fn step(&mut self, values: &[Option<Decimal>]) -> Result<Vec<Option<Decimal>>> {
         if values.len() != self.indicator.input_count {
             return Err(Error::InvalidInputs);
         }
+        let next_step = self
+            .step_count
+            .checked_add(1)
+            .ok_or(Error::BudgetExceeded)?;
         let mut candidate = self.streams.clone();
         let mut cells: Vec<Option<Decimal>> = Vec::with_capacity(self.indicator.nodes.len());
         for (index, node) in self.indicator.nodes.iter().enumerate() {
@@ -176,6 +196,7 @@ impl ComposedStream {
             cells.push(cell);
         }
         self.streams = candidate;
+        self.step_count = next_step;
         Ok(self
             .indicator
             .outputs
@@ -185,26 +206,31 @@ impl ComposedStream {
     }
 
     pub fn capture_state(&self) -> IndicatorState {
-        let states = self
+        let operator_states = self
             .streams
             .iter()
             .filter_map(|stream| stream.as_ref().map(EventKernel::capture_state))
             .collect();
-        IndicatorState(states)
+        IndicatorState {
+            step_count: self.step_count,
+            operator_states,
+        }
     }
 
     pub fn restore_state(&mut self, state: IndicatorState) -> Result<()> {
         let expected = self.streams.iter().filter(|s| s.is_some()).count();
-        if state.0.len() != expected {
+        if state.operator_states.len() != expected {
             return Err(Error::InvalidInputs);
         }
-        let mut candidate = self.streams.clone();
-        let mut iter = state.0.into_iter();
+        let mut candidate = self.indicator.event_stream()?.streams;
+        let mut iter = state.operator_states.into_iter();
         for stream in candidate.iter_mut().flatten() {
             let columns = iter.next().expect("checked length");
             EventKernel::restore_state(stream, columns)?;
+            stream.validate_step_count(state.step_count)?;
         }
         self.streams = candidate;
+        self.step_count = state.step_count;
         Ok(())
     }
 }

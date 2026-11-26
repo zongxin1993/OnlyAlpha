@@ -430,6 +430,88 @@ fn conditional_and_recursive_goldens_are_independently_derived() {
 }
 
 #[test]
+fn recurrence_long_zero_decay_self_recovers_and_rejects_tampered_checkpoints() {
+    use onlyalpha_operators::algebra::{Error, Operator};
+
+    for op in [Operator::EMA, Operator::RMA] {
+        let kernel = Kernel::new(
+            op,
+            Parameters {
+                period: NonZeroUsize::new(2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut series = Vec::with_capacity(2600);
+        series.push(Some(d("1")));
+        series.push(Some(d("1")));
+        series.resize(2500, Some(d("0")));
+        series.push(Some(d("10")));
+
+        let batch = kernel.evaluate(&[series.clone()]).unwrap();
+        let mut stream = Stream::new(kernel.clone()).unwrap();
+        for cell in &series[..2400] {
+            stream.push(std::slice::from_ref(cell)).unwrap();
+        }
+        let cp = stream.checkpoint();
+        let mut restored = Stream::new(kernel).unwrap();
+        restored.restore(cp).unwrap();
+        for (i, cell) in series.iter().enumerate().skip(2400) {
+            let actual = restored.push(std::slice::from_ref(cell)).unwrap();
+            assert_eq!(
+                actual, batch[i],
+                "{op:?} mismatch after long decay restore at {i}"
+            );
+        }
+    }
+
+    // Tampered recurrence checkpoints MUST fail-closed.
+    let rma2 = Kernel::new(
+        Operator::RMA,
+        Parameters {
+            period: NonZeroUsize::new(2),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut rma_stream = Stream::new(rma2).unwrap();
+    // Empty seed payload `[Some(0)]` is never emitted by `checkpoint()` and MUST be rejected.
+    assert_eq!(
+        rma_stream.restore(vec![vec![Some(d("0"))]]),
+        Err(Error::InvalidInputs)
+    );
+    // Out-of-domain prior `1e200` MUST be rejected on restore.
+    assert_eq!(
+        rma_stream.restore(vec![vec![Some(d("1")), Some(d("1e200"))]]),
+        Err(Error::NumericFailure)
+    );
+    // Seeded RMA at step_count < period MUST fail step_count validation.
+    rma_stream
+        .restore(vec![vec![Some(d("1")), Some(d("5"))]])
+        .unwrap();
+    assert_eq!(rma_stream.validate_step_count(0), Err(Error::InvalidInputs));
+    assert_eq!(rma_stream.validate_step_count(1), Err(Error::InvalidInputs));
+    assert!(rma_stream.validate_step_count(2).is_ok());
+
+    let ema2 = Kernel::new(
+        Operator::EMA,
+        Parameters {
+            period: NonZeroUsize::new(2),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut ema_stream = Stream::new(ema2).unwrap();
+    assert_eq!(
+        ema_stream.restore(vec![vec![Some(d("1e200"))]]),
+        Err(Error::NumericFailure)
+    );
+    ema_stream.restore(vec![vec![Some(d("10"))]]).unwrap();
+    assert_eq!(ema_stream.validate_step_count(0), Err(Error::InvalidInputs));
+    assert!(ema_stream.validate_step_count(1).is_ok());
+}
+
+#[test]
 fn paired_window_goldens_are_independently_derived() {
     let paired = || {
         vec![

@@ -12,6 +12,7 @@ use num_integer::Integer;
 use std::num::{NonZeroU64, NonZeroUsize};
 
 const PRECISION: u64 = 28;
+const MAX_RECURRENCE_SCALE: i64 = 96;
 /// Deterministic resource admission limits, independent of numeric semantics.
 pub const MAX_INPUT_DIGITS: u64 = 256;
 pub const MAX_INPUT_SCALE: i64 = 1024;
@@ -433,7 +434,7 @@ impl RecurrenceState {
                     }
                 };
                 let out = q(next.clone())?;
-                *prior = Some(next);
+                *prior = Some(bound_recurrence_state(next));
                 Ok(Some(out))
             }
             Self::Rma {
@@ -445,7 +446,7 @@ impl RecurrenceState {
                     let num = add(&mul(prev, &Decimal::from((*period - 1) as u64)), x);
                     let next = div(&num, &Decimal::from(*period as u64))?;
                     let out = q(next.clone())?;
-                    *prior = Some(next);
+                    *prior = Some(bound_recurrence_state(next));
                     Ok(Some(out))
                 } else {
                     let mut next_seed = seed.clone();
@@ -458,7 +459,7 @@ impl RecurrenceState {
                         let seeded = mean(&refs)?;
                         let out = q(seeded.clone())?;
                         seed.clear();
-                        *prior = Some(seeded);
+                        *prior = Some(bound_recurrence_state(seeded));
                         Ok(Some(out))
                     }
                 }
@@ -469,7 +470,7 @@ impl RecurrenceState {
                     Some(acc) => add(acc, x),
                 };
                 let out = q(next.clone())?;
-                *total = Some(next);
+                *total = Some(bound_recurrence_state(next));
                 Ok(Some(out))
             }
         }
@@ -515,18 +516,24 @@ impl RecurrenceState {
                         period,
                         prior: None,
                     }),
-                    [Some(v)] => Ok(Self::Ema {
-                        period,
-                        prior: Some(v.clone()),
-                    }),
+                    [Some(v)] => {
+                        validate_recurrence_prior(v)?;
+                        Ok(Self::Ema {
+                            period,
+                            prior: Some(v.clone()),
+                        })
+                    }
                     _ => Err(Error::InvalidInputs),
                 }
             }
             Operator::CumSum => match col.as_slice() {
                 [] => Ok(Self::CumSum { total: None }),
-                [Some(v)] => Ok(Self::CumSum {
-                    total: Some(v.clone()),
-                }),
+                [Some(v)] => {
+                    validate_recurrence_prior(v)?;
+                    Ok(Self::CumSum {
+                        total: Some(v.clone()),
+                    })
+                }
                 _ => Err(Error::InvalidInputs),
             },
             Operator::RMA => {
@@ -537,12 +544,17 @@ impl RecurrenceState {
                         seed: Vec::new(),
                         prior: None,
                     }),
-                    [Some(tag), rest @ ..] if tag == &Decimal::from(0) && rest.len() < period => {
+                    [Some(tag), rest @ ..]
+                        if tag == &Decimal::from(0) && !rest.is_empty() && rest.len() < period =>
+                    {
                         let mut seed = Vec::with_capacity(rest.len());
                         for cell in rest {
                             let Some(v) = cell else {
                                 return Err(Error::InvalidInputs);
                             };
+                            if v.digits() > PRECISION {
+                                return Err(Error::InvalidInputs);
+                            }
                             seed.push(v.clone());
                         }
                         Ok(Self::Rma {
@@ -551,15 +563,44 @@ impl RecurrenceState {
                             prior: None,
                         })
                     }
-                    [Some(tag), Some(v)] if tag == &Decimal::from(1) => Ok(Self::Rma {
-                        period,
-                        seed: Vec::new(),
-                        prior: Some(v.clone()),
-                    }),
+                    [Some(tag), Some(v)] if tag == &Decimal::from(1) => {
+                        validate_recurrence_prior(v)?;
+                        Ok(Self::Rma {
+                            period,
+                            seed: Vec::new(),
+                            prior: Some(v.clone()),
+                        })
+                    }
                     _ => Err(Error::InvalidInputs),
                 }
             }
             _ => Err(Error::InvalidInputs),
+        }
+    }
+
+    fn validate_step_count(&self, step_count: u64) -> Result<()> {
+        match self {
+            Self::Ema { prior, .. } | Self::CumSum { total: prior } => {
+                if prior.is_some() && step_count == 0 {
+                    Err(Error::InvalidInputs)
+                } else {
+                    Ok(())
+                }
+            }
+            Self::Rma {
+                period,
+                seed,
+                prior,
+            } => {
+                if prior.is_some() {
+                    if step_count < *period as u64 {
+                        return Err(Error::InvalidInputs);
+                    }
+                } else if seed.len() as u64 > step_count {
+                    return Err(Error::InvalidInputs);
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -608,6 +649,16 @@ impl Stream {
         self.columns = candidate;
         Ok(())
     }
+    pub fn validate_step_count(&self, step_count: u64) -> Result<()> {
+        if let Some(recurrence) = &self.recurrence {
+            return recurrence.validate_step_count(step_count);
+        }
+        let expected = step_count.min(self.kernel.history_limit() as u64);
+        if self.columns[0].len() as u64 != expected {
+            return Err(Error::InvalidInputs);
+        }
+        Ok(())
+    }
     pub fn push(&mut self, values: &[Cell]) -> Result<Cell> {
         if values.len() != self.columns.len() {
             return Err(Error::InvalidInputs);
@@ -634,6 +685,28 @@ impl Stream {
     }
 }
 
+fn bound_recurrence_state(value: Decimal) -> Decimal {
+    let rounded = round(value);
+    let (_, scale) = rounded.as_bigint_and_exponent();
+    let clamped = if scale > MAX_RECURRENCE_SCALE {
+        rounded.with_scale_round(MAX_RECURRENCE_SCALE, RoundingMode::HalfEven)
+    } else {
+        rounded
+    };
+    if clamped.is_zero() {
+        Decimal::from(0)
+    } else {
+        clamped.normalized()
+    }
+}
+fn validate_recurrence_prior(value: &Decimal) -> Result<()> {
+    let (_, scale) = value.as_bigint_and_exponent();
+    if value.digits() > PRECISION || scale > MAX_RECURRENCE_SCALE {
+        return Err(Error::InvalidInputs);
+    }
+    q(value.clone())?;
+    Ok(())
+}
 fn validate(v: &Decimal) -> Result<()> {
     let (_, scale) = v.as_bigint_and_exponent();
     if v.digits() > MAX_INPUT_DIGITS || scale.unsigned_abs() > MAX_INPUT_SCALE as u64 {

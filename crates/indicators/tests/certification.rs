@@ -410,11 +410,76 @@ fn invalid_parameters_and_corrupted_checkpoints_are_rejected_without_mutation() 
     let mut stream = indicator.event_stream().unwrap();
     assert_eq!(stream.step(&[Some(d("10"))]).unwrap(), vec![None]);
     let saved = stream.capture_state();
+    assert_eq!(saved.step_count(), 1);
 
     assert_eq!(
-        stream.restore_state(IndicatorState::from_columns(vec![])),
+        stream.restore_state(IndicatorState::from_parts(1, vec![])),
+        Err(IndicatorError::InvalidInputs)
+    );
+    // Tampered step_count (truncated window or understated step_count) MUST fail-closed.
+    assert_eq!(
+        stream.restore_state(IndicatorState::from_parts(0, saved.as_slice().to_vec())),
+        Err(IndicatorError::InvalidInputs)
+    );
+    assert_eq!(
+        stream.restore_state(IndicatorState::from_parts(5, saved.as_slice().to_vec())),
         Err(IndicatorError::InvalidInputs)
     );
     assert_eq!(stream.capture_state(), saved);
     assert_eq!(stream.step(&[Some(d("20"))]).unwrap(), vec![Some(d("15"))]);
+
+    // Cross-stream desync in multi-operator indicator MUST fail-closed.
+    let bb = bollinger(p(3), d("2")).unwrap();
+    let mut bb_stream = bb.event_stream().unwrap();
+    for v in ["10", "12", "14"] {
+        bb_stream.step(&[Some(d(v))]).unwrap();
+    }
+    let mut desynced = bb_stream.capture_state().as_slice().to_vec();
+    desynced[0][0].pop(); // truncate RollingMean window while leaving RollingStd full
+    assert_eq!(
+        bb_stream.restore_state(IndicatorState::from_parts(3, desynced)),
+        Err(IndicatorError::InvalidInputs)
+    );
+
+    // UtcSessionVWAP rejects inconsistent previous_start vs stream step_count,
+    // and ignores volume on partially-null price bars.
+    let mut vwap_stream = UtcSessionVWAP::new();
+    let empty_state = vwap_stream.capture_state();
+    vwap_stream
+        .step(
+            100,
+            Some(d("12")),
+            Some(d("9")),
+            Some(d("10")),
+            Some(d("2")),
+        )
+        .unwrap();
+    let active_state = vwap_stream.capture_state();
+    assert_eq!(
+        vwap_stream.restore_state(onlyalpha_indicators::UtcSessionVwapState {
+            previous_start: None,
+            stream_state: active_state.stream_state.clone(),
+        }),
+        Err(IndicatorError::InvalidInputs)
+    );
+    assert_eq!(
+        vwap_stream.restore_state(onlyalpha_indicators::UtcSessionVwapState {
+            previous_start: Some(100),
+            stream_state: empty_state.stream_state,
+        }),
+        Err(IndicatorError::InvalidInputs)
+    );
+    // Partially-null price row with non-null volume must not skew denominator.
+    let vwap_partial = UtcSessionVWAP::evaluate_vector(
+        &[100, 200, 300],
+        &values(&["12", "null", "15"]),
+        &values(&["9", "10", "12"]),
+        &values(&["10", "10", "15"]),
+        &values(&["2", "100", "1"]),
+    )
+    .unwrap();
+    assert_eq!(
+        vwap_partial,
+        values(&["10.333333333333", "null", "11.555555555556"])
+    );
 }

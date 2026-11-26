@@ -270,6 +270,7 @@ fn session_vwap_dag() -> ComposedIndicator {
     let low = b.input(1);
     let close = b.input(2);
     let volume = b.input(3);
+    let zero = b.constant(Decimal::from(0));
     let three = b.constant(Decimal::from(3));
     let hl = b
         .op(Operator::Add, Parameters::default(), &[high, low])
@@ -280,11 +281,17 @@ fn session_vwap_dag() -> ComposedIndicator {
     let weighted = b
         .op(Operator::Multiply, Parameters::default(), &[hlc, volume])
         .expect("valid multiply");
+    let hlc_zero = b
+        .op(Operator::Multiply, Parameters::default(), &[hlc, zero])
+        .expect("valid multiply");
+    let valid_volume = b
+        .op(Operator::Add, Parameters::default(), &[hlc_zero, volume])
+        .expect("valid add");
     let cum_weighted = b
         .op(Operator::CumSum, Parameters::default(), &[weighted])
         .expect("valid cumsum");
     let cum_vol = b
-        .op(Operator::CumSum, Parameters::default(), &[volume])
+        .op(Operator::CumSum, Parameters::default(), &[valid_volume])
         .expect("valid cumsum");
     let denom = b
         .op(Operator::Multiply, Parameters::default(), &[cum_vol, three])
@@ -403,6 +410,9 @@ impl UtcSessionVWAP {
     }
 
     pub fn restore_state(&mut self, state: UtcSessionVwapState) -> Result<()> {
+        if state.previous_start.is_none() != (state.stream_state.step_count() == 0) {
+            return Err(Error::InvalidInputs);
+        }
         let mut candidate = self.dag.event_stream()?;
         candidate.restore_state(state.stream_state)?;
         self.stream = candidate;
