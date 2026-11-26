@@ -338,10 +338,10 @@ def freeze_source(
     output = root / ".test-cache/dev-tool-output"
     output.mkdir(parents=True, exist_ok=True)
     for name in ("tsconfig.app.tsbuildinfo", "tsconfig.node.tsbuildinfo"):
-        for directory in (cut / WEB, output):
-            mountpoint = directory / name
-            if not mountpoint.exists():
-                mountpoint.touch(exist_ok=False)
+        mountpoint = cut / WEB / name
+        if not mountpoint.exists():
+            mountpoint.touch(exist_ok=False)
+        _ensure_container_writable_file(output / name)
     if source_inputs(cut) != inputs or source_inputs(root) != inputs:
         raise ValueError("DEV_VERIFICATION_SOURCE_CHANGED_DURING_CAPTURE")
     git_inputs = {} if product else capture_git(root, cut, previous, required_revisions=required_git_revisions)
@@ -366,6 +366,48 @@ def freeze_source(
         )
     )
     return inputs
+
+
+def _ensure_container_writable_dir(path: Path) -> None:
+    if path.is_symlink():
+        raise ValueError("DEV_VERIFICATION_BIND_PATH_SYMLINK_REFUSED")
+    path.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if stat.S_IMODE(info.st_mode) != 0o1777 and info.st_uid == os.geteuid():
+            os.fchmod(fd, 0o1777)
+    finally:
+        os.close(fd)
+
+
+def _ensure_container_writable_file(path: Path) -> None:
+    if path.is_symlink():
+        raise ValueError("DEV_VERIFICATION_BIND_PATH_SYMLINK_REFUSED")
+    if not path.exists():
+        path.touch(exist_ok=False)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("DEV_VERIFICATION_BIND_PATH_NOT_REGULAR_FILE")
+        if stat.S_IMODE(info.st_mode) != 0o666 and info.st_uid == os.geteuid():
+            os.fchmod(fd, 0o666)
+    finally:
+        os.close(fd)
+
+
+def _ensure_verification_artifact_dirs(root: Path) -> Path:
+    # Linux bind mounts retain host UID; non-recursive 1777 lets container user
+    # onlyalpha (10001) write artifacts while sticky bits prevent cross-user deletes.
+    results = root / "test-results"
+    _ensure_container_writable_dir(results)
+    artifacts = results / "dev-verification"
+    _ensure_container_writable_dir(artifacts)
+    metrics = results / "metrics"
+    if metrics.exists() or metrics.is_symlink():
+        _ensure_container_writable_dir(metrics)
+    return artifacts
 
 
 @contextmanager
@@ -987,8 +1029,7 @@ def browser_cache_build_arguments(root: Path, container: dict, operation_id: str
         if existing["Id"] != source:
             raise ValueError("DEV_BROWSER_CACHE_IMAGE_IDENTITY_MISMATCH")
     receipt = {"source_image": source, "cache_image": tag, **inspection}
-    directory = root / "test-results/dev-verification"
-    directory.mkdir(parents=True, exist_ok=True)
+    directory = _ensure_verification_artifact_dirs(root)
     (directory / f"browser-cache-{operation_id}.json").write_text(json.dumps(receipt, sort_keys=True, indent=2))
     return [
         "--build-arg",
@@ -1087,8 +1128,7 @@ def run_host(
         if mode == "run":
             if records[0].get("State", {}).get("Running") is not True:
                 raise ValueError("DEV_VERIFICATION_CONTAINER_NOT_RUNNING")
-            artifacts = ROOT / "test-results/dev-verification"
-            artifacts.mkdir(parents=True, exist_ok=True)
+            artifacts = _ensure_verification_artifact_dirs(ROOT)
             (artifacts / "container-inputs.json").write_text(
                 json.dumps(
                     {
@@ -1142,9 +1182,7 @@ def run_host(
             subprocess.run([*compose, "build", *browser_arguments, "validation"], cwd=ROOT, env=environment, check=True)
         image = json.loads(subprocess.check_output(["docker", "image", "inspect", IMAGE], text=True, timeout=15))[0]
         environment["ONLYALPHA_DEV_TOOL_IMAGE_ID"] = image["Id"]
-        # Compose declares this bind with create_host_path false and the directory
-        # is untracked, so a clean checkout has no mount source to attach.
-        (ROOT / "test-results").mkdir(parents=True, exist_ok=True)
+        _ensure_verification_artifact_dirs(ROOT)
         subprocess.run(
             [*compose, "up", "-d", "--no-build", "--pull", "never", "--wait", "postgres", "clickhouse", "validation"],
             cwd=ROOT,

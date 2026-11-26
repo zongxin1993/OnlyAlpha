@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,7 +160,38 @@ def test_prepare_creates_missing_host_bind_source(docker_calls, tmp_path):
     _, state = docker_calls
     assert not (tmp_path / "test-results").exists()
     assert invoke("prepare", {"operation_id": "operation"}) == 0
-    assert (tmp_path / "test-results").is_dir()
+    assert stat.S_IMODE((tmp_path / "test-results").stat().st_mode) == 0o1777
+    assert stat.S_IMODE((tmp_path / "test-results/dev-verification").stat().st_mode) == 0o1777
+
+
+def test_prepare_sets_existing_metrics_dir_writable_non_recursively(docker_calls, tmp_path):
+    metrics = tmp_path / "test-results/metrics"
+    metrics.mkdir(parents=True)
+    metrics.chmod(0o755)
+    shard = metrics / "shard-1.json"
+    shard.write_text("{}")
+    shard.chmod(0o644)
+    assert invoke("prepare", {"operation_id": "operation"}) == 0
+    assert stat.S_IMODE(metrics.stat().st_mode) == 0o1777
+    assert stat.S_IMODE(shard.stat().st_mode) == 0o644
+
+
+def test_prepare_refuses_symlinked_test_results(docker_calls, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "test-results").symlink_to(outside)
+    with pytest.raises(ValueError, match="DEV_VERIFICATION_BIND_PATH_SYMLINK_REFUSED"):
+        invoke("prepare", {"operation_id": "operation"})
+
+
+def test_ensure_container_writable_file_sets_mode_and_refuses_symlink(tmp_path):
+    target = tmp_path / "tsconfig.app.tsbuildinfo"
+    verification._ensure_container_writable_file(target)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o666
+    link = tmp_path / "tsconfig.node.tsbuildinfo"
+    link.symlink_to(target)
+    with pytest.raises(ValueError, match="DEV_VERIFICATION_BIND_PATH_SYMLINK_REFUSED"):
+        verification._ensure_container_writable_file(link)
 
 
 def test_run_never_pulls_or_builds_images(docker_calls):
