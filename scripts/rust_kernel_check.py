@@ -135,7 +135,8 @@ def compiler_environment(inherited: Mapping[str, str], target_dir: Path) -> dict
 
 
 # Independently reviewed public registry closure, excluding local release metadata.
-REGISTRY_LOCK_SHA256 = "602325fedd109231dcad47915da79ec0cfccaa199089a639fc89fe45f718d809"
+REGISTRY_LOCK_SHA256 = "d60e4f797c3035e0c29dbc87d91edb262736f6868ec17c09d27648e8a2bbb2e0"
+FORBIDDEN_SQLITE_CRATES = frozenset({"rusqlite", "libsqlite3-sys", "sqlite", "sqlite3", "sqlx-sqlite"})
 DOMAIN_DEPENDENCIES = {
     "tz-rs": {"version": "=0.7.3", "default-features": False, "features": ["alloc"]},
     "jiff": {"version": "=0.2.38", "default-features": False, "features": ["std"]},
@@ -238,12 +239,8 @@ OBSERVABILITY_TEST_DEPENDENCIES = {
 RUNTIME_PERSISTENCE_DEPENDENCIES = {
     "onlyalpha-observability": {"path": "../observability"},
     "onlyalpha-broker": {"path": "../broker"},
-    "flate2": {"default-features": False, "features": ["rust_backend"], "version": "=1.1.10"},
-    "base64": {"default-features": False, "features": ["std"], "version": "=0.23.1"},
-    "zstd": {"default-features": False, "version": "=0.13.3"},
     "onlyalpha-execution": {"path": "../execution"},
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
-    "rusqlite": {"version": "=0.40.2", "default-features": False, "features": ["bundled"]},
 }
 BACKTEST_DRIVER_DEPENDENCIES = {
     "sha2": {"default-features": False, "version": "=0.11.1"},
@@ -263,10 +260,6 @@ BACKTEST_DRIVER_DEPENDENCIES = {
 }
 BACKTEST_DRIVER_TEST_DEPENDENCIES = {
     "onlyalpha-calculation": {"path": "../calculation"},
-    "rusqlite": {"version": "=0.40.2", "default-features": False, "features": ["bundled"]},
-    "flate2": {"default-features": False, "features": ["rust_backend"], "version": "=1.1.10"},
-    "base64": {"default-features": False, "features": ["std"], "version": "=0.23.1"},
-    "zstd": {"version": "=0.13.3", "default-features": False},
 }
 
 RUNTIME_PERSISTENCE_TEST_DEPENDENCIES = {
@@ -329,6 +322,7 @@ BINANCE_TEST_DEPENDENCIES = {
     "onlyalpha-strategy-ledger": {"path": "../../crates/strategy-ledger"},
     "onlyalpha-broker": {"path": "../../crates/broker"},
     "onlyalpha-broker-virtual": {"path": "../onlyalpha-broker-virtual"},
+    "onlyalpha-execution": {"path": "../../crates/execution"},
     "onlyalpha-runtime": {"path": "../../crates/runtime"},
 }
 TUSHARE_DEPENDENCIES = {
@@ -351,7 +345,6 @@ BROKER_PLUGIN_COMMON_DEPENDENCIES = {
 }
 VIRTUAL_BROKER_DEPENDENCIES = {
     **BROKER_PLUGIN_COMMON_DEPENDENCIES,
-    "rusqlite": RUNTIME_PERSISTENCE_DEPENDENCIES["rusqlite"],
 }
 BINANCE_BROKER_DEPENDENCIES = {
     **BROKER_PLUGIN_COMMON_DEPENDENCIES,
@@ -366,7 +359,6 @@ BINANCE_BROKER_DEPENDENCIES = {
 }
 BINANCE_BROKER_TEST_DEPENDENCIES = {
     "onlyalpha-execution": {"path": "../../crates/execution"},
-    "onlyalpha-runtime": {"path": "../../crates/runtime"},
 }
 CN_ASHARE_MARKET_DEPENDENCIES = {
     "onlyalpha-domain": {"path": "../../crates/domain"},
@@ -503,9 +495,11 @@ BENCHMARK_DEV_DEPENDENCIES = {
 }
 for _name in ("onlyalpha-clock", "onlyalpha-operators", "onlyalpha-predicates"):
     BENCHMARK_DEV_DEPENDENCIES[_name]["serde_json"] = DOMAIN_DEPENDENCIES["serde_json"]
-BENCHMARK_DEV_DEPENDENCIES["onlyalpha-backtest"] = {
-    "onlyalpha-market-crypto": {"path": "../../plugs/onlyalpha-market-crypto"},
-}
+
+
+def _is_forbidden_sqlite_crate(name: str) -> bool:
+    normalized = name.strip().lower()
+    return normalized in FORBIDDEN_SQLITE_CRATES or "sqlite" in normalized
 
 
 def validate_workspace(root: Path) -> None:
@@ -551,6 +545,11 @@ def validate_workspace(root: Path) -> None:
     if set(workspace["members"]) != set(modules.values()):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     packages = tomllib.loads((root / "Cargo.lock").read_text())["package"]
+    for item in packages:
+        if _is_forbidden_sqlite_crate(item.get("name", "")) or any(
+            _is_forbidden_sqlite_crate(dep.split()[0]) for dep in item.get("dependencies", [])
+        ):
+            raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     local = [item for item in packages if "source" not in item]
     registry = sorted((item for item in packages if "source" in item), key=lambda item: (item["name"], item["version"]))
     if len(local) != len(expected) or {item["name"] for item in local} != expected:
@@ -559,7 +558,7 @@ def validate_workspace(root: Path) -> None:
     if registry and (
         driver.get("dependencies") != BACKTEST_DRIVER_DEPENDENCIES
         or driver.get("dev-dependencies", {})
-        != {**BACKTEST_DRIVER_TEST_DEPENDENCIES, **BENCHMARK_DEV_DEPENDENCIES["onlyalpha-backtest"]}
+        != {**BACKTEST_DRIVER_TEST_DEPENDENCIES, **BENCHMARK_DEV_DEPENDENCIES.get("onlyalpha-backtest", {})}
     ):
         raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
     for name, dependencies, test_dependencies in (
@@ -606,6 +605,8 @@ def validate_workspace(root: Path) -> None:
             for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
                 for alias, config in section.get(kind, {}).items():
                     dependency = config.get("package", alias) if isinstance(config, dict) else alias
+                    if _is_forbidden_sqlite_crate(alias) or _is_forbidden_sqlite_crate(dependency):
+                        raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
                     admitted = (
                         name == "onlyalpha-domain"
                         and section is manifest
@@ -960,7 +961,7 @@ BENCHMARK_SOURCE_INPUTS = {
         "modules": [],
     },
     "crates/backtest/benches/retained.rs": {
-        "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
+        "fixtures": [],
         "modules": ["../../calculation-bridge/tests/support/memory_signal.rs", "../tests/support/memory_run.rs"],
     },
     "crates/broker/benches/workload.rs": {
@@ -1051,8 +1052,11 @@ BENCHMARK_SOURCE_INPUTS = {
         "modules": ["../../execution/tests/support/mod.rs"],
     },
     "crates/runtime/benches/retained.rs": {
-        "fixtures": ['"../../../test-data/backtest-benchmarks/replay.json"'],
-        "modules": [],
+        "fixtures": [
+            '"../../../test-data/execution/domain-inputs.json"',
+            '"../../../test-data/settlement/common-v1.json"',
+        ],
+        "modules": ["../../execution/tests/support/mod.rs"],
     },
     "crates/settlement/benches/recovery.rs": {
         "fixtures": [
@@ -1074,7 +1078,14 @@ BENCHMARK_SOURCE_INPUTS = {
         "fixtures": ['"../../../test-data/strategy/decisions-v2.jsonl"'],
         "modules": ["../tests/support/mod.rs"],
     },
-    "packages/backend/benches/backtest_chain.rs": {"fixtures": [], "modules": []},
+    "packages/backend/benches/backtest_chain.rs": {
+        "fixtures": [
+            '"../../../test-data/backtest-benchmarks/replay.json"',
+            '"../../../test-data/execution/domain-inputs.json"',
+            '"../../../test-data/settlement/common-v1.json"',
+        ],
+        "modules": ["../../../crates/execution/tests/support/mod.rs"],
+    },
 }
 
 
@@ -1502,9 +1513,6 @@ _INFRASTRUCTURE_RESOURCES = {
     "crates/runtime/tests/support/perpetual_run.rs": {
         "../../../../test-data/execution/linear-perpetual.json": "test-data/execution/linear-perpetual.json",
     },
-    "crates/runtime/tests/persistence.rs": {
-        "../../../test-data/execution/linear-perpetual.json": "test-data/execution/linear-perpetual.json",
-    },
     "plugs/onlyalpha-market-crypto/tests/market_resources.rs": {
         "fixtures/spot-resource.json": "plugs/onlyalpha-market-crypto/tests/fixtures/spot-resource.json",
         "fixtures/usdm-public-resource.json": "plugs/onlyalpha-market-crypto/tests/fixtures/usdm-public-resource.json",
@@ -1705,20 +1713,11 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "packages/backend/src/transport/observability.rs": {
         "../tests/http_observation.rs": "packages/backend/src/tests/http_observation.rs"
     },
-    "crates/runtime/tests/broker_source_bytes.rs": {
-        "support/perpetual_run.rs": "crates/runtime/tests/support/perpetual_run.rs",
-    },
     "crates/runtime/tests/perpetual_economics.rs": {
         "support/perpetual_run.rs": "crates/runtime/tests/support/perpetual_run.rs",
     },
     "crates/runtime/src/lib.rs": {
         "../../execution/tests/support/mod.rs": "crates/execution/tests/support/mod.rs",
-    },
-    "crates/runtime/src/tests/funding_commit.rs": {
-        "../../tests/support/perpetual_run.rs": "crates/runtime/tests/support/perpetual_run.rs",
-    },
-    "plugs/onlyalpha-data-source-binance/tests/usdm_assembled_runtime.rs": {
-        "support/perpetual_venue.rs": "plugs/onlyalpha-data-source-binance/tests/support/perpetual_venue.rs",
     },
     "crates/account/src/lib.rs": {
         "tests/extension_tests.rs": "crates/account/src/tests/extension_tests.rs",
@@ -1771,13 +1770,6 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "crates/risk/src/recovery.rs": {"tests/checkpoint_tests.rs": "crates/risk/src/tests/checkpoint_tests.rs"},
     "crates/strategy-ledger/src/recovery.rs": {
         "tests/recovery_extension_tests.rs": "crates/strategy-ledger/src/tests/recovery_extension_tests.rs"
-    },
-    "crates/runtime/src/tests/checkpoint_work.rs": {
-        "prefix_work.rs": "crates/runtime/src/tests/prefix_work.rs",
-    },
-    "crates/runtime/src/dictionary_codec.rs": {
-        "tests/dictionary_codec_tests.rs": "crates/runtime/src/tests/dictionary_codec_tests.rs",
-        "tests/dictionary_commit_tests.rs": "crates/runtime/src/tests/dictionary_commit_tests.rs",
     },
     "packages/backend/src/persistence/research_evidence/strategy.rs": {
         "columnar.rs": "packages/backend/src/persistence/research_evidence/columnar.rs",
@@ -1841,12 +1833,6 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "packages/backend/src/transport/host_backtest_preparation.rs": {
         "../../tests/transport/backtest_preparation_window.rs": "packages/backend/tests/transport/backtest_preparation_window.rs",
     },
-    "crates/backtest/src/native_read.rs": {
-        "tests/position_order_view_tests.rs": "crates/backtest/src/tests/position_order_view_tests.rs"
-    },
-    "crates/backtest/src/run.rs": {
-        "tests/candidate_configuration_tests.rs": "crates/backtest/src/tests/candidate_configuration_tests.rs"
-    },
     "crates/backtest/src/lib.rs": {
         "tests/next_open_tests.rs": "crates/backtest/src/tests/next_open_tests.rs",
         "tests/support/execution.rs": "crates/backtest/src/tests/support/execution.rs",
@@ -1854,16 +1840,6 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "crates/runtime/src/durability.rs": {
         "tests/durability_tests.rs": "crates/runtime/src/tests/durability_tests.rs",
     },
-    "crates/runtime/src/replay.rs": {
-        "tests/replay_codec_work.rs": "crates/runtime/src/tests/replay_codec_work.rs",
-        "tests/binding_codec.rs": "crates/runtime/src/tests/binding_codec.rs",
-    },
-    "crates/runtime/src/store.rs": {
-        "tests/funding_commit.rs": "crates/runtime/src/tests/funding_commit.rs",
-        "checkpoint_data.rs": "crates/runtime/src/checkpoint_data.rs",
-        "tests/checkpoint_work.rs": "crates/runtime/src/tests/checkpoint_work.rs",
-    },
-    "crates/runtime/src/references.rs": {"tests/replay_references.rs": "crates/runtime/src/tests/replay_references.rs"},
     "plugs/onlyalpha-data-source-binance/src/spot_source.rs": {
         "spot_temporary.rs": "plugs/onlyalpha-data-source-binance/src/spot_temporary.rs",
         "tests/spot_probe.rs": "plugs/onlyalpha-data-source-binance/src/tests/spot_probe.rs",
@@ -2005,6 +1981,8 @@ def validate_infrastructure_sources(root: Path) -> None:
             paths.extend(modules)
             if path.is_symlink() or _hidden_rust_input(text) or re.search(r"\binclude_(?:str|bytes)\s*!", text):
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
+            if re.search(r"\b(?:rusqlite|libsqlite3_sys)\b", re.sub(r"(?m)^\s*//.*$", "", text)):
+                raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
             if component == "onlyalpha-calculation-bridge" and re.search(
                 r"\b(?:Command|Child|Stdio|OwnedFd)\b|\binterpreter\s*:",
                 re.sub(r"(?m)^\s*//.*$", "", text),
@@ -2077,14 +2055,7 @@ def validate_infrastructure_sources(root: Path) -> None:
                     or len(re.findall(r'#\[path\s*=\s*"tests/venue_recovery\.rs"\]', enclosing)) != 1
                 ):
                     raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
-            # A fixed zero timeout configures owned SQLite without reading a clock.
-            if component == "onlyalpha-broker-virtual" and path == area / "src/source_host.rs":
-                text = re.sub(r"\bstd\s*::\s*time\s*::\s*Duration\s*::\s*ZERO\b", "OWNED_SQLITE_NO_WAIT", text)
-            if (
-                component == "onlyalpha-broker-virtual"
-                and path != area / "src/source_host.rs"
-                and re.search(r"\b(?:rusqlite|libsqlite3_sys)\b", re.sub(r"(?m)^\s*//.*$", "", text))
-            ):
+            if re.search(r"\b(?:rusqlite|libsqlite3_sys)\b", re.sub(r"(?m)^\s*//.*$", "", text)):
                 raise ValueError("RUST_MODULE_BOUNDARY_INVALID")
             if (
                 path.is_symlink()
@@ -2131,7 +2102,6 @@ def validate_infrastructure_sources(root: Path) -> None:
                             if (
                                 component == "onlyalpha-data-source-binance" and path == area / "src/reference_store.rs"
                             )
-                            or (component == "onlyalpha-broker-virtual" and path == area / "src/source_host.rs")
                             else _PURE_INPUT_PATTERN
                         )
                     ),

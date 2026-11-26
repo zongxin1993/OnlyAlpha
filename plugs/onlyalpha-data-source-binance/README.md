@@ -40,7 +40,7 @@ Spot 正式 Bar 流在单一 coordinator 中串行修改状态、缓冲、去重
 
 ## 使用与验证
 
-[USD-M 组装测试](tests/usdm_assembled_runtime.rs) 使用原生 Crypto 规则、Broker Journal、Virtual Broker 场所调度与 SQLite Runtime。测试的开发依赖包括 onlyalpha-broker、onlyalpha-broker-virtual、onlyalpha-runtime。Virtual Broker 按自身报价资金容量决定接单与排程；资金 100000 时原订单条件成立，资金 20 时场所会因 120 名义拒单。Runtime 独立验证初始保证金 12，依据真实终态释放原预留。永续权益与 Funding 取自 Kernel 持久状态。
+[USD-M 组装测试](tests/usdm_assembled_runtime.rs) 使用原生 Crypto 规则、Virtual Broker 场所调度与内存 Runtime 会话。测试的开发依赖包括 onlyalpha-broker、onlyalpha-broker-virtual、onlyalpha-runtime。Virtual Broker 按自身报价资金容量决定接单与排程；资金 100000 时原订单条件成立，资金 20 时场所会因 120 名义拒单。Runtime 独立验证初始保证金 12，依据真实终态释放原预留。永续权益与 Funding 由 Runtime 会话按真实经济输入解算。
 
 在 workspace 运行 `cargo test -p onlyalpha-data-source-binance`。独立期望值位于 [`tests/canonical_facts.rs`](tests/canonical_facts.rs)，序列/恢复断言位于 [`tests/trade_continuity.rs`](tests/trade_continuity.rs)，受控真实 HTTP 位于 [`src/tests/usdm_rest.rs`](src/tests/usdm_rest.rs)，现有 Bar/实时 socket/持久化断言保留在源码测试和 [`tests/native_source.rs`](tests/native_source.rs)。测试使用受控输入，不能替代真实 Binance/Testnet 专项或正式应用权限验收。
 

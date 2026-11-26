@@ -1,31 +1,27 @@
-//! 原始 USD-M 行情、规则、Virtual 场所、Broker Journal 与持久交易内核的库级组合。
-#[path = "support/perpetual_venue.rs"]
-mod venue;
-use onlyalpha_broker::{Fact, Scope};
+//! 原始 USD-M 行情、规则、Virtual 场所与有限内存交易内核的库级组合。
+//! 经济工作只在内存中保留；恢复是对同一冻结输入的确定性重算，
+//! 不存在可以重新读取的持久前缀或旧格式 reader。
+use onlyalpha_broker::{BrokerCommand, Fact, Scope};
+use onlyalpha_broker_virtual::{MemoryVirtualActor, VirtualBroker};
 use onlyalpha_data_source_binance::{
     reference_capture::ReferenceCapture, spot_normalize, usdm_facts,
 };
 use onlyalpha_domain::{
     base::OnlyDomainModel, identifiers::OnlyInstrumentId, instrument::OnlyInstrument,
-    market::OnlyBar, time::OnlyUtcDateTime, trading::OnlyReferencePriceKind,
+    market::OnlyBar, time::OnlyUtcDateTime, trading::OnlyReferencePriceKind, value::OnlyMoney,
 };
+use onlyalpha_execution::{Error, MarketSourceCut, funding_boundary};
 use onlyalpha_market_crypto::market_policy::{MarketBinding, Product};
-use onlyalpha_runtime::Runtime;
+use onlyalpha_runtime::{RunBinding, RunConfiguration, Session, TradingInput};
 use serde_json::{Value, json};
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-};
-use venue::{ORDER, Venue, order_row};
+use std::collections::BTreeMap;
 
 const INSTRUMENT: &str = "BTCUSDT-PERP.BINANCE";
+const ORDER: &str = "runtime-ORDER-000001";
 const BOUNDARY: i64 = 1_788_249_600_000;
 const MINUTE: i64 = 60_000;
 const VERSION: &str = "recorded-perpetual-bars-v1";
 const ACCT: &str = "backtest-account";
-static DIRECTORY: AtomicU64 = AtomicU64::new(0);
 const SOURCE_BYTES: [&[u8]; 4] = [
     include_bytes!("fixtures/usdm-exchange.json"),
     include_bytes!("fixtures/usdm-funding.json"),
@@ -33,25 +29,15 @@ const SOURCE_BYTES: [&[u8]; 4] = [
     include_bytes!("fixtures/usdm-account.json"),
 ];
 
-struct Root(PathBuf);
-impl Root {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "oa-perpetual-assembled-{}-{}",
-            std::process::id(),
-            DIRECTORY.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-}
-impl Drop for Root {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
-    }
-}
 fn initial_currency() -> Value {
     json!({"schema_version":1,"code":"USDT","precision":8,"currency_type":"CRYPTO"})
+}
+fn cash_of(currency: &Value, amount: &str) -> OnlyMoney {
+    OnlyMoney::from_record(&json!({"schema_version":1,"amount":amount,"currency":currency}))
+        .unwrap()
+}
+fn venue_config() -> Value {
+    json!({"maximum_fill_quantity":"0.001"})
 }
 fn broker_fee() -> (Value, Value) {
     let contract = json!({"id":"VIRTUAL_SIMULATION_ZERO","version":"1","broker":"virtual","account":ACCT,"families":["zero"]});
@@ -111,11 +97,16 @@ fn config(cash: &str, terms: Value) -> Value {
         "capitals":{"cluster":cash},"profiles":{"cluster":{"schema_version":1,"revision":"b".repeat(64),"instruments":[terms["instrument"]],"rules":[]}},
         "instruments":[{"schema_version":1,"id":terms["instrument"],"price_precision":2,"quantity_precision":3,"multiplier":terms["multiplier"]}],
         "perpetual":terms});
-    cfg["perpetual"]["execution_source_binding"] = json!(Venue::binding(
-        Scope::decode(&scope(&cfg)).unwrap(),
-        &cfg["currency"],
-        cash
-    ));
+    let scope = Scope::decode(&scope(&cfg)).unwrap();
+    let origin = VirtualBroker::new(
+        scope,
+        &"f".repeat(64),
+        cash_of(&cfg["currency"], cash),
+        &venue_config(),
+    )
+    .unwrap();
+    cfg["perpetual"]["execution_source_binding"] =
+        json!(onlyalpha_broker::digest(origin.source_binding()));
     bind_sources(&mut cfg, false);
     cfg
 }
@@ -275,44 +266,115 @@ fn boundary() -> (Value, Value) {
     assert!(m.stable_order() < f.stable_order());
     (m.to_record(), f.to_record())
 }
+
+/// 内存驱动的一步：接受输入，或测试直接对内存场所做的操作。
+/// 场所与经济状态都只在内存中保留，重算必须完整重现这份顺序。
+enum Step {
+    Input(Value),
+    Bar(u64, Box<OnlyBar>),
+    Advance(i64),
+    Dispatch(Value),
+    Publish,
+}
 struct Run {
     cfg: Value,
-    artifact: String,
-    runtime: Runtime,
+    scope: Scope,
+    session: Session,
+    venue: MemoryVirtualActor,
+    cut: MarketSourceCut,
     seq: u64,
+    steps: Vec<Step>,
 }
 impl Run {
-    fn create(dir: &Path, cfg: Value) -> Self {
-        let artifact = "e".repeat(64);
-        fs::write(
-            dir.join("market-source-cut.json"),
-            serde_json::to_vec(&cfg["perpetual"]["source_rows"]).unwrap(),
+    fn create(cfg: Value) -> Self {
+        let configuration = RunConfiguration::from_record(cfg.clone()).unwrap();
+        let binding = RunBinding::new(
+            &configuration,
+            &"e".repeat(64),
+            &"c".repeat(64),
+            &"d".repeat(64),
         )
         .unwrap();
-        if !dir.join("broker.sqlite3").exists() {
-            Venue::create(
-                dir,
-                Scope::decode(&scope(&cfg)).unwrap(),
-                &cfg["currency"],
-                cfg["initial_cash"].as_str().unwrap(),
-            );
-        }
-        let runtime = Runtime::create(dir, cfg.clone(), &artifact).unwrap();
+        let session = Session::new(&configuration, &binding).unwrap();
+        let scope = Scope::decode(&scope(&cfg)).unwrap();
+        let expected = cfg["perpetual"]["execution_source_binding"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut venue = MemoryVirtualActor::new(
+            scope.clone(),
+            &"f".repeat(64),
+            cash_of(&cfg["currency"], cfg["initial_cash"].as_str().unwrap()),
+            &venue_config(),
+            &expected,
+        )
+        .unwrap();
+        venue.connect().unwrap();
+        venue.authenticate().unwrap();
+        let cut = MarketSourceCut::read(
+            &serde_json::to_vec(&cfg["perpetual"]["source_rows"]).unwrap(),
+            cfg["perpetual"]["source_cut_sha256"].as_str().unwrap(),
+        )
+        .unwrap();
         Self {
             cfg,
-            artifact,
-            runtime,
+            scope,
+            session,
+            venue,
+            cut,
             seq: 0,
+            steps: Vec::new(),
         }
     }
     fn input(&self, ms: i64, op: &str, payload: Value) -> Value {
         msg(&self.cfg, self.seq + 1, ms, op, payload)
     }
+    /// 一次输入的完整协议：原始序列化证据、原始场所与确认。
+    /// 被拒绝的输入不改变已保留前缀，也不进入重算顺序。
+    fn accept(&mut self, input: &Value) -> Result<u64, Error> {
+        let original = matches!(
+            input["op"].as_str(),
+            Some("MARK" | "FUNDING" | "ACCEPT" | "FILL" | "TERMINAL")
+        );
+        let event = if original {
+            let source = if input["op"] == "FUNDING" {
+                Some(
+                    self.venue
+                        .funding_history(
+                            funding_boundary(&input["payload"]["fact"])?,
+                            input["time"].as_u64().unwrap(),
+                        )
+                        .map_err(broker)?,
+                )
+            } else {
+                None
+            };
+            self.session.apply_original(
+                &TradingInput::from_record(input.clone())?,
+                &self.cut,
+                self.venue.broker(),
+                source.as_ref(),
+            )?
+        } else {
+            self.session
+                .apply(&TradingInput::from_record(input.clone())?)?
+        };
+        let sequence = event.sequence();
+        self.session.acknowledge(sequence)?;
+        if let Some(id) = input["payload"]["broker"]["id"].as_str() {
+            self.venue.acknowledge(&self.session, id).map_err(broker)?;
+        }
+        Ok(sequence)
+    }
+    fn record(&mut self, input: Value) -> Value {
+        self.accept(&input).unwrap();
+        self.seq += 1;
+        self.steps.push(Step::Input(input.clone()));
+        input
+    }
     fn apply(&mut self, ms: i64, op: &str, payload: Value) -> Value {
         let input = self.input(ms, op, payload);
-        self.runtime.apply(&input).unwrap();
-        self.seq += 1;
-        input
+        self.record(input)
     }
     fn admit(&mut self, ms: i64, req: &Value) {
         self.apply(ms,"ADMIT",json!({"schema_version":3,"order":ORDER,"request":req,"policy_fingerprint":self.cfg["perpetual"]["policy_fingerprint"]}));
@@ -320,42 +382,82 @@ impl Run {
     fn mark(&mut self, ms: i64, v: &Value) {
         self.apply(ms, "MARK", json!({"schema_version":1,"fact":v}));
     }
-    fn reopen(self, dir: &Path) -> Self {
-        let Self {
-            runtime,
-            cfg,
-            artifact,
-            seq,
-        } = self;
-        drop(runtime);
-        let runtime = Runtime::open(dir, cfg.clone(), &artifact).unwrap();
-        Self {
-            runtime,
-            cfg,
-            artifact,
-            seq,
-        }
+    fn publish(&mut self) -> usize {
+        let count = self.venue.publish().unwrap();
+        self.steps.push(Step::Publish);
+        count
     }
-    fn consume(&mut self, venue: &mut Venue, ms: i64) -> Vec<Fact> {
-        let facts = venue.pending();
+    fn bar(&mut self, sequence: u64, bar: &OnlyBar) {
+        self.venue.on_bar(sequence, bar).unwrap();
+        self.steps.push(Step::Bar(sequence, Box::new(bar.clone())));
+    }
+    fn advance(&mut self, at: i64) {
+        self.venue.advance(at).unwrap();
+        self.steps.push(Step::Advance(at));
+    }
+    fn dispatch_record(&mut self, record: Value) {
+        let command = BrokerCommand::decode(&record).unwrap();
+        self.venue.dispatch(&self.session, &command).unwrap();
+        self.steps.push(Step::Dispatch(record));
+    }
+    fn dispatch(&mut self, request: &Value) {
+        let snapshot = self.session.order("cluster", ORDER).unwrap();
+        let record = json!({"schema_version":1,"scope":self.scope.record(),"operation":"SUBMIT",
+            "command_id":"original-submit","order":ORDER,"client":snapshot["client_order_id"]["value"],"request":request});
+        self.dispatch_record(record);
+    }
+    fn consume(&mut self, ms: i64) -> Vec<Fact> {
+        self.publish();
+        let facts = self.venue.pending().to_vec();
         for fact in &facts {
-            let f = fact.record();
-            let op = match f["kind"].as_str().unwrap() {
+            let body = fact.record();
+            let op = match body["kind"].as_str().unwrap() {
                 "ACCEPTED" => "ACCEPT",
                 "TRADE" => "FILL",
                 "REJECTED" => "TERMINAL",
                 other => panic!("unexpected {other}"),
             };
-            let proof = json!({"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":f});
-            self.apply(
+            let proof = json!({"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":body});
+            let input = self.input(
                 ms,
                 op,
                 json!({"schema_version":2,"order":ORDER,"broker":proof}),
             );
-            venue.acknowledge(&self.runtime, fact);
+            self.record(input);
         }
         facts
     }
+    /// 按同一配置和同一操作顺序从头重算；这是内存工作唯一的恢复语义。
+    fn recompute(&self) -> Self {
+        let mut restored = Self::create(self.cfg.clone());
+        for (index, step) in self.steps.iter().enumerate() {
+            match step {
+                Step::Input(input) => {
+                    if let Err(e) = restored.accept(input) {
+                        panic!("recompute step {index} failed: {e}");
+                    }
+                    restored.seq += 1;
+                    restored.steps.push(Step::Input(input.clone()));
+                }
+                Step::Bar(sequence, bar) => restored.bar(*sequence, bar),
+                Step::Advance(at) => restored.advance(*at),
+                Step::Dispatch(record) => restored.dispatch_record(record.clone()),
+                Step::Publish => {
+                    restored.publish();
+                }
+            }
+        }
+        restored
+    }
+    fn state(&self) -> Value {
+        self.session.state().unwrap()
+    }
+    fn order_value(&self) -> Value {
+        self.session.order("cluster", ORDER).unwrap()
+    }
+}
+fn broker(e: impl std::fmt::Display) -> Error {
+    Error(e.to_string())
 }
 fn amount(actual: &Value, expected: &str) {
     use bigdecimal::BigDecimal;
@@ -364,51 +466,45 @@ fn amount(actual: &Value, expected: &str) {
         expected.parse::<BigDecimal>().unwrap()
     );
 }
-fn broker_submit(run: &mut Run, venue: &mut Venue, qty: &str) {
+fn broker_submit(run: &mut Run, qty: &str) {
     let ms = BOUNDARY - 2 * MINUTE;
-    venue.simulation.on_bar(1, &bar(-3)).unwrap();
+    run.bar(1, &bar(-3));
     run.mark(ms, &mark(-2));
     let r = request(INSTRUMENT, qty);
     run.admit(ms, &r);
-    venue.dispatch(&run.runtime, &r);
+    run.dispatch(&r);
+    // 场所只有走到受理时钟才产出结果，与原始实现派发后的同刻推进一致。
+    run.advance(run.venue.now());
     run.apply(
         ms,
         "SUBMISSION",
         json!({"schema_version":1,"order":ORDER,"outcome":"DISPATCHED"}),
     );
 }
-fn start(dir: &Path, cash: &str, qty: &str) -> (Run, Venue) {
-    let cfg = config(cash, usdm_terms());
-    let mut venue = Venue::create(
-        dir,
-        Scope::decode(&scope(&cfg)).unwrap(),
-        &cfg["currency"],
-        cash,
-    );
-    let mut run = Run::create(dir, cfg);
-    broker_submit(&mut run, &mut venue, qty);
-    (run, venue)
+fn start(cash: &str, qty: &str) -> Run {
+    let mut run = Run::create(config(cash, usdm_terms()));
+    broker_submit(&mut run, qty);
+    run
 }
 fn records(run: &Run) -> Vec<Value> {
-    run.runtime
-        .records()
-        .unwrap()
+    run.session
+        .retained_facts()
         .iter()
         .map(|r| r.record())
         .collect()
 }
-fn accepted(run: &mut Run, venue: &mut Venue) {
-    let facts = run.consume(venue, BOUNDARY - 2 * MINUTE);
+fn accepted(run: &mut Run) {
+    let facts = run.consume(BOUNDARY - 2 * MINUTE);
     assert_eq!(facts.len(), 1);
     assert_eq!(facts[0].record()["kind"], "ACCEPTED");
 }
-fn fills(run: &mut Run, venue: &mut Venue, qty: &str) -> (Value, Value) {
+fn fills(run: &mut Run, qty: &str) -> (Value, Value) {
     let (boundary_mark, funding) = boundary();
-    for (sequence, minute, m) in [(2, -1, mark(-1)), (3, 0, boundary_mark.clone())] {
+    for (sequence, minute, m) in [(2_u64, -1, mark(-1)), (3, 0, boundary_mark.clone())] {
         let ms = BOUNDARY + minute * MINUTE;
         run.mark(ms, &m);
-        venue.simulation.on_bar(sequence, &bar(minute - 1)).unwrap();
-        let received = run.consume(venue, ms);
+        run.bar(sequence, &bar(minute - 1));
+        let received = run.consume(ms);
         if sequence == 3 && qty == "0.001" {
             assert!(received.is_empty());
         } else {
@@ -419,14 +515,14 @@ fn fills(run: &mut Run, venue: &mut Venue, qty: &str) -> (Value, Value) {
             amount(&raw["payload"]["fill"]["quantity"]["value"], "0.001");
         }
     }
-    venue.simulation.advance(BOUNDARY * 1_000_000 + 1).unwrap();
+    run.advance(BOUNDARY * 1_000_000 + 1);
     (boundary_mark, funding)
 }
 fn funding_payload(m: &Value, f: &Value) -> Value {
     json!({"schema_version":1,"mark_fact_id":m["fact_id"],"fact":f})
 }
 fn verify_amounts(run: &Run, qty: &str) {
-    let s = run.runtime.state().unwrap();
+    let s = run.state();
     let a = &s["account"]["snapshot"];
     let l = &s["ledger"]["ledgers"]["cluster"]["snapshot"];
     let (fee, initial, maintenance, debit, equity, net) = match qty {
@@ -459,9 +555,9 @@ fn verify_amounts(run: &Run, qty: &str) {
     amount(&l["fees"], fee);
     amount(&l["external_cash_flow"], "0");
     assert!(!l["simple_return"].is_null());
-    let order = order_row(&run.runtime);
-    assert_eq!(order["snapshot"]["status"], "FILLED");
-    amount(&order["snapshot"]["filled_quantity"]["value"], qty);
+    let order = run.order_value();
+    assert_eq!(order["status"], "FILLED");
+    amount(&order["filled_quantity"]["value"], qty);
     amount(&s["position"]["accounts"][0]["snapshot"]["quantity"], qty);
     amount(
         &s["position"]["allocations"][0]["snapshot"]["quantity"],
@@ -483,29 +579,26 @@ fn verify_amounts(run: &Run, qty: &str) {
         .unwrap();
     assert_eq!(entries.iter().filter(|e| e["kind"] == "FUNDING").count(), 1);
 }
-fn execute(dir: &Path, qty: &str, restore: bool) -> Value {
-    let (mut run, mut venue) = start(dir, "100000.00000000", qty);
-    accepted(&mut run, &mut venue);
-    let (m, f) = fills(&mut run, &mut venue, qty);
+fn execute(qty: &str, restore: bool) -> Value {
+    let mut run = start("100000.00000000", qty);
+    accepted(&mut run);
+    let (m, f) = fills(&mut run, qty);
     if restore {
-        let cut = run.runtime.save_checkpoint().unwrap();
-        assert!(cut.is_object());
         assert!(
-            run.runtime.state().unwrap()["execution"]["perpetual"]["funding"]
+            run.state()["execution"]["perpetual"]["funding"]
                 .as_object()
                 .unwrap()
                 .is_empty()
         );
-        run = run.reopen(dir);
-        venue = venue.restore(dir);
+        run = run.recompute();
     }
     let payload = funding_payload(&m, &f);
     let original = run.apply(BOUNDARY + 1, "FUNDING", payload.clone());
-    let once = run.runtime.state().unwrap();
-    run.runtime.apply(&original).unwrap();
-    assert_eq!(once, run.runtime.state().unwrap());
+    let once = run.state();
+    run.accept(&original).unwrap();
+    assert_eq!(once, run.state());
     run.apply(BOUNDARY + 1, "FUNDING", payload);
-    let duplicate = run.runtime.state().unwrap();
+    let duplicate = run.state();
     assert_eq!(duplicate["account"], once["account"]);
     assert_eq!(duplicate["ledger"], once["ledger"]);
     assert_eq!(
@@ -513,39 +606,37 @@ fn execute(dir: &Path, qty: &str, restore: bool) -> Value {
         "DUPLICATE"
     );
     run.mark(BOUNDARY + MINUTE, &mark(1));
-    for (sequence, minute) in [(4, 0), (5, 1)] {
-        venue.simulation.on_bar(sequence, &bar(minute)).unwrap();
-        assert!(venue.pending().is_empty());
+    for (sequence, minute) in [(4_u64, 0), (5, 1)] {
+        run.bar(sequence, &bar(minute));
+        run.publish();
+        assert!(run.venue.pending().is_empty());
     }
     verify_amounts(&run, qty);
     let all = records(&run);
-    let trade_count = all
-        .iter()
-        .filter(|v| v["prepared"]["input"]["op"] == "FILL")
-        .count();
+    let trade_count = all.iter().filter(|v| v["input"]["op"] == "FILL").count();
     assert_eq!(trade_count, if qty == "0.002" { 2 } else { 1 });
-    json!({"state":run.runtime.state().unwrap(),"owners":run.runtime.fork_ready().unwrap().0.checkpoint().unwrap(),
-        "transactions":all,"journal":venue.journal_rows(),"venue":venue.simulation.checkpoint()})
+    json!({
+        "state":run.state(),
+        "transactions":all,
+        "order":run.order_value(),
+        "view":run.session.position_order_view().unwrap()
+    })
 }
+
 #[test]
-fn original_two_partial_fills_funding_and_all_owners_recover_from_the_pre_funding_checkpoint() {
+fn original_two_partial_fills_funding_and_the_economic_work_recomputes() {
     for quantity in ["0.002", "0.001"] {
-        let a = Root::new();
-        let b = Root::new();
-        assert_eq!(
-            execute(&a.0, quantity, false),
-            execute(&b.0, quantity, true)
-        );
+        assert_eq!(execute(quantity, false), execute(quantity, true));
     }
 }
+
 #[test]
 fn venue_notional_capacity_rejection_releases_the_original_kernel_risk_and_margin() {
-    let root = Root::new();
-    let (mut run, mut venue) = start(&root.0, "20.00000000", "0.002");
-    let initial = run.runtime.state().unwrap();
+    let mut run = start("20.00000000", "0.002");
+    let initial = run.state();
     amount(&initial["account"]["snapshot"]["cash"], "20");
     amount(&initial["account"]["snapshot"]["reserved_margin"], "12");
-    let returned = run.consume(&mut venue, BOUNDARY - 2 * MINUTE);
+    let returned = run.consume(BOUNDARY - 2 * MINUTE);
     assert_eq!(returned.len(), 1);
     assert_eq!(returned[0].record()["kind"], "REJECTED");
     assert!(
@@ -554,29 +645,27 @@ fn venue_notional_capacity_rejection_releases_the_original_kernel_risk_and_margi
             .unwrap()
             .contains("INSUFFICIENT_VENUE_CAPACITY")
     );
-    let after = run.runtime.state().unwrap();
+    let after = run.state();
     let a = &after["account"]["snapshot"];
     for k in ["reserved_margin", "occupied_margin", "reserved", "fees"] {
         amount(&a[k], "0");
     }
     amount(&a["cash"], "20");
-    assert_eq!(order_row(&run.runtime)["snapshot"]["status"], "REJECTED");
+    assert_eq!(run.order_value()["status"], "REJECTED");
     assert!(after["position"]["accounts"].as_array().unwrap().is_empty());
     assert_eq!(after["risk"]["active_count"], 0);
-    let reopened = run.reopen(&root.0);
-    assert_eq!(reopened.runtime.state().unwrap(), after);
-    let mut venue = venue.restore(&root.0);
-    assert!(venue.pending().is_empty());
+    let restored = run.recompute();
+    assert_eq!(restored.state(), after);
+    assert!(restored.venue.pending().is_empty());
 }
+
 #[test]
-fn conflicting_unavailable_and_foreign_funding_leave_the_reopened_ready_prefix_intact() {
-    let dir = Root::new();
-    let (mut run, mut venue) = start(&dir.0, "100000.00000000", "0.002");
-    accepted(&mut run, &mut venue);
-    let (m, f) = fills(&mut run, &mut venue, "0.002");
-    run.runtime.save_checkpoint().unwrap();
-    run = run.reopen(&dir.0);
-    let prior = run.runtime.state().unwrap();
+fn conflicting_unavailable_and_foreign_funding_leave_the_recomputed_prefix_intact() {
+    let mut run = start("100000.00000000", "0.002");
+    accepted(&mut run);
+    let (m, f) = fills(&mut run, "0.002");
+    run = run.recompute();
+    let prior = run.state();
     let prior_records = records(&run);
     for key in [
         "mark_fact_id",
@@ -599,82 +688,61 @@ fn conflicting_unavailable_and_foreign_funding_leave_the_reopened_ready_prefix_i
             "funding_time" => fact[key] = json!("2026-09-01T07:59:00Z"),
             _ => fact[key] = json!("foreign"),
         }
-        assert!(run.runtime.apply(&input).is_err(), "{key}");
+        assert!(run.accept(&input).is_err(), "{key}");
         assert_eq!(
-            run.runtime.state().unwrap_err().0,
-            "RUNTIME_RECOVERY_REQUIRED"
+            run.session.state().unwrap_err().0,
+            "MEMORY_SESSION_FAILED"
         );
-        run = run.reopen(&dir.0);
-        assert_eq!(run.runtime.state().unwrap(), prior);
+        run = run.recompute();
+        assert_eq!(run.state(), prior);
         assert_eq!(records(&run), prior_records);
     }
     let original = run.apply(BOUNDARY + 1, "FUNDING", funding_payload(&m, &f));
-    run = run.reopen(&dir.0);
-    let after = run.runtime.state().unwrap();
+    run = run.recompute();
+    let after = run.state();
     let after_records = records(&run);
     let mut other = original.clone();
     other["payload"]["fact"]["rate"] = json!("0.0002");
-    assert!(run.runtime.apply(&other).is_err());
+    assert!(run.accept(&other).is_err());
     assert_eq!(
-        run.runtime.state().unwrap_err().0,
-        "RUNTIME_RECOVERY_REQUIRED"
+        run.session.state().unwrap_err().0,
+        "MEMORY_SESSION_FAILED"
     );
-    run = run.reopen(&dir.0);
+    run = run.recompute();
     assert_eq!(records(&run), after_records);
     let mut other = f.clone();
     other["rate"] = json!("0.0002");
     let other = run.input(BOUNDARY + 1, "FUNDING", funding_payload(&m, &other));
-    assert!(run.runtime.apply(&other).is_err());
+    assert!(run.accept(&other).is_err());
     assert_eq!(
-        run.runtime.state().unwrap_err().0,
-        "RUNTIME_RECOVERY_REQUIRED"
+        run.session.state().unwrap_err().0,
+        "MEMORY_SESSION_FAILED"
     );
-    run = run.reopen(&dir.0);
+    run = run.recompute();
     assert_eq!(records(&run), after_records);
-    assert_eq!(run.runtime.state().unwrap(), after);
-    let cfg = run.cfg.clone();
-    let artifact = run.artifact.clone();
-    drop(run);
-    assert!(Runtime::open(&dir.0, cfg.clone(), &"0".repeat(64)).is_err());
-    let mut wrong = cfg.clone();
-    wrong["perpetual"]["data_version"] = json!("wrong-version");
-    assert!(Runtime::open(&dir.0, wrong, &artifact).is_err());
-    assert_eq!(
-        Runtime::open(&dir.0, cfg, &artifact)
-            .unwrap()
-            .state()
-            .unwrap(),
-        after
-    );
+    assert_eq!(run.state(), after);
 }
 
 #[test]
 fn exhausted_maintenance_history_preserves_marks_funding_and_the_admitted_fill() {
-    let dir = Root::new();
     let mut cfg = config("100000.00000000", usdm_terms());
     for value in [json!(0), json!(513), json!("1")] {
         let mut wrong = cfg.clone();
         wrong["margin_observation_capacity"] = value;
-        assert!(Runtime::create(&Root::new().0, wrong, &"e".repeat(64)).is_err());
+        assert!(RunConfiguration::from_record(wrong).is_err());
     }
     let mut cash = cfg.clone();
     cash.as_object_mut().unwrap().remove("perpetual");
     cash["schema_version"] = json!(2);
     cash["margin_observation_capacity"] = json!(1);
-    assert!(Runtime::create(&Root::new().0, cash, &"e".repeat(64)).is_err());
+    assert!(RunConfiguration::from_record(cash).is_err());
     cfg["margin_observation_capacity"] = json!(1);
-    let mut venue = Venue::create(
-        &dir.0,
-        Scope::decode(&scope(&cfg)).unwrap(),
-        &cfg["currency"],
-        "100000.00000000",
-    );
-    let mut run = Run::create(&dir.0, cfg);
-    broker_submit(&mut run, &mut venue, "0.003");
-    accepted(&mut run, &mut venue);
+    let mut run = Run::create(cfg);
+    broker_submit(&mut run, "0.003");
+    accepted(&mut run);
     run.mark(BOUNDARY - MINUTE, &mark(-1));
-    venue.simulation.on_bar(2, &bar(-2)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY - MINUTE).len(), 1);
+    run.bar(2, &bar(-2));
+    assert_eq!(run.consume(BOUNDARY - MINUTE).len(), 1);
 
     // 已有 0.001 仓，60100 时的可证维护额为 0.2404，使用最后一份观测容量。
     let repriced_at = BOUNDARY - MINUTE + 1000;
@@ -692,7 +760,7 @@ fn exhausted_maintenance_history_preserves_marks_funding_and_the_admitted_fill()
     .unwrap()
     .to_record();
     run.mark(repriced_at, &repriced);
-    let priced = run.runtime.state().unwrap();
+    let priced = run.state();
     assert_eq!(priced["execution"]["margin_authority"]["schema_version"], 2);
     assert_eq!(
         priced["execution"]["margin_authority"]["config"]["observation_capacity"],
@@ -705,7 +773,7 @@ fn exhausted_maintenance_history_preserves_marks_funding_and_the_admitted_fill()
 
     let (m, f) = boundary();
     run.mark(BOUNDARY, &m);
-    let unavailable = run.runtime.state().unwrap();
+    let unavailable = run.state();
     assert_eq!(
         unavailable["execution"]["perpetual"]["marks"][m["fact_id"].as_str().unwrap()],
         m
@@ -720,21 +788,17 @@ fn exhausted_maintenance_history_preserves_marks_funding_and_the_admitted_fill()
     );
     amount(&a["unrealized_pnl"], "0");
 
-    venue.simulation.on_bar(3, &bar(-1)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY).len(), 1);
+    run.bar(3, &bar(-1));
+    assert_eq!(run.consume(BOUNDARY).len(), 1);
     let no_cut = run.input(BOUNDARY, "FUNDING", funding_payload(&m, &f));
     assert_eq!(
-        run.runtime.apply(&no_cut).unwrap_err().0,
+        run.accept(&no_cut).unwrap_err().0,
         "BROKER_ECONOMIC_PREFIX_UNPROVEN"
     );
-    run = run.reopen(&dir.0);
-    venue
-        .simulation
-        .advance((BOUNDARY * 1_000_000).checked_add(1).unwrap())
-        .unwrap();
-    venue.observe_economic_prefix();
+    run = run.recompute();
+    run.advance(BOUNDARY * 1_000_000 + 1);
     run.apply(BOUNDARY + 1, "FUNDING", funding_payload(&m, &f));
-    let funded = run.runtime.state().unwrap();
+    let funded = run.state();
     amount(
         &funded["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
         "-.012",
@@ -744,15 +808,15 @@ fn exhausted_maintenance_history_preserves_marks_funding_and_the_admitted_fill()
     req["request_id"]["value"] = json!("blocked-new-risk");
     let attempt=run.input(BOUNDARY+1,"ADMIT",json!({"schema_version":3,"order":"runtime-ORDER-000002","request":req,"policy_fingerprint":run.cfg["perpetual"]["policy_fingerprint"]}));
     assert_eq!(
-        run.runtime.apply(&attempt).unwrap_err().0,
+        run.accept(&attempt).unwrap_err().0,
         "MARGIN_OBSERVATION_HISTORY_LIMIT"
     );
-    run = run.reopen(&dir.0);
-    assert_eq!(run.runtime.state().unwrap(), funded);
-    venue.simulation.on_bar(4, &bar(0)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY + MINUTE).len(), 1);
-    let final_state = run.runtime.state().unwrap();
-    assert_eq!(order_row(&run.runtime)["snapshot"]["status"], "FILLED");
+    run = run.recompute();
+    assert_eq!(run.state(), funded);
+    run.bar(4, &bar(0));
+    assert_eq!(run.consume(BOUNDARY + MINUTE).len(), 1);
+    let final_state = run.state();
+    assert_eq!(run.order_value()["status"], "FILLED");
     assert_eq!(
         final_state["account"]["snapshot"]["maintenance_status"],
         "UNAVAILABLE"
@@ -760,25 +824,18 @@ fn exhausted_maintenance_history_preserves_marks_funding_and_the_admitted_fill()
     amount(&final_state["account"]["snapshot"]["occupied_margin"], "18");
     amount(&final_state["account"]["snapshot"]["fees"], ".09");
     amount(&final_state["account"]["snapshot"]["equity"], "99999.898");
-    run.runtime.save_checkpoint().unwrap();
     let all = records(&run);
-    let restored = run.reopen(&dir.0);
-    assert_eq!(restored.runtime.state().unwrap(), final_state);
+    let restored = run.recompute();
+    assert_eq!(restored.state(), final_state);
     assert_eq!(records(&restored), all);
-    let mut changed = restored.cfg.clone();
-    let artifact = restored.artifact.clone();
-    drop(restored);
-    changed["margin_observation_capacity"] = json!(2);
-    assert!(Runtime::open(&dir.0, changed, &artifact).is_err());
 }
 
 #[test]
 fn actual_admission_checks_the_bound_market_policy_for_every_order_and_time() {
-    let dir = Root::new();
-    let mut run = Run::create(&dir.0, config("100000.00000000", usdm_terms()));
+    let mut run = Run::create(config("100000.00000000", usdm_terms()));
     run.mark(BOUNDARY - MINUTE, &mark(-1));
     let original = records(&run);
-    let before = run.runtime.state().unwrap();
+    let before = run.state();
     for (at, price, q) in [
         (BOUNDARY, "60000.01", "0.002"),
         (BOUNDARY, "100.00", "0.001"),
@@ -792,34 +849,27 @@ fn actual_admission_checks_the_bound_market_policy_for_every_order_and_time() {
             input["day_index"] = json!(2);
         }
         assert!(
-            run.runtime.apply(&input).is_err(),
+            run.accept(&input).is_err(),
             "rule accepted {price}/{q} at {at}"
         );
-        run = run.reopen(&dir.0);
-        assert_eq!(run.runtime.state().unwrap(), before);
+        run = run.recompute();
+        assert_eq!(run.state(), before);
         assert_eq!(records(&run), original);
     }
 }
 
 #[test]
 fn late_funding_applies_once_to_the_boundary_position_after_another_fill_and_mark() {
-    let dir = Root::new();
     let mut cfg = config("100000.00000000", usdm_terms());
     bind_sources(&mut cfg, true);
-    let mut venue = Venue::create(
-        &dir.0,
-        Scope::decode(&scope(&cfg)).unwrap(),
-        &cfg["currency"],
-        "100000.00000000",
-    );
-    let mut run = Run::create(&dir.0, cfg);
-    broker_submit(&mut run, &mut venue, "0.003");
-    accepted(&mut run, &mut venue);
+    let mut run = Run::create(cfg);
+    broker_submit(&mut run, "0.003");
+    accepted(&mut run);
     run.mark(BOUNDARY - MINUTE, &mark(-1));
-    venue.simulation.on_bar(2, &bar(-2)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY - MINUTE).len(), 1);
-    venue.simulation.on_bar(3, &bar(-1)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY).len(), 1);
+    run.bar(2, &bar(-2));
+    assert_eq!(run.consume(BOUNDARY - MINUTE).len(), 1);
+    run.bar(3, &bar(-1));
+    assert_eq!(run.consume(BOUNDARY).len(), 1);
     let inst = INSTRUMENT.parse().unwrap();
     let raw = json!({"symbol":"BTCUSDT","fundingTime":BOUNDARY,"markPrice":"60000.00","fundingRate":"0.0001"});
     let (m, f) = usdm_facts::funding_boundary(
@@ -836,96 +886,68 @@ fn late_funding_applies_once_to_the_boundary_position_after_another_fill_and_mar
     let f = f.to_record();
     run.mark(BOUNDARY + 1000, &m);
     run.mark(BOUNDARY + MINUTE, &mark(1));
-    venue.simulation.on_bar(4, &bar(0)).unwrap();
-    let after = run.consume(&mut venue, BOUNDARY + MINUTE);
+    run.bar(4, &bar(0));
+    let after = run.consume(BOUNDARY + MINUTE);
     assert_eq!(after.len(), 1);
     assert!(after[0].record()["ts_event"].as_i64().unwrap() > BOUNDARY * 1_000_000);
-    run.runtime.save_checkpoint().unwrap();
-    run = run.reopen(&dir.0);
+    run = run.recompute();
     let original = run.apply(BOUNDARY + MINUTE, "FUNDING", funding_payload(&m, &f));
-    let state = run.runtime.state().unwrap();
+    let state = run.state();
     amount(
         &state["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
         "-.012",
     );
     amount(&state["account"]["snapshot"]["equity"], "99999.898");
     let rows = records(&run);
-    run = run.reopen(&dir.0);
-    run.runtime.apply(&original).unwrap();
-    assert_eq!(run.runtime.state().unwrap(), state);
+    run = run.recompute();
+    run.accept(&original).unwrap();
+    assert_eq!(run.state(), state);
     assert_eq!(records(&run), rows);
 }
 
 #[test]
-fn ready_broker_observations_require_the_original_dispatch_and_readable_journal() {
-    let mut accepted_without_proof = Vec::new();
-    for case in [
-        "missing-record",
-        "unreadable",
-        "unavailable",
-        "different-content",
-    ] {
-        let dir = Root::new();
-        let (mut run, mut venue) = start(&dir.0, "100000.00000000", "0.001");
-        let path = dir.0.join("broker.sqlite3");
-        let dispatched = fs::read(&path).unwrap();
-        assert!(
-            venue
-                .journal_rows()
-                .iter()
-                .any(|r| r["event"]["kind"] == "DISPATCHED")
-        );
-        let pending = venue.pending();
-        assert_eq!(pending.len(), 1);
-        let observed = &pending[0];
-        let intact = fs::read(&path).unwrap();
-        let mut reported = observed.record();
-        assert!(
-            venue
-                .journal_rows()
-                .iter()
-                .any(|r| r["event"]["kind"] == "INGRESS" && r["event"]["facts"][0] == reported)
-        );
-        let ready = records(&run);
-        let before = run.runtime.state().unwrap();
-        match case {
-            "missing-record" => fs::write(&path, &dispatched).unwrap(),
-            "unreadable" => fs::write(&path, b"broken journal body").unwrap(),
-            "unavailable" => fs::rename(&path, dir.0.join("unavailable.sqlite3")).unwrap(),
-            "different-content" => reported["session"] = json!("a-new-session"),
-            _ => unreachable!(),
-        }
-        let fact = Fact::decode(&reported).unwrap();
-        assert_eq!(fact.identity(), observed.identity());
-        assert_eq!(fact.fingerprint(), observed.fingerprint());
-        let input = run.input(
-            BOUNDARY - 2 * MINUTE,
-            "ACCEPT",
-            json!({"schema_version":2,"order":ORDER,
+fn original_broker_facts_must_match_the_recorded_observation() {
+    let mut run = start("100000.00000000", "0.001");
+    run.publish();
+    let pending = run.venue.pending().to_vec();
+    assert_eq!(pending.len(), 1);
+    let observed = &pending[0];
+    let ready = records(&run);
+    let before = run.state();
+    // 观察身份与指纹都不含顶层 session，改动它仍必须被原文比对拒绝。
+    let mut reported = observed.record();
+    reported["session"] = json!("a-new-session");
+    let fact = Fact::decode(&reported).unwrap();
+    assert_eq!(fact.identity(), observed.identity());
+    assert_eq!(fact.fingerprint(), observed.fingerprint());
+    let input = run.input(
+        BOUNDARY - 2 * MINUTE,
+        "ACCEPT",
+        json!({"schema_version":2,"order":ORDER,
             "broker":{"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":reported}}),
-        );
-        let applied = run.runtime.apply(&input).is_ok();
-        fs::write(&path, intact).unwrap();
-        if applied {
-            accepted_without_proof.push(case);
-        } else {
-            run = run.reopen(&dir.0);
-            assert_eq!(records(&run), ready);
-            assert_eq!(run.runtime.state().unwrap(), before);
-        }
-    }
-    assert!(
-        accepted_without_proof.is_empty(),
-        "accepted without original evidence: {accepted_without_proof:?}"
     );
+    assert_eq!(
+        run.accept(&input).unwrap_err().0,
+        "EXECUTION_BROKER_ORIGINAL_CONFLICT"
+    );
+    assert_eq!(
+        run.session.state().unwrap_err().0,
+        "MEMORY_SESSION_FAILED"
+    );
+    let mut restored = run.recompute();
+    assert_eq!(records(&restored), ready);
+    assert_eq!(restored.state(), before);
+    // 场所原文完好时，同一见证可以入账。
+    let facts = restored.consume(BOUNDARY - 2 * MINUTE);
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].record()["kind"], "ACCEPTED");
+    assert_eq!(restored.order_value()["status"], "ACCEPTED");
 }
 
 #[test]
 fn market_compiler_preimage_binds_the_complete_static_rules() {
     let cfg = config("100000.00000000", usdm_terms());
-    let valid_dir = Root::new();
-    let valid = Run::create(&valid_dir.0, cfg.clone());
-    valid.runtime.state().unwrap();
+    Run::create(cfg.clone()).state();
     for (key, value) in [
         ("price_tick", json!("0.01")),
         ("minimum_notional", json!("0.01")),
@@ -940,8 +962,7 @@ fn market_compiler_preimage_binds_the_complete_static_rules() {
         )
         .unwrap();
         changed["perpetual"]["limit_rules_fingerprint"] = json!(rules.content_fingerprint());
-        let rejected_dir = Root::new();
-        let error = Runtime::create(&rejected_dir.0, changed, &"e".repeat(64))
+        let error = RunConfiguration::from_record(changed)
             .err()
             .unwrap_or_else(|| panic!("same original policy accepted changed {key}"));
         assert_eq!(error.0, "EXECUTION_LIMIT_RULE_IDENTITY");
@@ -955,15 +976,13 @@ fn market_compiler_preimage_binds_the_complete_static_rules() {
     .unwrap();
     body["price_tick"] = json!("0.01");
     changed["perpetual"]["compiled_policy_json"] = json!(body.to_string());
-    let rejected_dir = Root::new();
-    assert!(Runtime::create(&rejected_dir.0, changed, &"e".repeat(64)).is_err());
+    assert!(RunConfiguration::from_record(changed).is_err());
 }
 
 #[test]
 fn compiled_account_modes_cannot_be_relabelled_as_the_runtime_open_profile() {
-    let control = Root::new();
-    let matched = Run::create(&control.0, config("100000.00000000", usdm_terms()));
-    matched.runtime.state().unwrap();
+    let matched = Run::create(config("100000.00000000", usdm_terms()));
+    matched.state();
     let mut terms = usdm_terms_for_account(true);
     let body: Value =
         serde_json::from_str(terms["compiled_policy_json"].as_str().unwrap()).unwrap();
@@ -971,14 +990,8 @@ fn compiled_account_modes_cannot_be_relabelled_as_the_runtime_open_profile() {
     assert_eq!(body["margin_mode"], "ISOLATED");
     terms["position_mode"] = json!("NETTING");
     terms["margin_mode"] = json!("CROSS");
-    let rejected = Root::new();
     assert!(
-        Runtime::create(
-            &rejected.0,
-            config("100000.00000000", terms),
-            &"e".repeat(64)
-        )
-        .is_err(),
+        RunConfiguration::from_record(config("100000.00000000", terms)).is_err(),
         "real HEDGING/ISOLATED compiled policy was accepted as NETTING/CROSS"
     );
 }
@@ -986,11 +999,7 @@ fn compiled_account_modes_cannot_be_relabelled_as_the_runtime_open_profile() {
 #[test]
 fn compiled_margin_curve_cannot_be_replaced_by_a_cheaper_runtime_curve() {
     let mut cfg = config("100000.00000000", usdm_terms());
-    let control = Root::new();
-    Run::create(&control.0, cfg.clone())
-        .runtime
-        .state()
-        .unwrap();
+    Run::create(cfg.clone()).state();
     let original_body = cfg["perpetual"]["compiled_policy_json"].clone();
     for segment in cfg["perpetual"]["margin_segments"].as_array_mut().unwrap() {
         // 原资源按同一十倍杠杆编译，两档初始直线都过原点。
@@ -999,928 +1008,145 @@ fn compiled_margin_curve_cannot_be_replaced_by_a_cheaper_runtime_curve() {
         segment["initial_slope"] = json!("0.05");
     }
     assert_eq!(cfg["perpetual"]["compiled_policy_json"], original_body);
-    let rejected = Root::new();
     assert!(
-        Runtime::create(&rejected.0, cfg, &"e".repeat(64)).is_err(),
+        RunConfiguration::from_record(cfg).is_err(),
         "lower runtime margin curve replaced the original compiler economics"
     );
 }
 
 #[test]
 fn funding_waits_until_the_virtual_boundary_is_closed_before_counting_same_time_fills() {
-    let dir = Root::new();
-    let (mut run, mut venue) = start(&dir.0, "100000.00000000", "0.002");
-    accepted(&mut run, &mut venue);
+    let mut run = start("100000.00000000", "0.002");
+    accepted(&mut run);
     run.mark(BOUNDARY - MINUTE, &mark(-1));
-    venue.simulation.on_bar(2, &bar(-2)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY - MINUTE).len(), 1);
+    run.bar(2, &bar(-2));
+    assert_eq!(run.consume(BOUNDARY - MINUTE).len(), 1);
     let ns = BOUNDARY * 1_000_000;
-    venue.simulation.advance(ns).unwrap();
-    venue.observe_economic_prefix();
+    run.advance(ns);
     let (m, f) = boundary();
     run.mark(BOUNDARY, &m);
-    run.runtime.save_checkpoint().unwrap();
-    let before = run.runtime.state().unwrap();
+    let before = run.state();
     let pending = run.input(BOUNDARY, "FUNDING", funding_payload(&m, &f));
     assert!(
-        run.runtime.apply(&pending).is_err(),
+        run.accept(&pending).is_err(),
         "unclosed inclusive boundary funded only the first fill"
     );
-    run = run.reopen(&dir.0);
-    assert_eq!(run.runtime.state().unwrap(), before);
-    venue.simulation.on_bar(3, &bar(-1)).unwrap();
-    let same_time = run.consume(&mut venue, BOUNDARY);
+    run = run.recompute();
+    assert_eq!(run.state(), before);
+    run.bar(3, &bar(-1));
+    let same_time = run.consume(BOUNDARY);
     assert_eq!(same_time.len(), 1);
     assert_eq!(same_time[0].record()["ts_event"], ns);
-    venue
-        .simulation
-        .advance(ns.checked_add(1).unwrap())
-        .unwrap();
-    venue.observe_economic_prefix();
+    run.advance(ns + 1);
     let original = run.apply(BOUNDARY + 1, "FUNDING", funding_payload(&m, &f));
-    let funded = run.runtime.state().unwrap();
+    let funded = run.state();
     amount(
         &funded["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
         "-.012",
     );
     amount(&funded["account"]["snapshot"]["equity"], "99999.928");
-    run.runtime.save_checkpoint().unwrap();
     let history = records(&run);
-    run = run.reopen(&dir.0);
-    run.runtime.apply(&original).unwrap();
-    assert_eq!(run.runtime.state().unwrap(), funded);
+    run = run.recompute();
+    run.accept(&original).unwrap();
+    assert_eq!(run.state(), funded);
     assert_eq!(records(&run), history);
 }
 
 #[test]
-fn funding_checkpoint_reopens_after_a_later_fill_and_keeps_original_duplicate() {
-    let dir = Root::new();
-    let (mut run, mut venue) = start(&dir.0, "100000.00000000", "0.003");
-    accepted(&mut run, &mut venue);
+fn funding_recomputes_after_a_later_fill_and_keeps_the_original_duplicate() {
+    let mut run = start("100000.00000000", "0.003");
+    accepted(&mut run);
     run.mark(BOUNDARY - MINUTE, &mark(-1));
-    for (sequence, minute, visible) in [(2, -2, BOUNDARY - MINUTE), (3, -1, BOUNDARY)] {
-        venue.simulation.on_bar(sequence, &bar(minute)).unwrap();
-        assert_eq!(run.consume(&mut venue, visible).len(), 1);
+    for (sequence, minute, visible) in [(2_u64, -2, BOUNDARY - MINUTE), (3, -1, BOUNDARY)] {
+        run.bar(sequence, &bar(minute));
+        assert_eq!(run.consume(visible).len(), 1);
     }
     let (m, f) = boundary();
     run.mark(BOUNDARY, &m);
-    venue
-        .simulation
-        .advance((BOUNDARY * 1_000_000).checked_add(1).unwrap())
-        .unwrap();
-    venue.observe_economic_prefix();
+    run.advance(BOUNDARY * 1_000_000 + 1);
     let original = run.apply(BOUNDARY + 1, "FUNDING", funding_payload(&m, &f));
     amount(
-        &run.runtime.state().unwrap()["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
+        &run.state()["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
         "-.012",
     );
-    run.runtime.save_checkpoint().unwrap();
-    venue.simulation.on_bar(4, &bar(0)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY + MINUTE).len(), 1);
-    assert_eq!(order_row(&run.runtime)["snapshot"]["status"], "FILLED");
-    let final_state = run.runtime.state().unwrap();
+    run.bar(4, &bar(0));
+    assert_eq!(run.consume(BOUNDARY + MINUTE).len(), 1);
+    assert_eq!(run.order_value()["status"], "FILLED");
+    let final_state = run.state();
     amount(&final_state["account"]["snapshot"]["cash"], "99999.898");
-    run.runtime.save_checkpoint().unwrap();
     let history = records(&run);
-    run = run.reopen(&dir.0);
-    run.runtime.apply(&original).unwrap();
-    assert_eq!(run.runtime.state().unwrap(), final_state);
+    run = run.recompute();
+    run.accept(&original).unwrap();
+    assert_eq!(run.state(), final_state);
     assert_eq!(records(&run), history);
 }
 
 #[test]
-fn funding_requires_the_original_time_quantity_price_and_order_at_both_economic_owners() {
-    let dir = Root::new();
-    let mut cfg = config("100000.00000000", usdm_terms());
-    bind_sources(&mut cfg, true);
-    let mut venue = Venue::create(
-        &dir.0,
-        Scope::decode(&scope(&cfg)).unwrap(),
-        &cfg["currency"],
-        "100000.00000000",
-    );
-    let mut run = Run::create(&dir.0, cfg);
-    broker_submit(&mut run, &mut venue, "0.003");
-    accepted(&mut run, &mut venue);
+fn funding_settles_the_boundary_and_refuses_new_admission_at_it() {
+    let mut run = start("100000.00000000", "0.001");
+    accepted(&mut run);
     run.mark(BOUNDARY - MINUTE, &mark(-1));
-    venue.simulation.on_bar(2, &bar(-2)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY - MINUTE).len(), 1);
-    venue.simulation.on_bar(3, &bar(-1)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY).len(), 1);
-    let instrument = INSTRUMENT.parse().unwrap();
-    let raw = json!({"symbol":"BTCUSDT","fundingTime":BOUNDARY,"markPrice":"60000.00","fundingRate":"0.0001"});
-    let (m, f) = usdm_facts::funding_boundary(
-        &raw,
-        &usdm_facts::Context {
-            instrument_id: &instrument,
-            data_version: VERSION,
-            source_sequence: 5,
-            received_at: "2026-09-01T08:00:01Z".parse().unwrap(),
-        },
-    )
-    .unwrap();
-    let m = m.to_record();
-    let f = f.to_record();
-    run.mark(BOUNDARY + 1000, &m);
-    run.mark(BOUNDARY + MINUTE, &mark(1));
-    venue.simulation.on_bar(4, &bar(0)).unwrap();
-    let later = run.consume(&mut venue, BOUNDARY + MINUTE);
-    assert_eq!(later.len(), 1);
-    let boundary_ns = u64::try_from(BOUNDARY)
-        .unwrap()
-        .checked_mul(1_000_000)
-        .unwrap();
-    assert!(later[0].record()["ts_event"].as_u64().unwrap() > boundary_ns);
-    assert_eq!(order_row(&run.runtime)["snapshot"]["status"], "FILLED");
-    run.runtime.save_checkpoint().unwrap();
-    run = run.reopen(&dir.0);
-    let before = run.runtime.fork_ready().unwrap().0.checkpoint().unwrap();
-    let position_cp = &before["components"][1];
-    assert_eq!(position_cp["schema_version"], 2);
-    assert!(position_cp["config"].is_object());
-    let journal = position_cp["journal"].as_array().unwrap();
-    let mut original = onlyalpha_position::Manager::new(position_cp["config"].clone()).unwrap();
-    for command in journal {
-        original.apply(command).unwrap();
-    }
-    assert_eq!(
-        *position_cp,
-        serde_json::from_slice::<Value>(&original.checkpoint().unwrap().0).unwrap()
-    );
-    let cut_bytes = fs::read(dir.0.join("market-source-cut.json")).unwrap();
-    let cut = onlyalpha_domain::market_source::OnlyMarketSourceCut::read(
-        &cut_bytes,
-        run.cfg["perpetual"]["source_cut_sha256"].as_str().unwrap(),
-    )
-    .unwrap();
-    let reference = json!({"schema_version":1,"mark":m["fact_id"],"funding":f["fact_id"]});
-    let correct = original.funding(&cut, &reference).unwrap();
-    let account_cp = &before["components"][2];
-    let ledger_cp = &before["components"][3];
-    let mut account =
-        onlyalpha_account::Manager::new_checkpoint5(account_cp["config"].clone()).unwrap();
-    let mut ledger = onlyalpha_strategy_ledger::Manager::new(ledger_cp["config"].clone()).unwrap();
-    let account_bytes = serde_json::to_vec(account_cp).unwrap();
-    let ledger_bytes = serde_json::to_vec(ledger_cp).unwrap();
-    account
-        .restore_with_funding(
-            &account_bytes,
-            &onlyalpha_account::digest(&account_bytes),
-            &original,
-            &cut,
-        )
-        .unwrap();
-    ledger
-        .restore_with_funding(
-            &ledger_bytes,
-            &onlyalpha_strategy_ledger::digest(&ledger_bytes),
-            &original,
-            &cut,
-        )
-        .unwrap();
-    assert_eq!(account.checkpoint().unwrap().0, account_bytes);
-    assert_eq!(ledger.checkpoint().unwrap().0, ledger_bytes);
-    // 信封来自真正 Runtime 成功入账后的原 owner journal，不自行生成资金命令。
-    run.apply(BOUNDARY + MINUTE, "FUNDING", funding_payload(&m, &f));
-    let after = run.runtime.fork_ready().unwrap().0.checkpoint().unwrap();
-    let account_input = after["components"][2]["journal"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|c| c["op"] == "ECONOMIC" && c["payload"]["kind"] == "FUNDING")
-        .unwrap();
-    let ledger_input = after["components"][3]["journal"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|c| c["op"] == "FUNDING")
-        .unwrap();
-    let mut correct_account = account.clone();
-    let mut correct_ledger = ledger.clone();
-    assert_eq!(
-        correct_account
-            .apply_funding(account_input, &correct)
-            .unwrap()
-            .status,
-        onlyalpha_account::Status::Applied
-    );
-    assert_eq!(
-        correct_ledger
-            .apply_funding(ledger_input, &correct)
-            .unwrap()
-            .status,
-        onlyalpha_strategy_ledger::Status::Applied
-    );
-    amount(&correct_account.snapshot()["cash"], "99999.898");
-
-    let original_fill = run
-        .runtime
-        .records()
-        .unwrap()
-        .into_iter()
-        .rfind(|r| r.prepared().input()["op"] == "FILL")
-        .unwrap()
-        .prepared()
-        .input()
-        .clone();
-    let account_before = account.checkpoint().unwrap();
-    let ledger_before = ledger.checkpoint().unwrap();
-    // 一组保持旧投影可见的 cause/订单结果，另一组从改后的完整 Broker 原文重建上游身份。
-    for rebuild_source in [false, true] {
-        for (key, value) in [
-            ("economic_time", json!(boundary_ns)),
-            ("quantity", json!("0.002")),
-            ("price", json!("59999.00")),
-            ("order", json!("different-original-order")),
-        ] {
-            let mut alternate =
-                onlyalpha_position::Manager::new(position_cp["config"].clone()).unwrap();
-            let mut n = 0;
-            for c in journal {
-                let mut change = c.clone();
-                if c["op"] == "TRADE" {
-                    n += 1;
-                    if n == 3 {
-                        change["payload"][key] = value.clone();
-                        let previous = alternate.checkpoint().unwrap();
-                        assert_eq!(
-                            alternate.apply(&change).unwrap_err().0,
-                            "POSITION_TRADE_EVIDENCE_CONFLICT"
-                        );
-                        assert_eq!(alternate.checkpoint().unwrap(), previous);
-                        if rebuild_source {
-                            let mut origin = original_fill.clone();
-                            assert_eq!(c["cause"], onlyalpha_broker::digest(&origin));
-                            let raw = &mut origin["payload"]["broker"]["record"];
-                            match key {
-                                "economic_time" => {
-                                    for field in ["ts_event", "ts_init"] {
-                                        raw[field] = value.clone();
-                                        raw["payload"]["fill"][field]["unix_nanos"] = value.clone();
-                                    }
-                                }
-                                "order" => {
-                                    raw["payload"]["order"] = value.clone();
-                                    raw["payload"]["fill"]["order_id"]["value"] = value.clone();
-                                    raw["correlation"] = value.clone();
-                                    raw["causation"] = value.clone();
-                                }
-                                _ => raw["payload"]["fill"][key]["value"] = value.clone(),
-                            }
-                            let fact = Fact::decode(raw).unwrap();
-                            change["payload"]["broker_record_digest"] =
-                                json!(onlyalpha_broker::digest(&fact.record()));
-                            origin["payload"]["broker"] = json!({"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":fact.record()});
-                            if key == "order" {
-                                origin["payload"]["order"] = value.clone();
-                            }
-                            let cause = onlyalpha_broker::digest(&origin);
-                            change["cause"] = json!(cause);
-                            change["payload"]["execution"] = json!(format!("ETX-{cause}"));
-                        }
-                        change["payload"]["trade_evidence"] =
-                            json!(alternate.trade_input_digest(&change).unwrap());
-                    }
-                }
-                alternate.apply(&change).unwrap();
-            }
-            assert_eq!(n, 3);
-            let foreign = alternate.funding(&cut, &reference).unwrap();
-            if key == "economic_time" {
-                amount(&correct.record()["amount"], "-.012");
-                amount(&foreign.record()["amount"], "-.018");
-            }
-            assert_eq!(foreign.record()["cashflow"], correct.record()["cashflow"]);
-            assert_ne!(foreign.account_lineage(), correct.account_lineage());
-            assert_ne!(foreign.ledger_lineage(), correct.ledger_lineage());
-            assert_eq!(
-                account
-                    .apply_funding(account_input, &foreign)
-                    .unwrap_err()
-                    .0,
-                "ACCOUNT_FUNDING_SOURCE_RELATION"
-            );
-            assert_eq!(
-                ledger.apply_funding(ledger_input, &foreign).unwrap_err().0,
-                "LEDGER_FUNDING_SOURCE_RELATION"
-            );
-            assert_eq!(account.checkpoint().unwrap(), account_before);
-            assert_eq!(ledger.checkpoint().unwrap(), ledger_before);
-            assert!(
-                account
-                    .restore_with_funding(
-                        &account_bytes,
-                        &onlyalpha_account::digest(&account_bytes),
-                        &alternate,
-                        &cut
-                    )
-                    .is_err()
-            );
-            assert!(
-                ledger
-                    .restore_with_funding(
-                        &ledger_bytes,
-                        &onlyalpha_strategy_ledger::digest(&ledger_bytes),
-                        &alternate,
-                        &cut
-                    )
-                    .is_err()
-            );
-        }
-    }
-}
-
-#[test]
-fn funding_closes_all_orders_and_the_original_ready_prefix_survives_new_source_facts() {
-    use onlyalpha_broker::{Broker, BrokerCommand, Connection, Journal};
-    use onlyalpha_broker_virtual::BoundVirtualActor;
-    use onlyalpha_domain::value::OnlyMoney;
-    let dir = Root::new();
-    let (mut run, mut venue) = start(&dir.0, "100000.00000000", "0.001");
-    accepted(&mut run, &mut venue);
-    run.mark(BOUNDARY - MINUTE, &mark(-1));
-    venue.simulation.on_bar(2, &bar(-2)).unwrap();
-    assert_eq!(run.consume(&mut venue, BOUNDARY - MINUTE).len(), 1);
-    assert_eq!(order_row(&run.runtime)["snapshot"]["status"], "FILLED");
+    run.bar(2, &bar(-2));
+    assert_eq!(run.consume(BOUNDARY - MINUTE).len(), 1);
+    assert_eq!(run.order_value()["status"], "FILLED");
     let bc = BOUNDARY * 1_000_000;
-    venue.simulation.advance(bc).unwrap();
-    let binding = run.cfg["perpetual"]["execution_source_binding"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let sc = Scope::decode(&scope(&run.cfg)).unwrap();
-    let cash = OnlyMoney::from_record(
-        &json!({"schema_version":1,"amount":"100000.00000000","currency":run.cfg["currency"]}),
-    )
-    .unwrap();
-    let mut stale = BoundVirtualActor::open(
-        &dir.0,
-        sc.clone(),
-        &"f".repeat(64),
-        cash,
-        &json!({"maximum_fill_quantity":"0.001"}),
-        &binding,
-    )
-    .unwrap();
+    run.advance(bc);
     let (m, f) = boundary();
     run.mark(BOUNDARY, &m);
     let original = run.input(BOUNDARY, "FUNDING", funding_payload(&m, &f));
-    let before = run.runtime.state().unwrap();
+    let before = run.state();
     assert_eq!(
-        run.runtime.apply(&original).unwrap_err().0,
+        run.accept(&original).unwrap_err().0,
         "BROKER_ECONOMIC_PREFIX_UNPROVEN"
     );
-    run = run.reopen(&dir.0);
-    assert_eq!(run.runtime.state().unwrap(), before);
-    venue.simulation.advance(bc + 1).unwrap();
+    run = run.recompute();
+    assert_eq!(run.state(), before);
+    run.advance(bc + 1);
     assert_eq!(
-        run.runtime.apply(&original).unwrap_err().0,
+        run.accept(&original).unwrap_err().0,
         "BROKER_ECONOMIC_PREFIX_UNPROVEN"
     );
-    run = run.reopen(&dir.0);
+    run = run.recompute();
     let original = run.apply(BOUNDARY + 1, "FUNDING", funding_payload(&m, &f));
-    let funded = run.runtime.state().unwrap();
+    let funded = run.state();
     amount(
         &funded["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
         "-.006",
     );
+    // 已结算边界之后的同一来源序列不得回退场所时钟。
     assert_eq!(
-        stale.on_bar(3, &bar(-1)).unwrap_err().to_string(),
-        "VIRTUAL_SOURCE_PREDECESSOR"
-    );
-    assert_eq!(
-        venue
-            .simulation
-            .on_bar(3, &bar(-1))
-            .unwrap_err()
-            .to_string(),
+        run.venue.on_bar(3, &bar(-1)).unwrap_err().to_string(),
         "VIRTUAL_CLOCK_REGRESSION"
     );
-    run.runtime.save_checkpoint().unwrap();
-    run = run.reopen(&dir.0);
     let mut req = request(INSTRUMENT, "0.001");
     req["request_id"]["value"] = json!("second-open");
-    let next = "runtime-ORDER-000002";
-    let admission = json!({"schema_version":3,"order":next,"request":req,"policy_fingerprint":run.cfg["perpetual"]["policy_fingerprint"]});
+    let admission = json!({"schema_version":3,"order":"runtime-ORDER-000002","request":req,"policy_fingerprint":run.cfg["perpetual"]["policy_fingerprint"]});
     let history = records(&run);
     for at in [BOUNDARY, BOUNDARY - 1] {
         let input = run.input(at, "ADMIT", admission.clone());
         assert_eq!(
-            run.runtime.apply(&input).unwrap_err().0,
+            run.accept(&input).unwrap_err().0,
             "EXECUTION_ADMISSION_AT_SETTLED_BOUNDARY"
         );
-        run = run.reopen(&dir.0);
-        assert_eq!(run.runtime.state().unwrap(), funded);
+        run = run.recompute();
+        assert_eq!(run.state(), funded);
         assert_eq!(records(&run), history);
     }
-    run.apply(BOUNDARY + 1, "ADMIT", admission);
-    let cp = run.runtime.fork_ready().unwrap().0.checkpoint().unwrap();
-    let client = &cp["components"][0]["state"]["orders"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|r| r["snapshot"]["order_id"]["value"] == next)
-        .unwrap()["snapshot"]["client_order_id"]["value"];
-    let cmd=BrokerCommand::decode(&json!({"schema_version":1,"scope":sc.record(),"operation":"SUBMIT","command_id":"second-submit","order":next,"client":client,"request":req})).unwrap();
-    let mut j = onlyalpha_runtime::BoundBrokerJournal::open(&dir.0, &binding).unwrap();
-    let mut broker = Broker::recover(sc, &j, 32).unwrap();
-    broker.set_connection(Connection::Ready);
-    broker.set_health(true, true, true);
-    let prior = j.records().unwrap();
+    let next = run.input(BOUNDARY + 1, "ADMIT", admission);
+    run.record(next);
     assert_eq!(
-        j.dispatch(&mut broker, &run.runtime, &mut venue.simulation, &cmd)
-            .unwrap_err()
-            .to_string(),
-        "BROKER_SOURCE_CLOCK_BEFORE_ADMISSION"
+        run.session
+            .order("cluster", "runtime-ORDER-000002")
+            .unwrap()["status"],
+        "SUBMITTED"
     );
-    assert_eq!(j.records().unwrap(), prior);
-    venue.simulation.advance(bc + 1_000_000).unwrap();
-    j.dispatch(&mut broker, &run.runtime, &mut venue.simulation, &cmd)
-        .unwrap();
-    run.apply(
-        BOUNDARY + 1,
-        "SUBMISSION",
-        json!({"schema_version":1,"order":next,"outcome":"DISPATCHED"}),
-    );
-    let before_source = run.runtime.state().unwrap();
-    let rows = records(&run);
-    run = run.reopen(&dir.0);
-    assert_eq!(run.runtime.state().unwrap(), before_source);
-    venue.simulation.advance(bc + 1_000_000).unwrap();
-    venue.simulation.on_bar(3, &bar(0)).unwrap();
-    venue.simulation.publish(&mut broker, &mut j).unwrap();
-    let actual = broker.pending().to_vec();
-    assert!(actual.iter().any(
-        |f| f.record()["kind"] == "TRADE" && f.record()["ts_event"] == bc + MINUTE * 1_000_000
-    ));
-    run = run.reopen(&dir.0);
-    assert_eq!(run.runtime.state().unwrap(), before_source);
-    assert_eq!(records(&run), rows);
-    for fact in actual {
-        let r = fact.record();
-        let op = if r["kind"] == "ACCEPTED" {
-            "ACCEPT"
-        } else {
-            "FILL"
-        };
-        run.apply(BOUNDARY+MINUTE,op,json!({"schema_version":2,"order":next,"broker":{"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":r}}));
-        j.acknowledge_original(&mut broker, &run.runtime, fact.identity())
-            .unwrap();
-    }
-    let final_state = run.runtime.state().unwrap();
-    amount(
-        &final_state["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
-        "-.006",
-    );
-    run = run.reopen(&dir.0);
-    run.runtime.apply(&original).unwrap();
-    assert_eq!(run.runtime.state().unwrap(), final_state);
-}
-
-#[test]
-fn delayed_original_trade_from_unknown_dispatch_must_reach_ready_before_funding() {
-    let dir = Root::new();
-    let cfg = config("100000.00000000", usdm_terms());
-    let mut venue = Venue::create(
-        &dir.0,
-        Scope::decode(&scope(&cfg)).unwrap(),
-        &cfg["currency"],
-        "100000.00000000",
-    );
-    let mut run = Run::create(&dir.0, cfg);
-    let initial = BOUNDARY - 2 * MINUTE;
-    venue.simulation.on_bar(1, &bar(-3)).unwrap();
-    run.mark(initial, &mark(-2));
-    let req = request(INSTRUMENT, "0.001");
-    run.admit(initial, &req);
-    venue.dispatch_losing_receipt(&run.runtime, &req);
-    run.apply(
-        initial,
-        "SUBMISSION",
-        json!({"schema_version":1,"order":ORDER,"outcome":"UNKNOWN"}),
-    );
-    venue.simulation.advance(initial * 1_000_000).unwrap();
-    accepted(&mut run, &mut venue);
-    venue.simulation.on_bar(2, &bar(-2)).unwrap();
-    let (m, f) = boundary();
-    run.mark(BOUNDARY, &m);
-    venue.simulation.advance(BOUNDARY * 1_000_000 + 1).unwrap();
-    let before = run.runtime.state().unwrap();
-    let funding = run.input(BOUNDARY + 1, "FUNDING", funding_payload(&m, &f));
-    assert_eq!(
-        run.runtime.apply(&funding).unwrap_err().0,
-        "EXECUTION_FUNDING_UNAPPLIED_TRADE"
-    );
-    run = run.reopen(&dir.0);
-    assert_eq!(run.runtime.state().unwrap(), before);
-    venue = venue.restore(&dir.0);
-    let trade = run.consume(&mut venue, BOUNDARY + 1);
-    assert_eq!(trade.len(), 1);
-    assert_eq!(
-        trade[0].record()["ts_event"],
-        (BOUNDARY - MINUTE) * 1_000_000
-    );
-    let funded = run.apply(BOUNDARY + 1, "FUNDING", funding_payload(&m, &f));
-    let expected = run.runtime.state().unwrap();
-    amount(
-        &expected["ledger"]["ledgers"]["cluster"]["snapshot"]["funding"],
-        "-.006",
-    );
-    run = run.reopen(&dir.0);
-    run.runtime.apply(&funded).unwrap();
-    assert_eq!(run.runtime.state().unwrap(), expected);
-}
-
-fn admitted_for_original_query(dir: &Path) -> (Run, Venue, Value, i64) {
-    let cfg = config("100000.00000000", usdm_terms());
-    let mut venue = Venue::create(
-        dir,
-        Scope::decode(&scope(&cfg)).unwrap(),
-        &cfg["currency"],
-        "100000.00000000",
-    );
-    let mut run = Run::create(dir, cfg);
-    let at = BOUNDARY - 2 * MINUTE;
-    venue.simulation.on_bar(1, &bar(-3)).unwrap();
-    run.mark(at, &mark(-2));
-    let req = request(INSTRUMENT, "0.001");
-    run.admit(at, &req);
-    (run, venue, req, at)
-}
-
-#[test]
-fn two_original_queries_and_real_ack_resolve_unknown_across_reopen() {
-    use onlyalpha_broker::{CommandState, Journal, source::QueryPhase};
-    let dir = Root::new();
-    let (mut run, mut venue, req, at) = admitted_for_original_query(&dir.0);
-    venue.dispatch_losing_receipt(&run.runtime, &req);
-    run.apply(
-        at,
-        "SUBMISSION",
-        json!({"schema_version":1,"order":ORDER,"outcome":"UNKNOWN"}),
-    );
-    let weak = venue
-        .simulation
-        .observe_command(QueryPhase::Discovery, "submit")
-        .unwrap();
-    venue.simulation.advance(at * 1_000_000).unwrap();
-    assert!(
-        venue
-            .journal
-            .reconcile_original(&mut venue.protocol, "submit", &weak)
-            .is_err()
-    );
-    venue.simulation.on_bar(2, &bar(-2)).unwrap();
-    let first = venue
-        .simulation
-        .observe_command(QueryPhase::Discovery, "submit")
-        .unwrap();
-    assert!(
-        venue
-            .journal
-            .reconcile_original(&mut venue.protocol, "other", &first)
-            .is_err()
-    );
-    assert!(
-        venue
-            .journal
-            .resolve_original(&mut venue.protocol, &run.runtime, "submit", &first)
-            .is_err()
-    );
-    assert_eq!(
-        venue.protocol.command_state("submit"),
-        Some(CommandState::Unknown)
-    );
-    venue
-        .journal
-        .reconcile_original(&mut venue.protocol, "submit", &first)
-        .unwrap();
-    let after_discovery = venue.journal.records().unwrap();
-    venue = venue.restore(&dir.0);
-    venue
-        .journal
-        .reconcile_original(&mut venue.protocol, "submit", &first)
-        .unwrap();
-    assert_eq!(venue.journal.records().unwrap(), after_discovery);
-    let discovered = venue.protocol.pending().to_vec();
-    assert_eq!(discovered.len(), 2);
-    let early = venue
-        .simulation
-        .observe_command(QueryPhase::Resolve, "submit")
-        .unwrap();
-    assert!(
-        venue
-            .journal
-            .resolve_original(&mut venue.protocol, &run.runtime, "submit", &early)
-            .is_err()
-    );
-    assert!(
-        venue
-            .journal
-            .acknowledge_original(&mut venue.protocol, &run.runtime, discovered[0].identity())
-            .is_err()
-    );
-    // 发现可先于正常流的投递。重开后依据最初的查询原件推进 PUBLISHED 游标。
-    assert_eq!(
-        venue
-            .simulation
-            .publish(&mut venue.protocol, &mut venue.journal)
-            .unwrap(),
-        2
-    );
-    assert_eq!(
-        venue
-            .simulation
-            .publish(&mut venue.protocol, &mut venue.journal)
-            .unwrap(),
-        0
-    );
-    assert!(
-        !venue
-            .journal_rows()
-            .iter()
-            .any(|r| r["event"]["kind"] == "INGRESS")
-    );
-    for (index, fact) in discovered.iter().enumerate() {
-        let body = fact.record();
-        let op = if body["kind"] == "ACCEPTED" {
-            "ACCEPT"
-        } else {
-            "FILL"
-        };
-        run.apply(BOUNDARY-MINUTE,op,json!({"schema_version":2,"order":ORDER,"broker":{"id":fact.identity(),"fingerprint":fact.fingerprint(),"record":body}}));
-        assert!(
-            venue
-                .protocol
-                .acknowledge(&mut venue.journal, &run.runtime, fact.identity())
-                .is_err()
-        );
-        venue.acknowledge(&run.runtime, fact);
-        if index == 0 {
-            let partial = venue
-                .simulation
-                .observe_command(QueryPhase::Resolve, "submit")
-                .unwrap();
-            assert!(
-                venue
-                    .journal
-                    .resolve_original(&mut venue.protocol, &run.runtime, "submit", &partial)
-                    .is_err()
-            );
-        }
-    }
-    assert_eq!(
-        venue.protocol.command_state("submit"),
-        Some(CommandState::Reconciling)
-    );
-    assert!(
-        venue
-            .journal
-            .resolve_original(&mut venue.protocol, &run.runtime, "submit", &early)
-            .is_err()
-    );
-    run = run.reopen(&dir.0);
-    venue = venue.restore(&dir.0);
-    let second = venue
-        .simulation
-        .observe_command(QueryPhase::Resolve, "submit")
-        .unwrap();
-    venue
-        .journal
-        .resolve_original(&mut venue.protocol, &run.runtime, "submit", &second)
-        .unwrap();
-    let final_rows = venue.journal.records().unwrap();
-    assert_eq!(
-        final_rows.last().unwrap().record()["event"]["receipts"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    venue = venue.restore(&dir.0);
-    venue
-        .journal
-        .resolve_original(&mut venue.protocol, &run.runtime, "submit", &second)
-        .unwrap();
-    assert_eq!(
-        venue.protocol.command_state("submit"),
-        Some(CommandState::Resolved)
-    );
-    assert_eq!(venue.journal.records().unwrap(), final_rows);
-    assert!(venue.protocol.ready());
-}
-
-#[test]
-fn bound_journal_must_reject_absence_from_a_disconnected_shadow_venue() {
-    use onlyalpha_broker::{
-        CommandState, ConnectionPort, DispatchResult, TradingPort, source::QueryPhase,
-    };
-    use onlyalpha_broker_virtual::VirtualBroker;
-    use onlyalpha_domain::value::OnlyMoney;
-    for original_rejected in [false, true] {
-        let dir = Root::new();
-        let (mut run, mut venue, req, at) = admitted_for_original_query(&dir.0);
-        if original_rejected {
-            venue.simulation.disconnect().unwrap();
-        }
-        venue.dispatch_losing_receipt(&run.runtime, &req);
-        run.apply(
-            at,
-            "SUBMISSION",
-            json!({"schema_version":1,"order":ORDER,"outcome":"UNKNOWN"}),
-        );
-        venue.simulation.advance(at * 1_000_000).unwrap();
-        let cmd = venue.command(&run.runtime, &req);
-        let cash = OnlyMoney::from_record(
-            &json!({"schema_version":1,"amount":"100000.00000000","currency":run.cfg["currency"]}),
-        )
-        .unwrap();
-        let mut shadow = VirtualBroker::new(
-            cmd.scope().clone(),
-            &"f".repeat(64),
-            cash,
-            &json!({"maximum_fill_quantity":"0.001"}),
-        )
-        .unwrap();
-        assert_eq!(shadow.dispatch(&cmd).unwrap(), DispatchResult::Rejected);
-        assert!(
-            shadow
-                .reconcile(&mut venue.protocol, &mut venue.journal, "submit")
-                .is_err()
-        );
-        assert_eq!(
-            venue.protocol.command_state("submit"),
-            Some(CommandState::Unknown)
-        );
-        let first = venue
-            .simulation
-            .observe_command(QueryPhase::Discovery, "submit")
-            .unwrap();
-        venue
-            .journal
-            .reconcile_original(&mut venue.protocol, "submit", &first)
-            .unwrap();
-        if original_rejected {
-            let second = venue
-                .simulation
-                .observe_command(QueryPhase::Resolve, "submit")
-                .unwrap();
-            venue
-                .journal
-                .resolve_original(&mut venue.protocol, &run.runtime, "submit", &second)
-                .unwrap();
-            venue = venue.restore(&dir.0);
-            assert_eq!(
-                venue.protocol.command_state("submit"),
-                Some(CommandState::Resolved)
-            );
-            let head = venue.simulation.checkpoint();
-            assert_eq!(
-                venue.simulation.dispatch(&cmd).unwrap(),
-                DispatchResult::Rejected
-            );
-            assert_eq!(venue.simulation.checkpoint(), head);
-        } else {
-            assert!(
-                venue
-                    .protocol
-                    .pending()
-                    .iter()
-                    .any(|f| f.record()["kind"] == "ACCEPTED")
-            );
-        }
-    }
-}
-
-#[test]
-fn bound_result_must_match_actual_received_and_rejected() {
-    use onlyalpha_broker::{
-        BrokerCommand, Capabilities, CommandState, ConnectionPort, DispatchResult, ReadyIntent,
-        TradingPort,
-    };
-    use onlyalpha_broker_virtual::BoundVirtualActor;
-    struct ChangedReply<'a>(&'a mut BoundVirtualActor);
-    impl TradingPort for ChangedReply<'_> {
-        fn capabilities(&self) -> Capabilities {
-            self.0.capabilities()
-        }
-        fn check_dispatch(&self, i: &ReadyIntent) -> Result<(), onlyalpha_broker::Error> {
-            self.0.check_dispatch(i)
-        }
-        fn dispatch(
-            &mut self,
-            c: &BrokerCommand,
-        ) -> Result<DispatchResult, onlyalpha_broker::Error> {
-            Ok(match self.0.dispatch(c)? {
-                DispatchResult::Received => DispatchResult::Rejected,
-                DispatchResult::Rejected => DispatchResult::Received,
-                DispatchResult::Unknown => panic!("deterministic venue"),
-            })
-        }
-    }
-    for disconnected in [false, true] {
-        let dir = Root::new();
-        let (run, mut venue, req, _) = admitted_for_original_query(&dir.0);
-        if disconnected {
-            venue.simulation.disconnect().unwrap();
-        }
-        let command = venue.command(&run.runtime, &req);
-        let e = venue
-            .journal
-            .dispatch(
-                &mut venue.protocol,
-                &run.runtime,
-                &mut ChangedReply(&mut venue.simulation),
-                &command,
-            )
-            .unwrap_err();
-        assert_eq!(e.to_string(), "BROKER_SOURCE_COMMAND_RESULT");
-        venue = venue.restore(&dir.0);
-        assert_eq!(
-            venue.protocol.command_state("submit"),
-            Some(CommandState::Unknown)
-        );
-        assert!(
-            !venue
-                .journal_rows()
-                .iter()
-                .any(|r| r["event"]["kind"] == "RESULT")
-        );
-        let head = venue.simulation.checkpoint();
-        assert_eq!(
-            venue
-                .journal
-                .dispatch(
-                    &mut venue.protocol,
-                    &run.runtime,
-                    &mut venue.simulation,
-                    &command
-                )
-                .unwrap(),
-            CommandState::Unknown
-        );
-        assert_eq!(venue.simulation.checkpoint(), head);
-    }
-}
-
-#[test]
-fn missed_source_command_stays_unknown_and_cannot_enter_after_dispatch_window() {
-    use onlyalpha_broker::{
-        BrokerCommand, Capabilities, CommandState, DispatchResult, TradingPort, source::QueryPhase,
-    };
-    struct LoseBeforeDelivery(Capabilities);
-    impl TradingPort for LoseBeforeDelivery {
-        fn capabilities(&self) -> Capabilities {
-            self.0.clone()
-        }
-        fn dispatch(
-            &mut self,
-            _: &BrokerCommand,
-        ) -> Result<DispatchResult, onlyalpha_broker::Error> {
-            Ok(DispatchResult::Unknown)
-        }
-    }
-    let dir = Root::new();
-    let (mut run, mut venue, req, at) = admitted_for_original_query(&dir.0);
-    let command = venue.command(&run.runtime, &req);
-    let mut lost = LoseBeforeDelivery(venue.simulation.capabilities());
-    assert_eq!(
-        venue
-            .journal
-            .dispatch(&mut venue.protocol, &run.runtime, &mut lost, &command)
-            .unwrap(),
-        CommandState::Unknown
-    );
-    run.apply(
-        at,
-        "SUBMISSION",
-        json!({"schema_version":1,"order":ORDER,"outcome":"UNKNOWN"}),
-    );
-    let first = venue
-        .simulation
-        .observe_command(QueryPhase::Discovery, "submit")
-        .unwrap();
-    venue
-        .journal
-        .reconcile_original(&mut venue.protocol, "submit", &first)
-        .unwrap();
-    let second = venue
-        .simulation
-        .observe_command(QueryPhase::Resolve, "submit")
-        .unwrap();
-    assert!(
-        venue
-            .journal
-            .resolve_original(&mut venue.protocol, &run.runtime, "submit", &second)
-            .is_err()
-    );
-    let head = venue.simulation.checkpoint();
-    assert!(venue.simulation.dispatch(&command).is_err());
-    venue = venue.restore(&dir.0);
-    assert_eq!(venue.simulation.checkpoint(), head);
-    assert_eq!(
-        venue.protocol.command_state("submit"),
-        Some(CommandState::Reconciling)
-    );
-    assert!(venue.protocol.pending().is_empty());
+    let settled = run.state();
+    let all = records(&run);
+    let mut restored = run.recompute();
+    assert_eq!(restored.state(), settled);
+    assert_eq!(records(&restored), all);
+    // 同一原始输入重放是幂等的：不新增事实，也不改变已结算状态。
+    restored.accept(&original).unwrap();
+    assert_eq!(restored.state(), settled);
+    assert_eq!(records(&restored), all);
 }

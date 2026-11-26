@@ -83,7 +83,9 @@ Account-authoritative [Runtime Portfolio Performance](runtime_portfolio_performa
 
 [Backtest Result / Final Seal](backtest_result.md) is the source-bound read-only result adapter over this composition. Its explicit completion scope is Execution transcript closure, not official Runtime activation or market-driver exhaustion.
 
-The Infrastructure [native Runtime persistence adapter](rust-runtime-persistence.md) supplies the SQLite Store Port and bounded recovery session. It preserves this library's opaque commit capability, six-owner projection order and at-least-once Events; it does not activate a formal Runtime.
+The Infrastructure [native Runtime persistence adapter](rust-runtime-persistence.md) supplies the PostgreSQL formal-fact port
+(`DurableFactPort`) and the in-memory session. It preserves this library's opaque commit capability and six-owner projection
+order; it does not activate a formal Runtime.
 
 
 Complete six-owner payload Values may be shared as a private immutable codec image while the component data is unchanged. This memo stores only the checkpoint data produced by the original owner readers, never Ready, Store, lineage, reconciliation or admission proof. Every outward source observation still reads its actual current Store and checks the complete owning lineage independently. Detached checkpoints are owned copies and cannot mutate the memo.

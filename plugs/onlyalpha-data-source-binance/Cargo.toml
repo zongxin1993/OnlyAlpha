@@ -34,4 +34,5 @@ onlyalpha-position = { path = "../../crates/position" }
 onlyalpha-strategy-ledger = { path = "../../crates/strategy-ledger" }
 onlyalpha-broker = { path = "../../crates/broker" }
 onlyalpha-broker-virtual = { path = "../onlyalpha-broker-virtual" }
+onlyalpha-execution = { path = "../../crates/execution" }
 onlyalpha-runtime = { path = "../../crates/runtime" }

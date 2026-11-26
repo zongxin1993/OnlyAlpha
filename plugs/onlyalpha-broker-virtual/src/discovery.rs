@@ -9,7 +9,6 @@ struct VenueDiscovery<'a> {
     venue: &'a VirtualBroker,
     history: Cow<'a, [Record]>,
     economic_watermark: bool,
-    source_sequence: Option<u64>,
 }
 impl VirtualBroker {
     /// 通过同一串行 Journal 的已提交前缀与场所原操作进行对账。
@@ -55,7 +54,6 @@ impl VirtualBroker {
             venue: self,
             history: Cow::Borrowed(prefix),
             economic_watermark: false,
-            source_sequence: None,
         }
         .discover(command)?;
         if observed.record() != *expected {
@@ -63,36 +61,12 @@ impl VirtualBroker {
         }
         Ok(())
     }
-    pub(super) fn bound_query(
-        &self,
-        history: Vec<Record>,
-        sequence: u64,
-        id: &str,
-    ) -> Result<Discovery, Error> {
-        let command = history
-            .iter()
-            .find_map(|row| {
-                let r = row.record();
-                let value = &r["event"]["intent"]["command"];
-                (r["event"]["kind"] == "INTENT" && value["command_id"] == id)
-                    .then(|| BrokerCommand::decode(value))
-            })
-            .ok_or_else(|| err("VIRTUAL_SOURCE_QUERY_COMMAND"))??;
-        VenueDiscovery {
-            venue: self,
-            history: Cow::Owned(history),
-            economic_watermark: true,
-            source_sequence: Some(sequence),
-        }
-        .discover(&command)
-    }
     fn discovery(&self, journal: &impl Journal) -> Result<VenueDiscovery<'_>, Error> {
         let history = journal.records()?;
         Ok(VenueDiscovery {
             venue: self,
             history: Cow::Owned(history),
             economic_watermark: false,
-            source_sequence: None,
         })
     }
 }
@@ -168,13 +142,10 @@ impl DiscoveryPort for VenueDiscovery<'_> {
         if !previous.is_empty() {
             return Err(err("VIRTUAL_DISCOVERY_HISTORY_AHEAD"));
         }
-        let watermark = match self.source_sequence {
-            Some(actual) => actual,
-            None => u64::try_from(self.venue.inputs.len())
-                .ok()
-                .and_then(|n| n.checked_add(1))
-                .ok_or_else(|| err("VIRTUAL_SOURCE_SEQUENCE"))?,
-        };
+        let watermark = u64::try_from(self.venue.inputs.len())
+            .ok()
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(|| err("VIRTUAL_SOURCE_SEQUENCE"))?;
         let proof = digest(&json!([
             self.venue.binding,
             c.record(),

@@ -1,44 +1,36 @@
 # 回测链路性能测量
 
-这套测量覆盖当前 BTC next-open 回测的输入重建、Runtime 读取、Execution 恢复、终态核验、结果投影，以及正式应用中的证据发布和请求响应。结果留在 `test-results/` 或调用方指定位置，不新增验收 Authority，不改变已有 120 秒、300 秒门槛。
+这套测量覆盖当前回测链路的输入解码、内存执行、PostgreSQL 正式事实恢复和结果读取，以及正式应用中的证据发布和请求响应。结果留在 `test-results/` 或调用方指定位置，不新增验收 Authority，不改变已有 120 秒、300 秒门槛。
 
 ## 离线模块基准
 
-终态与结果组合入口为 [后端组合bench](../../packages/backend/benches/backtest_chain.rs)，由Cargo bench显式运行。逐库入口及限制见 [覆盖矩阵](backtest-performance-coverage.md) 与各库BENCHMARK.md；组件恢复由Execution自己的 [recovery bench](../../crates/execution/benches/recovery.rs) 测量。原忽略测试中的基准职责已迁入benches，功能断言保留在新入口。
+终态与结果组合入口为 [后端组合bench](../../packages/backend/benches/backtest_chain.rs)，由Cargo bench显式运行，按 `OA_BENCH_SCOPE` 选择 `memory.execution`、`result.read` 或 `pg.recovery`。逐库入口及限制见 [覆盖矩阵](backtest-performance-coverage.md) 与各库BENCHMARK.md；组件恢复由Execution自己的 [recovery bench](../../crates/execution/benches/recovery.rs) 测量。原忽略测试中的基准职责已迁入benches，功能断言保留在新入口。
 
 在固定onlyalpha-dev冻结验证环境执行：
 
 ```sh
 python3 scripts/dev_verification.py run -- \
   python -m scripts.run_rust_benchmarks reference \
-  --runtime-root /workspace/test-results/.../runtime/<run-id> \
-  --trace /workspace/test-results/.../replay-trace.json \
+  --crate backend --scope pg.recovery \
   --output /workspace/test-results/backtest-observability/<new-directory>
 ```
 
-`--crate account`等参数可选择模块；check仅编译，smoke预检短目标，reference采集正式样本。缺少外部输入时慢目标明确标为未运行，不能视作完整基线。输入摘要绑定当前冻结的bench入口、辅助代码与fixture；保留目标额外绑定SQLite文件摘要，后端必须提供对应的完整原始trace，不能用binding/inputs提取文件代替。采样前后核对源文件摘要，不产生正式发布证明。使用当前实现解释历史输入只用于技术比较，正式历史读取仍由应用的原工件绑定检查负责。
+`--crate`和`--target`可选择模块；check仅编译，smoke预检短目标，reference采集正式样本。`pg.recovery`需要`ONLYALPHA_POSTGRES_DSN`并在隔离的`_test`数据库准备事实；缺少外部输入时慢目标明确标为未运行，不能视作完整基线。输入摘要绑定当前冻结的bench入口、辅助代码与fixture；采样前后核对源文件摘要，不产生正式发布证明。旧SQLite保留目录和`replay-trace.json`已退役，不再作为基准输入。
 
-运行器使用既有compiler_environment准备离线Cargo环境。短操作采用Criterion，慢目标默认固定三轮、逐轮完整断言；源数据库计时前hash会预热文件缓存，不声称OS冷缓存。直接Cargo入口供已配置等效工具环境调用，不新增第二套应用拓扑。
+运行器使用既有compiler_environment准备离线Cargo环境。短操作采用Criterion，慢目标默认固定三轮、逐轮完整断言。直接Cargo入口供已配置等效工具环境调用，不新增第二套应用拓扑。
 
 阶段名与口径：
 
 | 阶段 | 内容 |
 | --- | --- |
-| `inputs.decode` | 正式 Inputs 解码、身份和排序检查 |
-| `preparation.rebuild` | 原策略、规则、输入和固定样本窗口重建 |
-| `runtime.snapshot.read` | SQLite 只读快照、原始执行记录及 checkpoint 核验 |
-| `runtime.steps.read` | 读取全部回放 step |
-| `runtime.verify_cut` | 再次完整核验来源切面 |
-| `execution.checkpoint.digest` | 完整组件 checkpoint 编码和摘要 |
-| `execution.components.new/restore` | 独立组件恢复基准中的组件创建、全量恢复和内部完整性校验；额外的恢复后完整 checkpoint 断言计入总耗时 |
-| `terminal.read/verify_cut/trace.verify` | 终态、原始执行语义及保留轨迹核验 |
-| `result.from_terminal` | 从完整终态产生正式结果投影，包括其来源复核 |
-| `result.serialize_digest` | 结果编码与摘要 |
-| `chain.total` | 截至结果摘要输出前的步骤与阶段间准备、析构等开销；不含循环末尾仍持有对象的最终析构 |
+| `memory.execute` | 内存 Session 按完整经济输入执行并产生完成对象 |
+| `result.read` | 完成对象的结果读取与摘要核验 |
+| `pg.recovery` | PostgreSQL 正式事实恢复、投影进度校验与状态读回 |
+| `chain.total` | 该口径完整链路的合计耗时及其结果摘要 |
 
-Execution模块基准分别记录Components创建、模型捕获、编码、digest、完整restore及准入成功/拒绝的cold/reused路径，完整checkpoint相等是前置条件。它与后端只读组合使用不同scope与work unit，不把不同场景直接相除。
+Execution模块基准分别记录Components创建、模型捕获、编码、digest、完整restore及准入成功/拒绝的cold/reused路径，完整checkpoint相等是前置条件。它与后端组合使用不同scope与work unit，不把不同场景直接相除。
 
-各基准内的阶段依次执行，各阶段内部仍可能重复读同一来源。`chain.total` 是该只读基准总耗时，不是一次正式 Web 回测总耗时，也不包含行情获取、策略运行、数据库准入或正式发布。当前准入基准见Execution的BENCHMARK.md。旧 [保留终态准入调试探针](../../crates/backtest/tests/admission_preview_profile.rs) 仅用于阶段一67个技术拒绝输入的历史复现，不属于统一可比较基线；其错误结果不可当成真实容量拒绝或整体提速证据。
+各基准内的阶段依次执行，各阶段内部仍可能重复读同一来源。`chain.total` 是该口径基准总耗时，不是一次正式 Web 回测总耗时，也不包含行情获取、策略运行、数据库准入或正式发布。当前准入基准见Execution的BENCHMARK.md。
 
 ## 正式流程的分段观测
 

@@ -1,6 +1,6 @@
 # Runtime 持久化边界
 
-本页按已接受的[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)定义目标契约。完整值模型、接口与迁移映射见[有限作业契约](job-execution-contract.md)。当前只完成第一阶段定义，旧SQLite实现尚未退役，不能把本页当作已上线证明。
+本页按已接受的[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)定义目标契约。完整值模型、接口与迁移映射见[有限作业契约](job-execution-contract.md)。业务SQLite、文件型journal及其读写路径已随阶段八退役，内存执行与PostgreSQL正式事实提交／恢复已接入；实现边界与实际恢复语义见[Runtime 恢复与提交事实](execution_runtime_recovery.md)，本页仍不构成部署或端到端验收证明。
 
 ## 唯一归属
 

@@ -6,9 +6,7 @@ mod discovery;
 mod plan;
 mod projection;
 pub mod provider;
-mod source_host;
 mod venue;
-pub use source_host::BoundVirtualActor;
 
 use config::Config;
 use onlyalpha_broker::*;

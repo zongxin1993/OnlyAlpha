@@ -1,16 +1,12 @@
-"""Installed arithmetic and native next-open replay process fault lane."""
+"""Installed arithmetic and native next-open in-memory backtest shipping check."""
 
 from __future__ import annotations
 
 import json
-import os
-import selectors
 import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
-from typing import Any
 
 
 def replay_environment(root: Path, artifacts: Path) -> dict[str, str]:
@@ -21,10 +17,6 @@ def replay_environment(root: Path, artifacts: Path) -> dict[str, str]:
     # or replace the artifact selected by an existing work identity.
     output = Path(tempfile.mkdtemp(prefix="installed-", dir=artifacts))
     return installed_trading_environment(root, output)
-
-
-def _canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) -> None:
@@ -59,8 +51,8 @@ def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) 
         and row.get("executable")
         and row["target"]["name"] == "workers_trading"
     )
-    # Run every process cut against one exact sealed Shipping-size test image.
-    # The compiler output is retained; only this owned test copy is stripped.
+    # Run the installed next-open memory composition against one exact stripped
+    # Shipping-size test image.
     with tempfile.NamedTemporaryFile(prefix="workers-trading-", suffix=".elf", dir=artifacts, delete=False) as image:
         selected = Path(image.name)
     shutil.copyfile(executable, selected)
@@ -68,116 +60,27 @@ def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) 
     selected.chmod(0o500)
     if selected.stat().st_size > 128 * 1024 * 1024:
         raise RuntimeError("REPLAY_NATIVE_IMAGE_BUDGET_EXCEEDED")
-    executable = selected
-    receipts = []
-    counter = 0
-
-    def invoke(state: Path, mode: str, cut: str = "", *, mutation: int | None = None) -> None:
-        nonlocal counter
-        counter += 1
-        name = f"{counter:03d}-{mode}-{cut.replace(':', '-')}"
-        command = [
-            str(executable),
-            "--exact",
-            "installed_trading_algorithms::next_open_trading::replay_process::process_writer",
-            "--nocapture",
-            "--test-threads=1",
-        ]
-        process_env = dict(env, OA_REPLAY_PROCESS_ROOT=str(state), OA_REPLAY_PROCESS_MODE=mode, OA_REPLAY_CUT=cut)
-        if mutation is not None:
-            process_env["OA_REPLAY_MUTATION"] = str(mutation)
-        if not cut:
-            try:
-                result = subprocess.run(command, cwd=root, env=process_env, capture_output=True, timeout=120)
-            except subprocess.TimeoutExpired as error:
-                (artifacts / f"{name}.log").write_bytes((error.stdout or b"") + (error.stderr or b""))
-                raise
-            (artifacts / f"{name}.log").write_bytes(result.stdout + result.stderr)
-            if result.returncode:
-                raise RuntimeError(f"REPLAY_PROCESS_FAILED {name}: {(result.stdout + result.stderr).decode()}")
-        else:
-            with subprocess.Popen(
-                command,
-                cwd=root,
-                env=process_env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-            ) as child:
-                assert child.stdout is not None
-                output = bytearray()
-                deadline = time.monotonic() + 120  # Hang guard; ordering is proved by the explicit barrier.
-                try:
-                    with selectors.DefaultSelector() as selector:
-                        selector.register(child.stdout, selectors.EVENT_READ)
-                        while b"\nBARRIER\n" not in output:
-                            remaining = deadline - time.monotonic()
-                            if remaining <= 0 or not selector.select(remaining):
-                                raise RuntimeError(f"REPLAY_BARRIER_UNAVAILABLE {name}")
-                            chunk = os.read(child.stdout.fileno(), 65536)
-                            if not chunk:
-                                raise RuntimeError(f"REPLAY_EXITED_BEFORE_BARRIER {name}: {output.decode()}")
-                            output.extend(chunk)
-                    child.kill()
-                    assert child.wait() < 0
-                finally:
-                    if child.poll() is None:
-                        child.kill()
-                        child.wait()
-                    (artifacts / f"{name}.log").write_bytes(output)
-        receipts.append({"mode": mode, "cut": cut, "log": f"{name}.log"})
-
-    with tempfile.TemporaryDirectory(prefix="replay-", dir=artifacts) as directory:
-        work = Path(directory)
-        baseline = work / "baseline"
-        baseline.mkdir()
-        invoke(baseline, "BASELINE")
-        expected = json.loads((baseline / "result.json").read_text())
-        assert expected["result"]["status"] == "COMPLETED"
-        assert expected["result"]["execution_result"]["final_account"]["cash"] == "9994.60119940"
-        assert expected["result"]["execution_result"]["final_account"]["fees"] == "1.99900060"
-        (artifacts / "baseline.json").write_text(_canonical(expected))
-        steps = expected["trace"]["steps"]
-        selected = []
-        for operation in ("ADMIT", "FILL"):
-            selected.append(
-                next(row["step"] for row in steps if any(i["op"] == operation for i in row["step"]["inputs"]))
-            )
-        # Each next-open operation includes canonical admission and its complete Fill.
-        close = next(
-            row["step"]
-            for row in steps
-            if any(i["op"] == "ADMIT" and i["payload"]["request"]["side"] == "SELL" for i in row["step"]["inputs"])
+    command = [
+        str(selected),
+        "installed_trading_algorithms::next_open_trading::",
+        "--nocapture",
+        "--test-threads=1",
+    ]
+    result = subprocess.run(command, cwd=root, env=env, capture_output=True, timeout=150)
+    (artifacts / "next-open-memory.log").write_bytes(result.stdout + result.stderr)
+    if result.returncode:
+        raise RuntimeError(f"BACKTEST_MEMORY_CHECK_FAILED: {(result.stdout + result.stderr).decode()}")
+    (artifacts / "receipt.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "mode": "IN_MEMORY_NEXT_OPEN",
+                "target": target,
+                "selector": "installed_trading_algorithms::next_open_trading::",
+                "log": "next-open-memory.log",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
         )
-        selected.append(close)
-        selected.append(next(row["step"] for row in steps if row["step"]["cause"]["kind"] == "BAR"))
-        cuts: list[str] = []
-        for step in selected:
-            index, start = step["index"], step["execution_start"]
-            cuts.extend((f"BEFORE_PREPARE:{index}:{start}", f"PREPARED:{index}:{start}"))
-            cuts.extend(f"EXECUTION_READY:{index}:{start + n}" for n in range(1, len(step["inputs"]) + 1))
-            cuts.append(f"STEP_READY:{index}:{start + len(step['inputs'])}")
-        cuts.append("DELIVERY:0:0")
-        for index, cut in enumerate(dict.fromkeys(cuts)):
-            state = work / f"cut-{index}"
-            state.mkdir()
-            invoke(state, "RUN", cut)
-            invoke(state, "RESUME")
-            assert json.loads((state / "result.json").read_text()) == expected, cut
-        for mode in ("CANCELLED", "UNKNOWN", "FAILED", "INCOMPLETE"):
-            state = work / mode
-            state.mkdir()
-            invoke(state, mode)
-            result = json.loads((state / "result.json").read_text())
-            assert result["result"]["outcome"]["status"] == mode
-            assert result["result"]["status"] == ("INCOMPLETE" if mode == "UNKNOWN" else mode)
-            assert not result["result"]["drained"]
-        # Recompute every journal hash after mutations, so codec checks alone cannot pass this proof.
-        for mutation in (2, 4, 5, *range(6, 19)):
-            state = work / f"mutation-{mutation}"
-            state.mkdir()
-            shutil.copyfile(baseline / "runtime.sqlite3", state / "runtime.sqlite3")
-            invoke(state, "MUTATE", mutation=mutation)
-            invoke(state, "REFUSE_RELATION" if 6 <= mutation <= 15 else "REFUSE")
-    (artifacts / "faults.json").write_text(_canonical({"schema_version": 1, "cases": receipts}))
-    print(f"BACKTEST_REPLAY_REAL_PROCESS_CASES {len(receipts)}", flush=True)
+    )
+    print("BACKTEST_MEMORY_CHECK: PASS", flush=True)

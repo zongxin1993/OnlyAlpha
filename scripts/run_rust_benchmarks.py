@@ -13,16 +13,16 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+from scripts.node_database import prepare as prepare_node_database
 from scripts.rust_benchmark import (
     benchmark_input_identity,
+    chain_reports,
     criterion_reports,
     criterion_samples,
     diagnostic_receipt,
-    legacy_reports,
     result_identity,
     retained_reports,
     storage_conditions,
-    validate_complete_trace,
     validate_fixture_provenance,
     validate_inventory,
 )
@@ -53,9 +53,11 @@ def main() -> None:
     parser.add_argument("--crate", action="append", default=[])
     parser.add_argument("--target", action="append", default=[])
     parser.add_argument("--diagnostics", choices=("off", "detail"), default="off")
-    parser.add_argument("--runtime-root", type=Path, help="保留样本的绝对只读runtime目录，限test-results内")
     parser.add_argument(
-        "--trace", type=Path, help="后端组合必需：对应原始完整replay-trace.json，非binding/inputs提取文件"
+        "--scope",
+        choices=("memory.execution", "pg.recovery", "result.read"),
+        default="memory.execution",
+        help="后端三口径选择：memory.execution（内存执行）、pg.recovery（PG 正式事实恢复，需 ONLYALPHA_POSTGRES_DSN）、result.read（结果读取）",
     )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
@@ -147,48 +149,29 @@ def main() -> None:
         if args.mode == "check":
             print("COMPILED", package, row["target"], flush=True)
             continue
-        if row.get("external_input"):
-            if args.runtime_root is None:
-                print("EXTERNAL_INPUT_REQUIRED", package, row["target"], flush=True)
-                continue
-            source = args.runtime_root
-            if not source.is_absolute() or not source.resolve().is_relative_to(root / "test-results"):
-                raise ValueError("retained benchmark requires controlled test-results input")
-            source_file = source / "runtime.sqlite3"
-            locations["retained_input"] = str(source_file.resolve())
-            source_hash = sha(source_file)
-            metadata["input_sha256"] = hashlib.sha256((metadata["input_sha256"] + source_hash).encode()).hexdigest()
-            metadata["source_database_sha256"] = source_hash
-            metadata["cache"] = "input database hashed before sample; no cache eviction"
-            env["OA_BENCH_RUNTIME"] = str(source)
+        if row.get("rounds"):
             env["OA_BENCH_ROUNDS"] = str(row["rounds"])
             if row["crate"] == "backend":
-                if (
-                    args.trace is None
-                    or not args.trace.is_absolute()
-                    or not args.trace.resolve().is_relative_to(root / "test-results")
-                ):
-                    raise ValueError("backend benchmark requires controlled original complete --trace")
-                fixture = json.loads((root / "test-data/backtest-benchmarks/replay.json").read_text())
-                trace_hash = validate_complete_trace(args.trace, fixture)
-                metadata["trace_sha256"] = trace_hash
-                locations["trace_input"] = str(args.trace.resolve())
-                metadata["input_sha256"] = hashlib.sha256((metadata["input_sha256"] + trace_hash).encode()).hexdigest()
-                env["OA_BENCH_TRACE"] = str(args.trace)
+                if args.scope == "pg.recovery" and not os.environ.get("ONLYALPHA_POSTGRES_DSN"):
+                    raise ValueError("pg.recovery benchmark requires ONLYALPHA_POSTGRES_DSN")
+                env["OA_BENCH_SCOPE"] = args.scope
+                metadata["scope"] = args.scope
+                if args.scope == "pg.recovery":
+                    env["ONLYALPHA_POSTGRES_DSN"] = prepare_node_database(
+                        os.environ["ONLYALPHA_POSTGRES_DSN"], test=True
+                    )
             metadata["storage"] = storage_conditions(identity["mounts"], locations)
             env["OA_BENCH_STORAGE"] = json.dumps(metadata["storage"], sort_keys=True)
             with (directory / "reference.log").open("w") as stream:
                 subprocess.run(
                     [str(executable)], cwd=root, env=env, stdout=stream, stderr=subprocess.STDOUT, check=True
                 )
-            if sha(source_file) != source_hash:
-                raise ValueError("retained source bytes changed during benchmark")
             log = (directory / "reference.log").read_text()
             if (row["crate"], row["target"]) == ("runtime", "retained"):
                 metadata["diagnostics_receipt"] = diagnostic_receipt(log, args.diagnostics)
-            parser = legacy_reports if row["crate"] == "backend" else retained_reports
+            parser = chain_reports if row["crate"] == "backend" else retained_reports
             reports = parser(log, metadata)
-            metadata.update(preflight="passed per-round source assertions", measurement="complete")
+            metadata.update(preflight="passed per-round assertions", measurement="complete")
             (directory / "identity.json").write_text(json.dumps(metadata, indent=2))
             (directory / "report.json").write_text(json.dumps(reports, indent=2))
             print("VERIFIED", package, row["target"], "complete fixed samples", flush=True)

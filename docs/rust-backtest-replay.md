@@ -1,6 +1,6 @@
 # Rust 回测事件执行与恢复契约
 
-本页依据[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)取代原文件Source／SQLite续接及跨介质发布要求。详见[冻结身份和接口](job-execution-contract.md)。当前阶段只定义目标接口；旧RunLoop／TerminalSnapshot仍待迁移，本页不是性能或正式Web验收结论。
+本页依据[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)取代原文件Source／SQLite续接及跨介质发布要求。详见[冻结身份和接口](job-execution-contract.md)。旧文件型`RunLoop::create/open`、`TerminalSnapshot`与`native_read`已完整退役，现行实现统一使用`BacktestRun`内存执行、`verify_finite_backtest`终态验证与PostgreSQL原子发布。
 
 ## 输入与唯一信号
 

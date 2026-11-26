@@ -2,9 +2,7 @@ const FIXTURE: &str = include_str!("../../../test-data/execution/domain-inputs.j
 const SETTLEMENT_FIXTURE: &str = include_str!("../../../test-data/settlement/common-v1.json");
 #[path = "../../execution/tests/support/mod.rs"]
 mod support;
-use onlyalpha_runtime::{
-    BoundBrokerJournal, RunBinding, RunConfiguration, Runtime, Session, TradingInput,
-};
+use onlyalpha_runtime::{RunBinding, RunConfiguration, Session, TradingInput};
 #[allow(dead_code)]
 #[path = "support/perpetual_run.rs"]
 mod perpetual;

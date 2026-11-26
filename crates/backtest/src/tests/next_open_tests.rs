@@ -604,8 +604,6 @@ fn next_open_bar_marks_keep_all_economic_effects_without_writing_flat_history_ag
         assert_eq!(c.state().unwrap(), flat);
     }
     let input = native_input(6, "12.00");
-    let mut legacy = binding(&c);
-    legacy["policy"]["schema_version"] = json!(1);
     let now = input.event_ns().to_string().parse().unwrap();
     let context = crate::next_open::context(
         &input.identity(),
@@ -613,12 +611,6 @@ fn next_open_bar_marks_keep_all_economic_effects_without_writing_flat_history_ag
         &input.bar().to_record()["trading_day"],
     )
     .unwrap();
-    assert!(
-        crate::trading::valuation_input(&legacy, &input, now, &c, context["day_index"].clone())
-            .unwrap()
-            .is_some(),
-        "the old LIMIT profile must keep its original BAR policy"
-    );
     for fault in ["opening", "policy", "schema"] {
         let mut wrong = binding(&c);
         match fault {

@@ -230,12 +230,12 @@ def retained_reports(log: str, metadata: dict) -> list[dict]:
     return reports
 
 
-def legacy_reports(log: str, metadata: dict) -> list[dict]:
+def chain_reports(log: str, metadata: dict) -> list[dict]:
     from scripts.backtest_benchmark import profile, require_complete
 
     data = profile(log.splitlines())
     if len(data["metadata"]) != 1:
-        raise ValueError("ambiguous legacy benchmark metadata")
+        raise ValueError("ambiguous chain benchmark metadata")
     require_complete(data)
     actual = data["metadata"][0]
     if actual["rounds"] < 3:
@@ -244,10 +244,10 @@ def legacy_reports(log: str, metadata: dict) -> list[dict]:
         actual["benchmark_binary_sha256"] != metadata["binary_sha256"]
         or actual["compiler"] != metadata["compiler"].splitlines()[0]
     ):
-        raise ValueError("legacy benchmark binary does not match current executable receipt")
+        raise ValueError("chain benchmark binary does not match current executable receipt")
     results = {row["result_sha256"] for row in data["samples"] if row["stage"] == "chain.total"}
     if len(results) != 1:
-        raise ValueError("changed legacy benchmark result")
+        raise ValueError("changed chain benchmark result")
     reports = []
     for stage in sorted(data["benchmarks"]):
         rows = sorted((row for row in data["samples"] if row["stage"] == stage), key=lambda row: row["round"])
@@ -262,20 +262,6 @@ def legacy_reports(log: str, metadata: dict) -> list[dict]:
         report["measurement_engine"] = "fixed_samples"
         reports.append(report)
     return reports
-
-
-def validate_complete_trace(path: Path, fixture: dict) -> str:
-    """Preflight only: full trace integrity remains with TerminalSnapshot's exact verifier."""
-    raw = path.read_bytes()
-    value = json.loads(raw)
-    if (
-        not isinstance(value, dict)
-        or not {"binding", "inputs", "schema_version", "kind", "state", "steps"} <= value.keys()
-    ):
-        raise ValueError("backend benchmark requires original complete trace, not header extract")
-    if value["binding"] != fixture["binding"] or value["inputs"] != fixture["inputs"]:
-        raise ValueError("complete trace binding/input differs from controlled fixture")
-    return hashlib.sha256(raw).hexdigest()
 
 
 def validate_inventory(root: Path, cases: list[dict]) -> None:
@@ -295,9 +281,7 @@ def validate_inventory(root: Path, cases: list[dict]) -> None:
             for marker in ("criterion_group!", "BENCHMARK_SAMPLE", "BACKTEST_BENCHMARK_META")
         ):
             raise ValueError(f"benchmark has no measurement entry: {key}")
-        scales_ok = len(row["sizes"]) >= 3 or (
-            bool(row.get("external_input")) and len(row["sizes"]) == 1 and row.get("rounds", 0) >= 3
-        )
+        scales_ok = len(row["sizes"]) >= 3 or (len(row["sizes"]) == 1 and row.get("rounds", 0) >= 3)
         if not row["operation"] or not row["unit"] or not scales_ok:
             raise ValueError(f"incomplete benchmark contract: {key}")
 
@@ -317,10 +301,6 @@ def compare_reports(current: dict, baseline: dict) -> dict:
         ):
             raise ValueError("incomparable storage evidence")
         required = {"temporary"}
-        if report.get("case", "").startswith(("runtime/retained/", "backtest/retained/", "backend/backtest_chain/")):
-            required.add("retained_input")
-        if report.get("case", "").startswith("backend/backtest_chain/"):
-            required.add("trace_input")
         if not required.issubset(storage["locations"]):
             raise ValueError("incomparable storage input locations")
         for description in storage["locations"].values():

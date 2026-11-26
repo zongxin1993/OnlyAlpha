@@ -45,6 +45,4 @@ RuntimeReader 的 order_view 对 SUBMIT 核对原 Ready ADMIT 完整请求，对
 The native Execution consumer tests use its exact Ready reader; they do not activate an
 application Runtime, replace the unified Runtime Store, certify LIVE or close a Web product slice.
 
-显式 BACKTEST 来源绑定以同 scope、同代际的原来源库为准。原协议 INTENT、DISPATCHED、观察及回执保留自己的编码及预算。DISPATCHED 前同时核对原准入时刻和场所钟，落后时等待原命令。DISPATCHED 与 INGRESS 热路径均按规范 UTF-8 JSON 字节读取最新 CLOCK 或 BAR。INGRESS 以同一规则读取原事实的 stream_at。空白或对象键序偏离规范时，追加事务失败。来源写者按原前驱原子记入每个 CLOCK、BAR、命令或发布以及该步出生的事实子行。Funding 引用满足其处理时刻可见的首个全局闭合步和此前实际出生的成交。单笔委托的 Discovery 继续服务于该命令的对账。
-
-绑定介质 v2 中，确定的 RESULT 按同一 DISPATCHED 和完整命令的实际场所结果逐值核对。回报不可知时保留 UNKNOWN。每次查询由原场所登记，再由 BoundBrokerJournal 原子核对来源及协议前驱、阶段、完整命令、presence、view 和有序原事实。reconcile_original 开始原命令对账。应用经本 Run 的 Ready 回执执行 acknowledge_original。resolve_original 需要第二次原场所查询；对已存在订单同时核对原 ACK 与当前订单视图。两次强负均须来自此原场所。
+依据 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)，有限回测由 `MemoryVirtualActor` 结合 `MemoryBroker` 在内存完成协议记录与观察确认；持续交易的协议事实、派发与恢复由后端 PostgreSQL 持久化端口承接。旧文件型 `BoundBrokerJournal` 与 `broker.sqlite3` 绑定介质已完整退役。

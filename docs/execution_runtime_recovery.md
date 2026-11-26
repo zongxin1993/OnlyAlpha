@@ -1,145 +1,105 @@
-# Runtime Checkpoint and Continuous Backtest Recovery
+# Runtime 恢复与提交事实
 
-OnlyAlpha uses one Runtime Persistence Store for three distinct authorities:
+本页描述当前恢复契约，落实 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)；值接口见
+[有限作业契约](job-execution-contract.md) 和 [Rust Runtime 状态、持久化与恢复](rust-runtime-persistence.md)。原
+Participant Registry、Checkpoint envelope schema v3、`runtime.sqlite3`、文件 journal、durable Outbox 和逐 Bar checkpoint
+恢复均已退役，不保留兼容读取或回退。
+
+恢复只有两种，按 runtime 类型区分，不互相替代：
+
+| runtime | 权威来源 | 进程丢失后的语义 |
+| --- | --- | --- |
+| Research / Backtest（有限作业） | 冻结输入与原 Run | 丢弃内存工作，按同一冻结输入确定性重算 |
+| SIM / LIVE（连续交易） | PostgreSQL 正式交易事实 | 恢复 typed owner，外部对账后继续 |
+
+## 有限作业：按冻结输入重算
+
+有限作业在内存中运行，不保存逐 Bar checkpoint，也不存在继续读取持久前缀的生产入口。原 Run、精确程序与参数、初始配置、
+Kernel 工件、Market Data 切片和 Result Plan 在准入时冻结；发布前的工作可以丢失。
+
+恢复顺序：
+
+1. 先观察原发布事务和未知提交，确认没有已发布的正式结果；
+2. 取得新的有效 Claim 后，在同一 Run 下新建 Attempt；
+3. 按冻结输入从头重算，得到与原执行一致的结果和指纹；
+4. 通过正式原子发布提交终态结果。
+
+重算不是“回滚”：原 Attempt 的事实保留，发布只发生一次。内存会话 API 仅提供 `Session::new`、`apply`、`acknowledge`、
+`state` 等当前会话操作，不提供 `open` 原持久状态并续接 Bar 的接口。
+
+## SIM / LIVE：从正式事实恢复
+
+### 绑定
+
+`TradingBinding` 由 `RunConfiguration` 与 Kernel 工件指纹构成，要求 `runtime_kind` 为 `SIM` 或 `LIVE`：
+
+- `key` 绑定 engine、runtime、generation；
+- `fingerprint` 绑定 stream key、完整配置指纹和 Kernel 工件指纹。
+
+绑定是事实身份的一部分。backend 适配器 `TradingFactRepository` 实现 `onlyalpha_runtime::durability::DurableFactPort`：
+`commit(&PreparedTradingFacts)` 原子写入事实与必要索引并返回 `DurableCommitReceipt`，`load_recovery(&TradingBinding)`
+在同一快照内读出绑定、水位与全部记录。
+
+同身份同 payload 幂等；同身份不同 authority 或前驱不符拒绝。receipt 只证明该次提交的读回结果，不是派单权限。
+
+### 提交、投影与可见性
 
 ```text
-latest complete Runtime checkpoint
-+ durable execution transaction tail
-+ durable at-least-once Outbox
-= recoverable Runtime authority
+prepare → commit（committed / unready）→ 投影 → ready → 业务查询可见
 ```
 
-The checkpoint is an immutable snapshot at a stable Bar boundary. It does not replace transactions. Transactions after the
-checkpoint remain the execution tail, and the Outbox remains only the delivery intent for Projection Ready events.
+- 已提交未投影的记录只能继续原计划投影，不得重新规划或对外派单；
+- Projection Ready 是业务查询与继续派单的门禁，`records()` 只用于 Admin/Recovery 读取；
+- 投影失败保留已完成前缀，由 Coordinator 前向恢复，不跨 Manager 回滚。
 
-## Lifecycle and barrier
+### 恢复校验（fail closed）
 
-Checkpoint-enabled Backtest follows `CREATED → INITIALIZING → RECOVERING → READY → RUNNING`. The Runtime creates an initial
-checkpoint after Cluster initialization and queue draining. After every accepted Bar it completes market dispatch, runs the
-deterministic broker, drains Broker inbound and EventBus work, verifies both inbound queues are empty, advances the exact replay
-cursor, and atomically writes the checkpoint. A checkpoint failure fails processing and prevents later Bars.
+`RecoveryFacts::from_records(binding, stored_binding, expected_head, records)` 要求仓储在同一快照内读出全部内容，逐项校验：
 
-The replay cursor is identified by source ID, data version, source sequence and update ID; event time is diagnostic only. It
-therefore cannot skip same-timestamp updates and never uses transaction time as a resume boundary.
+| 条件 | 结果 |
+| --- | --- |
+| 绑定指纹不符，或 `expected_head` 与记录数不一致 | `TRADING_HISTORY_INCOMPLETE` |
+| 记录的 Prepared 计划与重新推导结果不一致；或未 Ready 的行不是最后一行 | `TRADING_HISTORY_CONFLICT` |
+| 整体对账状态不是 `MATCHED` | `TRADING_RECONCILIATION_MISMATCH` |
+| 存在未投影尾行时继续 prepare | `TRADING_PROJECTION_PENDING` |
+| 同一 `input_id` 的输入体不同 | `TRADING_INPUT_CONFLICT` |
+| 提交读回的计划与绑定不符 | `TRADING_COMMIT_CONFLICT` |
+| 绑定本身不合法 | `TRADING_BINDING_INVALID` |
+| 持久源不可读 | `TRADING_FACTS_UNAVAILABLE` |
+| 提交状态未知 | `TRADING_COMMIT_UNKNOWN` |
 
-## Participant inventory
+只允许一个未投影尾行；它之后的因果事实必须仍可从该行推导。校验期间使用的 `Replay` 是只读证明重放，不能提交新权威，
+也不能发布外部事件。
 
-Runtime Checkpoint envelope schema is version 3. Participants use their explicitly registered schema version;
-`broker.virtual` is version 3, while every other participant version comes from its formal registration rather than inference.
-`capture_checkpoint()` returns canonical JSON-compatible owned state;
-`restore_checkpoint()` validates and installs that same authority without business events.
+### SIM 恢复入口
 
-| Component ID | Snapshot authority | Capability |
-| --- | --- | --- |
-| `runtime.progress` | Clock, timers, trading day, replay cursor and valuation heads | CHECKPOINTABLE |
-| `data-source.<source-id>` | Historical source identity is validated by config/data version/cursor; no mutable replay state | STATELESS |
-| `market-data.cache`, `.aggregation`, `.dedup`, `.sequence`, `.gap`, `.processor` | Market windows, aggregation state and processing/dedup heads | CHECKPOINTABLE |
-| `market.rules` | Compiled identity plus deterministic order/match decision history | CHECKPOINTABLE |
-| `account.authority`, `account.valuation-timeline` | Account authority and complete valuation history | CHECKPOINTABLE |
-| `order.authority` | Orders, lifecycle/dedup indexes and ID/event sequence heads | CHECKPOINTABLE |
-| `position.authority`, `allocation.authority`, `position-reservation.authority` | Position/allocation repositories, buckets, cycles, fingerprints and reservations | CHECKPOINTABLE |
-| `strategy-ledger.authority` | Per-Cluster ledgers, reservations, entries and equity/valuation timelines | CHECKPOINTABLE |
-| `risk.authority`, `settlement.authority`, `fee.authority`, `margin.authority` | Dynamic rule state, decisions, reservations, records and sequence heads | CHECKPOINTABLE |
-| `execution.dedup`, `.sequence`, `.processor`, `.audit`, `.reconciliation` | Broker-update processing identity, diagnostics and recovery work | CHECKPOINTABLE |
-| `broker.virtual` (v3) | Orders, account/positions, Fill Plans/cursors, pending scheduler work, submission controls and venue/update/trade sequences | CHECKPOINTABLE |
-| `cluster.<id>.10.indicator.<factor>.<indicator>` | Declared rolling Indicator state and last snapshot | declared CHECKPOINTABLE or STATELESS |
-| `cluster.<id>.20.factor.<factor>` | Declared Factor state, snapshot and trace | declared CHECKPOINTABLE or STATELESS |
-| `cluster.<id>.30.strategy.<strategy>` | Declared Strategy counters, intent and signal history | declared CHECKPOINTABLE or STATELESS |
-| `cluster.<id>.40.result-recorder`, `.90.factor-views` | Strategy result prefix and reconstructable factor views | CHECKPOINTABLE |
+`packages/backend/src/workers/sim.rs` 的 `recover_economic_state` 校验绑定必须为 `SIM`，读取事实：
 
-Participant IDs, schema versions and capabilities are sorted into the Registry fingerprint. SQLite assembly rejects any
-DataSource, Broker, Strategy, Factor or Indicator without an explicit capability; it never infers state from Python attributes.
+- 尾行已 Ready：直接返回恢复结果；
+- 尾行未 Ready：在原前缀上重新安装投影、重新读回，要求同一 Prepared 行变为 Ready 且前缀不变，否则
+  `SIM_RECOVERY_PROJECTION_CONFLICT`。
 
-## Recovery order
+提交状态未知时换连接按同一绑定重新观察原场所事实，不盲目重试外部指令；持久源不可用时停止工作、保留观察和恢复能力，
+不增加风险。
 
-1. Open and validate the schema-version-5 Runtime Persistence Store and stable Runtime identity. Schema 1–4 stores fail fast without
-   migration, deletion or Memory fallback.
-2. Load the latest complete checkpoint and verify aggregate/component hashes, schema versions, configuration fingerprint and
-   Participant Registry fingerprint.
-3. Restore every required participant in registry order. Strategy, Factor, Indicator and deterministic Broker capabilities must
-   be explicitly declared.
-4. Analyze the contiguous transaction tail. Projection Ready rows must form one prefix; unprojected rows form one suffix.
-5. Replay exact MarketData after the checkpoint cursor. Before each record, enter a boundary identified by source ID, data
-   version, update ID, source sequence and event time. Every Broker update enters ExecutionProcessor; each persisted Trade Fill or
-   Order Terminal operation rebuilds the same Prepared contract and resolves the next causal session entry at that update point.
-6. Rehydrate Ready entries through real Manager Projection Targets and recover unprojected entries through the formal Coordinator
-   at their original causal points. Resolving the last persisted entry changes Execution phase to `TAIL_RESOLVED`; it does not end
-   the Bar.
-7. Continue the same Bar's Strategy and Broker work. New Trades after tail resolution use the ordinary Planner and
-   `Coordinator.commit()`, receive contiguous Store-owned sequences, become Projection Ready and write durable Outbox rows.
-   `ExecutionProcessor.replay()` suppresses immediate delivery, so these continuation rows remain pending during recovery.
-8. Complete MarketData Result and Audit, observe checkpointable Result Progress, drain EventBus work, and only then let Runtime
-   `after_market_processing()` confirm the exact boundary. An unresolved tail continues into the next boundary; a resolved tail
-   ends causal replay only after the current boundary becomes `BOUNDARY_COMPLETED`.
-9. Produce an immutable Recovery Outcome, move Clusters to `RECOVERY_FINALIZING`, call `on_recovery_complete()`, drain internal
-   events, and validate transaction, Outbox, recovery projection range, manager, Broker and Runtime-boundary authority through
-   read-only Ports. Finalizer preflight diagnoses non-empty Broker/MarketData inbound queues separately from pending EventBus
-   work. `OnlyRuntimeTransactionOutboxKey(runtime_id, execution_sequence, event_sequence)` is the durable Outbox idempotency
-   identity; it is validated independently from each Event's `event_id` and has no second string idempotency key.
-10. Capture and write the post-recovery checkpoint, read it back through `latest_checkpoint()` and compare the complete header,
-    aggregate hash and components. Only then mark Clusters `RECOVERED` and Runtime `READY`.
-11. Deliver pending Outbox records, resume recovered Clusters without repeating `on_start()`, and continue ordinary Replay from
-    the verified cursor.
+## 状态机与投影契约
 
-Tail gaps, Ready-after-unready ordering, transaction hash conflicts, cursor mismatch, unknown/missing participants and partial or
-corrupt checkpoints fail fast. Recovery never deletes or rewrites historical transactions.
+`docs/execution_projection_contract.md` 描述的 Projection Ready 门禁仍然有效：committed 事实按原方向、原 scope 投影到
+Manager，Ready 后才进入业务查询和继续派单。恢复不重新选择成本或经济结论——Attributed Close 的结论已冻结在
+Projection Before/After、Committed Fact、authority hash 与 payload hash 中，恢复只验证数量、精确累计成本聚合和关联 scope，
+不重跑 Fee、Settlement 或 Margin 计算。
 
-## Store and configuration
+## Forward Recovery 边界
 
-```yaml
-runtime:
-  persistence:
-    backend: SQLITE
-    checkpoint:
-      enabled: true
-      retain_last: 2
-```
+- committed 事实不删除、不跨 Manager 回滚、不按当前规则重算；
+- 失败投影不跳过；
+- schema、身份、配置或指纹不兼容时 fail closed，不做静默迁移或内存回退；
+- Outbox、exactly-once 投递、分布式 checkpoint 和远程 Store 都不在当前实现内；外部成交事实归属交易场所，OnlyAlpha
+  负责意图、风控、对账和可恢复状态。
 
-The single file is
-`user_data/state/engines/<engine-id>/runtimes/<runtime-id>/runtime.sqlite3`. Checkpoint header, components, transactions and
-Outbox share the same connection and identity. Retention happens in the same transaction as insertion, so a failed new write
-does not delete the previous complete checkpoint. SQLite Runtime Persistence schema version 5 supports discriminated
-`TRADE_FILL` and `ORDER_TERMINAL` rows plus the current checkpoint/outbox contract; versions 1–4 are unsupported and are never
-migrated automatically. Runtime Checkpoint envelope schema is version 3. Virtual Broker checkpoint schema is also version 3,
-but remains an independently versioned participant contract.
+## 验证
 
-`MEMORY` requires checkpoint to be disabled and is not restartable.
-
-## Current limits
-
-PR4.2.2b adds read-only post-recovery authority validation, `RECOVERY_FINALIZING`, fail-closed finalization and durable checkpoint
-read-back. A commit-then-raise failure retains the checkpoint for the next Engine while preventing the current Engine from READY,
-Outbox delivery or Cluster resume. Its validation closure checks cross-object Runtime, Account, Cluster, Instrument, Order,
-Currency and Transaction scope for Outbox, Reservations, Fee, Settlement and Margin authorities. It relies on each Domain model
-for internal amount, quantity and lifecycle invariants and does not rerun Fee, Settlement or Margin calculations. PR4.2.2c adds
-the unified Runtime Event Router and Recovery Event Gate. Recovery bootstrap Direct events are discarded; historical Direct
-events are suppressed during replay/finalization and never replayed; continuation transaction events remain pending in the
-durable Outbox until finalization succeeds and Runtime is OPEN. The Gate is operational-only and is excluded from checkpoint and
-business fingerprints. Direct delivery remains best-effort and Outbox delivery remains at-least-once. The formal committed transaction
-path supports incremental Generic T0 Cash LIMIT BUY OPEN Fill transactions. PR4.3.2 makes Reservation, Fee, Account, Ledger and
-Risk accounting incremental and checkpoints Order Fee Accrual authority. PR4.3.3 adds checkpointable Virtual Broker Fill Plans
-and proves restart recovery across execute-before-publish, Commit, Projection, Outbox, partial-plan checkpoint and A→B→C
-boundaries without a new Recovery Phase. PR4.4.2 extends that exact recovery protocol to multi-fill Long Close and durable
-Cancel/Reject/Expire `ORDER_TERMINAL` operations. Close Fill 1/2 checkpoints, execute-before-publish, Commit, mid-Projection,
-Outbox and A→B→C failures are compared with a no-fault baseline. Short/Hedging, Futures/Margin transactions, exactly-once
-Outbox, full Broker reconciliation, schema migration, distributed checkpointing and remote stores remain outside this phase.
-SIM streaming recovery is implemented through the same forward-recovery invariants and its dedicated recovery lane.
-
-## Event delivery failure semantics
-
-PR4.2.2c failure hardening freezes two distinct boundaries. Before Runtime Event Router OPEN, failure is completely silent:
-staged bootstrap events are discarded, EventBus has no queued or dispatched work, pending Outbox is untouched, Cluster
-start/resume is not attempted and `RUNTIME_STARTED` is absent. Bootstrap flush is one atomic EventBus batch, so capacity or scope
-failure cannot enqueue a prefix.
-
-After OPEN, an accepted bootstrap event or successful Outbox prefix retains its publication status and may be drained once during
-stop/close cleanup. Later failure still sets Runtime and Gate to FAILED, prevents `RUNTIME_STARTED`, and must not leave a Cluster
-incorrectly RUNNING. Cleanup is idempotent and does not retry the failed or untouched Outbox suffix.
-
-Outbox `published` means only that EventBus accepted the event and the local Store completed `mark_published`; there is no
-Subscriber ACK or delivery watermark. Consequently Outbox is at-least-once, while Direct delivery is best-effort. Historical
-Direct events produced during recovery/finalization are suppressed permanently. Exactly-once, Direct Durable Journal and remote
-EventBus remain outside the implemented contract.
-# Multi-Cluster Close 恢复
-
-恢复不重新选择成本。Attributed Close 结论已经冻结在 Projection Before/After、Committed Fact、authority hash 和 payload hash 中。Post-recovery validation 同时校验 Position/Allocation 的数量与精确累计成本聚合；Strategy Ledger timeline checkpoint 按 Runtime 全局 sequence 恢复。
+- Rust 库：`cargo test -p onlyalpha-runtime`，覆盖提交、投影、恢复冲突与幂等；
+- OpenAPI 整体测试：`packages/backend` 按真实 API 与权限边界验证 SIM 恢复和正式发布；
+- PostgreSQL 恢复吞吐与结果读取基准：`packages/backend/benches/backtest_chain.rs` 的 `pg.recovery` 与 `result.read`
+  口径，见 [后端基准](../packages/backend/BENCHMARK.md)。

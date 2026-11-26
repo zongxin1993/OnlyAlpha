@@ -80,6 +80,7 @@ pub(crate) struct NativeReplay {
 
 pub(crate) struct NextOpenModel {
     configuration: Value,
+    #[cfg(test)]
     policy_settings: Value,
     calendar: Value,
     pub(crate) cluster: String,
@@ -185,6 +186,7 @@ impl NextOpenModel {
         }
         Ok(Self {
             configuration,
+            #[cfg(test)]
             policy_settings: p.clone(),
             calendar: settings["calendar"].clone(),
             cluster: cluster.into(),
@@ -517,50 +519,12 @@ impl NativeReplay {
             .baseline_from_quote(first, last, &price, &context, &quote)
     }
 
+    // 保留的运行只持有内存状态；检查点捕获与恢复仅由单元测试用来验证策略边界。
+    #[cfg(test)]
     pub(crate) fn capture(&self) -> Value {
         json!({"schema_version":2,"binding":hash(&json!([self.model.binding,self.model.policy_settings])),"execution_model":self.model.execution_model(),"pending":self.pending,"last":self.last,"finished":self.finished})
     }
-    /// Read-only validation of this owner's retained checkpoint profile. No
-    /// resolver, SDK factory, admission or Fill operation is invoked.
-    pub(crate) fn read_quiescent(
-        settings: &Value,
-        native_policy: &Value,
-        checkpoint: &Value,
-    ) -> Result<bool, Error> {
-        fields(
-            checkpoint,
-            &[
-                "schema_version",
-                "binding",
-                "execution_model",
-                "pending",
-                "last",
-                "finished",
-            ],
-        )?;
-        let mut binding = native_policy.clone();
-        let model = binding
-            .as_object_mut()
-            .ok_or_else(|| err("NEXT_OPEN_BINDING"))?
-            .remove("execution_model")
-            .ok_or_else(|| err("NEXT_OPEN_BINDING"))?;
-        let expected = json!({"schema_version":1,"kind":"GUARANTEED_WHOLE_FILL","runtime_kind":"BACKTEST","maximum_fill_count":1,"configuration_fingerprint":hash(&settings["execution"]),"policy_fingerprint":hash(&binding)});
-        if checkpoint["schema_version"] != 2
-            || model != expected
-            || checkpoint["execution_model"] != model
-            || binding["schema_version"] != 1
-            || binding["configuration"] != hash(&settings["execution"])
-            || binding["reference_policy"] != "MODEL_NEXT_OPEN"
-            || checkpoint["binding"] != hash(&json!([binding, settings["policy"]]))
-            || !checkpoint["finished"].is_boolean()
-            || (!checkpoint["pending"].is_null() && !checkpoint["pending"].is_object())
-            || (!checkpoint["last"].is_null() && !checkpoint["last"].is_object())
-            || (checkpoint["finished"] == true && !checkpoint["pending"].is_null())
-        {
-            return Err(err("NEXT_OPEN_CHECKPOINT"));
-        }
-        Ok(checkpoint["finished"] == true && checkpoint["pending"].is_null())
-    }
+    #[cfg(test)]
     pub(crate) fn restore(&mut self, v: &Value) -> Result<(), Error> {
         fields(
             v,
@@ -589,6 +553,7 @@ impl NativeReplay {
         Ok(())
     }
     /// Integrity hashes cannot replace the Strategy owner's actual accepted outcome.
+    #[cfg(test)]
     pub(crate) fn validate_cut(&self, source: &str, outcome: Option<&Value>) -> Result<(), Error> {
         if self.pending.is_null() {
             return Ok(());
@@ -649,9 +614,6 @@ impl NativeReplay {
             return Err(err("PENDING_STRATEGY_CUT"));
         }
         Ok(())
-    }
-    pub(crate) fn is_genesis(&self) -> bool {
-        self.pending.is_null() && self.last.is_null() && !self.finished
     }
     pub(crate) fn validate_execution(&self, c: &impl NativeExecution) -> Result<(), Error> {
         if c.configuration() != &self.model.configuration {
@@ -873,6 +835,7 @@ impl NativeReplay {
     pub(crate) fn end_input(&mut self, c: &mut impl NativeExecution) -> Result<Value, Error> {
         self.stop_input(c, "INPUT_EXHAUSTED")
     }
+    #[cfg(test)]
     pub(crate) fn cancel_input(&mut self, c: &mut impl NativeExecution) -> Result<Value, Error> {
         self.stop_input(c, "USER_CANCELLED")
     }

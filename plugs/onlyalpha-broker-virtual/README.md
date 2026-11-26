@@ -12,8 +12,6 @@
 
 [`provider::VIRTUAL_BROKER_TYPE_ID`、`descriptor` 和 `normalize_configuration`](src/provider.rs) 分别提供 Product 类型 `onlyalpha.virtual_broker`、类别为 `BROKER` 的公开描述符，以及原生配置的规范化结果。当前公开描述符接受 `latency`（各操作纳秒数）与 `maximum_fill_quantity`（精确十进制字符串）。宿主先按描述符核验公开字段和类型，再把原配置交给插件解析。解析失败返回 Broker 错误；成功结果供核对 `source_binding()["configuration"]`，创建场所仍使用原配置。生产节点按 `BROKER` 类别注册该描述符和原生校验函数，使用 [IMPLEMENTATION_VERSION](src/lib.rs) 核对已链接的插件版本，并用 [provider::CAPABILITIES](src/provider.rs) 核对场所支持的操作。
 
-[`BoundVirtualActor`](src/source_host.rs) 为显式配置 3 的新 Run 创建或重开 broker.sqlite3，绑定 scope、代际、插件工件、初始场所现金和撮合配置。CLOCK、BAR、命令和发布先在私有场所候选执行，再以原头 CAS 将一步与每条新增事实原子提交。旧实例持有的前驱失效须重开。原 Virtual checkpoint4 仍由 `VirtualBroker::restore` 读取，绑定宿主的紧凑 checkpoint 指向原来源库的确定前缀。
-
 新增 Discovery 的 economic_through_ns 仅声明 `now - 1ns` 的封闭前缀，使用实际有符号时钟 checked subtraction，最小值溢出时拒绝。Virtual 未来事实使用当时的 now，时钟不倒退，因此当前纳秒仍可继续出现成交，不能当作 inclusive 封口。该语义不修改旧 CLOCK、Bar 或 checkpoint 编码；真实 driver 应先消费边界成交，再将时钟推进越过边界并读取前缀。as_of 保持供应商序列，Runtime 另核对原成交 Ready 投影。
 
 - [VirtualBroker](src/lib.rs) 的 `new` 接收完整 Scope、经装配方验证的原生工件 SHA-256、初始资金和模拟配置。先通过 `ConnectionPort` 建立连接并认证，再通过 `Broker::dispatch` 携带拥有方 RuntimeReader、Journal 和本库 TradingPort 下达已准入的命令。原操作结果跨断连和重启保持幂等。未就绪时首次提交会记录明确拒绝并绑定原命令，重连不会触发重发。变更内容或错误 Scope 会被拒绝。
@@ -29,7 +27,7 @@
 
 [`MemoryVirtualActor`](src/memory.rs) 为有限 BACKTEST 独占原生场所和 `MemoryBroker`，实际派发后保存原协议关联，按原顺序发布并确认观察。相同序号和正文的 Bar 重交幂等，变更别名会使该实例失败；LIVE 构造拒绝。`finish` 同时要求场所待决动作、未发布事实和 Broker 待确认观察清空，订单终结；失败不能产生完成对象。
 
-`CompletedMemoryVenue` 保留实际协议记录及类型化 `SourceTrace`：时钟、冻结行情的序号／正文引用、原始命令、出生事实和协议见证。它不保存每 Bar 全组件 checkpoint，不从文件恢复过程状态；发布前中断由原 Run 的新 Attempt 按冻结输入重算。该路径不授予持续交易提交许可，既有绑定介质的退役不在第五阶段。
+`CompletedMemoryVenue` 保留实际协议记录及类型化 `SourceTrace`：时钟、冻结行情的序号／正文引用、原始命令、出生事实和协议见证。它不保存每 Bar 全组件 checkpoint，不从文件恢复过程状态；发布前中断由原 Run 的新 Attempt 按冻结输入重算。该路径不授予持续交易提交许可；旧 `source_host.rs`（`broker.sqlite3`）已随 ADR 0151 完整退役。
 
 ## 状态与生命周期
 
@@ -45,6 +43,4 @@
 
 ## 使用与验证
 
-从 [Rust 端口集成用例](tests/venue.rs) 查看提交、驱动 Bar、查询、发布、UNKNOWN 对账和从执行后发布前恢复的完整调用。仓库根目录运行 `cargo test --locked -p onlyalpha-broker-virtual`，或使用 `python3 scripts/dev_verification.py run -- cargo test --locked -p onlyalpha-broker-virtual` 在隔离环境验证。正常产品调用需由各自正式装配入口和权限检查接入。
-
-绑定介质 v2 的 [BoundVirtualActor::observe_command](src/source_host.rs) 在原场所状态上执行查询，同时保存实际来源步、协议前驱、阶段、原命令、结果及有序事实引用，返回原 occurrence 索引。命令步保存收到或拒绝的实际结果，重开会按当时两个前缀重演每次查询。原 v1 绑定介质缺少这些原件，打开时拒绝接管。
+从 [Rust 端口集成用例](tests/venue.rs) 与 [受控持续交易场所用例](tests/controlled_trading_venue.rs) 查看提交、驱动 Bar、查询、发布、UNKNOWN 对账、内存回放和恢复调用。仓库根目录运行 `cargo test --locked -p onlyalpha-broker-virtual`，或使用 `python3 scripts/dev_verification.py run -- cargo test --locked -p onlyalpha-broker-virtual` 在隔离环境验证。正常产品调用需由各自正式装配入口和权限检查接入。

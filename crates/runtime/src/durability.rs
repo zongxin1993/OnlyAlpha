@@ -1,6 +1,6 @@
 //! 持续交易的内核计划、已提交事实的投影恢复，以及异步持久化端口。
-use crate::{RunConfiguration, session::{fingerprint, sha}, store::Replay};
-use onlyalpha_execution::{Components, Error, Prepared, Record, coordinate};
+use crate::{RunConfiguration, session::{fingerprint, sha}};
+use onlyalpha_execution::{Components, CommitIntent, Error, Prepared, Record, Store, coordinate};
 use serde_json::{Value, json};
 use std::{fmt, future::Future};
 
@@ -165,6 +165,46 @@ impl RecoveryFacts {
             (plan.id().into(), plan.payload_fingerprint().into())
         });
         Ok(PreparedTradingFacts { binding: self.binding.clone(), prepared, predecessor })
+    }
+}
+
+// Isolated proof replay only. It cannot commit new authority or publish external Events.
+#[derive(Default)]
+pub(crate) struct Replay {
+    rows: Vec<Record>,
+}
+impl Replay {
+    pub(crate) fn push_observed(&mut self, row: Record) {
+        self.rows.push(row);
+    }
+}
+#[cfg(test)]
+std::thread_local! {
+    static CHECKPOINT_PROOF_GETS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+impl Store for Replay {
+    fn head(&self) -> std::result::Result<u64, Error> {
+        Ok(self.rows.len() as u64)
+    }
+    fn get(&self, n: u64) -> std::result::Result<Option<Record>, Error> {
+        #[cfg(test)]
+        CHECKPOINT_PROOF_GETS.with(|reads| reads.set(reads.get() + 1));
+        Ok(self
+            .rows
+            .get(n.checked_sub(1).ok_or_else(|| Error("RUNTIME_STORE_SEQUENCE".to_string()))? as usize)
+            .map(Record::compact_snapshot))
+    }
+    fn commit(&mut self, _: &CommitIntent) -> std::result::Result<Record, Error> {
+        Err(Error("RUNTIME_STORE_READ_ONLY_REPLAY".to_string()))
+    }
+    fn mark_ready(&mut self, n: u64) -> std::result::Result<(), Error> {
+        let mut v = self.rows[n as usize - 1].record();
+        v["ready"] = json!(true);
+        self.rows[n as usize - 1] = Record::decode(&v)?;
+        Ok(())
+    }
+    fn acknowledge(&mut self, _: u64) -> std::result::Result<(), Error> {
+        Err(Error("RUNTIME_STORE_READ_ONLY_REPLAY".to_string()))
     }
 }
 
