@@ -5,72 +5,18 @@ use onlyalpha_calculation::product::{Definition, TypeDeclaration, normalize_scal
 use onlyalpha_operators::algebra::{
     Decimal, Error as KernelError, Kernel, Operator, Parameters, Stream,
 };
+use onlyalpha_operators::registry::{OpSpec, StateCapability};
 use serde_json::{Map, Value, json};
 use std::{num::NonZeroUsize, str::FromStr};
 
 type Result<T> = std::result::Result<T, &'static str>;
 const INVALID: &str = "NATIVE_OPERATOR_CALCULATION_INVALID";
 const WORK: usize = 8 * 1024 * 1024;
-const NAMES: [&str; 24] = [
-    "add",
-    "subtract",
-    "multiply",
-    "divide",
-    "abs",
-    "sign",
-    "log",
-    "delay",
-    "delta",
-    "rolling_mean",
-    "rolling_sum",
-    "rolling_std",
-    "rolling_var",
-    "rolling_min",
-    "rolling_max",
-    "rolling_covariance",
-    "rolling_correlation",
-    "ts_rank",
-    "scale",
-    "decay_linear",
-    "cross_section_percentile",
-    "cross_section_rank",
-    "cross_section_zscore",
-    "cross_section_demean",
-];
+fn op_spec(type_id: &str) -> Result<&'static OpSpec> {
+    onlyalpha_operators::registry::lookup(type_id).ok_or(INVALID)
+}
 fn operation(type_id: &str) -> Result<Operator> {
-    use Operator::*;
-    let operations = [
-        Add,
-        Subtract,
-        Multiply,
-        Divide,
-        Abs,
-        Sign,
-        Log,
-        Delay,
-        Delta,
-        RollingMean,
-        RollingSum,
-        RollingStd,
-        RollingVar,
-        RollingMin,
-        RollingMax,
-        RollingCovariance,
-        RollingCorrelation,
-        TSRank,
-        Scale,
-        DecayLinear,
-        CrossSectionPercentile,
-        CrossSectionRank,
-        CrossSectionZScore,
-        CrossSectionDemean,
-    ];
-    let name = type_id.strip_prefix("onlyalpha.operator.").ok_or(INVALID)?;
-    NAMES
-        .iter()
-        .position(|n| *n == name)
-        .map(|i| operations[i])
-        .ok_or(INVALID)
+    op_spec(type_id).map(|spec| spec.operator)
 }
 fn port(name: &str) -> Value {
     json!({"name":name,"data_type":"DECIMAL","nullable":true,"dimensions":["TIME"],"semantic_type":"NUMERIC_SERIES","unit":null})
@@ -243,12 +189,10 @@ impl OperatorCalculation {
             params.lower_is_better = normalized["direction"]["value"] == "LOWER_IS_BETTER";
         }
         let kernel = Kernel::new(op, params).map_err(|_| INVALID)?;
+        let observations = u64::try_from(kernel.history_limit()).map_err(|_| INVALID)?;
         let period = normalized
             .get("period")
             .map_or(1, |v| v["value"].as_u64().unwrap_or(0));
-        let observations = period
-            .checked_add(u64::from(matches!(op, Operator::Delay | Operator::Delta)))
-            .ok_or(INVALID)?;
         let ready = if matches!(op, Operator::RollingMean | Operator::CrossSectionPercentile) {
             if period > 1 {
                 "complete declared input window is available"
@@ -287,12 +231,10 @@ impl OperatorCalculation {
         (self.state_capability() == "CHECKPOINTABLE").then_some(1)
     }
     pub fn state_capability(&self) -> &'static str {
-        if self.kernel.operator().is_cross_section() {
-            "RESEARCH_ONLY"
-        } else if self.kernel.operator().needs_period() {
-            "CHECKPOINTABLE"
-        } else {
-            "STATELESS"
+        match self.kernel.operator().spec().state() {
+            StateCapability::Stateless => "STATELESS",
+            StateCapability::Checkpointable => "CHECKPOINTABLE",
+            StateCapability::ResearchOnly => "RESEARCH_ONLY",
         }
     }
     pub fn type_declaration(&self) -> Result<Value> {
@@ -455,11 +397,11 @@ impl OperatorStream {
 }
 fn calculations() -> Result<Vec<OperatorCalculation>> {
     let reference = json!({"node_fingerprint":"0".repeat(64),"output_name":"value","source":null});
-    NAMES
+    onlyalpha_operators::registry::all()
         .iter()
-        .map(|name| {
-            let id = format!("onlyalpha.operator.{name}");
-            let op = operation(&id)?;
+        .map(|row| {
+            let id = row.type_id();
+            let op = row.operator;
             let mut bindings = Map::new();
             for n in names(op) {
                 bindings.insert((*n).into(), reference.clone());

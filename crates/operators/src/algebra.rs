@@ -65,49 +65,7 @@ pub enum Operator {
     CrossSectionZScore,
     CrossSectionDemean,
 }
-impl Operator {
-    pub fn is_cross_section(self) -> bool {
-        matches!(
-            self,
-            Self::CrossSectionPercentile
-                | Self::CrossSectionRank
-                | Self::CrossSectionZScore
-                | Self::CrossSectionDemean
-        )
-    }
-    pub fn input_count(self) -> usize {
-        if matches!(
-            self,
-            Self::Add
-                | Self::Subtract
-                | Self::Multiply
-                | Self::Divide
-                | Self::RollingCovariance
-                | Self::RollingCorrelation
-        ) {
-            2
-        } else {
-            1
-        }
-    }
-    pub fn needs_period(self) -> bool {
-        matches!(
-            self,
-            Self::Delay
-                | Self::Delta
-                | Self::RollingMean
-                | Self::RollingSum
-                | Self::RollingStd
-                | Self::RollingVar
-                | Self::RollingMin
-                | Self::RollingMax
-                | Self::RollingCovariance
-                | Self::RollingCorrelation
-                | Self::TSRank
-                | Self::DecayLinear
-        )
-    }
-}
+// Identity, arity, parameter and shape contract: see `crate::registry`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Parameters {
     pub period: Option<NonZeroUsize>,
@@ -145,9 +103,10 @@ impl Kernel {
         self.operator
     }
     pub fn history_limit(&self) -> usize {
-        self.parameters.period.map_or(1, |p| {
-            p.get() + usize::from(matches!(self.operator, Operator::Delay | Operator::Delta))
-        })
+        self.operator
+            .spec()
+            .minimum_observations(self.parameters.period)
+            .expect("validated period parameter")
     }
     fn validate_columns(&self, columns: &[Vec<Cell>]) -> Result<usize> {
         if columns.len() != self.operator.input_count() {
