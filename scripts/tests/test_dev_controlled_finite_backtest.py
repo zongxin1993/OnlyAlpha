@@ -1,11 +1,15 @@
 """精确受控 Backtest 场景入口；不扩大 root 映射的命令权限。"""
 
+import pytest
+
 from scripts import dev_verification as verification
 from scripts.dev_verification import (
     CONTROLLED_BACKTEST_FIXTURE_COMMAND,
     controlled_backtest_fixture_command,
     controlled_https_command,
 )
+
+pytestmark = pytest.mark.architecture
 
 MEMORY_COMMAND = [
     "python",

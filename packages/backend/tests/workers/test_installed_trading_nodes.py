@@ -1,11 +1,11 @@
-"""Real SDK process plus native Strategy NodePort; technical evidence only."""
+"""Real installed source compiler plus native Strategy NodePort; technical evidence only."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tomllib
@@ -22,38 +22,6 @@ def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
     installation = output / "installed"
     artifact = install(output / "wheels", installation)
     factor = json.loads((root / "packages/backend/tests/application/fixtures/research_factor.json").read_text())
-    fields = (
-        "factor_id",
-        "semantic_version",
-        "revision_fingerprint",
-        "source_text",
-        "source_sha256",
-        "factor_api_version",
-        "factor_api_contract_fingerprint",
-        "input_contract",
-        "parameter_contract",
-        "output_contract",
-    )
-    sources = [{key: factor["revision"][key] for key in fields}]
-    # Observe exact installed descriptors, without executing authored math or
-    # creating an application/Runtime/Research capability.
-    observation = subprocess.run(
-        [
-            str(installation / "bin/python"),
-            "-B",
-            "-I",
-            "-c",
-            "import json,sys;from onlyalpha_backend_algorithms.research_resolution import registry_for_sources,private_calculation_records;"
-            "r,_=registry_for_sources(json.load(sys.stdin));print(json.dumps(private_calculation_records(r.backend_registrations())))",
-        ],
-        input=json.dumps(sources),
-        capture_output=True,
-        text=True,
-        env={},
-        check=False,
-        timeout=15,
-    )
-    assert observation.returncode == 0, observation.stderr
     base = next(
         json.loads(line)["record"]
         for line in (root / "test-data/domain/fact-records-v1.jsonl").read_text().splitlines()
@@ -71,37 +39,22 @@ def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
         reference = instance["type_reference"]
         if reference["type_id"].startswith("onlyalpha.operator."):
             reference["semantic_version"] = "2"
-    core = next((output / "wheels").glob("onlyalpha-*.whl"))
-    core_artifact = {
-        "path": str(core),
-        "sha256": hashlib.sha256(core.read_bytes()).hexdigest(),
-        "size": core.stat().st_size,
-        "distribution_version": core.name.split("-")[1],
-    }
-    resolution = {
-        "schema_version": 1,
-        "contract": "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1",
-        "sources": sources,
-        "instances": instances,
-        "core_artifact": core_artifact,
-        "operator_artifact": None,
-        "target_artifact": None,
-    }
     request = output / "inputs.json"
     request.write_text(
         json.dumps(
             {
-                "sources": sources,
-                "registrations": json.loads(observation.stdout),
+                "factor_revision": factor["revision"],
+                "factor_parameters": {
+                    key: value["value"]["value"]
+                    for instance in instances
+                    if instance["type_reference"]["kind"] == "FACTOR"
+                    for key, value in instance["parameters"].items()
+                },
                 "base": base,
                 "strategy": json.loads(
                     (root / "examples/private-assets/strategy/simple_momentum/strategy.json").read_text()
                 )["strategy"]["definition"],
-                "calculations": {
-                    "instances": instances,
-                    "factor_revision_dependencies": historical["factor_revision_dependencies"],
-                },
-                "resolution_request": resolution,
+                "instances": instances,
             }
         )
     )
@@ -185,6 +138,7 @@ def installed_trading_case(
         timeout=150,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    assert re.search(r"^test result: ok\. [1-9]\d* passed;", result.stdout, re.MULTILINE), result.stdout
     return result.stdout + result.stderr
 
 
@@ -197,12 +151,12 @@ def test_actual_installed_trading_nodes_and_fresh_restore(tmp_path: Path) -> Non
 @pytest.mark.parametrize(
     "selector",
     [
-        "installed_trading_algorithms::constructor_",
-        "installed_trading_algorithms::trading_capabilities_metadata_",
+        "installed_trading_algorithms::compiler_child_owner_joins_on_cancel_and_refuses_foreign_source_bytes",
+        "installed_trading_algorithms::native_factor_batch_preserves_exact_volume_momentum_vectors",
         "installed_trading_algorithms::next_open_trading::cancelled_or_incomplete_memory_run_cannot_produce_a_completed_backtest",
     ],
 )
-def test_actual_installed_constructor_and_metadata_owners(tmp_path: Path, selector: str) -> None:
+def test_actual_compiler_owner_and_native_vectors(tmp_path: Path, selector: str) -> None:
     installed_trading_case(tmp_path, selector)
 
 
@@ -210,6 +164,6 @@ def test_actual_installed_constructor_and_metadata_owners(tmp_path: Path, select
 def test_installed_latest_closed_full_interval_in_production_profile(tmp_path: Path) -> None:
     installed_trading_case(
         tmp_path,
-        "installed_trading_algorithms::next_open_trading::installed_source_to_native_next_open_memory_backtest_and_verification",
+        "installed_trading_algorithms::next_open_trading::compiled_factor_to_native_next_open_memory_backtest_and_verification",
         release=True,
     )

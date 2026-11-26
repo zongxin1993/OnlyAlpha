@@ -1,15 +1,14 @@
-"""Installed private Factor SPI over the existing private Protobuf Node framing."""
+"""Installed Protobuf framing for source-only refusal and authorized Target resolution."""
 
 from __future__ import annotations
 
-import copy
+import hashlib
 import json
 import os
 import select
 import struct
 import subprocess
 import time
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -145,7 +144,7 @@ def _private_definition(fixture: dict[str, Any]) -> tuple[dict[str, Any], dict[s
     return source, dict(definition.to_dict())
 
 
-def test_installed_trading_frames_execute_restore_and_reject_foreign_control(tmp_path: Path) -> None:
+def test_installed_trading_frames_refuse_source_only_initialization_and_control(tmp_path: Path) -> None:
     from scripts.build_algorithm_sdk import ROOT, install
 
     root = tmp_path / "installed"
@@ -153,130 +152,62 @@ def test_installed_trading_frames_execute_restore_and_reject_foreign_control(tmp
     fixture = json.loads((ROOT / "packages/backend/tests/application/fixtures/research_factor.json").read_text())
     source, definition = _private_definition(fixture)
     initialize = _operation("INITIALIZE", sources=[source], nodes={"factor": definition})
-    operands = {"close": "120", "close_lag_20": "100", "volume": "21", "volume_mean_20": "2"}
-    # The Python SPI receives explicit operands; native windows and graph cursors
-    # are exercised by the actual installed Rust graph tests.
-    prefix = [_update("factor", **operands) for _ in range(20)]
-    tail = [
-        _update("factor", **operands),
-        _update("factor", **{**operands, "close": "121", "close_lag_20": "101", "volume": "1"}),
-        _update("factor", **{**operands, "volume": "0", "volume_mean_20": "0"}),
-        _operation("CHECKPOINT"),
-        _operation("CLOSE"),
-    ]
-    responses = _run(root, artifact, [initialize, *prefix, _operation("CHECKPOINT"), *tail])
-    before = _record(responses[22])
-    assert set(before) == {"schema_version", "nodes"}
-    assert set(before["nodes"]) == {"factor"}
-    state = before["nodes"]["factor"]
-    assert state["state_capability"] == "STATELESS"
-    assert state["checkpoint_schema_version"] is None and state["state"] is None
-    for response in responses[2:22]:
-        observation = _record(response)
-        assert set(observation) == {"outputs", "state"}
-        assert observation["outputs"]["value"]["type"] == "DECIMAL"
-        assert Decimal(observation["outputs"]["value"]["value"]) == Decimal("2.1")
-        assert observation["state"] == state
-    assert Decimal(_record(responses[23])["outputs"]["value"]["value"]) == Decimal("2.1")
-    assert Decimal(_record(responses[24])["outputs"]["value"]["value"]) == Decimal("0.099009900990")
-    assert _record(responses[25])["outputs"]["value"] == {"type": "NULL", "value": None}
-    after = _record(responses[26])
-    assert after == before
-    for response in responses[23:26]:
-        assert set(_record(response)) == {"outputs", "state"}
-        assert _record(response)["state"] == state
-    assert _record(responses[27]) == {"closed": True}
-    fresh = _run(root, artifact, [initialize, _operation("RESTORE", checkpoint=before), *tail])
-    assert _record(fresh[2]) == before
-    assert [_record(response) for response in fresh[3:]] == [_record(response) for response in responses[23:]]
-    # Foreign lifecycle fields and altered private implementation/state bindings
-    # are rejected without advancing the active numerical session.
-    for kind in ("state", "definition", "implementation", "schema"):
-        tampered = copy.deepcopy(before)
-        node = tampered["nodes"]["factor"]
-        if kind == "state":
-            node["state"] = {"inputs": {"value": ["not-decimal"]}}
-        elif kind == "definition":
-            node["definition"]["warmup"]["minimum_observations"] += 1
-        elif kind == "implementation":
-            node["implementation_fingerprint"] = "f" * 64
-        else:
-            node["checkpoint_schema_version"] = 1
-        rejected = _run(
-            root,
-            artifact,
-            [
-                initialize,
-                _operation("RESTORE", checkpoint=tampered),
-                _operation("CHECKPOINT", cursor={"revision": 999}),
-                _operation("CHECKPOINT"),
-                _operation("CLOSE"),
-            ],
-        )
-        assert rejected[2].WhichOneof("outcome") == "error"
-        assert rejected[3].WhichOneof("outcome") == "error"
-        assert _record(rejected[4]) == _record(rejected[1]) == before
-    assert not any(key in after for key in ("cursor", "receipt", "grant", "runtime_generation", "authority"))
+    rejected = _run(
+        root,
+        artifact,
+        [
+            initialize,
+            _update("factor", close="120", close_lag_20="100", volume="21", volume_mean_20="2"),
+            _operation("RESTORE", checkpoint={"schema_version": 1, "nodes": {}}),
+            _operation("CHECKPOINT"),
+            _operation("CLOSE", cursor={"revision": 999}),
+            _operation("CLOSE"),
+        ],
+    )
+    for response in rejected[1:-1]:
+        assert response.WhichOneof("outcome") == "error"
+        assert response.error.code == "REQUEST_REJECTED"
+    assert _record(rejected[-1]) == {"closed": True}
 
 
-def test_installed_research_frames_observe_actual_trading_capabilities_without_rows(tmp_path: Path) -> None:
-    """Actual installed metadata SPI, independent of Rust backend compilation."""
+def test_installed_research_frames_resolve_only_target_metadata_without_rows(tmp_path: Path) -> None:
     from scripts.build_algorithm_sdk import ROOT, install
 
     root = tmp_path / "installed"
-    artifact = install(tmp_path / "wheels", root)
+    wheels = tmp_path / "wheels"
+    artifact = install(wheels, root)
     fixture = json.loads((ROOT / "packages/backend/tests/application/fixtures/research_factor.json").read_text())
-    source, definition = _private_definition(fixture)
+    source, factor = _private_definition(fixture)
+
+    def wheel(pattern: str) -> dict[str, Any]:
+        path = next(wheels.glob(pattern))
+        return {
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "size": path.stat().st_size,
+            "distribution_version": path.name.split("-")[1],
+        }
+
     initialization = {
         "schema_version": 1,
         "contract": "ONLYALPHA_AUTHORING_SESSION_V1",
-        "sources": [source],
-        "core_artifact": None,
-        "target_artifact": None,
+        "sources": [],
+        "core_artifact": wheel("onlyalpha-*.whl"),
+        "target_artifact": wheel("onlyalpha_backend_algorithms-*.whl"),
     }
     request = {
         "schema_version": 1,
         "contract": "ONLYALPHA_BOUND_CALCULATION_RESOLVE_V1",
-        "type_reference": {key: definition[key] for key in ("kind", "type_id", "semantic_version")},
-        "parameters": definition["parameters"],
-        "input_bindings": definition["input_bindings"],
+        "type_reference": {"kind": "TARGET", "type_id": "onlyalpha.target.forward_return", "semantic_version": "1"},
+        "parameters": {"exit_offset": {"type": "INTEGER", "value": 5}},
+        "input_bindings": {
+            name: {"node_fingerprint": None, "output_name": "value", "source": "bar.close"}
+            for name in ("entry_price", "exit_price")
+        },
     }
-    assert "rows" not in request and "input" not in request
-    # Independent observations use the installed registry directly, not the
-    # AuthoringSession or worker request implementation under test.
-    oracle = subprocess.run(
-        [
-            str(root / "bin/python"),
-            "-B",
-            "-I",
-            "-c",
-            """
-import json,sys
-from onlyalpha.algorithm.type_declaration import type_declaration
-from onlyalpha.calculation.definition import OnlyCalculationDefinition,OnlyCalculationBackendKind
-from onlyalpha_backend_algorithms.research_resolution import registry_for_sources
-payload=json.load(sys.stdin)
-registry,artifacts=registry_for_sources(payload['sources'])
-definition=OnlyCalculationDefinition.from_dict(payload['definition'])
-research=registry.resolve(definition.kind,definition.type_id,definition.semantic_version,OnlyCalculationBackendKind.RESEARCH)
-trading=registry.resolve(definition.kind,definition.type_id,definition.semantic_version,OnlyCalculationBackendKind.TRADING)
-assert research.implementation_manifest is not None and trading.implementation_manifest is not None and trading.state_capability is not None
-assert research.definition_resolver.resolve(definition.parameters,definition.input_bindings)==definition
-print(json.dumps({'source_artifacts':artifacts,'resolution':{'definition':dict(definition.to_dict()),'definition_fingerprint':definition.fingerprint,'type_declaration':type_declaration(research.type_definition),'implementations':[dict(r.implementation_manifest.to_dict()) for r in (research,trading)],'trading_capability':{'implementation_fingerprint':trading.implementation_manifest.implementation_fingerprint,'state_capability':trading.state_capability.value,'checkpoint_schema_version':trading.checkpoint_schema_version}}}))
-""",
-        ],
-        input=json.dumps({"sources": [source], "definition": definition}).encode(),
-        capture_output=True,
-        env={},
-        timeout=20,
-    )
-    assert oracle.returncode == 0, oracle.stderr.decode(errors="replace")
-    expected = json.loads(oracle.stdout)
-    assert expected["resolution"]["trading_capability"]["state_capability"] == "STATELESS"
-    assert expected["resolution"]["trading_capability"]["checkpoint_schema_version"] is None
 
     def observe(
-        payload: dict[str, Any], *, rejected: bool = False, duplicate_source: bool = False
+        payload: dict[str, Any], *, rejected: bool = False, sources: list[dict[str, Any]] | None = None
     ) -> wire.CalculationResponse:
         process = subprocess.Popen(
             [
@@ -307,7 +238,7 @@ print(json.dumps({'source_artifacts':artifacts,'resolution':{'definition':dict(d
             assert _record(handshake)["contract"] == "ONLYALPHA_PRIVATE_FACTOR_RESOLVE_V1"
             selected_initialization = {
                 **initialization,
-                "sources": [source, source] if duplicate_source else [source],
+                "sources": sources or [],
             }
             # The real worker is persistent after INITIALIZE. A final known
             # invalid resolve closes a successful session deterministically;
@@ -332,20 +263,17 @@ print(json.dumps({'source_artifacts':artifacts,'resolution':{'definition':dict(d
                 assert response.sequence == len(responses) + 2 and response.artifact_fingerprint == artifact
                 responses.append(response)
                 result = result[size + 4 :]
-            assert len(responses) == (1 if duplicate_source else 2 if rejected else 3)
-            if duplicate_source:
+            assert len(responses) == (1 if sources else 2 if rejected else 3)
+            if sources:
                 return responses[0]
-            assert _record(responses[0]) == {
-                "schema_version": 1,
-                "contract": initialization["contract"],
-                "algorithm_artifact": artifact,
-                "core_artifact_sha256": None,
-                "core_resources_fingerprint": None,
-                "target_artifact_sha256": None,
-                "target_resources_fingerprint": None,
-                "source_artifacts": expected["source_artifacts"],
-                "isolation": "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1",
-            }
+            admitted = _record(responses[0])
+            assert admitted["contract"] == initialization["contract"]
+            assert admitted["schema_version"] == 1 and admitted["algorithm_artifact"] == artifact
+            assert admitted["source_artifacts"] == []
+            assert admitted["isolation"] == "LINUX_SECCOMP_NO_NEW_PRIVS_RLIMIT_V1"
+            for kind in ("core", "target"):
+                assert admitted[f"{kind}_artifact_sha256"] == initialization[f"{kind}_artifact"]["sha256"]
+                assert len(admitted[f"{kind}_resources_fingerprint"]) == 64
             if not rejected:
                 assert responses[2].WhichOneof("outcome") == "error"
                 assert responses[2].error.code == "REQUEST_REJECTED"
@@ -355,17 +283,35 @@ print(json.dumps({'source_artifacts':artifacts,'resolution':{'definition':dict(d
                 process.kill()
             process.wait(timeout=10)
 
-    assert _record(observe(request)) == expected["resolution"]
-    # Resolve is strictly scalar metadata, not a batch definitions/row endpoint.
-    # Duplicate owner registrations must also fail during the real initialization.
+    observed = _record(observe(request))
+    definition = observed["definition"]
+    assert {key: definition[key] for key in request["type_reference"]} == request["type_reference"]
+    assert definition["input_bindings"] == request["input_bindings"]
+    assert definition["parameters"] == {
+        "entry_offset": {"type": "INTEGER", "value": 0},
+        "exit_offset": {"type": "INTEGER", "value": 5},
+    }
+    from onlyalpha.calculation.definition import OnlyCalculationDefinition
+
+    assert observed["definition_fingerprint"] == OnlyCalculationDefinition.from_dict(definition).fingerprint
+    assert [row["backend_kind"] for row in observed["implementations"]] == ["RESEARCH"]
+    assert observed["trading_capability"] is None
+    # Valid Target metadata must not make this a batch, Trading, or Factor endpoint.
     for invalid in (
         {**request, "rows": []},
         {**request, "schema_version": True},
         {**request, "definitions": [definition, definition]},
+        {
+            **request,
+            "type_reference": {key: factor[key] for key in request["type_reference"]},
+            "parameters": factor["parameters"],
+            "input_bindings": factor["input_bindings"],
+        },
     ):
         response = observe(invalid, rejected=True)
         assert response.WhichOneof("outcome") == "error"
         assert response.error.code == "REQUEST_REJECTED"
-    response = observe(request, duplicate_source=True)
-    assert response.WhichOneof("outcome") == "error"
-    assert response.error.code == "REQUEST_REJECTED"
+    for sources in ([source], [source, source]):
+        response = observe(request, sources=sources)
+        assert response.WhichOneof("outcome") == "error"
+        assert response.error.code == "REQUEST_REJECTED"

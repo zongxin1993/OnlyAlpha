@@ -1,15 +1,12 @@
-//! Controlled technical composition over in-memory BacktestRun and InstalledTradingNodes.
+//! Controlled technical composition over in-memory BacktestRun and native ProgramNodes.
 //! No actual market, Freeze publication, or Product Run grant.
-use super::{DEADLINE, fixture, product_setup};
-use onlyalpha_backend::workers::{
-    backtest::{PreparedNextOpen, next_open_policy},
-    trading_nodes::InstalledTradingNodes,
-};
+use super::{Fixture, fixture, product_setup};
+use onlyalpha_backend::workers::backtest::{PreparedNextOpen, next_open_policy};
 use onlyalpha_backtest::{
     BacktestRun, ExecutionBinding, Inputs, MarketInput, MemoryRunSpec, Source,
     verify_finite_backtest,
 };
-use onlyalpha_calculation_bridge::{ChartInstallation, fingerprint};
+use onlyalpha_calculation_bridge::ProgramNodes;
 use onlyalpha_data_source_binance::spot_source::spot_calendar;
 use onlyalpha_domain::{
     base::OnlyDomainModel,
@@ -21,7 +18,7 @@ use onlyalpha_market_crypto::spot::SpotRuleSnapshot;
 use onlyalpha_runtime::{RunBinding, RunConfiguration};
 use onlyalpha_strategy::{Executor, Program};
 use serde_json::{Value, json};
-use std::{error::Error, path::Path, sync::Arc};
+use std::error::Error;
 
 const BAR_NS: i64 = 60_000_000_000;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -113,23 +110,23 @@ fn execution_configuration(program: &Program) -> Value {
 }
 
 fn build_run(
-    case: &Value,
-    installation: Arc<ChartInstallation>,
-    artifact: &str,
-    mutate_settings: impl FnOnce(&mut Value),
+    fixture: &Fixture,
+    mutate_base: impl FnOnce(&mut Value),
 ) -> Result<(
-    BacktestRun<InstalledTradingNodes>,
+    BacktestRun<ProgramNodes>,
     Inputs,
     Value,
     PreparedNextOpen,
     String,
     i64,
 )> {
-    let (source, program, definitions) = product_setup(case, artifact)?;
+    let (source, program, nodes) = product_setup(fixture)?;
     let cluster = program.scope().cluster.value().to_string();
     let cfg = execution_configuration(&program);
+    let mut base = fixture.case["base"].clone();
+    mutate_base(&mut base);
     let pinned = vector_inputs(
-        &case["base"],
+        &base,
         program.source(),
         740,
         "controlled-native-v1",
@@ -162,21 +159,12 @@ fn build_run(
     }
     let mut settings = prepared.record()["settings"].clone();
     settings["calendar"] = calendar.to_record();
-    mutate_settings(&mut settings);
     let initial_ns: i64 = prepared.initial_ns().try_into()?;
-    let kernel = fingerprint(&std::fs::read(std::env::current_exe()?)?);
+    let kernel = fixture.image.clone();
     let configuration = RunConfiguration::from_record(cfg)?;
     let resolver = prepared.simulation_policy().binding();
     let execution =
         ExecutionBinding::new(&configuration, &settings, initial_ns, &cluster, &resolver)?;
-    let nodes = InstalledTradingNodes::new(
-        installation,
-        program.clone(),
-        definitions,
-        case["sources"].as_array().ok_or("sources")?.clone(),
-        Arc::new(()),
-        DEADLINE,
-    )?;
     let executor = Executor::new(program, nodes)?;
     let inputs = prepared.inputs().clone();
     let pins = RunBinding::new(
@@ -202,15 +190,9 @@ fn build_run(
 }
 
 #[test]
-fn installed_source_to_native_next_open_memory_backtest_and_verification() -> Result<()> {
-    let case = fixture()?;
-    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
-    let installation = Arc::new(ChartInstallation::open(
-        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
-        &artifact,
-    )?);
-    let (run, inputs, settings, prepared, kernel, initial_ns) =
-        build_run(&case, installation.clone(), &artifact, |_| {})?;
+fn compiled_factor_to_native_next_open_memory_backtest_and_verification() -> Result<()> {
+    let fixture = fixture()?;
+    let (run, inputs, settings, prepared, kernel, initial_ns) = build_run(&fixture, |_| {})?;
     let completed = run.run()?;
     let economic = completed.economic_result();
     assert_eq!(economic["final_account"]["cash"], "9994.60119940");
@@ -224,14 +206,28 @@ fn installed_source_to_native_next_open_memory_backtest_and_verification() -> Re
         .filter(|fact| fact["body"]["input"]["op"] == "FILL")
         .collect();
     assert_eq!(fills.len(), 2);
-    assert_eq!(
-        fills[0]["body"]["input"]["payload"]["fill"]["price"]["value"],
-        "100100.00"
-    );
-    assert_eq!(
-        fills[1]["body"]["input"]["payload"]["fill"]["price"]["value"],
-        "99800.00"
-    );
+    let opens = completed
+        .execution_facts()
+        .iter()
+        .filter(|fact| fact["family"] == "OPEN" && fact["body"]["status"] == "FILLED")
+        .collect::<Vec<_>>();
+    assert_eq!(opens.len(), 2);
+    for ((fill, open), (raw, executed)) in fills
+        .iter()
+        .zip(opens)
+        .zip([("100100.00", "100120.020000"), ("99800.00", "99780.040000")])
+    {
+        assert_eq!(open["body"]["opening"]["open"]["value"], raw);
+        assert_eq!(open["body"]["opening"]["open"]["precision"], 2);
+        assert_eq!(open["body"]["execution_price"]["value"], executed);
+        assert_eq!(open["body"]["execution_price"]["precision"], 6);
+        assert_eq!(fill["body"]["input"]["payload"]["price"], executed);
+        assert_eq!(fill["body"]["input"]["payload"]["price_precision"], 6);
+        assert_eq!(
+            fill["body"]["input"]["payload"]["trade"],
+            open["body"]["trade"]
+        );
+    }
     let final_ns: i64 = settings["policy"]["end_ns"].as_str().unwrap().parse()?;
     let verified = verify_finite_backtest_result(
         economic,
@@ -256,32 +252,32 @@ fn installed_source_to_native_next_open_memory_backtest_and_verification() -> Re
         verified.equity_points(),
         completed.baseline(),
     )?;
-    // Deterministic recomputation with a fresh InstalledTradingNodes child produces identical facts.
-    let (second, _, _, _, _, _) = build_run(&case, installation, &artifact, |_| {})?;
+    // Deterministic recomputation with fresh native node state and the same compiled program produces identical facts.
+    let (second, _, _, _, _, _) = build_run(&fixture, |_| {})?;
     let recomputed = second.run()?;
     assert_eq!(recomputed.economic_result(), completed.economic_result());
     assert_eq!(recomputed.execution_facts(), completed.execution_facts());
     assert_eq!(recomputed.close_curve(), completed.close_curve());
     assert_eq!(recomputed.baseline(), completed.baseline());
     assert_eq!(recomputed.raw_signals(), completed.raw_signals());
+    assert_eq!(recomputed.signal_receipts(), completed.signal_receipts());
+    assert_eq!(
+        recomputed.signal_checkpoint(),
+        completed.signal_checkpoint()
+    );
     Ok(())
 }
 
 #[test]
 fn cancelled_or_incomplete_memory_run_cannot_produce_a_completed_backtest() -> Result<()> {
-    let case = fixture()?;
-    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
-    let installation = Arc::new(ChartInstallation::open(
-        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
-        &artifact,
-    )?);
-    let (mut incomplete, _, _, _, _, _) = build_run(&case, installation.clone(), &artifact, |_| {})?;
+    let fixture = fixture()?;
+    let (mut incomplete, _, _, _, _, _) = build_run(&fixture, |_| {})?;
     // 22 个输入步远未覆盖冻结样本；未走完输入的运行不能产出完成结果。
     for _ in 0..22 {
         incomplete.step()?;
     }
     assert!(incomplete.finish().is_err());
-    let (mut cancelled, inputs, _, _, _, _) = build_run(&case, installation, &artifact, |_| {})?;
+    let (mut cancelled, inputs, _, _, _, _) = build_run(&fixture, |_| {})?;
     // 走完全部输入后取消，仍不得产出完成结果。
     for _ in 0..inputs.records().len() {
         cancelled.step()?;
@@ -293,17 +289,16 @@ fn cancelled_or_incomplete_memory_run_cannot_produce_a_completed_backtest() -> R
 
 #[test]
 fn foreign_instrument_context_is_refused_before_market_or_order_processing() -> Result<()> {
-    let case = fixture()?;
-    let artifact = std::env::var("ONLYALPHA_TRADING_TEST_ARTIFACT")?;
-    let installation = Arc::new(ChartInstallation::open(
-        Path::new(&std::env::var("ONLYALPHA_TRADING_TEST_INSTALLATION")?),
-        &artifact,
-    )?);
-    assert!(
-        build_run(&case, installation, &artifact, |settings| {
-            settings["instrument"]["instrument_id"]["symbol"]["value"] = json!("ETHUSDT");
-        })
-        .is_err()
+    let fixture = fixture()?;
+    let rejected = build_run(&fixture, |bar| {
+        bar["bar_type"]["instrument_id"]["symbol"]["value"] = json!("ETHUSDT");
+    });
+    assert_eq!(
+        rejected
+            .err()
+            .ok_or("foreign instrument admitted")?
+            .to_string(),
+        "BACKTEST_PREPARATION_EXACT_CLOSED_BAR_WINDOW"
     );
     Ok(())
 }

@@ -65,6 +65,7 @@ def test_current_plugin_source_closure_and_inventory(monkeypatch):
 
     units = load_release_units(ROOT)
     expected = {
+        "plugin-onlyalpha-broker-virtual",
         "plugin-onlyalpha-market-cn-ashare",
         "plugin-onlyalpha-market-crypto",
         "plugin-onlyalpha-data-source-binance",
@@ -308,14 +309,11 @@ def test_binance_broker_isolated_build_contains_its_exact_native_dependency_clos
         "crates/settlement",
         "crates/margin",
         "crates/execution",
-        "crates/runtime",
-        "plugs/onlyalpha-broker-virtual",
     }
     broker = tomllib.loads((root / "plugs/onlyalpha-broker-binance/Cargo.toml").read_text())
     assert {"onlyalpha-execution", "onlyalpha-runtime"}.isdisjoint(broker["dependencies"])
     assert broker["dev-dependencies"] == {
         "onlyalpha-execution": {"path": "../../crates/execution"},
-        "onlyalpha-runtime": {"path": "../../crates/runtime"},
     }
     packages = {(root / member).resolve() for member in members}
     for member in members:
@@ -356,7 +354,9 @@ def test_reference_isolated_build_carries_exact_registered_local_fixtures(tmp_pa
         relative = Path(member) / "tests/fixtures" / name
         assert (root / relative).read_bytes() == (ROOT / relative).read_bytes()
     packages = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["members"]
-    assert len(packages) == (4 if plugin == "crypto" else 18)
+    assert len(packages) == (4 if plugin == "crypto" else 19)
+    if plugin == "binance":
+        assert "crates/observability" in packages
     for selected in packages:
         if selected.startswith("plugs/"):
             assert not list((root / selected).rglob("*.py"))
@@ -377,7 +377,10 @@ def test_assembled_dependency_admission_keeps_exact_scope_and_kind(monkeypatch, 
         text = original(path, *args, **kwargs)
         if path == selected:
             if mutation == "duplicate_execution_dev":
-                return text + '\n[dev-dependencies]\nonlyalpha-broker = { path = "../broker" }\n'
+                assert "[dev-dependencies]\n" in text
+                return text.replace(
+                    "[dev-dependencies]\n", '[dev-dependencies]\nonlyalpha-broker = { path = "../broker" }\n', 1
+                )
             return text + '\nonlyalpha-broker-binance = { path = "../onlyalpha-broker-binance" }\n'
         return text
 

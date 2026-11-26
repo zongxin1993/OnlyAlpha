@@ -8,6 +8,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+REPLAY_SELECTOR = "installed_trading_algorithms::next_open_trading::"
+REPLAY_TESTS = (
+    "compiled_factor_to_native_next_open_memory_backtest_and_verification",
+    "cancelled_or_incomplete_memory_run_cannot_produce_a_completed_backtest",
+    "foreign_instrument_context_is_refused_before_market_or_order_processing",
+)
+
 
 def replay_environment(root: Path, artifacts: Path) -> dict[str, str]:
     from packages.backend.tests.workers.test_installed_trading_nodes import installed_trading_environment
@@ -21,6 +28,8 @@ def replay_environment(root: Path, artifacts: Path) -> dict[str, str]:
 
 def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) -> None:
     artifacts.mkdir(parents=True, exist_ok=True)
+    receipt = artifacts / "receipt.json"
+    receipt.unlink(missing_ok=True)
     build = subprocess.run(
         [
             "cargo",
@@ -62,7 +71,7 @@ def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) 
         raise RuntimeError("REPLAY_NATIVE_IMAGE_BUDGET_EXCEEDED")
     command = [
         str(selected),
-        "installed_trading_algorithms::next_open_trading::",
+        REPLAY_SELECTOR,
         "--nocapture",
         "--test-threads=1",
     ]
@@ -70,13 +79,17 @@ def check_replay(root: Path, env: dict[str, str], target: str, artifacts: Path) 
     (artifacts / "next-open-memory.log").write_bytes(result.stdout + result.stderr)
     if result.returncode:
         raise RuntimeError(f"BACKTEST_MEMORY_CHECK_FAILED: {(result.stdout + result.stderr).decode()}")
-    (artifacts / "receipt.json").write_text(
+    lines = set(result.stdout.decode().splitlines())
+    if not all(f"test {REPLAY_SELECTOR}{name} ... ok" in lines for name in REPLAY_TESTS):
+        raise RuntimeError("BACKTEST_MEMORY_CHECK_EVIDENCE_MISSING")
+    receipt.write_text(
         json.dumps(
             {
                 "schema_version": 1,
                 "mode": "IN_MEMORY_NEXT_OPEN",
                 "target": target,
-                "selector": "installed_trading_algorithms::next_open_trading::",
+                "selector": REPLAY_SELECTOR,
+                "tests": list(REPLAY_TESTS),
                 "log": "next-open-memory.log",
             },
             sort_keys=True,

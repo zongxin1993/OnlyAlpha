@@ -312,6 +312,10 @@ jobs:
       - run: python scripts/dev_verification.py prepare
       - name: Verify current native database owners serially
         run: python scripts/dev_verification.py run -- python scripts/test_suite.py database --no-parallel
+      - name: Verify the finite Backtest publication under controlled input
+        run: >-
+          python scripts/dev_verification.py --controlled-source-https run -- python -m pytest -q
+          packages/backend/tests/application/test_backtest_worker_publication.py::test_actual_backtest_scheduler_publishes_original_run_without_file_results
 
   web-product-e2e:
     runs-on: ubuntu-latest
