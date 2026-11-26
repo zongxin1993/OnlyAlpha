@@ -38,6 +38,7 @@ mod program_tests;
 
 pub mod program;
 mod program_execution;
+pub mod qlib;
 
 #[cfg(test)]
 #[path = "tests/program_execution_tests.rs"]

@@ -1,16 +1,16 @@
-//! Rust-owned registration and execution for versioned fixed-scale indicators.
+//! Rust-owned registration and execution for versioned operator-composed indicators.
 
 use super::{
     ChartQuery, Definition, Entry, Error, Result, TypeDeclaration, WORK, fp, manifest, remaining,
     text,
 };
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, RoundingMode, Zero};
 use onlyalpha_indicators::{
-    ATR, Bollinger, EMA, FinancialValue, MACD, MACDCross, OBV, ROC, RSI, RSIZone,
-    RollingVolatility, SMA, Stochastic, UtcSessionVWAP, WMA, ZScore,
+    ComposedStream, Decimal, MACDCross, RSIZone, UtcSessionVWAP, atr, bollinger, ema, macd, obv,
+    roc, rolling_volatility, rsi, sma, stochastic, wma, zscore,
 };
 use serde_json::{Map, Value, json};
-use std::{num::NonZeroUsize, time::Instant};
+use std::{num::NonZeroUsize, str::FromStr, time::Instant};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
@@ -52,76 +52,76 @@ impl Indicator {
     fn identity(self) -> (&'static str, &'static str, &'static str, &'static str) {
         match self {
             Self::SMA => (
-                SMA::TYPE_ID,
-                SMA::SEMANTIC_VERSION,
+                "onlyalpha.indicator.sma",
+                "2",
                 "SMA",
-                "onlyalpha_indicators::SMA",
+                "onlyalpha_indicators::sma",
             ),
             Self::WMA => (
-                WMA::TYPE_ID,
-                WMA::SEMANTIC_VERSION,
+                "onlyalpha.indicator.wma",
+                "2",
                 "WMA",
-                "onlyalpha_indicators::WMA",
+                "onlyalpha_indicators::wma",
             ),
             Self::ROC => (
                 "onlyalpha.indicator.roc",
                 "2",
                 "ROC",
-                "onlyalpha_indicators::ROC",
+                "onlyalpha_indicators::roc",
             ),
             Self::RollingReturn => (
                 "onlyalpha.indicator.rolling_return",
                 "2",
                 "滚动收益率",
-                "onlyalpha_indicators::ROC",
+                "onlyalpha_indicators::roc",
             ),
             Self::EMA => (
                 "onlyalpha.indicator.ema",
                 "2",
                 "EMA",
-                "onlyalpha_indicators::EMA",
+                "onlyalpha_indicators::ema",
             ),
             Self::RSI => (
                 "onlyalpha.indicator.rsi",
                 "3",
                 "RSI",
-                "onlyalpha_indicators::RSI",
+                "onlyalpha_indicators::rsi",
             ),
             Self::ATR => (
                 "onlyalpha.indicator.atr",
                 "4",
                 "ATR",
-                "onlyalpha_indicators::ATR",
+                "onlyalpha_indicators::atr",
             ),
             Self::MACD => (
                 "onlyalpha.indicator.macd",
                 "3",
                 "MACD",
-                "onlyalpha_indicators::MACD",
+                "onlyalpha_indicators::macd",
             ),
             Self::Bollinger => (
                 "onlyalpha.indicator.bollinger",
                 "2",
                 "布林带",
-                "onlyalpha_indicators::Bollinger",
+                "onlyalpha_indicators::bollinger",
             ),
             Self::RollingVolatility => (
                 "onlyalpha.indicator.rolling_volatility",
                 "2",
                 "价格波动率",
-                "onlyalpha_indicators::RollingVolatility",
+                "onlyalpha_indicators::rolling_volatility",
             ),
             Self::ZScore => (
                 "onlyalpha.indicator.zscore",
                 "2",
                 "Z-Score",
-                "onlyalpha_indicators::ZScore",
+                "onlyalpha_indicators::zscore",
             ),
             Self::OBV => (
                 "onlyalpha.indicator.obv",
                 "2",
                 "OBV",
-                "onlyalpha_indicators::OBV",
+                "onlyalpha_indicators::obv",
             ),
             Self::VWAP => (
                 "onlyalpha.indicator.vwap",
@@ -133,7 +133,7 @@ impl Indicator {
                 "onlyalpha.indicator.stochastic",
                 "3",
                 "Stochastic · 慢速",
-                "onlyalpha_indicators::Stochastic::slow",
+                "onlyalpha_indicators::stochastic",
             ),
         }
     }
@@ -146,15 +146,7 @@ impl Indicator {
     }
 
     fn partial(self) -> bool {
-        matches!(
-            self,
-            Self::SMA
-                | Self::EMA
-                | Self::MACD
-                | Self::Bollinger
-                | Self::RollingVolatility
-                | Self::ZScore
-        )
+        matches!(self, Self::EMA | Self::MACD)
     }
 
     fn overlay(self) -> bool {
@@ -186,7 +178,7 @@ impl Indicator {
         // Name, data type, nullable, and chart visibility.
         match self {
             Self::ROC => &[("roc", "DECIMAL", true, true)],
-            Self::WMA | Self::RollingReturn => &[("value", "DECIMAL", true, true)],
+            Self::EMA => &[("value", "DECIMAL", false, true)],
             Self::RSI => &[
                 ("value", "DECIMAL", true, true),
                 ("zone", "STRING", false, false),
@@ -202,14 +194,14 @@ impl Indicator {
                 ("cross_state", "STRING", false, false),
             ],
             Self::Bollinger => &[
-                ("middle", "DECIMAL", false, true),
-                ("upper", "DECIMAL", false, true),
-                ("lower", "DECIMAL", false, true),
+                ("middle", "DECIMAL", true, true),
+                ("upper", "DECIMAL", true, true),
+                ("lower", "DECIMAL", true, true),
             ],
             Self::OBV => &[("obv", "DECIMAL", true, true)],
             Self::VWAP => &[("vwap", "DECIMAL", true, true)],
             Self::Stochastic => &[("k", "DECIMAL", true, true), ("d", "DECIMAL", true, true)],
-            _ => &[("value", "DECIMAL", false, true)],
+            _ => &[("value", "DECIMAL", true, true)],
         }
     }
 
@@ -250,7 +242,7 @@ fn port(name: &str, data_type: &str, nullable: bool) -> Value {
 pub(super) fn entry(invocation: &Value, indicator: Indicator) -> Result<((String, String), Entry)> {
     let (type_id, version, label, implementation_entrypoint) = indicator.identity();
     let quantum = "0.000000000001";
-    let numeric = json!({"representation":"DECIMAL","precision":38,"output_quantum":quantum,"rounding":"ROUND_HALF_EVEN"});
+    let numeric = json!({"representation":"DECIMAL","precision":28,"output_quantum":quantum,"rounding":"ROUND_HALF_EVEN"});
     let parameters = indicator.parameters();
     let defaults = parameters
         .iter()
@@ -294,15 +286,25 @@ pub(super) fn entry(invocation: &Value, indicator: Indicator) -> Result<((String
         WORK,
     )
     .map_err(|_| Error::Unavailable)?;
-    let core_policy = json!({"domain":"onlyalpha.decimal.fixed-scale","schema_version":1,"output_quantum":quantum});
+    let core_policy = json!({
+        "domain":"onlyalpha.decimal.execution-policy",
+        "policy_id":"onlyalpha.decimal.execution",
+        "semantic_version":"1",
+        "emax":999999,
+        "emin":-999999,
+        "capitals":1,
+        "clamp":0,
+        "entry_flags":"CLEAR",
+        "trapped_signals":["DivisionByZero","InvalidOperation","Overflow"]
+    });
     let policy_fingerprint = fp(&core_policy)?;
     let implementation = manifest(
         json!({"kind":"INDICATOR","type_id":type_id,"semantic_version":version}),
         invocation["resources"].clone(),
-        json!([{"dependency_id":"onlyalpha.decimal.fixed-scale","semantic_version":"1","artifact_fingerprint":policy_fingerprint}]),
+        json!([{"dependency_id":"onlyalpha.decimal.execution","semantic_version":"1","artifact_fingerprint":policy_fingerprint}]),
         implementation_entrypoint,
     )?;
-    let numeric_binding = json!({"domain":"onlyalpha.chart-study.decimal-binding","schema_version":1,"resolution_policy":"FIXED_SCALE_HALF_EVEN_V1","declared_rounding":"ROUND_HALF_EVEN","effective_rounding":"ROUND_HALF_EVEN","representation":"DECIMAL","precision":38,"output_quantum":quantum,"core_policy":core_policy,"core_policy_fingerprint":policy_fingerprint});
+    let numeric_binding = json!({"domain":"onlyalpha.chart-study.decimal-binding","schema_version":1,"resolution_policy":"CONTEXT_HALF_EVEN_V1","declared_rounding":"ROUND_HALF_EVEN","effective_rounding":"ROUND_HALF_EVEN","representation":"DECIMAL","precision":28,"output_quantum":quantum,"core_policy":core_policy,"core_policy_fingerprint":policy_fingerprint});
     let provider = json!({"schema_version":1,"provider_id":"onlyalpha.indicator.native","provider_version":env!("CARGO_PKG_VERSION"),"kind":"INDICATOR","source":{"kind":"NATIVE_DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":env!("CARGO_PKG_VERSION")}});
     let colors = ["#2962ff", "#f59e0b", "#14b8a6"];
     let mut members = Vec::new();
@@ -365,7 +367,8 @@ pub(super) fn resolve(entry: &Entry, parameters: &Value) -> Result<Definition> {
     }
     let get = |name| period_value(&typed, name).ok_or(Error::Invalid);
     let minimum_observations = match indicator {
-        Indicator::OBV | Indicator::VWAP => 1,
+        Indicator::VWAP => 1,
+        Indicator::OBV => 2,
         Indicator::Stochastic => get("k_period")? + get("smooth_k")? + get("d_period")? - 2,
         Indicator::MACD => {
             let slow = get("slow_period")?;
@@ -375,7 +378,9 @@ pub(super) fn resolve(entry: &Entry, parameters: &Value) -> Result<Definition> {
             }
             warmup
         }
-        Indicator::ROC | Indicator::RollingReturn | Indicator::RSI => get("period")? + 1,
+        Indicator::ROC | Indicator::RollingReturn | Indicator::RSI | Indicator::ATR => {
+            get("period")? + 1
+        }
         _ => get("period")?,
     };
     if minimum_observations > 10000 {
@@ -385,11 +390,9 @@ pub(super) fn resolve(entry: &Entry, parameters: &Value) -> Result<Definition> {
         let multiplier = typed["standard_deviations"]["value"]
             .as_str()
             .ok_or(Error::Invalid)?;
-        Bollinger::new(
-            NonZeroUsize::MIN,
-            &source_decimal(multiplier).map_err(|_| Error::Invalid)?,
-        )
-        .map_err(|_| Error::Invalid)?;
+        let decimal = Decimal::from_str(&source_decimal(multiplier).map_err(|_| Error::Invalid)?)
+            .map_err(|_| Error::Invalid)?;
+        bollinger(NonZeroUsize::MIN, decimal).map_err(|_| Error::Invalid)?;
     }
     let mut bindings = Map::new();
     for &name in indicator.inputs() {
@@ -425,25 +428,30 @@ fn period_value(parameters: &Map<String, Value>, name: &str) -> Option<usize> {
         .map(|value| value as usize)
 }
 
-#[allow(clippy::upper_case_acronyms)]
 enum Kernel {
-    SMA(SMA),
-    WMA(WMA),
-    Lagged(ROC),
-    EMA(EMA),
-    RSI(RSI),
-    ATR(ATR),
-    MACD(MACD),
-    Bollinger(Bollinger),
-    RollingVolatility(RollingVolatility),
-    ZScore(ZScore),
-    OBV(OBV),
-    VWAP(UtcSessionVWAP),
-    Stochastic(Stochastic),
+    Composed {
+        indicator: Indicator,
+        stream: ComposedStream,
+        prev_macd_histogram: Option<Decimal>,
+    },
+    Vwap(UtcSessionVWAP),
 }
 
 fn calculation_error<T>(value: std::result::Result<T, impl std::error::Error>) -> Result<T> {
     value.map_err(|_| Error::Unavailable)
+}
+
+fn format_q12(value: &Decimal) -> String {
+    let scaled = value.with_scale_round(12, RoundingMode::HalfEven);
+    if scaled.is_zero() {
+        "0.000000000000".to_owned()
+    } else {
+        scaled.to_plain_string()
+    }
+}
+
+fn parse_decimal(value: &str) -> Result<Decimal> {
+    Decimal::from_str(value).map_err(|_| Error::Unavailable)
 }
 
 impl Kernel {
@@ -456,125 +464,132 @@ impl Kernel {
                 .and_then(NonZeroUsize::new)
                 .ok_or(Error::Unavailable)
         };
-        Ok(match indicator {
-            Indicator::SMA => Self::SMA(SMA::new(period("period")?)),
-            Indicator::WMA => Self::WMA(WMA::new(period("period")?)),
-            Indicator::ROC | Indicator::RollingReturn => Self::Lagged(ROC::new(period("period")?)),
-            Indicator::EMA => Self::EMA(EMA::new(period("period")?)),
-            Indicator::RSI => Self::RSI(RSI::new(period("period")?)),
-            Indicator::ATR => Self::ATR(ATR::new(period("period")?)),
-            Indicator::MACD => Self::MACD(
-                MACD::new(
-                    period("fast_period")?,
-                    period("slow_period")?,
-                    period("signal_period")?,
-                )
-                .ok_or(Error::Unavailable)?,
-            ),
-            Indicator::Bollinger => Self::Bollinger(calculation_error(Bollinger::new(
-                period("period")?,
-                &source_decimal(text(&parameters["standard_deviations"]["value"])?)?,
-            ))?),
-            Indicator::RollingVolatility => {
-                Self::RollingVolatility(RollingVolatility::new(period("period")?))
+        if indicator == Indicator::VWAP {
+            return Ok(Self::Vwap(UtcSessionVWAP::new()));
+        }
+        let composed = match indicator {
+            Indicator::SMA => calculation_error(sma(period("period")?))?,
+            Indicator::WMA => calculation_error(wma(period("period")?))?,
+            Indicator::ROC | Indicator::RollingReturn => calculation_error(roc(period("period")?))?,
+            Indicator::EMA => calculation_error(ema(period("period")?))?,
+            Indicator::RSI => calculation_error(rsi(period("period")?))?,
+            Indicator::ATR => calculation_error(atr(period("period")?))?,
+            Indicator::MACD => calculation_error(macd(
+                period("fast_period")?,
+                period("slow_period")?,
+                period("signal_period")?,
+            ))?,
+            Indicator::Bollinger => {
+                let mult = parse_decimal(&source_decimal(text(
+                    &parameters["standard_deviations"]["value"],
+                )?)?)?;
+                calculation_error(bollinger(period("period")?, mult))?
             }
-            Indicator::ZScore => Self::ZScore(ZScore::new(period("period")?)),
-            Indicator::OBV => Self::OBV(OBV::new()),
-            Indicator::VWAP => Self::VWAP(UtcSessionVWAP::new()),
-            Indicator::Stochastic => Self::Stochastic(Stochastic::slow(
+            Indicator::RollingVolatility => {
+                calculation_error(rolling_volatility(period("period")?))?
+            }
+            Indicator::ZScore => calculation_error(zscore(period("period")?))?,
+            Indicator::OBV => calculation_error(obv())?,
+            Indicator::Stochastic => calculation_error(stochastic(
                 period("k_period")?,
                 period("smooth_k")?,
                 period("d_period")?,
-            )),
+            ))?,
+            Indicator::VWAP => unreachable!(),
+        };
+        let stream = calculation_error(composed.event_stream())?;
+        Ok(Self::Composed {
+            indicator,
+            stream,
+            prev_macd_histogram: None,
         })
     }
 
     fn push(&mut self, input: &[String], ready: bool) -> Result<Vec<Sample>> {
-        let sample = |value| Sample::reported(Some(value), ready);
-        let [first, ..] = input else {
-            return Err(Error::Unavailable);
-        };
-        Ok(match self {
-            Self::SMA(kernel) => vec![sample(calculation_error(kernel.push(first))?.value)],
-            Self::WMA(kernel) => vec![Sample::reported(
-                calculation_error(kernel.push(first))?,
-                ready,
-            )],
-            Self::Lagged(kernel) => vec![Sample::reported(
-                calculation_error(kernel.push(Some(first)))?,
-                ready,
-            )],
-            Self::EMA(kernel) => vec![sample(calculation_error(kernel.push(first))?.value)],
-            Self::RSI(kernel) => {
-                let point = calculation_error(kernel.push(first))?;
-                let zone = match point.zone {
-                    RSIZone::Oversold => "OVERSOLD",
-                    RSIZone::Neutral => "NEUTRAL",
-                    RSIZone::Overbought => "OVERBOUGHT",
-                };
-                vec![Sample::financial(point.value)?, sample(zone.into())]
-            }
-            Self::ATR(kernel) => {
-                let [close, high, low] = input else {
-                    return Err(Error::Unavailable);
-                };
-                let point = calculation_error(kernel.push(high, low, close))?;
-                vec![
-                    Sample::financial(point.atr)?,
-                    Sample::financial(point.normalized_atr)?,
-                ]
-            }
-            Self::MACD(kernel) => {
-                let point = calculation_error(kernel.push(first))?;
-                let cross = match point.cross {
-                    MACDCross::None => "NONE",
-                    MACDCross::Golden => "GOLDEN_CROSS",
-                    MACDCross::Death => "DEATH_CROSS",
-                };
-                vec![
-                    sample(point.dif),
-                    sample(point.dea),
-                    sample(point.histogram),
-                    sample(cross.into()),
-                ]
-            }
-            Self::Bollinger(kernel) => {
-                let point = calculation_error(kernel.push(first))?;
-                vec![
-                    sample(point.middle),
-                    sample(point.upper),
-                    sample(point.lower),
-                ]
-            }
-            Self::RollingVolatility(kernel) => {
-                vec![sample(calculation_error(kernel.push(first))?.value)]
-            }
-            Self::ZScore(kernel) => vec![sample(calculation_error(kernel.push(first))?.value)],
-            Self::OBV(kernel) => {
-                let [close, volume] = input else {
-                    return Err(Error::Unavailable);
-                };
-                vec![Sample::financial(calculation_error(
-                    kernel.push(Some(close), Some(volume)),
-                )?)?]
-            }
-            Self::VWAP(kernel) => {
+        match self {
+            Self::Vwap(kernel) => {
                 let [close, high, low, start_ns, volume] = input else {
                     return Err(Error::Unavailable);
                 };
                 let start_ns = start_ns.parse().map_err(|_| Error::Unavailable)?;
-                vec![Sample::financial(calculation_error(
-                    kernel.push(start_ns, high, low, close, volume),
-                )?)?]
+                let value = calculation_error(kernel.step(
+                    start_ns,
+                    Some(parse_decimal(high)?),
+                    Some(parse_decimal(low)?),
+                    Some(parse_decimal(close)?),
+                    Some(parse_decimal(volume)?),
+                ))?;
+                Ok(vec![Sample::reported(
+                    value.as_ref().map(format_q12),
+                    ready,
+                )])
             }
-            Self::Stochastic(kernel) => {
-                let [close, high, low] = input else {
-                    return Err(Error::Unavailable);
+            Self::Composed {
+                indicator,
+                stream,
+                prev_macd_histogram,
+            } => {
+                let row = match indicator {
+                    Indicator::ATR | Indicator::Stochastic => {
+                        let [close, high, low] = input else {
+                            return Err(Error::Unavailable);
+                        };
+                        vec![
+                            Some(parse_decimal(high)?),
+                            Some(parse_decimal(low)?),
+                            Some(parse_decimal(close)?),
+                        ]
+                    }
+                    Indicator::OBV => {
+                        let [close, volume] = input else {
+                            return Err(Error::Unavailable);
+                        };
+                        vec![Some(parse_decimal(close)?), Some(parse_decimal(volume)?)]
+                    }
+                    _ => {
+                        let [first] = input else {
+                            return Err(Error::Unavailable);
+                        };
+                        vec![Some(parse_decimal(first)?)]
+                    }
                 };
-                let point = calculation_error(kernel.push(Some(high), Some(low), Some(close)))?;
-                vec![Sample::financial(point.k)?, Sample::financial(point.d)?]
+                let out = calculation_error(stream.step(&row))?;
+                Ok(match indicator {
+                    Indicator::RSI => {
+                        let zone = match RSIZone::from_value(out[0].as_ref()) {
+                            RSIZone::Oversold => "OVERSOLD",
+                            RSIZone::Neutral => "NEUTRAL",
+                            RSIZone::Overbought => "OVERBOUGHT",
+                        };
+                        vec![
+                            Sample::reported(out[0].as_ref().map(format_q12), ready),
+                            Sample::reported(Some(zone.into()), ready),
+                        ]
+                    }
+                    Indicator::MACD => {
+                        let cross = match MACDCross::from_histograms(
+                            prev_macd_histogram.as_ref(),
+                            out[2].as_ref(),
+                        ) {
+                            MACDCross::None => "NONE",
+                            MACDCross::Golden => "GOLDEN_CROSS",
+                            MACDCross::Death => "DEATH_CROSS",
+                        };
+                        *prev_macd_histogram = out[2].clone();
+                        vec![
+                            Sample::reported(out[0].as_ref().map(format_q12), ready),
+                            Sample::reported(out[1].as_ref().map(format_q12), ready),
+                            Sample::reported(out[2].as_ref().map(format_q12), ready),
+                            Sample::reported(Some(cross.into()), ready),
+                        ]
+                    }
+                    _ => out
+                        .iter()
+                        .map(|cell| Sample::reported(cell.as_ref().map(format_q12), ready))
+                        .collect(),
+                })
             }
-        })
+        }
     }
 }
 
@@ -596,15 +611,6 @@ impl Sample {
             state,
             reason,
         }
-    }
-
-    fn financial(value: FinancialValue) -> Result<Self> {
-        Ok(match value {
-            FinancialValue::Warmup => Self::reported(None, false),
-            FinancialValue::Undefined => Self::reported(None, true),
-            FinancialValue::Ready(value) => Self::reported(Some(value), true),
-            FinancialValue::Missing | FinancialValue::OutOfRange => return Err(Error::Unavailable),
-        })
     }
 }
 
@@ -932,7 +938,7 @@ mod tests {
         )
         .unwrap();
         let mut invalid_binding = entry.capability["numeric_execution_binding"].clone();
-        invalid_binding["precision"] = json!(28);
+        invalid_binding["precision"] = json!(38);
         assert!(
             serde_json::from_value::<crate::transport::wire::ChartStudyNumericBindingDto>(
                 invalid_binding
@@ -941,7 +947,7 @@ mod tests {
         );
         assert_eq!(
             entry.capability["numeric_execution_binding"]["precision"],
-            38
+            28
         );
         assert_eq!(
             entry.capability["capability_projection"]["implementation"]["resources"],
@@ -952,14 +958,14 @@ mod tests {
             .to_record();
         assert_eq!(definition["input_bindings"]["value"]["source"], "bar.close");
         let deadline = Instant::now() + std::time::Duration::from_secs(10);
-        let columns = json!({"value":["9999999999999999.999999999999","9999999999999999.999999999999","0.000000000001"]});
+        let columns = json!({"value":["999999999999999.999999999999","999999999999999.999999999999","0.000000000001"]});
         let result = evaluate(&definition, columns.as_object().unwrap(), deadline).unwrap();
         assert_eq!(
             result["value"]["values"],
             json!([
-                "9999999999999999.999999999999",
-                "9999999999999999.999999999999",
-                "5000000000000000.000000000000"
+                null,
+                "999999999999999.999999999999",
+                "500000000000000.000000000000"
             ])
         );
         assert_eq!(

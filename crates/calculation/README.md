@@ -33,9 +33,18 @@ pub use state::{
 };
 pub mod product;
 pub mod program;
+pub mod qlib;
 ```
 
 库根直接声明：`CalculationError`、`Result`。
+
+### Qlib 表达式 DAG 与双模式执行器
+
+[`qlib`](src/qlib/mod.rs) 实现 ADR 0152 规定的声明式因子表达式解析、静态因果校验与双模式 DAG／指令流执行器，全部算子语义直接复用 [`onlyalpha-operators`](../operators/README.md) 已认证双内核：
+
+- 顶层类型静态区分 `FactorExpr` 与 `TargetExpr`：`FactorExpr` 在编译期强制拒绝一切前视偏移（如 `Ref($x, -n)`、`Lead($x, n)`、负窗口期）与账户／持仓／资金／成交／时钟／随机数／未来标签输入，并支持单序列 `evaluate_vector`、`event_executor` 以及对齐多标的面板 `evaluate_panel`、`panel_event_executor`；`TargetExpr` 仅限 Research 评估标签，允许显式有界前瞻偏移，类型系统禁止其构造事件执行器或进入交易引擎。
+- 编译阶段完成公共子表达式去重（CSE）、静态预热长度与资源预算计算、规范表达与 SHA-256 指纹绑定；`EventExecutor` 与 `PanelEventExecutor` 支持事务化 `step` 与 `DagState`／`PanelDagState` 检查点恢复（含规范 JSON 编解码与指纹绑定校验）。
+- 认证测试位于 [`tests/qlib_dag.rs`](tests/qlib_dag.rs)，覆盖编译期前视拒绝、禁区输入拒绝、独立 golden、`Vector == Event` 与面板逐点等价、多前缀因果、warmup/null 边界、检查点恢复与解析预算边界。
 
 ## 状态与生命周期
 
