@@ -103,8 +103,8 @@ def test_development_policy_preserves_detection_without_blocking() -> None:
         governance.CompatibilityState.COMPATIBILITY_FROZEN,
     )
 
-    assert governance.blocking_breaking_changes(result, development, None) == ()
-    assert governance.blocking_breaking_changes(result, frozen, None) == ("breaking",)
+    assert governance.blocking_breaking_changes(result, development) == ()
+    assert governance.blocking_breaking_changes(result, frozen) == ("breaking",)
 
 
 def test_contract_policy_is_strict_and_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,61 +207,6 @@ def test_git_baseline_is_exact_immutable_artifact_and_invalid_sha_fails_closed(m
     monkeypatch.setattr(governance, "CONTRACT_RELATIVE", Path("contracts/product-api/v2/missing.json"))
     with pytest.raises(ValueError, match="missing from BASE_SHA"):
         governance.load_git_baseline(base_sha)
-
-
-@pytest.mark.historical_git
-def test_pre_freeze_authorization_is_exact_and_non_reusable() -> None:
-    base_sha = "8901fec27faf8599c965df792d07a84b902583f3"
-    exact, baseline_document, baseline = governance.load_git_baseline(base_sha)
-    corrected_sha = "a09da64745e92848b0f618f7ba5f2bf6ca6771b8"
-    _, candidate_document, candidate = governance.load_git_baseline(corrected_sha)
-    result = governance.compare_contracts(baseline_document, candidate_document)
-
-    authorization = governance.authorize_pre_freeze_correction(
-        base_git_sha=exact,
-        baseline=baseline,
-        candidate=candidate,
-        result=result,
-    )
-
-    assert authorization is not None
-    assert authorization.adr == "docs/adr/0109-product-api-v2-a0-pre-freeze-contract-correction.md"
-    assert len(authorization.breaking_changes) == 48
-    assert (
-        governance.authorize_pre_freeze_correction(
-            base_git_sha=exact,
-            baseline=baseline,
-            candidate=candidate + b" ",
-            result=result,
-        )
-        is None
-    )
-    unrelated = governance.CompatibilityResult(
-        governance.ContractChange.BREAKING,
-        (*result.breaking_changes, "/api/v2/unrelated: path was removed"),
-    )
-    assert (
-        governance.authorize_pre_freeze_correction(
-            base_git_sha=exact,
-            baseline=baseline,
-            candidate=candidate,
-            result=unrelated,
-        )
-        is None
-    )
-
-
-def test_pre_freeze_authorization_manifest_fails_closed_on_extra_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    manifest = json.loads(governance.AUTHORIZED_A0_CORRECTIONS.read_text(encoding="utf-8"))
-    manifest["reusable_allowlist"] = True
-    candidate = tmp_path / "authorized-a0-corrections.json"
-    candidate.write_text(json.dumps(manifest), encoding="utf-8")
-    monkeypatch.setattr(governance, "AUTHORIZED_A0_CORRECTIONS", candidate)
-
-    with pytest.raises(ValueError, match="unexpected fields"):
-        governance.load_authorized_pre_freeze_correction()
 
 
 def test_source_projection_staleness_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

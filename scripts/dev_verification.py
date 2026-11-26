@@ -35,12 +35,6 @@ CONTROLLED_HOSTNAME = b"data-api.binance.vision"
 CONTROLLED_STREAM_HOSTNAME = b"data-stream.binance.vision"
 CONTROLLED_TUSHARE_HOSTNAME = b"api.tushare.pro"
 CONTROLLED_HOSTS_BACKUPS = Path("/root/onlyalpha-dev-controlled-https")
-# Immutable historical regression inputs, not mutable release baselines. These
-# two original commits prove the non-reusable ADR 0109 authorization guard.
-HISTORICAL_CONTRACT_TEST_REVISIONS = (
-    "8901fec27faf8599c965df792d07a84b902583f3",
-    "a09da64745e92848b0f618f7ba5f2bf6ca6771b8",
-)
 EXCLUDED_DIRECTORIES = {
     ".git",
     ".venv",
@@ -76,7 +70,7 @@ def environment_inputs(root: Path) -> dict[str, str]:
     paths += sorted((root / "packages/backend/python").glob("*/pyproject.toml"))
     paths += [
         root / name
-        for name in ("hatch_build.py", "scripts/embed_build_provenance.py", "scripts/dev_browser_cache.py")
+        for name in ("scripts/embed_build_provenance.py", "scripts/dev_browser_cache.py")
         if (root / name).is_file()
     ]
     paths += [
@@ -195,15 +189,7 @@ def capture_git(
         timeout=15,
     )
     base = base_result.stdout.strip() if base_result.returncode == 0 else ""
-    historical = (
-        HISTORICAL_CONTRACT_TEST_REVISIONS
-        if (root / "contracts/product-api/v2/authorized-a0-corrections.json").is_file()
-        else ()
-    )
-    # Missing exact objects are a hard refusal, never a latest/current fallback.
-    for required in historical:
-        subprocess.run([*git, "cat-file", "-e", required + "^{commit}"], capture_output=True, check=True, timeout=15)
-    revisions = list(dict.fromkeys([revision, *([base] if base else []), *historical, *required_revisions]))
+    revisions = list(dict.fromkeys([revision, *([base] if base else []), *required_revisions]))
     index_path = Path(
         subprocess.check_output(
             [*git, "rev-parse", "--path-format=absolute", "--git-path", "index"], text=True, timeout=15
