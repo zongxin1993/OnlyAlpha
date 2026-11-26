@@ -109,23 +109,11 @@ def target_instance() -> dict[str, Any]:
     }
 
 
-def resolution(selected: dict[str, Any], instances: list[dict[str, Any]], *, private: bool = False) -> dict[str, Any]:
-    source_keys = (
-        "factor_id",
-        "semantic_version",
-        "revision_fingerprint",
-        "source_text",
-        "source_sha256",
-        "factor_api_version",
-        "factor_api_contract_fingerprint",
-        "input_contract",
-        "parameter_contract",
-        "output_contract",
-    )
+def resolution(selected: dict[str, Any], instances: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "contract": "ONLYALPHA_CALCULATION_INSTANCES_RESOLVE_V1",
-        "sources": [{key: selected["revision"][key] for key in source_keys}] if private else [],
+        "sources": [],
         "instances": instances,
         "core_artifact": wheel(selected, "onlyalpha-*.whl"),
         "operator_artifact": {"sha256": selected["executor_sha256"], "distribution_version": "0.11.1"},
@@ -133,45 +121,22 @@ def resolution(selected: dict[str, Any], instances: list[dict[str, Any]], *, pri
     }
 
 
-def feature_instances(selected: dict[str, Any]) -> list[dict[str, Any]]:
-    result = []
-    for key, operator, source in [("delay", "delay", "bar.close"), ("mean", "rolling_mean", "bar.volume")]:
-        result.append(
-            {
-                "instance_key": key,
-                "type_reference": {
-                    "kind": "INDICATOR",
-                    "type_id": f"onlyalpha.operator.{operator}",
-                    "semantic_version": "2",
-                },
-                "parameters": {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}},
-                "published_outputs": ["value"],
-                "primary_output": "value",
-                "input_bindings": [{"input_name": "value", "source": source}],
-            }
-        )
-    result.append(
+def operator_instances() -> list[dict[str, Any]]:
+    return [
         {
-            "instance_key": "momentum",
-            "type_reference": {"kind": "FACTOR", "type_id": selected["revision"]["factor_id"], "semantic_version": "1"},
-            "parameters": {"literal_1": {"kind": "FIXED", "value": {"type": "DECIMAL", "value": "1"}}},
+            "instance_key": key,
+            "type_reference": {
+                "kind": "INDICATOR",
+                "type_id": f"onlyalpha.operator.{operator}",
+                "semantic_version": "2",
+            },
+            "parameters": {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}},
             "published_outputs": ["value"],
             "primary_output": "value",
-            "input_bindings": [
-                {"input_name": "close", "source": "bar.close"},
-                {"input_name": "volume", "source": "bar.volume"},
-                {
-                    "input_name": "close_lag_20",
-                    "source": {"kind": "VARIABLE", "instance_key": "delay", "output_name": "value"},
-                },
-                {
-                    "input_name": "volume_mean_20",
-                    "source": {"kind": "VARIABLE", "instance_key": "mean", "output_name": "value"},
-                },
-            ],
+            "input_bindings": [{"input_name": "value", "source": source}],
         }
-    )
-    return result
+        for key, operator, source in [("delay", "delay", "bar.close"), ("mean", "rolling_mean", "bar.volume")]
+    ]
 
 
 def test_selected_installed_preparation_rejects_rehashed_foreign_operator_resources(
@@ -180,7 +145,11 @@ def test_selected_installed_preparation_rejects_rehashed_foreign_operator_resour
     selected = prepared_runtime
     proof = selected["proof"]
     actual = proof["algorithm_observation"]
-    assert actual["contract"] == "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
+    assert proof["contract"] == "ONLYALPHA_INSTALLED_RESEARCH_ENVIRONMENT_V2"
+    assert proof["runtime_generation_fingerprint"] == selected["generation"]
+    assert actual["contract"] == "ONLYALPHA_INSTALLED_CALCULATION_ENVIRONMENT_V1"
+    assert actual["implementations"] == []
+    assert "source_artifact" not in actual and "equivalence_evidence" not in actual
     assert actual["operator_artifact_sha256"] == selected["executor_sha256"]
     assert actual["operator_provider_manifest"]["source"] == {
         "kind": "DISTRIBUTION",
@@ -191,22 +160,8 @@ def test_selected_installed_preparation_rejects_rehashed_foreign_operator_resour
         [{"relative_path": "bin/onlyalpha-backend", "byte_sha256": selected["executor_sha256"]}]
     )
     assert proof["native_descriptor"]["image"]["artifact"] == selected["executor_sha256"]
-    assert actual["source_artifact"]["source_sha256"] == selected["revision"]["source_sha256"]
-    assert (
-        actual["source_artifact"]["factor_api_contract_fingerprint"]
-        == selected["revision"]["factor_api_contract_fingerprint"]
-    )
-    assert actual["equivalence_evidence"]["disposition"] == "PASS"
-    assert (
-        actual["equivalence_evidence"]["research_output_fingerprint"]
-        == actual["equivalence_evidence"]["trading_output_fingerprint"]
-    )
-    assert actual["equivalence_evidence"]["test_vector_set_fingerprint"] == only_canonical_fingerprint(
-        actual["certification_vectors"]
-    )
-    assert actual["certification_policy"] == "ONLYALPHA_PRIVATE_FACTOR_ABI_VECTORS_V1"
-    assert actual["certification_vectors"]["parameters"] == {"literal_1": "1"}
-    assert len(actual["certification_vectors"]["vectors"]) == 8
+    # The installed generation is not a Factor build or parameter certificate.
+    # The persisted build's numerical vectors and exact bindings are tested in Rust.
     assert all(row["type"]["semantic_version"] == "2" for row in actual["operator_calculations"])
     assert not list((selected["release"] / "wheels").glob("onlyalpha_plugin_operators-*.whl"))
     foreign = selected["release"] / "bin/onlyalpha-backend"
@@ -268,13 +223,14 @@ def test_installed_strategy_preparation_retains_actual_target_capabilities_and_r
     prepared_runtime: dict[str, Any], tmp_path: Path
 ) -> None:
     selected = prepared_runtime
-    legacy = selected["proof"]["algorithm_observation"]
-    assert legacy["contract"] == "ONLYALPHA_FACTOR_EXECUTABLE_PREPARATION_V1"
-    assert "target_calculations" not in legacy and "target_artifact_sha256" not in legacy
+    environment = selected["proof"]["algorithm_observation"]
+    assert environment["contract"] == "ONLYALPHA_INSTALLED_CALCULATION_ENVIRONMENT_V1"
+    assert "target_calculations" not in environment and "target_artifact_sha256" not in environment
     prepared = prepare_again(selected, tmp_path / "strategy-runtime", "STRATEGY")
     assert "error" not in prepared, prepared
     actual = prepared["proof"]["algorithm_observation"]
-    assert actual["contract"] == "ONLYALPHA_STRATEGY_EXECUTABLE_PREPARATION_V1"
+    assert actual["contract"] == environment["contract"]
+    assert prepared["manifest"]["private_factor_bindings"] == []
     assert actual["target_artifact_sha256"] == wheel(selected, "onlyalpha_backend_algorithms-*.whl")["sha256"]
     assert len(actual["target_resources_fingerprint"]) == 64
     capabilities = actual["target_calculations"]
@@ -288,9 +244,8 @@ def test_installed_strategy_preparation_retains_actual_target_capabilities_and_r
     resolved = exchange(selected, resolution(selected, [target_instance()]))
     manifest = resolved["nodes"][0]["implementations"][0]
     assert any(row["implementation_fingerprint"] == manifest["implementation_fingerprint"] for row in capabilities)
-    for key, value in legacy.items():
-        if key != "contract":
-            assert actual[key] == value, key
+    for key, value in environment.items():
+        assert actual[key] == value, key
     original = wheel(selected, "onlyalpha_backend_algorithms-*.whl")
     for change in ({"distribution_version": "missing"}, {"sha256": "f" * 64}):
         request = resolution(selected, [target_instance()])
@@ -313,7 +268,7 @@ def test_installed_strategy_preparation_retains_actual_target_capabilities_and_r
 
 def _actual_node_profile_request(selected: dict[str, Any]) -> dict[str, Any]:
     """Profile actual Rust/SDK-resolved Definitions; no upgraded historical wire."""
-    request = resolution(selected, feature_instances(selected), private=True)
+    request = resolution(selected, operator_instances())
     actual = exchange(selected, request)
     assert "error" not in actual, actual
     nodes = []
@@ -348,14 +303,6 @@ def _actual_node_profile_request(selected: dict[str, Any]) -> dict[str, Any]:
                 if name == "NULLABLE_INPUT_SEMANTICS" and index < len(nullable):
                     row[nullable[index]] = {"type": "NULL", "value": None}
                 rows.append(row)
-            if definition["kind"] == "FACTOR" and name == "QUANTIZATION_BOUNDARY":
-                for index, row in enumerate(rows):
-                    for port in definition["inputs"]:
-                        row[port["name"]] = {"type": "DECIMAL", "value": "1"}
-                    row["close"] = {
-                        "type": "DECIMAL",
-                        "value": format(Decimal(1) + quantum * Decimal("0.5" if index % 2 == 0 else "1.5"), "f"),
-                    }
             cases.append({"case_id": name, "inputs": rows})
         nodes.append({"definition": definition, "cases": cases})
     return {
@@ -380,7 +327,7 @@ def test_installed_node_profiles_observe_exact_factories_and_typed_nulls(prepare
         row["definition_fingerprint"]: next(n for n in request["nodes"] if n["definition"] == row["definition"])
         for row in resolved["nodes"]
     }
-    assert len(expected) == 3
+    assert len(expected) == 2
     values = {row["node_fingerprint"]: row for row in observed["nodes"]}
     assert len(values) == len(observed["nodes"]) == len(expected) and values.keys() == expected.keys()
     implementations = {row["definition_fingerprint"]: row["implementations"] for row in actual["nodes"]}
@@ -422,14 +369,6 @@ def test_installed_node_profiles_observe_exact_factories_and_typed_nulls(prepare
             flat = cases["FLAT_SEQUENCE"]["research_outputs"]
             assert [row["value"] for row in flat[:count]] == [{"type": "NULL", "value": None}] * count
             assert flat[count]["value"]["type"] == "DECIMAL" and Decimal(flat[count]["value"]["value"]) == Decimal(100)
-        if definition["kind"] == "FACTOR":
-            assert all(
-                row["value"] == {"type": "NULL", "value": None} for row in cases["ZERO_BOUNDARY"]["research_outputs"]
-            )
-            boundary = cases["QUANTIZATION_BOUNDARY"]["research_outputs"]
-            assert boundary[0]["value"]["type"] == boundary[1]["value"]["type"] == "DECIMAL"
-            assert Decimal(boundary[0]["value"]["value"]) == Decimal(0)
-            assert Decimal(boundary[1]["value"]["value"]) == Decimal("0.000000000002")
     assert total <= 8192
     forbidden = {"binding", "receipt", "cursor", "strategy_state", "grant", "permission", "equivalence_evidence"}
 
@@ -487,7 +426,7 @@ def test_installed_node_profiles_reject_foreign_definitions_scalars_control_and_
 def test_installed_graph_observation_without_targets_uses_actual_feature_factories(
     prepared_runtime: dict[str, Any],
 ) -> None:
-    request = resolution(prepared_runtime, feature_instances(prepared_runtime), private=True)
+    request = resolution(prepared_runtime, operator_instances())
     assert all(row["type_reference"]["kind"] != "TARGET" for row in request["instances"])
     rows = [
         {"at_ns": (index + 1) * 60_000_000_000, "values": {"close": str(100 + index), "volume": "2"}}
@@ -505,12 +444,14 @@ def test_installed_graph_observation_without_targets_uses_actual_feature_factori
     assert observed["axis"] == [row["at_ns"] for row in rows]
     assert observed["input_fingerprint"] == only_canonical_fingerprint(rows)
     assert observed["feature"]["axis"] == observed["axis"]
-    assert len(observed["feature"]["outputs"]) == len(actual["nodes"]) == 3
-    assert len(observed["trading_capabilities"]) == 3
-    factor = next(row for row in actual["nodes"] if row["definition"]["kind"] == "FACTOR")
-    output = next(
-        row for row in observed["feature"]["outputs"] if row["node_fingerprint"] == factor["definition_fingerprint"]
-    )
-    assert output["values"]["value"][:20] == [None] * 20
-    assert Decimal(output["values"]["value"][-1]) == Decimal("0.166666666667")
+    assert len(observed["feature"]["outputs"]) == len(actual["nodes"]) == 2
+    assert len(observed["trading_capabilities"]) == 2
+    fingerprints = {node["instance_key"]: node["definition_fingerprint"] for node in actual["nodes"]}
+    outputs = {node["node_fingerprint"]: node["values"]["value"] for node in observed["feature"]["outputs"]}
+    assert outputs.keys() == set(fingerprints.values())
+    delay, mean = (outputs[fingerprints[name]] for name in ("delay", "mean"))
+    assert delay[:20] == [None] * 20
+    assert [Decimal(x) for x in delay[20:]] == [Decimal(n) for n in range(100, 121)]
+    assert mean[:19] == [None] * 19
+    assert [Decimal(x) for x in mean[19:]] == [Decimal(2)] * 22
     assert all(key not in observed for key in ("statistics", "research_run_id", "research_result_fingerprint"))

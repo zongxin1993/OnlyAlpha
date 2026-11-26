@@ -2417,9 +2417,6 @@ def isolated_broker_binance(root: Path, destination: Path) -> Path:
             "settlement",
             "margin",
             "execution",
-            "runtime",
-            "observability",
-            "plugin_virtual",
         ),
     )
 
@@ -2489,7 +2486,7 @@ def isolated_construction(root: Path, destination: Path) -> Path:
 
 
 def isolated_calculation(root: Path, destination: Path) -> Path:
-    return _isolated_modules(root, destination, ("calculation",))
+    return _isolated_modules(root, destination, ("operators", "calculation"))
 
 
 def isolated_order(root: Path, destination: Path) -> Path:
@@ -2606,7 +2603,9 @@ def isolated_strategy_ledger(root: Path, destination: Path) -> Path:
 
 
 def isolated_strategy(root: Path, destination: Path) -> Path:
-    return _isolated_modules(root, destination, ("domain", "calculation", "market_data_construction", "strategy"))
+    return _isolated_modules(
+        root, destination, ("domain", "operators", "calculation", "market_data_construction", "strategy")
+    )
 
 
 def isolated_pipeline(root: Path, destination: Path) -> Path:
@@ -2615,6 +2614,7 @@ def isolated_pipeline(root: Path, destination: Path) -> Path:
         destination,
         (
             "domain",
+            "operators",
             "calculation",
             "market_data_construction",
             "market_data",
@@ -2629,6 +2629,7 @@ def isolated_calculation_bridge(root: Path, destination: Path) -> Path:
         (
             "predicates",
             "domain",
+            "operators",
             "calculation",
             "market_data_construction",
             "market_data",
@@ -3216,9 +3217,9 @@ def main(argv: list[str] | None = None) -> int:
         ("metadata-json", isolated_metadata_json),
         ("integration-contract", isolated_integration_contract),
         ("market-crypto", isolated_market_crypto),
-        ("plugin-binance", isolated_plugin_binance),
-        ("plugin-tushare", isolated_plugin_tushare),
-        ("plugin-virtual", isolated_plugin_virtual),
+        ("data-source-binance", isolated_plugin_binance),
+        ("data-source-tushare", isolated_plugin_tushare),
+        ("broker-virtual", isolated_plugin_virtual),
         ("broker-binance", isolated_broker_binance),
         ("backend", isolated_backend),
         ("broker", isolated_broker),

@@ -109,6 +109,9 @@ LANES = {
             "packages/backend/tests/transport/test_native_web_assets.py",
             "packages/backend/tests/transport/test_native_process_startup.py",
             "packages/backend/tests/workers/test_installed_trading_nodes.py",
+            "packages/backend/tests/application/test_factor_program_compiler.py",
+            "packages/backend/tests/application/test_native_probe_chart_worker.py",
+            "packages/backend/tests/application/test_native_research_diagnostics.py",
             "packages/backend/tests/application/test_research_algorithm_execution.py",
         ),
         "not (external or postgres or clickhouse)",
@@ -145,6 +148,12 @@ LANES = {
             "packages/backend/tests/application/test_market_storage_postgres_clickhouse.py",
             "packages/backend/tests/application/test_research_preparation_installation.py",
             "packages/backend/tests/application/test_research_algorithm_execution.py",
+            "packages/backend/tests/application/test_calculation_build_postgres.py",
+            "packages/backend/tests/application/test_finite_job_completion.py",
+            "packages/backend/tests/application/test_job_input_postgres_clickhouse.py",
+            "packages/backend/tests/application/test_research_source_authorization.py",
+            "packages/backend/tests/application/test_research_worker_publication.py",
+            "packages/backend/tests/application/test_retained_source_identity.py",
             "packages/backend/tests/application/test_native_market_source_application.py",
             "packages/backend/tests/transport/test_native_startup_storage.py",
             "packages/backend/tests/transport/test_native_integration_queries.py",
@@ -166,6 +175,7 @@ LANES = {
             "scripts/tests/test_current_ci_entrypoints.py",
             "scripts/tests/test_dev_verification_prepare.py",
             "scripts/tests/test_dev_controlled_tushare.py",
+            "scripts/tests/test_dev_controlled_finite_backtest.py",
             "scripts/tests/test_dev_verification_git_inputs.py",
             "scripts/tests/test_current_coverage_contract.py",
             "scripts/tests/test_domain_mutation.py",
@@ -598,6 +608,20 @@ def release(args: argparse.Namespace) -> int:
         )
         if code:
             return code
+    from scripts.dev_verification import CONTROLLED_PUBLICATION_FIXTURE_COMMAND
+
+    code = run(
+        [
+            "python",
+            "scripts/dev_verification.py",
+            "--controlled-source-https",
+            "run",
+            "--",
+            *CONTROLLED_PUBLICATION_FIXTURE_COMMAND,
+        ]
+    )
+    if code:
+        return code
     for check in (OnlyReleaseCheck.WEB_STATIC, OnlyReleaseCheck.WEB_UNIT, OnlyReleaseCheck.WEB_BUILD):
         for command in release_check_commands(check):
             code = run(["python", "scripts/dev_verification.py", "run", "--", *command])

@@ -476,15 +476,29 @@ def test_current_impact_mixed_research_algorithm_scenarios_keep_postgres_and_off
 
 
 def test_release_discovers_every_current_backend_test():
+    from scripts.dev_verification import CONTROLLED_PUBLICATION_FIXTURE_COMMAND, controlled_https_command
+
     root = test_suite.ROOT
+    assert controlled_https_command(CONTROLLED_PUBLICATION_FIXTURE_COMMAND)
+    relative, node = CONTROLLED_PUBLICATION_FIXTURE_COMMAND[-1].split("::", 1)
+    controlled = root / relative
+    # An exact argv owns only its admitted test, never a second test added to the file.
+    tree = ast.parse(controlled.read_text())
+    assert [
+        test.name
+        for test in ast.walk(tree)
+        if isinstance(test, (ast.FunctionDef, ast.AsyncFunctionDef)) and test.name.startswith("test_")
+    ] == [node]
     selected = set()
     for lane in test_suite.RELEASE_LANES:
         for argument in test_suite.LANES[lane].paths:
             path = root / argument.split("::", 1)[0]
             selected.update(path.rglob("test_*.py") if path.is_dir() else [path])
     discovered = set((root / "packages/backend").rglob("test_*.py"))
-    assert discovered
-    assert not discovered - selected, sorted(path.relative_to(root).as_posix() for path in discovered - selected)
+    assert controlled in discovered and controlled not in selected
+    assert not discovered - (selected | {controlled}), sorted(
+        path.relative_to(root).as_posix() for path in discovered - (selected | {controlled})
+    )
     owner = test_suite.LANES[test_suite.OnlyTestLane.PYTHON_CONTRACT]
     assert {
         "packages/backend/tests/transport/test_native_web_assets.py",
@@ -585,11 +599,13 @@ def test_default_web_wrapper_partitions_all_specs_and_preserves_real_restart_and
         "e2e/product-package-migration.spec.ts",
         "e2e/product-workspaces.spec.ts",
         "e2e/research.spec.ts",
+        "e2e/shell-nav.spec.ts",
         "e2e/source-command-errors.spec.ts",
         "e2e/study-renderer.spec.ts",
+        "e2e/workspace-layout.spec.ts",
         "e2e/workspace-toolbar.spec.ts",
     }
-    assert len(specs[0]) == len(ordinary) == 14 and set(specs[0]) == ordinary
+    assert len(specs[0]) == len(ordinary) == 16 and set(specs[0]) == ordinary
     assert specs[1:] == [
         ["e2e/private-factor-authoring.spec.ts"],
         ["e2e/chart-native-sma.spec.ts"],
@@ -601,8 +617,14 @@ def test_default_web_wrapper_partitions_all_specs_and_preserves_real_restart_and
         path.relative_to(test_suite.ROOT / "packages/frontend").as_posix()
         for path in (test_suite.ROOT / "packages/frontend/e2e").rglob("*.spec.ts")
     }
-    assert len(discovered) == 18
-    assert set().union(*map(set, specs)) == discovered
+    # These two specs require distinct owners; Playwright refuses them in the default batch.
+    dedicated = {"e2e/backtest-diagnostics.spec.ts", "e2e/backtest-owner-isolation.spec.ts"}
+    scheduled = set().union(*map(set, specs))
+    assert not scheduled & dedicated
+    assert scheduled | dedicated == discovered
+    config = (test_suite.ROOT / "packages/frontend/playwright.config.ts").read_text()
+    for spec in dedicated:
+        assert '"**/' + Path(spec).name + '"' in config
     assert not ordinary & set().union(*map(set, specs[1:]))
     assert batches[0] == sorted(ordinary)
     assert batches[1] == ["--restart-check", "e2e/private-factor-authoring.spec.ts"]
@@ -794,15 +816,17 @@ def _active_backtest_observation():
         "binding": '{"scope":{"namespace":"test"}}',
         "binding_fingerprint": "3" * 64,
         "observed_at": "2026-11-20T00:00:02+00:00",
-        "attempts": [{
-            "attempt_id": "first-attempt",
-            "attempt_number": 1,
-            "worker_instance_id": "initial-host",
-            "fencing_token": 1,
-            "state": "ACTIVE",
-            "claimed_at": "2026-11-20T00:00:01+00:00",
-            "lease_expires_at": "2026-11-20T00:02:01+00:00",
-        }],
+        "attempts": [
+            {
+                "attempt_id": "first-attempt",
+                "attempt_number": 1,
+                "worker_instance_id": "initial-host",
+                "fencing_token": 1,
+                "state": "ACTIVE",
+                "claimed_at": "2026-11-20T00:00:01+00:00",
+                "lease_expires_at": "2026-11-20T00:02:01+00:00",
+            }
+        ],
         "receipts": {"CREATE_BACKTEST_RUN": [{"command_id": "create-command"}]},
         "publication": None,
         "members": [],
@@ -846,25 +870,35 @@ def test_running_web_recovery_requires_expiry_and_publication_by_a_fresh_claim(i
     after = deepcopy(before)
     completed = "4" * 64
     after["run"].update(
-        state="COMPLETED", evidence_fingerprint=completed, result_fingerprint=completed,
+        state="COMPLETED",
+        evidence_fingerprint=completed,
+        result_fingerprint=completed,
         determinism_fingerprint=completed,
     )
-    after["attempts"][0].update(
-        state="EXPIRED", failure_code="LEASE_EXPIRED", finished_at="2026-11-20T00:02:02+00:00"
+    after["attempts"][0].update(state="EXPIRED", failure_code="LEASE_EXPIRED", finished_at="2026-11-20T00:02:02+00:00")
+    after["attempts"].append(
+        {
+            "attempt_id": "second-attempt",
+            "attempt_number": 2,
+            "worker_instance_id": "cold-host",
+            "fencing_token": 2,
+            "state": "SUCCEEDED",
+            "claimed_at": "2026-11-20T00:02:03+00:00",
+        }
     )
-    after["attempts"].append({
-        "attempt_id": "second-attempt", "attempt_number": 2, "worker_instance_id": "cold-host",
-        "fencing_token": 2, "state": "SUCCEEDED", "claimed_at": "2026-11-20T00:02:03+00:00",
-    })
     after["publication"] = {
-        "attempt_id": "second-attempt", "attempt_number": 2, "worker_id": "cold-host", "fence": 2,
-        "binding_fingerprint": before["binding_fingerprint"], "publication_fingerprint": completed,
+        "attempt_id": "second-attempt",
+        "attempt_number": 2,
+        "worker_id": "cold-host",
+        "fence": 2,
+        "binding_fingerprint": before["binding_fingerprint"],
+        "publication_fingerprint": completed,
     }
     after["members"] = list(MEMBERS)
     if invalid == "run":
         after["run"]["run_id"] = "00000000-0000-4000-8000-000000000002"
     elif invalid == "binding":
-        after["binding"] = '{}'
+        after["binding"] = "{}"
     elif invalid == "renewed":
         after["attempts"][0]["lease_expires_at"] = "2026-11-20T00:02:02+00:00"
     elif invalid == "early-claim":

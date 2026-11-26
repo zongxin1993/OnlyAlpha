@@ -1,4 +1,4 @@
-"""Verify execution, cancellation and recovery through the installed Strategy NodePort."""
+"""Verify native Strategy recovery and precise installed compiler-child ownership."""
 
 from __future__ import annotations
 
@@ -20,13 +20,17 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="installed-", dir=artifacts) as directory:
         output = installed_trading_case(
             Path(directory),
-            "installed_trading_algorithms::actual_installed_nodes_keep_native_predicates_and_restore_factory_state",
+            "installed_trading_algorithms::",
             release=True,
             build_timeout=None,
         )
         print(output, end="", flush=True)
-        if "Strategy execution, original child cancellation and fresh continuation verified" not in output:
-            raise RuntimeError("STRATEGY_EXECUTION_EVIDENCE_MISSING")
+        for evidence in (
+            "Native Strategy execution and exact fresh continuation verified",
+            "Installed compiler child cancellation and exact fresh owner verified",
+        ):
+            if evidence not in output:
+                raise RuntimeError("STRATEGY_EXECUTION_EVIDENCE_MISSING")
     print("STRATEGY_EXECUTION_CANCEL_RECOVER: PASS", flush=True)
     return 0
 

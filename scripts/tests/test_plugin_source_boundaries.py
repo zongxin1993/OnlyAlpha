@@ -540,9 +540,13 @@ def test_cash_consumer_filesystem_capability_stays_in_linux_tests(monkeypatch, m
         "isolated_backend",
         "isolated_plugin_binance",
         "isolated_broker_binance",
+        "isolated_calculation",
+        "isolated_strategy",
+        "isolated_pipeline",
+        "isolated_calculation_bridge",
     ],
 )
-def test_runtime_consumers_copy_their_complete_declared_local_dependency_closure(tmp_path, owner):
+def test_isolated_workspaces_copy_their_complete_declared_local_dependency_closure(tmp_path, owner):
     from scripts import rust_kernel_check
 
     manifest = getattr(rust_kernel_check, owner)(ROOT, tmp_path / "workspace")
