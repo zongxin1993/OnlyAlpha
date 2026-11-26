@@ -25,7 +25,6 @@ _counters: Counter[str] = Counter()
 _instrumented = False
 _KNOWN_MARKERS = frozenset(
     {
-        "unit",
         "contract",
         "architecture",
         "integration",
@@ -174,7 +173,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     target = Path(output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    thresholds = {"unit": 1.0, "integration": 10.0, "recovery": 30.0}
+    thresholds = {"integration": 10.0, "recovery": 30.0}
     for report in _reports:
         for marker, threshold in thresholds.items():
             if marker in report.get("markers", ()) and report["seconds"] > threshold:

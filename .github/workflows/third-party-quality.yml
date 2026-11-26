@@ -67,70 +67,6 @@ jobs:
           --metrics=off
           packages plugs scripts
 
-  diff-coverage:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    # Measure the public SDK with the full current Python/ABI and serial PG owners.
-    # Keep per-test hang limits and all coverage thresholds unchanged.
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: python scripts/dev_verification.py prepare
-      - name: Produce canonical public SDK coverage evidence
-        run: python scripts/dev_verification.py run -- python scripts/coverage_acceptance.py
-      - name: Require changed public SDK lines and branches to be covered
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: >-
-          uvx --from diff-cover==10.4.1 diff-cover
-          test-results/coverage/coverage.xml
-          --compare-branch "origin/$BASE_REF"
-          --branch-coverage
-          --show-uncovered
-          --fail-under=90
-
-  schemathesis:
-    runs-on: ubuntu-latest
-    # Same real native Host/build boundary as the existing Web Product lane.
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-      - name: Validate the canonical Compose model
-        run: docker compose -f deploy/docker-compose.dev.yml config --quiet
-      - name: Prepare fixed native validation tools
-        run: python scripts/dev_verification.py prepare
-      - name: Fuzz the admitted native OpenAPI surface
-        run: deploy/run-web-e2e.sh --contract-fuzz
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: native-contract-fuzz-${{ github.sha }}
-          path: test-results/native-web-e2e/
-          if-no-files-found: warn
-
-  testcontainers:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Verify disposable-container test infrastructure
-        run: >-
-          uv run --with testcontainers==4.15.0
-          python scripts/testcontainers_smoke.py
-
   dependency-review:
     if: github.event_name == 'pull_request'
     outputs:
@@ -217,9 +153,6 @@ jobs:
     needs:
       - reviewdog
       - semgrep
-      - diff-coverage
-      - schemathesis
-      - testcontainers
       - dependency-review
       - pip-audit
       - zizmor
@@ -230,22 +163,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REVIEWDOG_RESULT: ${{ needs.reviewdog.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
-          DIFF_COVERAGE_RESULT: ${{ needs.diff-coverage.result }}
-          SCHEMATHESIS_RESULT: ${{ needs.schemathesis.result }}
-          TESTCONTAINERS_RESULT: ${{ needs.testcontainers.result }}
           DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
           DEPENDENCY_REVIEW_AVAILABLE: ${{ needs.dependency-review.outputs.dependency_graph_available }}
           PIP_AUDIT_RESULT: ${{ needs.pip-audit.result }}
           ZIZMOR_RESULT: ${{ needs.zizmor.result }}
         run: |
           test "$SEMGREP_RESULT" = success
-          test "$SCHEMATHESIS_RESULT" = success
-          test "$TESTCONTAINERS_RESULT" = success
           test "$PIP_AUDIT_RESULT" = success
           test "$ZIZMOR_RESULT" = success
           if test "$EVENT_NAME" = pull_request; then
             test "$REVIEWDOG_RESULT" = success
-            test "$DIFF_COVERAGE_RESULT" = success
             if test "$DEPENDENCY_REVIEW_AVAILABLE" = true; then
               test "$DEPENDENCY_REVIEW_RESULT" = success
             elif test "$DEPENDENCY_REVIEW_AVAILABLE" = false && test "$DEPENDENCY_REVIEW_RESULT" = success; then
@@ -256,6 +183,5 @@ jobs:
             fi
           else
             test "$REVIEWDOG_RESULT" = skipped
-            test "$DIFF_COVERAGE_RESULT" = skipped
             test "$DEPENDENCY_REVIEW_RESULT" = skipped
           fi

@@ -4,19 +4,11 @@ coverage_mode = "manual"
 [quality]
 required_gates = [
     "static",
-    "rust-kernel",
-    "architecture",
+    "unit-tests",
     "openapi-contract",
-    "private-asset-contract",
     "gateway-protocol",
-    "dependency-audit",
-    "research-product-certification",
-    "database-compose",
-    "web-product-e2e",
     "build",
     "web",
+    "dependency-audit",
 ]
-event_lane_gates = [
-    "pr-lanes",
-    "main-lanes",
-]
+event_lane_gates = []

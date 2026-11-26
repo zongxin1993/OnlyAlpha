@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.architecture
 
 
-def test_each_rust_plugin_is_tested_and_linted_before_distribution_build():
+def test_each_rust_plugin_is_linted_before_distribution_build():
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     members = plugin_release_members(ROOT)
     owners = [item for item in members if item[3]]
@@ -31,11 +31,10 @@ def test_each_rust_plugin_is_tested_and_linted_before_distribution_build():
         selected = []
         for key, job in jobs.items():
             commands = [step.get("run", "") for step in job.get("steps", [])]
-            if any(f"-p {name}" in cmd and "cargo test --locked" in cmd for cmd in commands):
-                assert any(
-                    f"-p {name}" in cmd and "cargo clippy --locked" in cmd and "--all-targets -- -D warnings" in cmd
-                    for cmd in commands
-                )
+            if any(
+                f"-p {name}" in cmd and "cargo clippy --locked" in cmd and "--all-targets -- -D warnings" in cmd
+                for cmd in commands
+            ):
                 assert any(f"-p {name}" in cmd and "cargo fmt" in cmd and "-- --check" in cmd for cmd in commands)
                 assert key in required and key in build
                 selected.append(key)

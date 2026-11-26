@@ -132,7 +132,6 @@ testpaths = [
     "packages/backend/tests/application",
 ]
 markers = [
-    "unit: isolated unit test",
     "contract: public API or plugin contract test",
     "architecture: dependency, ownership, authority, and forbidden-pattern gate",
     "integration: local integration test",

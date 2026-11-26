@@ -62,7 +62,7 @@ deployable unit requires a distinct lifecycle, resource, fault or upgrade bounda
 `src/tests/support/`，不再为每个业务模块创建物理测试目录。内联单元测试无需拆出。
 测试文件仍由原业务模块挂载，保留原测试模块名与 `#[cfg(test)]`，通过精确 `#[path]` 引用保持逻辑模块归属和
 私有访问能力；不得为移动测试而扩大公开接口，也不得改为统一从 `lib.rs` 挂载而改变所属模块。
-现有供集成测试复用的辅助文件保留原归属；仅供私有单元测试使用的文件一并集中，不能借辅助目录保留私有测试用例。`src/tests/` 是库内部单元测试，库根 `tests/` 是 Cargo 公开接口集成测试。
+现有供集成测试复用的辅助文件保留原归属；仅供私有单元测试使用的文件一并集中，不能借辅助目录保留私有测试用例。`src/tests/` 是库内部单元测试；库根 `tests/` 是 Cargo 集成测试目标，属于工程的功能测试。测试分类与入口见 [工程指南](../AGENTS.md#4-测试与验收)。
 
 `Cargo.toml`、`README.md` 等必要文件位于库根目录。多个库或工程共享的参考数据仍位于根目录
 `test-data/`，不因内部目录约束复制。Domain 的固定 TZif 资源及许可位于

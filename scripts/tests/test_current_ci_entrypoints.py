@@ -89,32 +89,41 @@ def test_native_lane_rejects_unimplemented_python_coverage_instead_of_false_pass
         test_suite.execute(lane, argparse.Namespace(coverage=True))
 
 
-def test_current_workflow_aggregates_actual_owners_and_preserves_full_rust_vectors():
-    # Reading the production workflow keeps these assertions on the actual CI caller.
+def test_ci_uses_the_single_rust_library_unit_test_entry():
     import yaml
 
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/quality.yml").read_text())
-    jobs = workflow["jobs"]
-    assert {
-        "rust-kernel",
-        "python-contract",
-        "database-compose",
-        "research-product-certification",
-        "private-asset-contract",
-        "native-conformance",
-        "research-evaluation-shard-gate",
-    } <= set(jobs["native-quality-gate"]["needs"])
-    assert "rust-kernel" in jobs["research-evaluation-shard-gate"]["needs"]
-    rust_commands = [step.get("run", "") for step in jobs["rust-kernel"]["steps"]]
-    assert "python scripts/dev_verification.py run -- python scripts/rust_kernel_check.py" in rust_commands
-    shard_commands = "\n".join(step.get("run", "") for step in jobs["research-evaluation-shard-gate"]["steps"])
-    assert "--collect-only --no-parallel" in shard_commands
-    assert "--expected-nodeids-path" in shard_commands and '--expected-commit "$GITHUB_SHA"' in shard_commands
-    for owner in ("private-asset-contract", "database-compose", "research-product-certification"):
-        assert all(
-            "tests/quant_assets" not in step.get("run", "") and "tests/certification" not in step.get("run", "")
-            for step in jobs[owner]["steps"]
-        )
+    root = test_suite.ROOT
+    workflows = root / ".github/workflows"
+    commands = [
+        (path.name, name, step["run"])
+        for path in workflows.glob("*.yml")
+        for name, job in yaml.safe_load(path.read_text())["jobs"].items()
+        for step in job.get("steps", [])
+        if "run" in step
+    ]
+    assert [item for item in commands if "scripts/unit_tests.py" in item[2]] == [
+        ("quality.yml", "unit-tests", "python3 scripts/unit_tests.py")
+    ]
+    assert [item[2] for item in commands if "scripts/rust_kernel_check.py" in item[2]] == [
+        "uv run python scripts/rust_kernel_check.py --source-check"
+    ]
+    retired_routes = (
+        "cargo test",
+        "pytest",
+        "test_suite.py",
+        "npm run test",
+        "web_suite.py unit",
+        "web_suite.py e2e",
+        "run-web-e2e.sh",
+        "run-tests.sh",
+        "testcontainers_smoke.py",
+        "coverage_acceptance.py",
+        "scripts/domain_mutation.py",
+        "mutmut run",
+        "crosshair check",
+        "verify-lane",
+    )
+    assert not {item for item in commands if any(route in item[2] for route in retired_routes)}
 
 
 def test_release_selects_each_complete_current_python_owner_without_legacy_aliases():
@@ -203,10 +212,12 @@ def test_native_owner_builds_only_the_targets_its_real_fixtures_consume(monkeypa
     assert calls == expected
 
 
-def test_all_workflow_job_dependencies_exist_and_final_gate_requires_native_owners():
+def test_workflow_dependencies_exist_and_required_gates_must_succeed():
     import yaml
 
-    root = Path(__file__).resolve().parents[2]
+    from scripts.quality_policy import load_quality_policy
+
+    root = test_suite.ROOT
     for path in sorted((root / ".github/workflows").glob("*.yml")):
         jobs = yaml.safe_load(path.read_text()).get("jobs", {})
         for name, job in jobs.items():
@@ -215,25 +226,17 @@ def test_all_workflow_job_dependencies_exist_and_final_gate_requires_native_owne
             assert set(needs) <= set(jobs), (path.name, name, set(needs) - set(jobs))
     jobs = yaml.safe_load((root / ".github/workflows/quality.yml").read_text())["jobs"]
     gate = jobs["quality-gate"]
-    assert "native-quality-gate" in gate["needs"]
+    policy = load_quality_policy()
+    assert set(gate["needs"]) == policy.quality_required_gates
+    assert not policy.quality_event_lane_gates
+    assert "unit-tests" in gate["needs"]
+    assert "if" not in jobs["unit-tests"]
+    assert gate["if"] == "always()"
     step = gate["steps"][0]
-    assert step["env"]["NATIVE_QUALITY_GATE_RESULT"] == "${{ needs.native-quality-gate.result }}"
-    assert '"$NATIVE_QUALITY_GATE_RESULT" = success' in step["run"]
-    assert "python-contract" in gate["needs"]
-    assert step["env"]["PYTHON_CONTRACT_RESULT"] == "${{ needs.python-contract.result }}"
-    assert '"$PYTHON_CONTRACT_RESULT" = success' in step["run"]
-    native = jobs["native-quality-gate"]
-    assert "python-contract" in native["needs"]
-    assert native["steps"][0]["env"]["PYTHON_RESULT"] == "${{ needs.python-contract.result }}"
-    assert '"$PYTHON_RESULT" = success' in native["steps"][0]["run"]
-    python = jobs["python-contract"]
-    assert "if" not in python, "push must execute this independent owner too"
-    commands = [entry.get("run") for entry in python["steps"]]
-    assert commands == [
-        None,
-        "python scripts/dev_verification.py prepare",
-        "python scripts/dev_verification.py run -- python scripts/test_suite.py python-contract",
-    ]
+    for owner in gate["needs"]:
+        key = owner.upper().replace("-", "_") + "_RESULT"
+        assert step["env"][key] == f"${{{{ needs.{owner}.result }}}}"
+        assert f'test "${key}" = success' in step["run"]
 
 
 def test_verification_profile_discards_inherited_semantic_overrides_and_keeps_both_build_modes(tmp_path):
@@ -770,33 +773,8 @@ def test_functional_web_wrapper_rejects_ambiguous_selections_before_startup(tmp_
     assert "--functional-only must be used alone" in result.stderr
 
 
-def test_nightly_mutation_guard_and_campaign_use_the_same_fixed_environment():
-    import yaml
-
-    root = Path(__file__).resolve().parents[2]
-    workflow = yaml.safe_load((root / ".github/workflows/nightly.yml").read_text())
-    job = workflow["jobs"]["mutation"]
-    assert job["timeout-minutes"] == 180
-    assert not job.get("if") and not job.get("continue-on-error", False)
-    steps = job["steps"]
-    assert steps[0]["uses"] == "actions/checkout@v6"
-    assert steps[0]["with"]["fetch-depth"] == 0
-    # Exact argv and ordering reject host pytest/cargo, a missing prepare,
-    # shell failure suppression, and a campaign that bypasses its guard.
-    assert [step["run"] for step in steps if "run" in step] == [
-        "python scripts/dev_verification.py prepare",
-        "python scripts/dev_verification.py run -- python -m pytest -q scripts/tests/test_domain_mutation.py",
-        "python scripts/dev_verification.py run -- python scripts/domain_mutation.py",
-    ]
-    for step in steps:
-        assert not step.get("continue-on-error", False)
-        if "run" in step:
-            assert not step.get("if")
-    artifact = steps[-1]
-    assert artifact["uses"] == "actions/upload-artifact@v6"
-    assert artifact["if"] == "always()"
-    assert artifact["with"]["path"] == "test-results/domain-mutation/"
-    assert artifact["with"]["if-no-files-found"] == "error"
+def test_fixed_verification_image_keeps_pinned_mutation_tool():
+    root = test_suite.ROOT
     dockerfile = (root / "deploy/Dockerfile.dev").read_text()
     assert "RUN CARGO_NET_RETRY=0 cargo install --locked --version 27.1.0 cargo-mutants" in dockerfile
     assert "COPY --from=rust-tools /usr/local/cargo /usr/local/cargo" in dockerfile

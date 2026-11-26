@@ -152,7 +152,6 @@ class VerificationStepResult:
 STATIC = (OnlyReleaseCheck.STATIC,)
 WEB_CHECKS = (
     OnlyReleaseCheck.WEB_STATIC,
-    OnlyReleaseCheck.WEB_UNIT,
     OnlyReleaseCheck.WEB_BUILD,
     OnlyReleaseCheck.WEB_E2E,
 )
@@ -478,9 +477,7 @@ def verification_commands(plan: VerificationPlan) -> list[tuple[str, tuple[str, 
         plan.impact.escalation >= VerificationEscalation.BROAD
         or bool({OnlyTestLane.CORE_FULL, OnlyTestLane.FAST, OnlyTestLane.INTEGRATION}.intersection(plan.impact.lanes))
         or OnlyReleaseCheck.BUILD in plan.impact.checks
-        or {OnlyReleaseCheck.WEB_UNIT, OnlyReleaseCheck.WEB_BUILD, OnlyReleaseCheck.WEB_E2E}.issubset(
-            plan.impact.checks
-        )
+        or {OnlyReleaseCheck.WEB_BUILD, OnlyReleaseCheck.WEB_E2E}.issubset(plan.impact.checks)
         or any(
             reason.rule == "manual-impact-review-required"
             or reason.path in {"pyproject.toml", "uv.lock", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"}

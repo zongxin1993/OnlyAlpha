@@ -24,9 +24,11 @@ def _require_table(document: dict[str, object], name: str) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _require_gate_set(table: dict[str, object], name: str) -> frozenset[str]:
+def _require_gate_set(table: dict[str, object], name: str, *, allow_empty: bool = False) -> frozenset[str]:
     value = table.get(name)
-    if not isinstance(value, list) or not value or not all(isinstance(item, str) and item for item in value):
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise ValueError(f"quality policy {name} must be a string array")
+    if not value and not allow_empty:
         raise ValueError(f"quality policy {name} must be a non-empty string array")
     gates = frozenset(str(item) for item in value)
     if len(gates) != len(value):
@@ -46,7 +48,7 @@ def load_quality_policy(path: Path = QUALITY_POLICY_PATH) -> QualityPolicy:
 
     quality = _require_table(document, "quality")
     quality_required = _require_gate_set(quality, "required_gates")
-    event_lanes = _require_gate_set(quality, "event_lane_gates")
+    event_lanes = _require_gate_set(quality, "event_lane_gates", allow_empty=True)
     if quality_required & event_lanes:
         raise ValueError("quality required gates and event lane gates must be disjoint")
     if "coverage" in quality_required:

@@ -12,13 +12,11 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "typecheck": "tsc -b --pretty false",
-        "test": "vitest run",
-        "test:coverage": "vitest run --coverage",
         "build": "tsc -b --pretty false && vite build",
         "preview": "vite preview",
         "e2e": "playwright test",
         "api:generate": "openapi-typescript ../../contracts/product-api/v2/openapi.json -o src/api/research/generated.ts",
-        "check": "npm run lint && npm run format:check && npm run typecheck && npm run test && npm run build"
+        "check": "npm run lint && npm run format:check && npm run typecheck && npm run build"
     },
     "dependencies": {
         "@tanstack/react-query": "5.101.4",

@@ -39,7 +39,6 @@ WORKSPACE_TESTS = workspace_test_paths()
 class OnlyTestLane(StrEnum):
     ARCHITECTURE = "architecture"
     PYTHON_CONTRACT = "python-contract"
-    KERNEL = "kernel"
     STRATEGY = "strategy"
     CALCULATION = "calculation"
     RESEARCH_DEFINITION = "research-definition"
@@ -76,14 +75,10 @@ class OnlyTestLane(StrEnum):
 class OnlyReleaseCheck(StrEnum):
     STATIC = "release-static"
     WEB_STATIC = "web-static"
-    WEB_UNIT = "web-unit"
     WEB_BUILD = "web-build"
     WEB_E2E = "web-e2e"
     RUST_KERNEL = "rust-kernel"
     BUILD = "build"
-
-
-COVERAGE_PARALLEL_LANES = frozenset({OnlyTestLane.KERNEL})
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,16 +180,6 @@ LANES = {
             "scripts/tests/test_import_owner_boundaries.py",
         ),
         "architecture",
-        "0",
-        "no",
-    ),
-    OnlyTestLane.KERNEL: Lane(
-        (
-            "tests/kernel",
-            "tests/architecture/test_kernel_boundary.py",
-            "tests/architecture/test_product_kernel_boundary.py",
-        ),
-        "unit or architecture",
         "0",
         "no",
     ),
@@ -431,7 +416,7 @@ LANES = {
     ),
     OnlyTestLane.FAST: Lane(
         WORKSPACE_TESTS,
-        "(unit or contract or architecture) and not (historical_git or recovery or sim_recovery or conformance or external or postgres or exhaustive or slow)",
+        "not (integration or scenario or historical_git or recovery or sim_recovery or conformance or external or postgres or exhaustive or slow)",
         "8",
         "worksteal",
         timeout_seconds=300,
@@ -534,8 +519,6 @@ def release_check_commands(check: OnlyReleaseCheck) -> tuple[tuple[str, ...], ..
         return RELEASE_STATIC_COMMANDS
     if check is OnlyReleaseCheck.WEB_STATIC:
         return (("uv", "run", "python", "scripts/web_suite.py", "static"),)
-    if check is OnlyReleaseCheck.WEB_UNIT:
-        return (("uv", "run", "python", "scripts/web_suite.py", "unit"),)
     if check is OnlyReleaseCheck.WEB_BUILD:
         return (("uv", "run", "python", "scripts/web_suite.py", "build"),)
     if check is OnlyReleaseCheck.WEB_E2E:
@@ -559,7 +542,6 @@ def run(command: list[str], env: dict[str, str] | None = None) -> int:
 def selected_workers(
     lane: Lane,
     *,
-    lane_name: OnlyTestLane,
     requested_workers: str | None,
     no_parallel: bool,
     coverage: bool,
@@ -567,7 +549,7 @@ def selected_workers(
     workers = "0" if no_parallel else (requested_workers or lane.workers)
     if coverage and requested_workers is None and not no_parallel:
         return "0"
-    if coverage and requested_workers is not None and lane_name not in COVERAGE_PARALLEL_LANES:
+    if coverage and requested_workers is not None:
         raise ValueError("parallel coverage is not proven safe for this lane")
     return workers
 
@@ -622,7 +604,7 @@ def release(args: argparse.Namespace) -> int:
     )
     if code:
         return code
-    for check in (OnlyReleaseCheck.WEB_STATIC, OnlyReleaseCheck.WEB_UNIT, OnlyReleaseCheck.WEB_BUILD):
+    for check in (OnlyReleaseCheck.WEB_STATIC, OnlyReleaseCheck.WEB_BUILD):
         for command in release_check_commands(check):
             code = run(["python", "scripts/dev_verification.py", "run", "--", *command])
             if code:
@@ -707,7 +689,6 @@ def execute(name: OnlyTestLane, args: argparse.Namespace) -> int:
     try:
         workers = selected_workers(
             lane,
-            lane_name=name,
             requested_workers=args.workers,
             no_parallel=args.no_parallel,
             coverage=args.coverage,

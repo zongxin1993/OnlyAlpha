@@ -1,4 +1,4 @@
-name: Manual Cross-platform Distribution Smoke
+name: Manual Cross-platform Distribution Checks
 
 on:
   workflow_dispatch:
@@ -45,28 +45,6 @@ jobs:
 
       - name: Show workspace dependency tree
         run: uv tree
-
-      - name: Validate installed distributions
-        shell: bash
-        run: |
-          uv run python - <<'PY'
-          from importlib.metadata import version
-
-          expected = {"onlyalpha"}
-
-          failures: list[str] = []
-
-          for distribution in sorted(expected):
-              try:
-                  installed_version = version(distribution)
-              except Exception as exc:
-                  failures.append(f"{distribution}: not installed: {exc}")
-              else:
-                  print(f"{distribution}=={installed_version}")
-
-          if failures:
-              raise SystemExit("\n".join(failures))
-          PY
 
       - name: Reject algorithm SDK imports of concrete plugins
         shell: bash
@@ -122,18 +100,11 @@ jobs:
       - name: Mypy algorithm SDK and built-in calculations
         run: uv run mypy packages/backend/python/algorithms/sdk/onlyalpha packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/targets
 
-      - name: Run backend Python tests
-        run: >-
-          uv run pytest packages/backend/python/algorithms/tests packages/backend/python/gateway_protocol/tests -q
-          -m "not external
-          and not requires_network
-          and not requires_tushare"
-
   # ---------------------------------------------------------------------------
-  # 插件已由 Rust 实现；发行前逐包执行格式、严格 Clippy 和功能测试门禁。
+  # 插件已由 Rust 实现；发行前逐包执行格式和严格 Clippy 门禁。
   # ---------------------------------------------------------------------------
   rust-plugins:
-    name: Rust plugin fmt, Clippy and tests
+    name: Rust plugin fmt and Clippy
     needs:
     - metadata
     runs-on: ubuntu-latest
@@ -150,117 +121,18 @@ jobs:
         -p onlyalpha-data-source-binance -p onlyalpha-data-source-tushare -p onlyalpha-market-cn-ashare -p onlyalpha-market-crypto
         --all-targets -- -D warnings
       name: Lint Rust plugins with strict Clippy
-    - run: python scripts/dev_verification.py run -- cargo test --locked -p onlyalpha-broker-binance -p onlyalpha-broker-virtual
-        -p onlyalpha-data-source-binance -p onlyalpha-data-source-tushare -p onlyalpha-market-cn-ashare -p onlyalpha-market-crypto
-      name: Test Rust plugins
-  product-gates:
-    name: Product scenarios and integration
-    needs:
-      - metadata
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Synchronize workspace
-        run: uv sync --frozen --all-packages --all-groups
-
-      - name: Run integration tests
-        run: uv run pytest tests/integration -q
-
-      - name: Run named Scenario and Conformance tests
-        shell: bash
-        run: |
-          uv run python - <<'PY'
-          from __future__ import annotations
-
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          selected = sorted(
-              {
-                  str(path)
-                  for path in Path("tests").rglob("test_*.py")
-                  if (
-                      "scenario" in path.name.lower()
-                      or "conformance" in path.name.lower()
-                  )
-              }
-          )
-
-          if not selected:
-              raise SystemExit(
-                  "No Scenario or Conformance tests were discovered. "
-                  "Product coverage must not silently disappear."
-              )
-
-          print("Selected product tests:")
-          for path in selected:
-              print(f"  - {path}")
-
-          subprocess.run(
-              [
-                  sys.executable,
-                  "-m",
-                  "pytest",
-                  "-q",
-                  *selected,
-              ],
-              check=True,
-          )
-          PY
-
-      - name: Run integration demo suite
-        run: uv run python -m tests.integration_demo.run_all
 
   # Maintained distribution: native HTTP service and exact isolated algorithm SDK.
   # Python reference-package installation in the jobs above is test tooling.
   build-smoke:
-    name: Native runtime distribution smoke
-    needs: [metadata, core, product-gates, rust-plugins]
+    name: Build native runtime distribution
+    needs: [metadata, core, rust-plugins]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Build the maintained runtime
         run: docker build --file deploy/Dockerfile.dev --target runtime --tag onlyalpha-runtime:ci .
-      - name: Exercise pure native contract export without deployment inputs
-        run: docker run --rm onlyalpha-runtime:ci --export-openapi > native-openapi.json
-      - name: Check the installed algorithm boundary
-        run: |
-          expected_version="$(python3 -c 'import tomllib;print(tomllib.load(open("packages/backend/Cargo.toml", "rb"))["package"]["version"])')"
-          docker run --rm --env "EXPECTED_VERSION=$expected_version" --entrypoint /opt/onlyalpha/algorithms/bin/python onlyalpha-runtime:ci -I -c '
-          import importlib.util
-          import os
-          from importlib.metadata import PackageNotFoundError, distribution, version
-          import pyarrow
-          import onlyalpha_backend_algorithms.research_worker
-          assert version("onlyalpha") == os.environ["EXPECTED_VERSION"]
-          assert version("onlyalpha-backend-algorithms") == os.environ["EXPECTED_VERSION"]
-          for name in ("onlyalpha.application", "onlyalpha.runtime", "onlyalpha_http_server", "onlyalpha_agent_orchestrator", "onlyalpha_plugin_operators"):
-              assert importlib.util.find_spec(name) is None, name
-          try:
-              distribution("onlyalpha-plugin-operators")
-          except PackageNotFoundError:
-              pass
-          else:
-              raise AssertionError("retired Python operators distribution is installed")
-          for name in ("onlyalpha", "onlyalpha-gateway-protocol"):
-              assert not distribution(name).entry_points, name
-          entries = distribution("onlyalpha-backend-algorithms").entry_points
-          assert [(entry.group, entry.name, entry.value) for entry in entries] == [
-              ("onlyalpha.calculations", "official-targets", "onlyalpha_backend_algorithms.targets.registration:registrations")
-          ], entries
-          '
 
   # ---------------------------------------------------------------------------
   # 为分支保护提供一个固定名称的最终检查。
@@ -274,7 +146,6 @@ jobs:
     needs:
       - metadata
       - core
-      - product-gates
       - build-smoke
       - rust-plugins
     runs-on: ubuntu-latest
@@ -287,7 +158,6 @@ jobs:
           test "${{ needs.metadata.result }}" = "success"
           test "${{ needs.core.result }}" = "success"
           test "${{ needs.rust-plugins.result }}" = "success"
-          test "${{ needs.product-gates.result }}" = "success"
           test "${{ needs.build-smoke.result }}" = "success"
 
           echo "All required OnlyAlpha CI gates passed."

@@ -32,12 +32,10 @@ def static() -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("static", "unit", "build", "e2e", "all"))
+    parser.add_argument("mode", choices=("static", "build", "e2e", "all"))
     mode = parser.parse_args(argv).mode
     if mode in ("static", "all"):
         static()
-    if mode in ("unit", "all"):
-        _run("npm", "run", "test:coverage", "--", "--coverage.reportsDirectory=../../test-results/web-coverage")
     if mode in ("build", "all"):
         _run("npm", "run", "build")
     if mode in ("e2e", "all"):

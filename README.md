@@ -152,8 +152,9 @@ Task Contract
 
 机器职责：
 
-- [`quality-policy.toml`](quality-policy.toml)：持续 CI 与 Major Milestone Phase Gate 的 gate 集合；
-- [`scripts/test_suite.py`](scripts/test_suite.py)：canonical test lanes；
+- [`quality-policy.toml`](quality-policy.toml)：当前持续 CI 的必需作业集合；
+- [`scripts/unit_tests.py`](scripts/unit_tests.py)：仓库唯一的单元测试脚本，运行 `crates/` 下的 Rust 模块自测；
+- [`scripts/test_suite.py`](scripts/test_suite.py)：现有功能和专项验证通道的调度器；
 - [`scripts/verify.py`](scripts/verify.py)：当前工作区的 Impact-Aware 验证选择器；
 - [`pyproject.toml`](pyproject.toml)：测试、静态检查、类型与 package 配置。
 
@@ -202,7 +203,13 @@ uv run --no-sync python -m scripts.dev stop
 研究、独立数据页、策略、回测和系统页明确标记为未实现。历史不足会明确显示，不会用测试 fixture 补齐。
 普通启动保留已有数据，不初始化数据库或自动采集。
 
-正式验收复用 `onlyalpha-dev` 下现有验证服务，与日常 uv 调试区分，不要求额外只读凭据配置：
+Rust 库单测只运行 Cargo 的库内测试目标，不需要应用或数据库：
+
+```bash
+python3 scripts/unit_tests.py
+```
+
+功能测试按被测边界选择。产品整体功能验收复用 `onlyalpha-dev` 下现有验证服务，与日常 uv 调试区分，不要求额外只读凭据配置：
 
 ```bash
 python3 scripts/dev_verification.py run -- python scripts/verify.py plan

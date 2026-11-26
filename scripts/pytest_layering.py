@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-LAYER_MARKERS = frozenset({"unit", "contract", "architecture", "integration", "scenario"})
+SCOPE_MARKERS = frozenset({"contract", "architecture", "integration", "scenario"})
 CONCERN_MARKERS = frozenset({"recovery", "sim_recovery", "conformance", "external", "exhaustive", "miniqmt"})
 EXTERNAL_REQUIREMENT_MARKERS = frozenset({"requires_network", "requires_tushare", "requires_broker_account"})
 
 
-def path_layer(path: Path) -> str:
+def path_scope(path: Path) -> str | None:
     value = path.as_posix().lower()
     if "/architecture/" in f"/{value}":
         return "architecture"
@@ -19,7 +19,7 @@ def path_layer(path: Path) -> str:
         return "integration"
     if "/packages/" in f"/{value}":
         return "contract"
-    return "unit"
+    return None
 
 
 def path_concerns(path: Path) -> frozenset[str]:
@@ -41,11 +41,13 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         path = Path(str(item.path))
         existing = {marker.name for marker in item.iter_markers()}
-        layers = existing & LAYER_MARKERS
-        if not layers:
-            item.add_marker(getattr(pytest.mark, path_layer(path)))
-        elif len(layers) > 1:
-            errors.append(f"{item.nodeid}: expected exactly one layer marker, found {sorted(layers)}")
+        scopes = existing & SCOPE_MARKERS
+        if not scopes:
+            scope = path_scope(path)
+            if scope is not None:
+                item.add_marker(getattr(pytest.mark, scope))
+        elif len(scopes) > 1:
+            errors.append(f"{item.nodeid}: expected at most one scope marker, found {sorted(scopes)}")
         for concern in path_concerns(path) - existing:
             item.add_marker(getattr(pytest.mark, concern))
         markers = {marker.name for marker in item.iter_markers()}

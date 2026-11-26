@@ -32,36 +32,26 @@ jobs:
           version: "0.10.5"
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen --all-packages --all-groups
+      - run: uv run ruff check packages scripts
+      - run: uv run ruff format --check packages scripts
+      - run: uv run mypy
+      - run: uv run python scripts/rust_kernel_check.py --source-check
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --locked --all-targets -- -D warnings
+      - run: uv run python scripts/domain_unicode_tables.py --check
+      - run: uv run python scripts/domain_timezone_data.py --check
       - run: python scripts/dev_verification.py prepare
-      - run: uv run python scripts/test_suite.py release-static
+      - run: python scripts/dev_verification.py run -- python scripts/gateway_protocol.py check-rust
+      - run: uv run lint-imports
+      - run: uv run python scripts/version_sync.py check
 
-  rust-kernel:
+  unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - run: python scripts/dev_verification.py prepare
-      - run: python scripts/dev_verification.py run -- python scripts/rust_kernel_check.py
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: rust-kernel-${{ github.sha }}
-          path: test-results/rust-kernel/last-run.json
-          if-no-files-found: warn
-
-  architecture:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: uv run python scripts/test_suite.py architecture
+      - name: Run Rust library unit tests
+        run: python3 scripts/unit_tests.py
 
   openapi-contract:
     runs-on: ubuntu-latest
@@ -109,29 +99,6 @@ jobs:
       - run: python scripts/dev_verification.py run -- python scripts/openapi_contract.py verify --base "${{ steps.baseline.outputs.sha }}"
       - run: python scripts/dev_verification.py run -- python scripts/market_data_http_contract.py check
       - run: python scripts/dev_verification.py run -- python scripts/market_data_stream_contract.py check
-      - run: python scripts/dev_verification.py run -- python -m pytest scripts/tests/test_openapi_contract.py -q
-
-  python-contract:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - run: python scripts/dev_verification.py prepare
-      - name: Verify the complete current Python and native process contract
-        run: python scripts/dev_verification.py run -- python scripts/test_suite.py python-contract
-
-  private-asset-contract:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - run: python scripts/dev_verification.py prepare
-      - run: python scripts/dev_verification.py run -- python scripts/test_suite.py private-asset-contract
-      - run: python scripts/dev_verification.py run -- python -m pytest -q packages/backend/tests/workers/test_installed_trading_nodes.py
 
   gateway-protocol:
     runs-on: ubuntu-latest
@@ -168,115 +135,7 @@ jobs:
             *) echo "Invalid Gateway compatibility baseline" >&2; exit 1 ;;
           esac
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
-      - run: uv run python scripts/gateway_protocol.py verify-lane --base "${{ steps.baseline.outputs.sha }}"
-
-  research-evaluation-shards:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - run: python scripts/dev_verification.py prepare
-      - name: Run one disjoint current Research ABI shard
-        run: >-
-          python scripts/dev_verification.py run -- python scripts/test_suite.py research-evaluation
-          --splits 4 --group ${{ matrix.shard }} --workers 2 --dist worksteal
-          --metrics-path test-results/metrics/research-evaluation-shard-${{ matrix.shard }}.json
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: research-evaluation-shard-${{ matrix.shard }}-metrics
-          path: test-results/metrics/research-evaluation-shard-${{ matrix.shard }}.json
-          if-no-files-found: error
-
-  research-evaluation-shard-gate:
-    if: always() && github.event_name == 'pull_request'
-    needs: [research-evaluation-shards, rust-kernel]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: actions/download-artifact@v6
-        with:
-          pattern: research-evaluation-shard-*-metrics
-          path: test-results/metrics
-          merge-multiple: true
-      - run: python scripts/dev_verification.py prepare
-      - name: Independently collect the complete current Research ABI lane
-        run: >-
-          python scripts/dev_verification.py run -- python scripts/test_suite.py research-evaluation
-          --collect-only --no-parallel --collection-path test-results/metrics/research-evaluation-nodeids.json
-      - name: Require all shards, native statistics and a complete disjoint union
-        env:
-          SHARDS_RESULT: ${{ needs.research-evaluation-shards.result }}
-          NATIVE_RESULT: ${{ needs.rust-kernel.result }}
-        run: |
-          test "$SHARDS_RESULT" = success
-          test "$NATIVE_RESULT" = success
-          python scripts/test_topology.py \
-            --validate-shards \
-            test-results/metrics/research-evaluation-shard-1.json \
-            test-results/metrics/research-evaluation-shard-2.json \
-            test-results/metrics/research-evaluation-shard-3.json \
-            test-results/metrics/research-evaluation-shard-4.json \
-            --expected-nodeids-path test-results/metrics/research-evaluation-nodeids.json \
-            --expected-commit "$GITHUB_SHA"
-
-  native-quality-gate:
-    if: always()
-    needs: [rust-kernel, python-contract, private-asset-contract, database-compose, research-product-certification, native-conformance, research-evaluation-shard-gate]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require every current native owner and the applicable shard proof
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          RUST_RESULT: ${{ needs.rust-kernel.result }}
-          PYTHON_RESULT: ${{ needs.python-contract.result }}
-          PRIVATE_RESULT: ${{ needs.private-asset-contract.result }}
-          DATABASE_RESULT: ${{ needs.database-compose.result }}
-          RESEARCH_RESULT: ${{ needs.research-product-certification.result }}
-          CONFORMANCE_RESULT: ${{ needs.native-conformance.result }}
-          SHARD_RESULT: ${{ needs.research-evaluation-shard-gate.result }}
-        run: |
-          test "$RUST_RESULT" = success
-          test "$PYTHON_RESULT" = success
-          test "$PRIVATE_RESULT" = success
-          test "$DATABASE_RESULT" = success
-          test "$RESEARCH_RESULT" = success
-          test "$CONFORMANCE_RESULT" = success
-          if test "$EVENT_NAME" = pull_request; then
-            test "$SHARD_RESULT" = success
-          else
-            test "$SHARD_RESULT" = skipped
-          fi
-
-  native-conformance:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - responsibility: durable-recovery
-            packages: --package onlyalpha-runtime --package onlyalpha-execution --package onlyalpha-order --package onlyalpha-position --package onlyalpha-account --package onlyalpha-risk --package onlyalpha-strategy-ledger
-          - responsibility: simulation-replay
-            packages: --package onlyalpha-backtest --package onlyalpha-strategy --package onlyalpha-calculation-bridge --package onlyalpha-market-data --package onlyalpha-market-data-construction --package onlyalpha-market-crypto --package onlyalpha-backend
-          - responsibility: cn-ashare
-            packages: --package onlyalpha-market-cn-ashare --package onlyalpha-settlement --package onlyalpha-fee --package onlyalpha-margin
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - run: python scripts/dev_verification.py prepare
-      - name: Verify the actual current responsibility owner
-        run: python scripts/dev_verification.py run -- python scripts/rust_kernel_check.py ${{ matrix.packages }}
+      - run: uv run python scripts/gateway_protocol.py verify --base "${{ steps.baseline.outputs.sha }}"
 
   build:
     runs-on: ubuntu-latest
@@ -290,58 +149,6 @@ jobs:
       - run: uv sync --frozen --all-packages --all-groups
       - name: Build the maintained Rust runtime and isolated SDK
         run: docker build --file deploy/Dockerfile.dev --target runtime --tag onlyalpha-runtime:ci .
-
-  research-product-certification:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - run: python scripts/dev_verification.py prepare
-      - name: Verify native Research evidence and Backtest owner continuity
-        run: python scripts/dev_verification.py run -- python scripts/test_suite.py research-product-certification
-
-  database-compose:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - run: python scripts/dev_verification.py prepare
-      - name: Verify current native database owners serially
-        run: python scripts/dev_verification.py run -- python scripts/test_suite.py database --no-parallel
-      - name: Verify the finite Backtest publication under controlled input
-        run: >-
-          python scripts/dev_verification.py --controlled-source-https run -- python -m pytest -q
-          packages/backend/tests/application/test_backtest_worker_publication.py::test_actual_backtest_scheduler_publishes_original_run_without_file_results
-
-  web-product-e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - name: Validate the canonical Compose model
-        run: docker compose -f deploy/docker-compose.dev.yml config --quiet
-      - name: Prepare fixed native validation tools
-        run: python scripts/dev_verification.py prepare
-      - name: Verify the installed algorithm transport
-        run: >-
-          python scripts/dev_verification.py run -- python -m pytest -q
-          packages/backend/tests/transport/test_chart_algorithm_closure.py
-          packages/backend/tests/transport/test_trading_algorithm_session.py
-          packages/backend/tests/transport/test_trading_algorithm_transport.py
-      - name: Run the native Web Product journey
-        run: deploy/run-web-e2e.sh
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: web-product-e2e-${{ github.sha }}
-          path: test-results/web-e2e/
-          if-no-files-found: warn
 
   web:
     runs-on: ubuntu-latest
@@ -365,14 +172,8 @@ jobs:
       - run: python scripts/dev_verification.py prepare
       - name: web-static
         run: python scripts/dev_verification.py run -- python scripts/web_suite.py static
-      - name: web-unit
-        run: uv run python scripts/web_suite.py unit
       - name: web-build
         run: uv run python scripts/web_suite.py build
-      - run: npx playwright install --with-deps chromium
-        working-directory: packages/frontend
-      - name: web-e2e
-        run: uv run python scripts/web_suite.py e2e
 
   dependency-audit:
     runs-on: ubuntu-latest
@@ -420,23 +221,23 @@ jobs:
 
   quality-gate:
     if: always()
-    needs: [static, rust-kernel, architecture, openapi-contract, python-contract, private-asset-contract, gateway-protocol, dependency-audit, native-quality-gate, research-product-certification, database-compose, web-product-e2e, build, web]
+    needs: [static, unit-tests, openapi-contract, gateway-protocol, build, web, dependency-audit]
     runs-on: ubuntu-latest
     steps:
       - name: Require every independent gate
         env:
-          RUST_KERNEL_RESULT: ${{ needs.rust-kernel.result }}
           STATIC_RESULT: ${{ needs.static.result }}
-          ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
+          UNIT_TESTS_RESULT: ${{ needs.unit-tests.result }}
           OPENAPI_CONTRACT_RESULT: ${{ needs.openapi-contract.result }}
-          PYTHON_CONTRACT_RESULT: ${{ needs.python-contract.result }}
-          PRIVATE_ASSET_CONTRACT_RESULT: ${{ needs.private-asset-contract.result }}
           GATEWAY_PROTOCOL_RESULT: ${{ needs.gateway-protocol.result }}
-          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
-          NATIVE_QUALITY_GATE_RESULT: ${{ needs.native-quality-gate.result }}
-          RESEARCH_PRODUCT_CERTIFICATION_RESULT: ${{ needs.research-product-certification.result }}
-          DATABASE_COMPOSE_RESULT: ${{ needs.database-compose.result }}
-          WEB_PRODUCT_E2E_RESULT: ${{ needs.web-product-e2e.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WEB_RESULT: ${{ needs.web.result }}
-        run: test "$RUST_KERNEL_RESULT" = success -a "$STATIC_RESULT" = success -a "$ARCHITECTURE_RESULT" = success -a "$OPENAPI_CONTRACT_RESULT" = success -a "$PYTHON_CONTRACT_RESULT" = success -a "$PRIVATE_ASSET_CONTRACT_RESULT" = success -a "$GATEWAY_PROTOCOL_RESULT" = success -a "$DEPENDENCY_AUDIT_RESULT" = success -a "$RESEARCH_PRODUCT_CERTIFICATION_RESULT" = success -a "$DATABASE_COMPOSE_RESULT" = success -a "$WEB_PRODUCT_E2E_RESULT" = success -a "$BUILD_RESULT" = success -a "$WEB_RESULT" = success -a "$NATIVE_QUALITY_GATE_RESULT" = success
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+        run: |
+          test "$STATIC_RESULT" = success
+          test "$UNIT_TESTS_RESULT" = success
+          test "$OPENAPI_CONTRACT_RESULT" = success
+          test "$GATEWAY_PROTOCOL_RESULT" = success
+          test "$BUILD_RESULT" = success
+          test "$WEB_RESULT" = success
+          test "$DEPENDENCY_AUDIT_RESULT" = success

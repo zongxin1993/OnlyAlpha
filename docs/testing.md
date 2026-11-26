@@ -1,22 +1,33 @@
 # 测试规范
 
-[AGENTS.md 第 4 节](../AGENTS.md#4-测试与验收)规定当前测试要求。Web 整体测试归属 `packages/frontend`，
-OpenAPI 整体功能测试归属 `packages/backend`，Rust 库的功能测试随库组织。
+[工程指南第 4 节](../AGENTS.md#4-测试与验收)定义两种测试：单元测试与功能测试。
 
-不依赖外部服务的 Rust 库功能测试及静态检查可以直接在宿主机执行。Web、OpenAPI 整体测试和依赖数据库或运行中应用的验证
-使用唯一 `onlyalpha-dev` Compose 项目及隔离测试数据。通用入口为 `python3 scripts/dev_verification.py run -- <验证命令>`，
+## 单元测试
+
+在仓库根目录执行唯一的单元测试脚本：
+
+```bash
+python3 scripts/unit_tests.py
+```
+
+脚本从 Cargo 工作区选取 `crates/` 下的包，只运行 Cargo `--lib` 测试目标。测试由库内 Rust 模块挂载，
+不运行 Cargo 集成目标、文档测试、后端、插件或其他语言测试，不需要启动应用或数据库。
+GitHub Actions 的测试步骤只调用这个脚本。功能测试、专项测试及其本地入口保留，不接入当前 CI；静态、安全、契约和构建检查不属于测试步骤。
+
+## 功能测试与专项验证
+
+Rust 库的功能测试随库组织，不依赖外部服务时可以直接在宿主机用 `cargo test -p <Cargo 包名> --test <目标名>` 运行。
+Web 整体测试归属 `packages/frontend`，OpenAPI 整体功能测试归属 `packages/backend`。两者以及依赖数据库或运行中应用的验证
+使用唯一 `onlyalpha-dev` Compose 项目及隔离数据，入口是 `python3 scripts/dev_verification.py run -- <验证命令>`，
 在前端目录执行时加 `--web`。具体场景和命令以当前源码与配置为准。外部环境的专项验证单独记录。
 
-以下保留迁移期原有测试分类与命令，供定位存量测试。运行前核实入口和测试归属，按实际影响选择。
+### 存量执行通道
 
-## 正式测试分层与统一入口
+`contract`、`architecture`、`integration`、`scenario` 是 pytest 的选择标签，不是工程的测试分类。
+`recovery`、`conformance`、`external` 等是场景选择条件。收集插件 `scripts/pytest_layering.py` 按明确目录补充选择标签，
+不再给未分类用例默认添加单元测试标签。显式标签优先；外部用例仍需声明对应的运行要求。
 
-测试层级为 `unit`、`contract`、`architecture`、`integration`、`scenario`，每个测试必须恰好属于一个层级。
-`recovery`、`conformance`、`external`、`performance`、`exhaustive`、`miniqmt` 是可正交附加的关注点；`slow`、`requires_network`、`requires_tushare`、
-`requires_broker_account`、`windows` 是附加属性。根 `conftest.py` 根据明确目录和文件语义
-补充缺失的主 Marker，并在收集期拒绝不完整的 External/Broker Account 标记。显式 Marker 始终优先。
-
-统一入口如下：
+以下是存量通道命令。运行前核对场景与实际入口：
 
 ```bash
 python scripts/dev_verification.py run -- python scripts/test_suite.py fast
@@ -36,18 +47,14 @@ python scripts/dev_verification.py run -- python scripts/test_suite.py release
 path；它是 reporting-only，不拥有测试选择权。历史 metrics 若缺少完整 `tests[nodeid]` 映射，报告会明确标为 lower bound，不能被当作完整
 execution graph。
 
-pytest-timeout 由 `scripts/test_suite.py` 按 lane 配置上限：普通 unit/contract/architecture 180 秒，`fast` 300 秒，integration、recovery、SIM
-recovery 和真实数据库/外部 lane 使用更宽的 600--900 秒；timeout 只用于 hang/deadlock fail-fast，不是性能预算。Coverage 默认继续串行；只有已经完成
-serial/xdist 等价证明的 lane 才允许通过显式 `--workers` 并行。当前证明 lane 是 `kernel`，其他 coverage lane fail closed 为 serial-only。
+pytest-timeout 由 `scripts/test_suite.py` 按通道配置，只用于发现测试卡死，不是性能预算。pytest 覆盖率测量只允许串行。
 
-pytest-split 只对已经由 canonical lane 选出的 `research-evaluation` universe 做跨 Runner 分片，固定使用 `least_duration`，并读取只读的
-`test-data/test-durations.json`。PR shard 不得写 duration file；Nightly 的 `duration-authority` job 生成新的 canonical duration evidence，更新快照必须经过
-显式 owner 维护。所有 shard 使用独立 metrics 文件，`union == canonical universe`、交集为空和缺失检查属于 shard acceptance proof。
+本地 `research-evaluation` 执行通道仍支持按只读 `test-data/test-durations.json` 分片。验证分片时仍须证明与原用例集合等价且不重叠；CI 不执行分片，也不定期刷新耗时数据。
 
 数据库 acceptance 的 PostgreSQL 与 ClickHouse 独立 lane 在同一 Compose acceptance 容器中并行；它们使用不同数据库资源，不共享 destructive state。跨数据库
 `database-acceptance` 始终在两者完成后串行执行。`pytest-testmon` 不进入 canonical CI，也没有第二套 impact-aware selector。
 
-`fast` 证明纯组件、公共合同和架构边界；`integration` 证明最短离线纵切面与 scenario smoke；`ashare` 只运行
+`fast` 选择离线工具检查、公共契约和架构边界检查；`integration` 证明最短离线纵切面与 scenario smoke；`ashare` 只运行
 离线 A 股 conformance；`recovery` 独立运行普通 checkpoint/restart/fault correctness；`core-full` 覆盖全部普通 Workspace 离线 correctness；`exhaustive` 保留 100-run 和完整组合矩阵。
 长测试必须标记 `slow` 或 `recovery`。产品纵切面必须经过 `OnlyEngine`；Analytics、Report、Artifact、Collector
 应优先复用固定 Result/Snapshot fixture。
@@ -60,7 +67,7 @@ A 股申报前规则测试必须覆盖 2026-07-06 制度切换、主板/创业�
 提供假行情的 SIM、交易 Authority 和恢复测试改用中立受控 Source；通用断言不删除。冻结 Golden Dataset
 继续作为只读 provenance/conformance 输入，不需要 xtquant 或本机 QMT。
 
-`release` 依次运行 Ruff、Ruff format check、Core/Provider mypy、版本一致性、Core Full、Recovery、A-share和包构建。
+`release` 是本地发布验证聚合入口，按源码定义运行静态检查、Rust 和 Python 专项、真实 Web 功能场景和包构建。
 日常修改运行最窄的正确通道；执行交易/恢复变更时执行受影响的 Recovery；发布验证按 AGENTS.md 的真实 Impact Scope 选择。外部环境不满足时应记录
 “未执行”，不得记为通过。性能数据保留为当前运行产物，不提交历史 PASS/基线报告作为 Authority。
 
@@ -127,12 +134,9 @@ reference 明确缺失。离线 Reader 校验文件指纹后，经标准 MarketD
 `xtquant`、不访问网络。原采集命令随 SDK adapter 一并下线；不得重采集覆盖既有冻结文件、改变原 provider
 身份或借移除 adapter 删除已存在 Evidence。
 
-PR 的语义 lane 仍由 `scripts/test_suite.py` 负责本地/问题定位，CI 只执行不重复的 impact/capability topology；`research-evaluation` 在 PR 由四个
-duration-aware shards 替代原 semantic matrix entry。Main 只执行一次 `core-full` canonical offline universe，再执行独立的 Recovery、SIM Recovery、A-share、
-Research Product、数据库、Web 和安全/第三方 gates，最终由 Quality Gate 汇总；Nightly 额外运行 Exhaustive。真实订单仍受独立人工授权边界约束。原跨平台 distribution/install Smoke 保留在
-`ci.yml`，但只允许手动触发，避免在 PR 重复运行三平台 Full/Recovery。
+存量执行通道仅用于本地定向验证和专项取证。真实订单仍受独立人工授权边界约束。
 
-以下旧章节保留为具体组件覆盖要求；如命令或层级描述冲突，以本节为准。
+以下是具体组件的覆盖要求；历史目录与命令不定义新的测试分类或运行入口。
 
 ## Product-style backtest acceptance
 
@@ -147,36 +151,12 @@ Risk 测试必须使用固定 Clock 和精确 Decimal 输入，覆盖 Rule 顺�
 Reservation 即时可见与幂等释放、OrderService 零副作用拒绝、Runtime/Cluster 隔离、Snapshot 不可变和重放确定性。
 Demo 必须使用明确命名的 Placeholder 或 Virtual Broker，禁止连接真实 SDK；统一主场景禁止伪造成交。
 
-## 1. 层次
+## 组件与系统行为覆盖
 
-```text
-tests/unit
-tests/integration
-tests/regression
-tests/property
-```
+按职责覆盖值对象、配置、生命周期、Registry、Loader、Event Bus、Cache、Repository、风控、Clock、撮合、因子和统计。
+Rust 库的内部不变量用模块自测验证；经公开接口可观察的行为用功能测试验证。
 
-## 2. 单元测试
-
-覆盖：
-
-- 值对象；
-- 配置；
-- 生命周期；
-- Registry；
-- Loader；
-- Event Bus；
-- Cache；
-- Repository；
-- 风控；
-- Clock；
-- 撮合；
-- 因子；
-- 统计。
-
-## 3. 集成测试
-
-覆盖：
+系统功能覆盖：
 
 - Engine 启停；
 - 多 Runtime；
