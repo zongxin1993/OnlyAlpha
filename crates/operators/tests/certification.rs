@@ -46,8 +46,11 @@ fn period_parameters() -> Parameters {
 /// Missing values, ties and a zero denominator exercise every declared boundary.
 fn systematic(spec: &OpSpec) -> Vec<Vec<Cell>> {
     let mut columns = vec![values(&["3", "1", "2", "2", "5", "null", "4", "1", "6"])];
-    if spec.inputs == 2 {
+    if spec.inputs >= 2 {
         columns.push(values(&["2", "4", "6", "8", "10", "3", "0", "2", "2"]));
+    }
+    if spec.inputs == 3 {
+        columns.push(values(&["-1", "0", "5", "null", "7", "8", "9", "-2", "4"]));
     }
     columns
 }
@@ -55,8 +58,11 @@ fn systematic(spec: &OpSpec) -> Vec<Vec<Cell>> {
 /// Complete, strictly positive, non-repeating observations isolate warmup.
 fn complete(spec: &OpSpec) -> Vec<Vec<Cell>> {
     let mut columns = vec![values(&["1", "2", "3", "4", "5", "6", "7", "8"])];
-    if spec.inputs == 2 {
+    if spec.inputs >= 2 {
         columns.push(values(&["2", "3", "4", "5", "6", "7", "8", "9"]));
+    }
+    if spec.inputs == 3 {
+        columns.push(values(&["3", "4", "5", "6", "7", "8", "9", "10"]));
     }
     columns
 }
@@ -160,7 +166,7 @@ fn completely_missing_inputs_produce_no_output() {
     for spec in time_series() {
         let kernel = kernel(spec);
         let mut columns = vec![vec![None; 6]];
-        if spec.inputs == 2 {
+        for _ in 1..spec.inputs {
             columns.push(values(&["1", "2", "3", "4", "5", "6"]));
         }
         assert!(
@@ -364,6 +370,62 @@ fn lag_and_window_goldens_are_independently_derived() {
         period_parameters(),
         windowed(),
         &["null", "null", "1.833333333333", "1.833333333333", "3.5"],
+    );
+    check(
+        "rolling_slope",
+        period_parameters(),
+        windowed(),
+        &["null", "null", "-0.5", "0.5", "1.5"],
+    );
+    check(
+        "rolling_slope",
+        Parameters {
+            period: NonZeroUsize::new(4),
+            ..Default::default()
+        },
+        vec![values(&["1", "2", "4", "8"])],
+        &["null", "null", "null", "2.3"],
+    );
+}
+
+#[test]
+fn conditional_and_recursive_goldens_are_independently_derived() {
+    check(
+        "where",
+        Parameters::default(),
+        vec![
+            values(&["1", "0", "-2", "null", "3", "-1"]),
+            values(&["10", "null", "30", "40", "null", "60"]),
+            values(&["null", "200", "300", "400", "500", "null"]),
+        ],
+        &["10", "200", "300", "null", "null", "null"],
+    );
+    check(
+        "ema",
+        period_parameters(),
+        vec![values(&["10", "14", "10", "null", "18"])],
+        &["10", "12", "11", "null", "14.5"],
+    );
+    check(
+        "rma",
+        period_parameters(),
+        vec![values(&["2", "4", "6", "null", "9"])],
+        &["null", "null", "4", "null", "5.666666666667"],
+    );
+    check(
+        "rma",
+        Parameters {
+            period: NonZeroUsize::new(2),
+            ..Default::default()
+        },
+        vec![values(&["2", "null", "4", "6"])],
+        &["null", "null", "3", "4.5"],
+    );
+    check(
+        "cumsum",
+        Parameters::default(),
+        vec![values(&["3", "null", "-1", "2.5"])],
+        &["3", "null", "2", "4.5"],
     );
 }
 

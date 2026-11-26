@@ -22,10 +22,10 @@ fn port(name: &str) -> Value {
     json!({"name":name,"data_type":"DECIMAL","nullable":true,"dimensions":["TIME"],"semantic_type":"NUMERIC_SERIES","unit":null})
 }
 fn names(op: Operator) -> &'static [&'static str] {
-    if op.input_count() == 2 {
-        &["left", "right"]
-    } else {
-        &["value"]
+    match op.input_count() {
+        3 => &["condition", "when_true", "when_false"],
+        2 => &["left", "right"],
+        _ => &["value"],
     }
 }
 fn output_name(op: Operator) -> &'static str {
@@ -506,18 +506,18 @@ mod tests {
     #[test]
     fn inventory_is_exact_and_bound_to_current_image() {
         let all = calculations().unwrap();
-        assert_eq!(all.len(), 24);
+        assert_eq!(all.len(), 29);
         assert_eq!(
             all.iter()
                 .filter(|c| c.state_capability() == "STATELESS")
                 .count(),
-            8
+            9
         );
         assert_eq!(
             all.iter()
                 .filter(|c| c.state_capability() == "CHECKPOINTABLE")
                 .count(),
-            12
+            16
         );
         assert_eq!(
             all.iter()
@@ -547,8 +547,8 @@ mod tests {
                     .unwrap()["implementation_fingerprint"]
             );
         }
-        assert_eq!(implementation_manifests(&"a".repeat(64)).unwrap().len(), 44);
-        assert_eq!(catalog_rows(&"a".repeat(64)).unwrap().len(), 44);
+        assert_eq!(implementation_manifests(&"a".repeat(64)).unwrap().len(), 54);
+        assert_eq!(catalog_rows(&"a".repeat(64)).unwrap().len(), 54);
         assert!(implementation_manifests(&"A".repeat(64)).is_err());
     }
     #[test]
@@ -605,7 +605,7 @@ mod tests {
             json!({"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"7","kind":"OPERATOR","source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":"0.9.0"}})
         );
         let calculations = provider["calculations"].as_array().unwrap();
-        assert_eq!(calculations.len(), 44);
+        assert_eq!(calculations.len(), 54);
         assert!(
             calculations
                 .iter()

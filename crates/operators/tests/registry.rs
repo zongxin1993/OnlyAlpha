@@ -6,7 +6,7 @@ use onlyalpha_operators::registry::{
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 
-const EVERY_OPERATOR: [Operator; 24] = [
+const EVERY_OPERATOR: [Operator; 29] = [
     Operator::Add,
     Operator::Subtract,
     Operator::Multiply,
@@ -27,6 +27,11 @@ const EVERY_OPERATOR: [Operator; 24] = [
     Operator::TSRank,
     Operator::Scale,
     Operator::DecayLinear,
+    Operator::Where,
+    Operator::RollingSlope,
+    Operator::EMA,
+    Operator::RMA,
+    Operator::CumSum,
     Operator::CrossSectionPercentile,
     Operator::CrossSectionRank,
     Operator::CrossSectionZScore,
@@ -36,7 +41,7 @@ const EVERY_OPERATOR: [Operator; 24] = [
 #[test]
 fn registry_owns_one_row_per_operator_with_unique_identity() {
     assert_eq!(REGISTRY.len(), EVERY_OPERATOR.len());
-    assert_eq!(all().len(), 24);
+    assert_eq!(all().len(), 29);
     let names = REGISTRY
         .iter()
         .map(|spec| spec.name)
@@ -89,10 +94,10 @@ fn state_capabilities_follow_shape_and_warmup() {
     assert_eq!(
         stateless,
         [
-            "abs", "add", "divide", "log", "multiply", "scale", "sign", "subtract"
+            "abs", "add", "divide", "log", "multiply", "scale", "sign", "subtract", "where"
         ]
     );
-    assert_eq!(count(StateCapability::Checkpointable).len(), 12);
+    assert_eq!(count(StateCapability::Checkpointable).len(), 16);
     let mut research_only = count(StateCapability::ResearchOnly);
     research_only.sort_unstable();
     assert_eq!(

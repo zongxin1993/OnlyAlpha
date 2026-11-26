@@ -32,12 +32,16 @@ pub enum ExecutionShape {
 /// How many observations must precede the first output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WarmupRule {
-    /// First observation already produces an output.
+    /// First observation already produces an output; no cross-event state.
     Current,
     /// `period` observations inclusive of the current one.
     Window,
     /// `period` prior observations plus the current one.
     Lag,
+    /// First non-null observation seeds a stateful recurrence.
+    Recursive,
+    /// First `period` non-null observations seed a stateful recurrence.
+    SeededWindow,
 }
 
 /// What an execution engine must retain between events.
@@ -70,7 +74,10 @@ impl OpSpec {
             ExecutionShape::CrossSection => StateCapability::ResearchOnly,
             ExecutionShape::TimeSeries => match self.warmup {
                 WarmupRule::Current => StateCapability::Stateless,
-                WarmupRule::Window | WarmupRule::Lag => StateCapability::Checkpointable,
+                WarmupRule::Window
+                | WarmupRule::Lag
+                | WarmupRule::Recursive
+                | WarmupRule::SeededWindow => StateCapability::Checkpointable,
             },
         }
     }
@@ -79,8 +86,8 @@ impl OpSpec {
     /// output. `None` means a period-based operator was given no period.
     pub fn minimum_observations(self, period: Option<NonZeroUsize>) -> Option<usize> {
         match self.warmup {
-            WarmupRule::Current => Some(1),
-            WarmupRule::Window => period.map(NonZeroUsize::get),
+            WarmupRule::Current | WarmupRule::Recursive => Some(1),
+            WarmupRule::Window | WarmupRule::SeededWindow => period.map(NonZeroUsize::get),
             WarmupRule::Lag => period.map(|p| p.get() + 1),
         }
     }
@@ -104,7 +111,7 @@ const fn spec(
     }
 }
 
-pub static REGISTRY: [OpSpec; 24] = [
+pub static REGISTRY: [OpSpec; 29] = [
     spec(
         "add",
         Operator::Add,
@@ -264,6 +271,46 @@ pub static REGISTRY: [OpSpec; 24] = [
         ParameterKind::Period,
         ExecutionShape::TimeSeries,
         WarmupRule::Window,
+    ),
+    spec(
+        "where",
+        Operator::Where,
+        3,
+        ParameterKind::None,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Current,
+    ),
+    spec(
+        "rolling_slope",
+        Operator::RollingSlope,
+        1,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
+        "ema",
+        Operator::EMA,
+        1,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Recursive,
+    ),
+    spec(
+        "rma",
+        Operator::RMA,
+        1,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::SeededWindow,
+    ),
+    spec(
+        "cumsum",
+        Operator::CumSum,
+        1,
+        ParameterKind::None,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Recursive,
     ),
     spec(
         "cross_section_percentile",

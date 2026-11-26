@@ -18,7 +18,7 @@
 
 ## 公开接口
 
-RollingMean::new / push 维护固定小数位系数均值；LinearWeightedMean 在完整窗口后输出加权均值。fractional_change 返回指定量化尺度的变化率或溢出无值；round_ratio 对正分母做半偶数舍入；algebra 提供十进制代数及窗口能力。
+`algebra` 提供十进制代数、滚动窗口、递推与截面数值内核（精度 28、半偶数舍入、q12 输出、规范正零）。
 
 `registry` 是算子正式契约的唯一声明处：`TYPE_ID_PREFIX`、`SEMANTIC_VERSION`、`NUMERIC_POLICY`、`OpSpec`、`ParameterKind`、`ExecutionShape`、`WarmupRule`、`StateCapability`，以及 `all`、`lookup`、`Operator::spec`、`Operator::type_id`、`Operator::from_type_id`。`minimum_observations` 把 warmup 规则换算成“第几个观测开始有输出”，避免逐算子重复判断差一错误。
 
@@ -32,13 +32,9 @@ pub mod execution;
 pub mod registry;
 ```
 
-库根直接声明：`RollingMean`、`LinearWeightedMean`、`fractional_change`、`round_ratio`。
-
 ## 状态与生命周期
 
-窗口实例依次接收输入，内部保存样本，无持久化服务。调用方负责保持尺度一致与输入顺序；round_ratio 的非正分母属于显式 panic 前置条件，不能用浮点近似替代规范舍入。
-
-事件形态的状态能力由注册表声明：截面算子只在研究批处理中有意义，`Stream::new` 对其返回 `Error::ResearchOnly`；时间序列算子按 warmup 规则区分为无状态或可检查点。检查点只包含算子窗口内实际读取的列，恢复必须与同一参数下的新实例等价，非法检查点不得改动现有实例。
+事件形态的状态能力由注册表声明：截面算子只在研究批处理中有意义，`Stream::new` 对其返回 `Error::ResearchOnly`；时间序列算子按 warmup 规则区分为无状态或可检查点。检查点只包含算子窗口或递推实际读取的状态，恢复必须与同一参数下的新实例等价，非法检查点不得改动现有实例。无持久化服务。
 
 ## 使用与验证
 
