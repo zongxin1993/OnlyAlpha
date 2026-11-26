@@ -1,5 +1,10 @@
 # Runtime 设计
 
+> 历史归档（2026-11-26）：本页描述 Python 时代 `OnlyEngine` 及其 SQLite Transaction Store 的 Runtime 设计。
+> 该实现已按 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 退役，业务 SQLite 与文件型
+> journal 不再存在。下文保留原表述用于说明历史设计，当前契约见 [Runtime 恢复与提交事实](execution_runtime_recovery.md)
+> 与 [Rust Runtime 状态、持久化与恢复](rust-runtime-persistence.md)。
+
 正式 Trading Runtime 只持有通用 `OnlyBrokerGateway`、`OnlyBrokerInboundQueue` 和可选的
 `OnlyDeterministicBrokerDriver`。模拟 Broker 能力在装配阶段验证，禁止具体类型判断、动态属性探测和后置
 `bind_market_rules`。每个 Fill 的 durable authority 是 Runtime 独占的 Transaction Store；`OnlyExecutionProcessor` 通过纯

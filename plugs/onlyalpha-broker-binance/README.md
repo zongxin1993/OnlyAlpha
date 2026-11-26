@@ -8,7 +8,7 @@
 
 ## 边界与依赖
 
-- 测试通过 dev-dependencies 使用 Execution 的 Components 和 Runtime 的 `durability` 端口，组合验证现金订单的冷恢复。正式库的依赖、后端券商安装和实盘权限各由对应宿主管理。
+- 测试通过 dev-dependency `onlyalpha-execution` 使用 Execution 的 `Components` 与 `Store` 端口，组合验证现金订单的冷恢复；Execution 状态留在内存，重启按同一输入从头确定性重算。正式库的依赖、后端券商安装和实盘权限各由对应宿主管理。
 - [构造和绑定](src/lib.rs)使用 Broker Scope 固定 Engine、Runtime、Gateway、Account、Generation 和运行模式。宿主提供已核验的实际 Rust 工件 SHA-256、精确版本的两个 Secret Slot、Binance 账户 UID，以及 ReadOnly 或 Trading 授权。LIVE endpoint 只接受 LIVE Scope。Testnet 和生产使用各自固定的 HTTPS/WSS 地址。
 - [私有传输](src/private_http.rs)以宿主提供的 Clock 签名，使用 HMAC-SHA256、reqwest、rustls 和 tokio-tungstenite。TLS 只使用显式传入的可信证书。该同步 Broker 端口须由 Tokio 异步执行上下文之外的拥有者调用。原始密钥由宿主解析到内存，插件不读取环境变量。请求头、签名 URL 和订阅请求不进入观察日志。
 - 由宿主实现 [Broker Journal](../../crates/broker/src/protocol.rs)、[RuntimeReader](../../crates/broker/src/ports.rs) 和[原始观察存储](src/evidence.rs)。Journal 保存已准入原命令、发送标记、结果、规范事实和 Runtime 应用回执。ObservationStore 按绑定和连续序列原子追加场所原文，校验前缀并支持确切回读。对任一持久化结果不确定时，都要读回原操作。
@@ -45,7 +45,7 @@ python3 scripts/dev_verification.py run -- cargo test --locked --offline -p only
 
 [协议用例](src/tests/protocol_cases.rs)、[真实 Broker 恢复用例](src/tests/venue_recovery.rs)和[本机 TLS 协议用例](src/tests/loopback_tls.rs)使用固定输入。TLS 测试复用仓内公开的 loopback 专用证书与叶证书测试私钥。真实 Binance Spot Testnet、生产账户、实盘权限和后端产品安装均需独立验收。
 
-[现金 Execution 消费者用例](src/tests/cash_execution.rs)在 Linux 临时目录保存原 Broker Journal、场所原文和 Runtime `durability` 持久事实。重新打开后，应用回执逐项核对原场所事实、原派发意图和该事实对应的现金事务。用例同时检查错关联及重复处理同一事务。
+[现金 Execution 消费者用例](src/tests/cash_execution.rs)在临时目录保存原 Broker Journal 与场所原文，Execution 记录本身只存于内存。重新打开后按同一输入重算现金状态，应用回执逐项核对原场所事实、原派发意图和该事实对应的现金事务。用例同时检查错关联的场所事实、错配的派发意图、重复应用的输入冲突与存储不可用。
 
 [Spot Testnet 手工专项](src/tests/spot_testnet_external.rs)默认忽略，会向专用测试账户实际发送 BTC、ETH 限价单、撤单和一笔 BTC 市价单。只有获准使用全新 run id 和专用资金时才手动运行。环境变量均以 `ONLYALPHA_BINANCE_TESTNET_` 开头，必填后缀为 `AUTHORIZED`（值为 `1`）、`UID`、`API_KEY`、`API_SECRET`、`RUN_ID`（1 至 8 位 ASCII 字母或数字）及 `CA_PEM`（根证书文件路径）。另外两个可选后缀 `REST_BASE_URL` 和 `WS_BASE_URL` 如已设置，必须分别等于 `https://testnet.binance.vision` 和 `wss://ws-api.testnet.binance.vision/ws-api/v3`。不确定的响应按原 client 和场所订单查询，保留原 run id 供后续核对。
 

@@ -1,5 +1,9 @@
 # OnlyExecutionProcessor
 
+> 历史归档（2026-11-26）：本页描述 Python 时代 `OnlyExecutionProcessor`／SQLite Transaction Store 的成交处理设计。
+> 该实现已按 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 退役，业务 SQLite 与文件型
+> journal 不再存在。下文保留原表述用于说明历史设计，当前契约见 [Runtime 恢复与提交事实](execution_runtime_recovery.md)。
+
 ExecutionProcessor 对当前受支持的 Generic T0 Cash、LIMIT BUY OPEN 与 LIMIT SELL CLOSE LONG NETTING，每个
 whole/partial/multi Fill 先调用纯 Planner，随后交给 Runtime-owned `OnlyRuntimeTransactionCoordinator`。Coordinator 先将
 独立 Prepared Transaction durable commit 到唯一 Transaction Store，再应用有序增量 Projection；全部成功并标记
