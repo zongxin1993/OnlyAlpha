@@ -54,16 +54,20 @@ fn panel(instruments: Vec<Cohort>) -> ResearchPanel {
     ResearchPanel::new(SNAPSHOT, data, 0).unwrap()
 }
 
+fn factors(definitions: &[(&str, &str)]) -> Vec<(String, FactorExpr)> {
+    definitions
+        .iter()
+        .map(|&(name, source)| (name.into(), FactorExpr::compile(source).unwrap()))
+        .collect()
+}
+
 fn plan(
-    factors: &[(&str, &str)],
+    definitions: &[(&str, &str)],
     targets: &[(&str, &str)],
     minimum: usize,
 ) -> Result<ResearchPlan, Error> {
     ResearchPlan::new(
-        factors
-            .iter()
-            .map(|&(name, source)| (name.into(), FactorExpr::compile(source).unwrap()))
-            .collect(),
+        factors(definitions),
         targets
             .iter()
             .map(|&(name, source)| (name.into(), TargetExpr::compile(source).unwrap()))
@@ -88,6 +92,99 @@ fn assert_row(
     assert_eq!(row.status, status);
     assert_eq!(row.ic, ic.map(d));
     assert_eq!(row.rank_ic, rank_ic.map(d));
+}
+
+#[test]
+fn slices_assign_full_panel_forward_returns_to_the_observation_time() {
+    let panel = panel(vec![
+        cohort(&[("close", &["2", "2", "4", "8"])]),
+        cohort(&[("close", &["4", "4", "2", "1"])]),
+    ]);
+    let plan = plan(
+        &[("price", "$close")],
+        &[
+            ("one", "Lead($close, 1) / $close - 1"),
+            ("two", "Lead($close, 2)"),
+            ("spot", "$close"),
+        ],
+        2,
+    )
+    .unwrap()
+    .with_statistics(
+        StatisticsPlan::new(
+            vec![
+                TimeSlice {
+                    start_ns: 0,
+                    end_ns: 1,
+                },
+                TimeSlice {
+                    start_ns: 1,
+                    end_ns: 3,
+                },
+                TimeSlice {
+                    start_ns: 3,
+                    end_ns: 5,
+                },
+            ],
+            vec![],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let report = crate::OnlyAlphaRuntime::new()
+        .unwrap()
+        .run_research(&panel, &plan)
+        .unwrap();
+    let stats = report.factor_report();
+    assert_eq!(
+        report.targets()[0].values[0],
+        values(&["0", "1", "1", "null"])
+    );
+    assert_eq!(
+        report.targets()[0].values[1],
+        values(&["0", "-0.5", "-0.5", "null"])
+    );
+    let slices = &stats.comparisons()[0].stability.as_ref().unwrap().slices;
+    assert_eq!(slices[0].coverage.total_timestamp_count, 0);
+    assert_eq!(slices[1].ic.mean, Some(d("-1")));
+    assert_eq!(slices[2].ic.mean, Some(d("1")));
+    assert_eq!(slices[2].coverage.insufficient_timestamp_count, 1);
+    assert_eq!(report.target_lookahead_steps(), &[1, 2, 0]);
+    assert_eq!(
+        report.targets()[0]
+            .target_lookahead_steps(&plan.targets[2].1)
+            .unwrap_err()
+            .0,
+        "RESEARCH_STATISTICS_BINDING"
+    );
+    let summary = report.summary_view().unwrap();
+    for (index, span) in [1, 2, 0].into_iter().enumerate() {
+        let reference = ComparisonRef::FactorTarget(index);
+        let comparison = report.comparison_view(reference).unwrap();
+        let detail = report.detail_view(reference, 1, 5).unwrap();
+        for locator in [
+            &summary["comparisons"][index]["comparison_ref"],
+            &comparison["comparison"]["comparison_ref"],
+            &detail["comparison_ref"],
+        ] {
+            assert_eq!(
+                locator["target"]["expression_fingerprint"],
+                plan.targets[index].1.fingerprint()
+            );
+            assert_eq!(locator["target"]["max_lookahead_steps"], span);
+        }
+        for slice in 0..3 {
+            let view = report.slice_view(index, slice).unwrap();
+            assert_eq!(
+                view["comparison_ref"]["target"]["max_lookahead_steps"],
+                span
+            );
+            assert_eq!(
+                view["conditions"]["slice_policy"]["time_axis"],
+                "OBSERVATION_TIME"
+            );
+        }
+    }
 }
 
 #[test]
@@ -751,6 +848,110 @@ fn runtime_checks_slice_summary_budget_before_evaluating_missing_fields() {
         .run_research(&panel, &plan)
         .unwrap_err();
     assert_eq!(failure, Error("RESEARCH_RESOURCE_BUDGET".into()));
+}
+
+#[test]
+fn factor_pair_rows_and_bindings_are_independent_of_target_presence() {
+    use onlyalpha_research_statistics::PairStatus;
+
+    let panel = panel(vec![
+        cohort(&[("close", &["1", "1", "4"]), ("volume", &["3", "1", "1"])]),
+        cohort(&[("close", &["2", "null", "4"]), ("volume", &["2", "2", "2"])]),
+        cohort(&[("close", &["3", "3", "4"]), ("volume", &["1", "null", "3"])]),
+    ]);
+    let definitions = [("a", "$close"), ("b", "$volume")];
+    let pairs = vec![("a".into(), "b".into())];
+    let only = ResearchPlan::for_factor_pairs(factors(&definitions), pairs.clone(), 2).unwrap();
+    let with_label = plan(&definitions, &[("today", "$close")], 2)
+        .unwrap()
+        .with_statistics(StatisticsPlan::new(vec![], pairs).unwrap())
+        .unwrap();
+    let runtime = crate::OnlyAlphaRuntime::new().unwrap();
+    let report = runtime.run_research(&panel, &only).unwrap();
+    let mixed = runtime.run_research(&panel, &with_label).unwrap();
+    let stats = report.factor_report();
+    assert!(report.targets().is_empty());
+    assert!(stats.targets().is_empty());
+    assert!(report.comparisons().is_empty());
+    assert_eq!(stats.factors(), mixed.factor_report().factors());
+    assert_eq!(stats.pairs(), mixed.factor_report().pairs());
+    assert_eq!(stats.pairs().len(), 1);
+    let pair = &stats.pairs()[0];
+    let rows = &pair.rows;
+    assert_eq!(rows[0].sample_count, 3);
+    assert_eq!(rows[0].status, PairStatus::Valid);
+    assert_eq!(rows[0].correlation, Some(d("-1")));
+    assert_eq!(rows[0].rank_correlation, Some(d("-1")));
+    assert_eq!(rows[1].sample_count, 1);
+    assert_eq!(rows[1].status, PairStatus::InsufficientObservations);
+    let constant_side = if stats.factors()[pair.first_index].name == "a" {
+        PairStatus::ZeroVarianceFirstFactor
+    } else {
+        PairStatus::ZeroVarianceSecondFactor
+    };
+    assert_eq!(rows[2].status, constant_side);
+    for row in &rows[1..] {
+        assert_eq!(
+            (row.correlation.as_ref(), row.rank_correlation.as_ref()),
+            (None, None)
+        );
+    }
+}
+
+#[test]
+fn factor_pair_only_plans_require_an_applicable_comparison() {
+    let definitions = factors(&[("a", "$close"), ("b", "$volume")]);
+    let pair = (String::from("a"), String::from("b"));
+    let make = |pairs| ResearchPlan::for_factor_pairs(definitions.clone(), pairs, 2);
+    for pairs in [vec![], vec![("a".into(), "unknown".into())]] {
+        assert_eq!(make(pairs).unwrap_err().0, "RESEARCH_PLAN_INVALID");
+    }
+    assert_eq!(
+        make(vec![pair.clone(), ("b".into(), "a".into())])
+            .unwrap_err()
+            .0,
+        "RESEARCH_FACTOR_PAIR"
+    );
+    let slice = TimeSlice {
+        start_ns: 0,
+        end_ns: 1,
+    };
+    let sliced = StatisticsPlan::new(vec![slice], vec![pair.clone()]).unwrap();
+    for statistics in [StatisticsPlan::default(), sliced] {
+        assert_eq!(
+            statistics.check_budget(3, 1, 0, 2, 0).unwrap_err().0,
+            "RESEARCH_PLAN_INVALID"
+        );
+        let failure = make(vec![pair.clone()])
+            .unwrap()
+            .with_statistics(statistics)
+            .unwrap_err();
+        assert_eq!(failure.0, "RESEARCH_PLAN_INVALID");
+    }
+    let aliases = factors(&[("a", "$close"), ("b", "$close")]);
+    let only = ResearchPlan::for_factor_pairs(aliases, vec![pair], 2).unwrap();
+    let runtime = crate::OnlyAlphaRuntime::new().unwrap();
+    let panel = panel(vec![cohort(&[("close", &["1"])])]);
+    assert_eq!(
+        runtime.run_research(&panel, &only).unwrap_err().0,
+        "RESEARCH_FACTOR_PAIR"
+    );
+}
+
+#[test]
+fn factor_pair_only_budget_rejects_excess_work_before_reading_columns() {
+    let panel = panel(vec![Cohort::from([("close".into(), vec![None; 256])])]);
+    let definitions = factors(&[
+        ("a", "Mean($volume, 100000)"),
+        ("b", "Mean($close, 100000)"),
+    ]);
+    let only =
+        ResearchPlan::for_factor_pairs(definitions, vec![("a".into(), "b".into())], 2).unwrap();
+    let runtime = crate::OnlyAlphaRuntime::new().unwrap();
+    assert_eq!(
+        runtime.run_research(&panel, &only).unwrap_err().0,
+        "RESEARCH_RESOURCE_BUDGET"
+    );
 }
 
 #[test]

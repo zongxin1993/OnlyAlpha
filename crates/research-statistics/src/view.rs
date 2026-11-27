@@ -106,6 +106,14 @@ fn effect(method: Method, stats: &SeriesStatistics) -> Value {
     })
 }
 
+fn missing_counts(counts: MissingCounts) -> Value {
+    json!({
+        "missing_factor_only": counts.missing_factor_only,
+        "missing_target_only": counts.missing_target_only,
+        "missing_both": counts.missing_both,
+    })
+}
+
 fn coverage(method: Method, coverage: &CoverageSummary) -> Value {
     let status = coverage.observation_status;
     json!({
@@ -174,6 +182,8 @@ impl FactorReport {
             "warmup":self.warmup,"minimum_observations":self.minimum_observations,
             "factor_target_comparison_count":self.comparisons.len(),"factor_pair_count":self.pairs.len(),
             "slice_count":self.slices.len(), "slice_plan_digest":self.slice_plan_digest,
+            "slice_policy":{"time_axis":"OBSERVATION_TIME","interval":"START_INCLUSIVE_END_EXCLUSIVE",
+                "target_values":"FROM_FULL_PANEL_BEFORE_SLICING"},
         })
     }
 
@@ -182,9 +192,11 @@ impl FactorReport {
         match reference {
             ComparisonRef::FactorTarget(index) => {
                 let result = self.comparisons.get(index).ok_or_else(unknown)?;
+                let mut target = subject(result.target_index, &self.targets[result.target_index]);
+                target["max_lookahead_steps"] = Value::Null;
                 Ok(json!({"kind":"FACTOR_TARGET","index":index,
                     "factor":subject(result.factor_index,&self.factors[result.factor_index]),
-                    "target":subject(result.target_index,&self.targets[result.target_index])}))
+                    "target":target}))
             }
             ComparisonRef::FactorPair(index) => {
                 let result = self.pairs.get(index).ok_or_else(unknown)?;
@@ -209,6 +221,7 @@ impl FactorReport {
                 json!({"comparison_ref":locator,
                     "ic":effect(Method::Ic,&result.ic_statistics),
                     "rank_ic":effect(Method::RankIc,&result.rank_ic_statistics),
+                    "missing_counts":missing_counts(result.coverage.missing_counts),
                     "ic_coverage":coverage(Method::Ic,&result.coverage),
                     "rank_ic_coverage":coverage(Method::RankIc,&result.coverage),
                     "stability":stability})
@@ -267,6 +280,7 @@ impl FactorReport {
             json!({"conditions":self.conditions_view(),"comparison_ref":locator,
             "slice_index":slice_index,"interval":interval(&slice.interval),
             "ic":effect(Method::Ic,&slice.ic),"rank_ic":effect(Method::RankIc,&slice.rank_ic),
+            "missing_counts":missing_counts(slice.coverage.missing_counts),
             "ic_coverage":coverage(Method::Ic,&slice.coverage),"rank_ic_coverage":coverage(Method::RankIc,&slice.coverage)}),
         )
     }
@@ -297,6 +311,7 @@ impl FactorReport {
                 ComparisonRef::FactorTarget(index) => {
                     let row = &self.comparisons[index].rows[i];
                     json!({"ts_event_ns":time,"sample_count":row.sample_count,"status":status_name(row.status),
+                        "missing_counts":missing_counts(row.missing_counts),
                         "ic":row.ic.as_ref().map(decimal_text),"rank_ic":row.rank_ic.as_ref().map(decimal_text)})
                 }
                 ComparisonRef::FactorPair(index) => {

@@ -108,6 +108,51 @@ fn series_must_match_frozen_axes_shape_and_expression_output() {
 }
 
 #[test]
+fn evaluate_requires_a_pair_and_rejects_slices_without_targets() {
+    let instruments = ["A.TEST".parse().unwrap()];
+    let timestamps = [OnlyTimestamp::from_unix_nanos(1.into())];
+    let axis = EvaluationAxis {
+        snapshot: A,
+        content_digest: B,
+        instruments: &instruments,
+        timestamps: &timestamps,
+        warmup: 0,
+    };
+    let values = [vec![Some(Decimal::from(1))]];
+    let factors = [("f", A), ("g", B)].map(|(name, fingerprint)| {
+        FactorSeriesRef(SeriesRef {
+            axis,
+            name,
+            fingerprint,
+            values: &values,
+        })
+    });
+    let input = || EvaluationInput {
+        axis,
+        factors: &factors,
+        targets: &[],
+        minimum_observations: 2,
+    };
+    let pairs = vec![("f".into(), "g".into())];
+    let valid = StatisticsPlan::new(vec![], pairs.clone()).unwrap();
+    assert_eq!(evaluate(input(), &valid).unwrap().pairs().len(), 1);
+    let sliced = StatisticsPlan::new(
+        vec![TimeSlice {
+            start_ns: 1,
+            end_ns: 2,
+        }],
+        pairs,
+    )
+    .unwrap();
+    for invalid in [StatisticsPlan::default(), sliced] {
+        assert_eq!(
+            evaluate(input(), &invalid).unwrap_err().0,
+            "RESEARCH_PLAN_INVALID"
+        );
+    }
+}
+
+#[test]
 fn factor_aliases_cannot_create_self_or_duplicate_pairs() {
     let binding = |name: &str, fingerprint: &str| SeriesBinding {
         name: name.into(),

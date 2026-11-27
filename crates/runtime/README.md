@@ -69,6 +69,10 @@ impl OnlyAlphaRuntime {
 4. 每行对同一时点的完整配对计算等权 Pearson IC 和精确平均秩的 RankIC，保留配对数和状态。配对不足、因子或标签零方差时返回有明确原因的空值。样本摘要只消费已输出的有效 Q12 值，样本标准差分母为 `n−1`，IR 为均值除以样本标准差，不年化。因子 DAG 使用注册表的 28 位政策；研究统计使用 38 位 Decimal 上下文，输出按 half-even 舍入到 Q12。[统计实现](../research-statistics/src/math.rs) · [统计定义](../../docs/adr/0082-research-target-statistics-evaluation-authority.md) · [摘要定义](../../docs/adr/0119-rich-research-statistics-authority-and-factor-quality-evidence-contract.md)
 5. `ResearchPlan::with_statistics` 附加按事件时间排列且互不重叠的半开分期，以及按因子名指定的比较对。`run_research` 在表达式求值前核算报告中比较与分期摘要的分配预算。`factor_report()` 提供只读类型化数据和 JSON 视图。`comparisons()` 与其中的因子对标签结果共用同一份数据。正式结果发布和 Qualification 准入各由所属模块负责。[统计计划](../research-statistics/src/plan.rs) · [报告视图](../research-statistics/src/view.rs)
 
+只比较因子时，调用 `ResearchPlan::for_factor_pairs(factors, pairs, minimum_observations)`，传入至少一对指定因子，再从 `factor_report().pairs()` 读取结果。分期适用于因子与标签的比较。各分期按因子观测时间归组，标签先在完整冻结面板上求值，因此期末观测可使用下一期行情。`ResearchReport::target_lookahead_steps()` 按标签声明顺序返回最大前视步数。`ResearchSeries::target_lookahead_steps(&TargetExpr)` 以指纹核对标签表达式，错配返回 `RESEARCH_STATISTICS_BINDING`。`ResearchReport` 的 `summary_view()`、`comparison_view()`、`slice_view()`、`detail_view()` 在各自的标签定位信息中输出对应步数。例如 `Lead($close, 1)` 使用同一标的的下一条观测，`$close` 的前视步数为 0。`factor_report()` 提供只基于矩阵的原始统计，其视图中该字段为 `null`。
+
+因子与标签的每行 `sample_count` 记录双方有值的标的数，`missing_counts` 分开记录仅因子缺值、仅标签缺值和双侧缺值。四项合计等于该时点面板标的数；覆盖摘要按样本期内的标的与时点累计。
+
 例如，在已有 `snapshot` 和同轴行情 `instruments` 上，用五期均价检验下一期简单收益，同时比较均价因子与成交量因子。面板每个标的均提供 `close`、`volume` 两列，至少包含 5 个时点。`start_ns` 和 `end_ns` 是调用方选定的样本区间，每行至少需要 3 个完整配对。
 
 ```rust
@@ -92,8 +96,8 @@ let plan = ResearchPlan::new(
 )?.with_statistics(statistics)?;
 let report = OnlyAlphaRuntime::new()?.run_research(&panel, &plan)?;
 let observations = &report.comparisons()[0].coverage;
-let factor_pair = report.factor_report().comparison_view(ComparisonRef::FactorPair(0))?;
-let slice = report.factor_report().slice_view(0, 0)?;
+let factor_pair = report.comparison_view(ComparisonRef::FactorPair(0))?;
+let slice = report.slice_view(0, 0)?;
 ```
 
 **主循环（[src/trading.rs](src/trading.rs)）**：

@@ -16,10 +16,18 @@ pub enum StatisticStatus {
     ZeroVariance,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MissingCounts {
+    pub missing_factor_only: usize,
+    pub missing_target_only: usize,
+    pub missing_both: usize,
+}
+
 /// IC 和 RankIC 共用一个完整配对集合，因而具有相同的可计算状态。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatisticRow {
     pub sample_count: usize,
+    pub missing_counts: MissingCounts,
     pub status: StatisticStatus,
     pub ic: Cell,
     pub rank_ic: Cell,
@@ -185,7 +193,11 @@ fn average_ranks(values: &[&Decimal]) -> Vec<Decimal> {
     ranks
 }
 
-pub(super) fn row(pairs: Vec<(&Decimal, &Decimal)>, minimum: usize) -> Result<StatisticRow, Error> {
+pub(super) fn row(
+    pairs: Vec<(&Decimal, &Decimal)>,
+    missing_counts: MissingCounts,
+    minimum: usize,
+) -> Result<StatisticRow, Error> {
     let sample_count = pairs.len();
     if minimum < 2 {
         return Err(error("RESEARCH_PLAN_INVALID"));
@@ -202,6 +214,7 @@ pub(super) fn row(pairs: Vec<(&Decimal, &Decimal)>, minimum: usize) -> Result<St
     if status != StatisticStatus::Valid {
         return Ok(StatisticRow {
             sample_count,
+            missing_counts,
             status,
             ic: None,
             rank_ic: None,
@@ -217,6 +230,7 @@ pub(super) fn row(pairs: Vec<(&Decimal, &Decimal)>, minimum: usize) -> Result<St
     let rank_ic = pearson(&ctx, average_ranks(&xs), average_ranks(&ys))?;
     Ok(StatisticRow {
         sample_count,
+        missing_counts,
         status,
         ic: Some(ic),
         rank_ic: Some(rank_ic),

@@ -6,6 +6,7 @@ use onlyalpha_operators::algebra::{Decimal, MAX_WINDOW_WORK};
 use onlyalpha_research_statistics::{
     EvaluationAxis, EvaluationInput, FactorSeriesRef, SeriesRef, TargetSeriesRef, evaluate,
 };
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "research_panel.rs"]
@@ -38,48 +39,72 @@ impl ResearchPlan {
         targets: Vec<(String, TargetExpr)>,
         minimum_observations: usize,
     ) -> Result<Self, Error> {
-        if factors.is_empty() || targets.is_empty() || minimum_observations < 2 {
-            return Err(error("RESEARCH_PLAN_INVALID"));
-        }
-        validate_names(&factors)?;
-        validate_names(&targets)?;
-        if targets.iter().any(|(_, target)| target.has_cross_section()) {
-            return Err(error("RESEARCH_TARGET_SHAPE"));
-        }
-        Ok(Self {
+        Self {
             factors,
             targets,
             minimum_observations,
             statistics: StatisticsPlan::default(),
-        })
+        }
+        .validate()
     }
 
-    pub fn with_statistics(mut self, statistics: StatisticsPlan) -> Result<Self, Error> {
-        let names: BTreeSet<_> = self.factors.iter().map(|(name, _)| name).collect();
-        if statistics
+    pub fn for_factor_pairs(
+        factors: Vec<(String, FactorExpr)>,
+        pairs: Vec<(String, String)>,
+        minimum_observations: usize,
+    ) -> Result<Self, Error> {
+        Self {
+            factors,
+            targets: Vec::new(),
+            minimum_observations,
+            statistics: StatisticsPlan::new(Vec::new(), pairs)?,
+        }
+        .validate()
+    }
+
+    pub fn with_statistics(self, statistics: StatisticsPlan) -> Result<Self, Error> {
+        Self { statistics, ..self }.validate()
+    }
+
+    fn validate(self) -> Result<Self, Error> {
+        self.statistics
+            .validate_series_counts(self.factors.len(), self.targets.len())?;
+        if self.minimum_observations < 2 {
+            return Err(error("RESEARCH_PLAN_INVALID"));
+        }
+        let names = validate_names(&self.factors)?;
+        validate_names(&self.targets)?;
+        if self
+            .targets
+            .iter()
+            .any(|(_, target)| target.has_cross_section())
+        {
+            return Err(error("RESEARCH_TARGET_SHAPE"));
+        }
+        if self
+            .statistics
             .pairs()
             .iter()
-            .any(|(a, b)| !names.contains(a) || !names.contains(b))
+            .any(|(a, b)| !names.contains(a.as_str()) || !names.contains(b.as_str()))
         {
             return Err(error("RESEARCH_PLAN_INVALID"));
         }
-        self.statistics = statistics;
         Ok(self)
     }
 }
 
-fn validate_names<T>(definitions: &[(String, T)]) -> Result<(), Error> {
+fn validate_names<T>(definitions: &[(String, T)]) -> Result<BTreeSet<&str>, Error> {
     let mut seen = BTreeSet::new();
     for (name, _) in definitions {
         if name.trim().is_empty()
             || name.trim() != name
             || name.chars().count() > 128
-            || !seen.insert(name)
+            || !seen.insert(name.as_str())
         {
             return Err(error("RESEARCH_DEFINITION_NAME"));
         }
     }
-    Ok(())
+    Ok(seen)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,6 +116,13 @@ pub struct ResearchSeries {
 }
 
 impl ResearchSeries {
+    pub fn target_lookahead_steps(&self, expression: &TargetExpr) -> Result<usize, Error> {
+        if self.fingerprint != expression.fingerprint() {
+            return Err(error("RESEARCH_STATISTICS_BINDING"));
+        }
+        Ok(expression.max_lookahead())
+    }
+
     fn as_ref<'a>(&'a self, axis: EvaluationAxis<'a>) -> SeriesRef<'a> {
         SeriesRef {
             axis,
@@ -105,6 +137,7 @@ impl ResearchSeries {
 pub struct ResearchReport {
     factors: Vec<ResearchSeries>,
     targets: Vec<ResearchSeries>,
+    target_lookahead_steps: Vec<usize>,
     factor_report: FactorReport,
 }
 
@@ -147,6 +180,58 @@ impl ResearchReport {
 
     pub fn factor_report(&self) -> &FactorReport {
         &self.factor_report
+    }
+
+    pub fn target_lookahead_steps(&self) -> &[usize] {
+        &self.target_lookahead_steps
+    }
+
+    fn set_target_lookahead(&self, reference: ComparisonRef, locator: &mut Value) {
+        if let ComparisonRef::FactorTarget(index) = reference {
+            let target = self.comparisons()[index].target_index;
+            locator["target"]["max_lookahead_steps"] = self.target_lookahead_steps[target].into();
+        }
+    }
+
+    pub fn summary_view(&self) -> Result<Value, Error> {
+        let mut view = self.factor_report.summary_view()?;
+        for index in 0..self.comparisons().len() {
+            self.set_target_lookahead(
+                ComparisonRef::FactorTarget(index),
+                &mut view["comparisons"][index]["comparison_ref"],
+            );
+        }
+        Ok(view)
+    }
+
+    pub fn comparison_view(&self, reference: ComparisonRef) -> Result<Value, Error> {
+        let mut view = self.factor_report.comparison_view(reference)?;
+        self.set_target_lookahead(reference, &mut view["comparison"]["comparison_ref"]);
+        Ok(view)
+    }
+
+    pub fn slice_view(&self, comparison_index: usize, slice_index: usize) -> Result<Value, Error> {
+        let mut view = self
+            .factor_report
+            .slice_view(comparison_index, slice_index)?;
+        self.set_target_lookahead(
+            ComparisonRef::FactorTarget(comparison_index),
+            &mut view["comparison_ref"],
+        );
+        Ok(view)
+    }
+
+    pub fn detail_view(
+        &self,
+        reference: ComparisonRef,
+        start_ns: i128,
+        end_ns: i128,
+    ) -> Result<Value, Error> {
+        let mut view = self
+            .factor_report
+            .detail_view(reference, start_ns, end_ns)?;
+        self.set_target_lookahead(reference, &mut view["comparison_ref"]);
+        Ok(view)
     }
 }
 
@@ -211,6 +296,11 @@ impl ResearchEngine {
             .iter()
             .map(|series| FactorSeriesRef(series.as_ref(axis)))
             .collect();
+        let target_lookahead_steps = targets
+            .iter()
+            .zip(&plan.targets)
+            .map(|(series, (_, expr))| series.target_lookahead_steps(expr))
+            .collect::<Result<Vec<_>, _>>()?;
         let target_refs: Vec<_> = targets
             .iter()
             .map(|series| TargetSeriesRef(series.as_ref(axis)))
@@ -225,6 +315,7 @@ impl ResearchEngine {
         Ok(ResearchReport {
             factors,
             targets,
+            target_lookahead_steps,
             factor_report,
         })
     }

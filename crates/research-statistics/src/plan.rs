@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 
 // 按结果中的数值槽位计费；空分期仍物化完整摘要，限额沿用矩阵的 MAX_CELLS。
 const SERIES_STATISTICS_CELLS: usize = 11;
-const COVERAGE_CELLS: usize = 10;
+const MISSING_COUNT_CELLS: usize = 3;
+const COVERAGE_CELLS: usize = 10 + MISSING_COUNT_CELLS;
 const SLICE_MEAN_CELLS: usize = 11;
 const FACTOR_PAIR_CELLS: usize = 2 * SERIES_STATISTICS_CELLS;
 const FACTOR_TARGET_CELLS: usize = FACTOR_PAIR_CELLS + COVERAGE_CELLS;
@@ -51,6 +52,13 @@ impl StatisticsPlan {
         &self.slices
     }
 
+    pub fn validate_series_counts(&self, factors: usize, targets: usize) -> Result<(), Error> {
+        if factors == 0 || (targets == 0 && (self.pairs.is_empty() || !self.slices.is_empty())) {
+            return Err(error("RESEARCH_PLAN_INVALID"));
+        }
+        Ok(())
+    }
+
     pub fn check_budget(
         &self,
         instruments: usize,
@@ -59,7 +67,8 @@ impl StatisticsPlan {
         factors: usize,
         targets: usize,
     ) -> Result<(), Error> {
-        if instruments == 0 || warmup >= periods || factors == 0 || targets == 0 {
+        self.validate_series_counts(factors, targets)?;
+        if instruments == 0 || warmup >= periods {
             return Err(error("RESEARCH_PLAN_INVALID"));
         }
         let comparisons = factors.saturating_mul(targets);
@@ -80,8 +89,14 @@ impl StatisticsPlan {
             .saturating_mul(FACTOR_TARGET_CELLS)
             .saturating_add(self.pairs.len().saturating_mul(FACTOR_PAIR_CELLS))
             .saturating_add(cross_slice_cells);
+        let missing_cells = comparisons
+            .saturating_mul(periods - warmup)
+            .saturating_mul(MISSING_COUNT_CELLS);
+        let row_cells = rows
+            .saturating_add(slice_results)
+            .saturating_add(missing_cells);
         if matrices > MAX_CELLS
-            || rows.saturating_add(slice_results) > MAX_CELLS
+            || row_cells > MAX_CELLS
             || rows.saturating_mul(instruments) > MAX_WINDOW_WORK
             || summary_cells > MAX_CELLS
         {

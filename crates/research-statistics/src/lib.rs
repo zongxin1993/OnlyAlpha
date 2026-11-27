@@ -8,7 +8,7 @@ mod view;
 pub use input::{
     EvaluationAxis, EvaluationInput, FactorSeriesRef, SeriesRef, TargetSeriesRef, column_digest,
 };
-pub use math::{SeriesStatistics, SignStatistics, StatisticRow, StatisticStatus};
+pub use math::{MissingCounts, SeriesStatistics, SignStatistics, StatisticRow, StatisticStatus};
 use onlyalpha_domain::{identifiers::OnlyInstrumentId, time::OnlyTimestamp};
 use onlyalpha_execution::Error;
 use onlyalpha_operators::algebra::Decimal;
@@ -118,18 +118,24 @@ impl FactorReport {
     }
 }
 
-fn compare(a: SeriesRef<'_>, b: SeriesRef<'_>, minimum: usize) -> Result<Vec<StatisticRow>, Error> {
-    (a.axis.warmup..a.axis.timestamps.len())
-        .map(|t| {
-            let pairs = a
-                .values
-                .iter()
-                .zip(b.values)
-                .filter_map(|(x, y)| x[t].as_ref().zip(y[t].as_ref()))
-                .collect();
-            math::row(pairs, minimum)
-        })
-        .collect()
+fn compare<'a>(
+    a: SeriesRef<'a>,
+    b: SeriesRef<'a>,
+    minimum: usize,
+) -> impl Iterator<Item = Result<StatisticRow, Error>> + 'a {
+    (a.axis.warmup..a.axis.timestamps.len()).map(move |t| {
+        let mut pairs = Vec::new();
+        let mut missing = MissingCounts::default();
+        for (first, second) in a.values.iter().zip(b.values) {
+            match (&first[t], &second[t]) {
+                (Some(x), Some(y)) => pairs.push((x, y)),
+                (None, Some(_)) => missing.missing_factor_only += 1,
+                (Some(_), None) => missing.missing_target_only += 1,
+                (None, None) => missing.missing_both += 1,
+            }
+        }
+        math::row(pairs, missing, minimum)
+    })
 }
 
 fn effects(rows: &[StatisticRow]) -> Result<(SeriesStatistics, SeriesStatistics), Error> {
@@ -178,7 +184,7 @@ pub fn evaluate(input: EvaluationInput<'_>, plan: &StatisticsPlan) -> Result<Fac
     let mut comparisons = Vec::with_capacity(factors.len() * targets.len());
     for (factor_index, factor) in input.factors.iter().enumerate() {
         for (target_index, target) in input.targets.iter().enumerate() {
-            let rows = compare(factor.0, target.0, minimum)?;
+            let rows = compare(factor.0, target.0, minimum).collect::<Result<Vec<_>, _>>()?;
             let (ic_statistics, rank_ic_statistics) = effects(&rows)?;
             let coverage = summary::coverage(&rows)?;
             let stability = if plan.slices().is_empty() {
@@ -207,15 +213,15 @@ pub fn evaluate(input: EvaluationInput<'_>, plan: &StatisticsPlan) -> Result<Fac
             input.factors[first_index].0,
             input.factors[second_index].0,
             minimum,
-        )?;
-        let (correlation, rank_correlation) = effects(&rows)?;
+        )
+        .map(|row| FactorPairRow::try_from(row?))
+        .collect::<Result<Vec<_>, Error>>()?;
+        let correlation = math::summarize(rows.iter().map(|r| r.correlation.clone()))?;
+        let rank_correlation = math::summarize(rows.iter().map(|r| r.rank_correlation.clone()))?;
         pairs.push(FactorPairComparison {
             first_index,
             second_index,
-            rows: rows
-                .into_iter()
-                .map(FactorPairRow::try_from)
-                .collect::<Result<_, _>>()?,
+            rows,
             correlation,
             rank_correlation,
         });

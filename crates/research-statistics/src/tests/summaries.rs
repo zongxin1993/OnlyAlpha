@@ -12,6 +12,7 @@ fn d(text: &str) -> Decimal {
 fn valid(ic: &str, rank_ic: &str) -> StatisticRow {
     StatisticRow {
         sample_count: 4,
+        missing_counts: MissingCounts::default(),
         status: Valid,
         ic: Some(d(ic)),
         rank_ic: Some(d(rank_ic)),
@@ -21,6 +22,7 @@ fn valid(ic: &str, rank_ic: &str) -> StatisticRow {
 fn invalid(status: StatisticStatus, sample_count: usize) -> StatisticRow {
     StatisticRow {
         sample_count,
+        missing_counts: MissingCounts::default(),
         status,
         ic: None,
         rank_ic: None,
@@ -176,17 +178,22 @@ fn last_timestamp_is_counted_only_by_the_slice_ending_at_max_plus_one() {
 #[test]
 fn summary_budget_counts_comparisons_factor_pairs_and_empty_slices_before_evaluation() {
     let plain = StatisticsPlan::default();
-    assert!(plain.check_budget(1, 1, 0, 125, 250).is_ok());
+    assert!(plain.check_budget(1, 1, 0, 28_571, 1).is_ok());
     assert_eq!(
-        plain.check_budget(1, 1, 0, 125, 251).unwrap_err().0,
+        plain.check_budget(1, 1, 0, 28_572, 1).unwrap_err().0,
         "RESEARCH_RESOURCE_BUDGET"
     );
     let paired = StatisticsPlan::new(vec![], vec![("a".into(), "b".into())]).unwrap();
     assert_eq!(
-        paired.check_budget(1, 1, 0, 125, 250).unwrap_err().0,
+        paired.check_budget(1, 1, 0, 28_571, 1).unwrap_err().0,
         "RESEARCH_RESOURCE_BUDGET"
     );
-    assert!(paired.check_budget(1, 1, 0, 125, 249).is_ok());
+    assert!(paired.check_budget(1, 1, 0, 28_570, 1).is_ok());
+    assert!(plain.check_budget(1, 250_000, 0, 1, 1).is_ok());
+    assert_eq!(
+        plain.check_budget(1, 250_001, 0, 1, 1).unwrap_err().0,
+        "RESEARCH_RESOURCE_BUDGET"
+    );
 
     let single_slice = StatisticsPlan::new(
         vec![TimeSlice {
@@ -196,9 +203,9 @@ fn summary_budget_counts_comparisons_factor_pairs_and_empty_slices_before_evalua
         vec![],
     )
     .unwrap();
-    assert!(single_slice.check_budget(1, 1, 0, 11_627, 1).is_ok());
+    assert!(single_slice.check_budget(1, 1, 0, 10_869, 1).is_ok());
     assert_eq!(
-        single_slice.check_budget(1, 1, 0, 11_628, 1).unwrap_err().0,
+        single_slice.check_budget(1, 1, 0, 10_870, 1).unwrap_err().0,
         "RESEARCH_RESOURCE_BUDGET"
     );
 

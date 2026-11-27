@@ -1,5 +1,6 @@
 use super::math::{
-    SeriesStatistics, SignStatistics, StatisticRow, StatisticStatus, ratio, summarize,
+    MissingCounts, SeriesStatistics, SignStatistics, StatisticRow, StatisticStatus, ratio,
+    summarize,
 };
 use super::{Cell, Error, error};
 use onlyalpha_domain::time::OnlyTimestamp;
@@ -18,6 +19,7 @@ pub struct CoverageSummary {
     pub zero_variance_feature_count: usize,
     pub zero_variance_target_count: usize,
     pub pair_count_total: usize,
+    pub missing_counts: MissingCounts,
     pub valid_timestamp_ratio: Cell,
     pub pair_count_mean: Cell,
     pub pair_count_min: Option<usize>,
@@ -58,6 +60,7 @@ pub(crate) fn coverage(rows: &[StatisticRow]) -> Result<CoverageSummary, Error> 
     let mut constant_feature = 0;
     let mut constant_target = 0;
     let mut pair_count_total = 0;
+    let mut missing_counts = MissingCounts::default();
     for row in rows {
         match row.status {
             StatisticStatus::Valid => valid += 1,
@@ -69,6 +72,9 @@ pub(crate) fn coverage(rows: &[StatisticRow]) -> Result<CoverageSummary, Error> 
             }
         }
         pair_count_total += row.sample_count;
+        missing_counts.missing_factor_only += row.missing_counts.missing_factor_only;
+        missing_counts.missing_target_only += row.missing_counts.missing_target_only;
+        missing_counts.missing_both += row.missing_counts.missing_both;
     }
     Ok(CoverageSummary {
         total_timestamp_count: rows.len(),
@@ -77,6 +83,7 @@ pub(crate) fn coverage(rows: &[StatisticRow]) -> Result<CoverageSummary, Error> 
         zero_variance_feature_count: constant_feature,
         zero_variance_target_count: constant_target,
         pair_count_total,
+        missing_counts,
         valid_timestamp_ratio: ratio(valid, rows.len())?,
         pair_count_mean: ratio(pair_count_total, rows.len())?,
         pair_count_min: rows.iter().map(|r| r.sample_count).min(),
