@@ -1425,7 +1425,7 @@ fn verify_orders_and_positions<'a>(
                         }
                     }
                 }
-                if marks.len() != accounts.len() || marks.values().any(|mark| mark == &0) {
+                if marks.len() != accounts.len() || marks.values().any(|mark| mark == 0) {
                     return Err(err("RESULT_FINITE_ACCOUNT_VALUATION"));
                 }
                 let mut books = Vec::with_capacity(accounts.len());
