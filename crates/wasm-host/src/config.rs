@@ -344,7 +344,7 @@ impl ResourceLimiter for SandboxState {
         if desired > self.budget.max_memory_bytes || next_total > self.budget.max_memory_bytes {
             self.pending_memory_delta = 0;
             self.memory_limit_exceeded = true;
-            return Ok(false);
+            return Err(wasmtime::Error::msg("host linear memory budget exceeded"));
         }
         self.pending_memory_delta = delta;
         self.tracked_memory_bytes = next_total;

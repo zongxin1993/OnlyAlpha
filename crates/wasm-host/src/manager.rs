@@ -63,7 +63,7 @@ impl LoadedEntry {
         match self {
             Self::ExtendedOperator(p) => &p.certificate().host_version,
             Self::MarketRule(p) => p.host_version(),
-            Self::Strategy(p) => p.host_version(),
+            Self::Strategy(p) => &p.binding().host_version,
         }
     }
 
@@ -124,9 +124,9 @@ impl WasmPluginManager {
             expected_sha256,
             budget,
         )?);
-        let unverified = UnverifiedExtendedOperator::load(compiled, budget)?;
+        let (unverified, metadata_fuel) = UnverifiedExtendedOperator::load(compiled, budget)?;
         let plugin_id = request.plugin_id.clone();
-        let certified = certify_extended_operator(unverified, request)?;
+        let certified = certify_extended_operator(unverified, request, metadata_fuel)?;
 
         let mut guard = self.plugins.write().map_err(|_| Error::LockPoisoned)?;
         if guard.contains_key(&plugin_id) {
@@ -177,10 +177,16 @@ impl WasmPluginManager {
         plugin_id: impl Into<String>,
         wasm_bytes: &[u8],
         expected_sha256: &str,
+        canonical_parameters: BTreeMap<String, String>,
         budget: Option<ResourceBudget>,
     ) -> Result<WasmStrategyPlugin> {
         let plugin_id = plugin_id.into();
-        validate_non_empty_id(&plugin_id, "plugin_id")?;
+        let binding = ArtifactBinding::new(
+            &plugin_id,
+            PluginKind::Strategy,
+            expected_sha256,
+            canonical_parameters,
+        )?;
         let budget = budget.unwrap_or(self.default_budget);
         self.ensure_slot_free(&plugin_id)?;
 
@@ -191,7 +197,7 @@ impl WasmPluginManager {
             expected_sha256,
             budget,
         )?);
-        let loaded = WasmStrategyPlugin::load(compiled, budget)?;
+        let loaded = WasmStrategyPlugin::load(compiled, binding, budget)?;
 
         let mut guard = self.plugins.write().map_err(|_| Error::LockPoisoned)?;
         if guard.contains_key(&plugin_id) {
@@ -279,23 +285,13 @@ impl WasmPluginManager {
         }
     }
 
-    /// Looks up a loaded strategy plugin, optionally enforcing an exact frozen artifact SHA-256.
-    pub fn get_strategy(
-        &self,
-        plugin_id: &str,
-        expected_sha256: Option<&str>,
-    ) -> Result<WasmStrategyPlugin> {
+    /// Looks up the strategy with the exact frozen execution binding.
+    pub fn get_strategy(&self, binding: &ArtifactBinding) -> Result<WasmStrategyPlugin> {
         let guard = self.plugins.read().map_err(|_| Error::LockPoisoned)?;
-        let entry = guard.get(plugin_id).ok_or_else(|| Error::PluginNotFound {
-            plugin_id: plugin_id.to_owned(),
-        })?;
-        match entry {
-            LoadedEntry::Strategy(strategy) => {
-                check_expected_sha(plugin_id, strategy.artifact_sha256(), expected_sha256)?;
-                Ok(strategy.clone())
-            }
+        match Self::verified_entry(&guard, binding)? {
+            LoadedEntry::Strategy(strategy) => Ok(strategy.clone()),
             other => Err(Error::BindingMismatch {
-                plugin_id: plugin_id.to_owned(),
+                plugin_id: binding.plugin_id.clone(),
                 detail: format!(
                     "expected STRATEGY, loaded plugin is {}",
                     other.kind().as_str()
@@ -308,6 +304,14 @@ impl WasmPluginManager {
     /// loaded plugin artifact, kind, WIT contract version, host version, and parameters.
     /// Rejects silent substitution with a newer version.
     pub fn verify_binding(&self, binding: &ArtifactBinding) -> Result<()> {
+        let guard = self.plugins.read().map_err(|_| Error::LockPoisoned)?;
+        Self::verified_entry(&guard, binding).map(|_| ())
+    }
+
+    fn verified_entry<'a>(
+        plugins: &'a BTreeMap<String, LoadedEntry>,
+        binding: &ArtifactBinding,
+    ) -> Result<&'a LoadedEntry> {
         if binding.wit_contract_version != WIT_CONTRACT_VERSION {
             return Err(Error::UnsupportedContractVersion {
                 expected: WIT_CONTRACT_VERSION.to_owned(),
@@ -320,8 +324,7 @@ impl WasmPluginManager {
                 actual: binding.host_version.clone(),
             });
         }
-        let guard = self.plugins.read().map_err(|_| Error::LockPoisoned)?;
-        let entry = guard
+        let entry = plugins
             .get(&binding.plugin_id)
             .ok_or_else(|| Error::PluginNotFound {
                 plugin_id: binding.plugin_id.clone(),
@@ -358,9 +361,17 @@ impl WasmPluginManager {
                     detail: "market-rule plugin bindings do not accept canonical_parameters".into(),
                 });
             }
+            LoadedEntry::Strategy(strategy)
+                if strategy.binding().canonical_parameters != binding.canonical_parameters =>
+            {
+                return Err(Error::BindingMismatch {
+                    plugin_id: binding.plugin_id.clone(),
+                    detail: "canonical_parameters mismatch against frozen strategy binding".into(),
+                });
+            }
             _ => {}
         }
-        Ok(())
+        Ok(entry)
     }
 
     pub fn list_loaded(&self) -> Result<Vec<LoadedPluginSummary>> {

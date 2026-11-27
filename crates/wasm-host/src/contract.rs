@@ -13,7 +13,7 @@ use std::fmt;
 /// Formal versioned WIT contract package identifier (`contracts/wasm/v1/onlyalpha-plugin.wit`).
 pub const WIT_CONTRACT_VERSION: &str = "onlyalpha:plugin@1.0.0";
 /// Canonical host runtime ABI contract identifier recorded in frozen bindings.
-pub const HOST_RUNTIME_VERSION: &str = "onlyalpha-wasm-host/1.0.0";
+pub const HOST_RUNTIME_VERSION: &str = "onlyalpha-wasm-host/2.0.0";
 /// Canonical numeric policy required for extended operator plugins.
 pub const NUMERIC_POLICY: &str = onlyalpha_operators::registry::NUMERIC_POLICY;
 /// Maximum significant decimal digits allowed across the WASM ABI (`DECIMAL28_HALF_EVEN_Q12_V1`).
@@ -62,10 +62,11 @@ impl PluginKind {
 
 /// Computes canonical lowercase 64-hex SHA-256 over raw bytes.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    digest_hex(&Sha256::digest(bytes))
+}
+
+pub(crate) fn digest_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Validates that a string is a canonical lowercase 64-character hexadecimal SHA-256 digest.
@@ -186,6 +187,7 @@ pub struct ReadyCertificate {
     pub canonical_parameters: BTreeMap<String, String>,
     pub certified_cases_count: usize,
     pub golden_cases_count: usize,
+    pub golden_evidence_sha256: String,
     pub vector_event_equivalent: bool,
     pub causal_prefixes_verified: bool,
     pub warmup_null_verified: bool,
@@ -203,6 +205,7 @@ impl ReadyCertificate {
         canonical_parameters: BTreeMap<String, String>,
         certified_cases_count: usize,
         golden_cases_count: usize,
+        golden_evidence_sha256: String,
     ) -> Self {
         let wit_contract_version = WIT_CONTRACT_VERSION.to_owned();
         let host_version = HOST_RUNTIME_VERSION.to_owned();
@@ -213,6 +216,7 @@ impl ReadyCertificate {
             "certified_cases_count": certified_cases_count,
             "deterministic_fuel_verified": true,
             "golden_cases_count": golden_cases_count,
+            "golden_evidence_sha256": golden_evidence_sha256,
             "host_version": host_version,
             "numeric_policy": metadata.numeric_policy,
             "operator_id": metadata.operator_id,
@@ -235,6 +239,7 @@ impl ReadyCertificate {
             canonical_parameters,
             certified_cases_count,
             golden_cases_count,
+            golden_evidence_sha256,
             vector_event_equivalent: true,
             causal_prefixes_verified: true,
             warmup_null_verified: true,

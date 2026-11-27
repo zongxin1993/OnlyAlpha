@@ -9,14 +9,16 @@
 //! 5. Deterministic snapshot capture, dirty-state overwrite restore, corrupt-snapshot Fail-Closed
 //!    rejection, and multi-step post-warmup suffix equivalence
 //! 6. Cross-instance determinism for BOTH `VectorKernel` and `EventKernel` (outputs & exact fuel)
-//! 7. Independent golden test vectors (including causality & snapshot restore when provided)
+//! 7. Independent golden test vectors with at least one verified numeric result
 //! 8. Strict cumulative certification fuel budget (`ResourceBudget::max_certification_fuel`)
 
 use crate::contract::{
-    Error, ReadyCertificate, Result, validate_canonical_parameters, validate_non_empty_id,
+    Error, ReadyCertificate, Result, digest_hex, format_host_decimal,
+    validate_canonical_parameters, validate_non_empty_id,
 };
 use crate::operator_plugin::{UnverifiedExtendedOperator, WasmExtendedOperator};
 use onlyalpha_operators::algebra::Decimal;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Independent numeric golden vector verified during extended-operator admission.
@@ -25,6 +27,29 @@ pub struct GoldenCase {
     pub name: String,
     pub columns: Vec<Vec<Option<Decimal>>>,
     pub expected: Vec<Option<Decimal>>,
+}
+
+impl GoldenCase {
+    fn update_digest(&self, digest: &mut Sha256) -> Result<()> {
+        digest.update((self.name.len() as u64).to_be_bytes());
+        digest.update(self.name.as_bytes());
+        digest.update((self.columns.len() as u64).to_be_bytes());
+        for series in self.columns.iter().chain(std::iter::once(&self.expected)) {
+            digest.update((series.len() as u64).to_be_bytes());
+            for cell in series {
+                match cell {
+                    Some(value) => {
+                        let decimal = format_host_decimal(value, "golden cell")?;
+                        digest.update([1]);
+                        digest.update((decimal.len() as u64).to_be_bytes());
+                        digest.update(decimal.as_bytes());
+                    }
+                    None => digest.update([0]),
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Admission certification request for one L3 WASM extended operator.
@@ -38,15 +63,13 @@ pub struct CertificationRequest {
 struct CertificationFuelBudget {
     total_limit: u64,
     remaining: u64,
-    per_call_cap: u64,
 }
 
 impl CertificationFuelBudget {
-    fn new(total_limit: u64, per_call_cap: u64) -> Self {
+    fn new(total_limit: u64) -> Self {
         Self {
             total_limit,
             remaining: total_limit,
-            per_call_cap,
         }
     }
 
@@ -60,7 +83,7 @@ impl CertificationFuelBudget {
                 ),
             ));
         }
-        Ok(self.remaining.min(self.per_call_cap))
+        Ok(self.remaining)
     }
 
     fn charge(&mut self, consumed: u64, stage: &'static str) -> Result<()> {
@@ -82,6 +105,7 @@ impl CertificationFuelBudget {
 pub(crate) fn certify_extended_operator(
     unverified: UnverifiedExtendedOperator,
     request: CertificationRequest,
+    metadata_fuel: u64,
 ) -> Result<WasmExtendedOperator> {
     validate_non_empty_id(&request.plugin_id, "plugin_id")?;
     validate_canonical_parameters(&request.canonical_parameters)?;
@@ -90,8 +114,14 @@ pub(crate) fn certify_extended_operator(
     let warmup = unverified.metadata().warmup as usize;
     let params = &request.canonical_parameters;
     let budget = unverified.budget();
-    let mut cert_fuel =
-        CertificationFuelBudget::new(budget.max_certification_fuel, budget.max_fuel_per_call);
+    let mut cert_fuel = CertificationFuelBudget::new(budget.max_certification_fuel);
+    cert_fuel.charge(metadata_fuel, "metadata")?;
+    if request.golden_cases.is_empty() {
+        return Err(cert_fail(
+            "golden",
+            "an independent numeric golden case is required".into(),
+        ));
+    }
 
     // Stage 1: Deterministic standard certification suites scaled to operator arity & warmup.
     let suites = build_standard_suites(arity, warmup);
@@ -133,18 +163,7 @@ pub(crate) fn certify_extended_operator(
             ));
         }
 
-        // Warmup invariant: indices strictly before `warmup - 1` must be None.
-        let required_leading_nulls = warmup.saturating_sub(1).min(len);
-        for idx in 0..required_leading_nulls {
-            if first_vec.value[idx].is_some() {
-                return Err(cert_fail(
-                    "warmup",
-                    format!(
-                        "{suite_name}: index {idx} produced non-null output before declared warmup {warmup}"
-                    ),
-                ));
-            }
-        }
+        verify_warmup(suite_name, warmup, &first_vec.value)?;
 
         // Non-triviality check on clean non-null series: a valid operator must emit at least
         // one non-null value once warmup is satisfied, rejecting always-None no-op stubs.
@@ -203,13 +222,16 @@ pub(crate) fn certify_extended_operator(
         }
     }
 
-    // Stage 7: Independent golden vectors (when supplied by caller), including causality & snapshot.
+    // Record only verified cases, preserving their declared order and column boundaries.
+    let mut evidence = Sha256::new();
+    let mut verified_numeric = false;
     for golden in &request.golden_cases {
         if golden.name.trim().is_empty() || golden.name.len() > 256 {
             return Err(Error::InvalidHostInput(
                 "golden case name must be non-empty and <= 256 bytes".into(),
             ));
         }
+        verify_warmup(&golden.name, warmup, &golden.expected)?;
         let limit = cert_fuel.next_call_limit("golden")?;
         let vec_out = unverified
             .evaluate_vector_with_fuel(&golden.columns, params, limit)
@@ -219,8 +241,8 @@ pub(crate) fn certify_extended_operator(
             return Err(cert_fail(
                 "golden",
                 format!(
-                    "{}: vector output {:?} != golden {:?}",
-                    golden.name, vec_out.value, golden.expected
+                    "{}: vector output differs from the independent expected values",
+                    golden.name
                 ),
             ));
         }
@@ -262,6 +284,14 @@ pub(crate) fn certify_extended_operator(
                 &mut cert_fuel,
             )?;
         }
+        verified_numeric |= golden.expected.iter().any(Option::is_some);
+        golden.update_digest(&mut evidence)?;
+    }
+    if !verified_numeric {
+        return Err(cert_fail(
+            "golden",
+            "independent golden cases must verify at least one numeric result".into(),
+        ));
     }
 
     let certificate = ReadyCertificate::issue(
@@ -271,9 +301,26 @@ pub(crate) fn certify_extended_operator(
         request.canonical_parameters.clone(),
         suites.len() + 2,
         request.golden_cases.len(),
+        digest_hex(&evidence.finalize()),
     );
 
     Ok(unverified.into_certified(request.canonical_parameters, certificate))
+}
+
+fn verify_warmup(suite_name: &str, warmup: usize, values: &[Option<Decimal>]) -> Result<()> {
+    if let Some(index) = values
+        .iter()
+        .take(warmup.saturating_sub(1))
+        .position(Option::is_some)
+    {
+        return Err(cert_fail(
+            "warmup",
+            format!(
+                "{suite_name}: index {index} has a non-null value before declared warmup {warmup}"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn verify_causality(
@@ -340,17 +387,7 @@ fn verify_empty_and_all_null(
         .map_err(|err| cert_fail("all_null_boundary", err.to_string()))?;
     cert_fuel.charge(null_vec.fuel_consumed, "all_null_boundary")?;
 
-    let required_leading_nulls = warmup.saturating_sub(1).min(null_len);
-    for idx in 0..required_leading_nulls {
-        if null_vec.value[idx].is_some() {
-            return Err(cert_fail(
-                "warmup",
-                format!(
-                    "all_null_boundary: index {idx} produced non-null output before declared warmup {warmup}"
-                ),
-            ));
-        }
-    }
+    verify_warmup("all_null_boundary", warmup, &null_vec.value)?;
 
     let null_evt = run_event_series(
         unverified,
@@ -612,16 +649,25 @@ fn verify_snapshot_restore(
                     .map_err(|err| cert_fail("snapshot_restore", format!("{suite_name}: {err}")))?;
                 cert_fuel.charge(init_fuel_bad, "snapshot_restore")?;
                 let bad_limit = cert_fuel.next_call_limit("snapshot_restore")?;
-                if bad_stream
-                    .restore_state_with_fuel(&bad_snapshot, bad_limit)
-                    .is_ok()
-                {
-                    return Err(cert_fail(
-                        "snapshot_restore",
-                        format!(
-                            "{suite_name} split={split}: restore-state silently accepted truncated/corrupt snapshot"
-                        ),
-                    ));
+                match bad_stream.restore_state_with_fuel(&bad_snapshot, bad_limit) {
+                    Err(Error::GuestError { .. }) => {
+                        cert_fuel
+                            .charge(bad_stream.consumed_call_fuel(bad_limit), "snapshot_restore")?;
+                    }
+                    Err(err) => {
+                        return Err(cert_fail(
+                            "snapshot_restore",
+                            format!("{suite_name}: {err}"),
+                        ));
+                    }
+                    Ok(_) => {
+                        return Err(cert_fail(
+                            "snapshot_restore",
+                            format!(
+                                "{suite_name} split={split}: restore-state silently accepted truncated/corrupt snapshot"
+                            ),
+                        ));
+                    }
                 }
                 if !bad_stream.is_poisoned() {
                     return Err(cert_fail(

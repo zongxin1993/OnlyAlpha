@@ -2,17 +2,16 @@
 
 use crate::config::ResourceBudget;
 use crate::contract::{
-    ArtifactBinding, CallOutcome, Error, HOST_RUNTIME_VERSION, PluginKind, Result,
-    STRATEGY_INTERFACE, StrategyMetadata, format_domain_decimal, order_side_from_wit_name,
-    order_type_from_wit_name, parse_guest_domain_decimal, time_in_force_from_wit_name,
-    validate_canonical_parameters,
+    ArtifactBinding, CallOutcome, Error, Result, STRATEGY_INTERFACE, StrategyMetadata,
+    format_domain_decimal, order_side_from_wit_name, order_type_from_wit_name,
+    parse_guest_domain_decimal, time_in_force_from_wit_name,
 };
 use crate::sandbox::{
     CompiledComponent, METADATA_CALL_LIFT_BYTES, SandboxInstance, encode_params, expect_enum,
     expect_list, expect_option, expect_record, expect_string, record_field, unwrap_plugin_result,
 };
 use onlyalpha_domain::strategy::{NamedFactor, OrderIntent, ReadonlyAccountState};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use wasmtime::component::Val;
 
@@ -21,11 +20,16 @@ use wasmtime::component::Val;
 pub struct WasmStrategyPlugin {
     compiled: Arc<CompiledComponent>,
     metadata: StrategyMetadata,
+    binding: ArtifactBinding,
     budget: ResourceBudget,
 }
 
 impl WasmStrategyPlugin {
-    pub(crate) fn load(compiled: Arc<CompiledComponent>, budget: ResourceBudget) -> Result<Self> {
+    pub(crate) fn load(
+        compiled: Arc<CompiledComponent>,
+        binding: ArtifactBinding,
+        budget: ResourceBudget,
+    ) -> Result<Self> {
         let mut instance = SandboxInstance::instantiate(Arc::clone(&compiled), budget)?;
         let (val, _) = instance.call_interface_func(
             STRATEGY_INTERFACE,
@@ -37,6 +41,7 @@ impl WasmStrategyPlugin {
         Ok(Self {
             compiled,
             metadata,
+            binding,
             budget,
         })
     }
@@ -49,17 +54,8 @@ impl WasmStrategyPlugin {
         self.compiled.artifact_sha256()
     }
 
-    pub fn binding(
-        &self,
-        plugin_id: impl Into<String>,
-        canonical_parameters: BTreeMap<String, String>,
-    ) -> Result<ArtifactBinding> {
-        ArtifactBinding::new(
-            plugin_id,
-            PluginKind::Strategy,
-            self.compiled.artifact_sha256().to_owned(),
-            canonical_parameters,
-        )
+    pub fn binding(&self) -> &ArtifactBinding {
+        &self.binding
     }
 
     /// Evaluates one market event in a fresh isolated store and returns validated order intents.
@@ -72,14 +68,12 @@ impl WasmStrategyPlugin {
         &self,
         factors: &[NamedFactor],
         readonly_state: &ReadonlyAccountState,
-        params: &BTreeMap<String, String>,
     ) -> Result<CallOutcome<Vec<OrderIntent>>> {
-        validate_canonical_parameters(params)?;
         validate_strategy_inputs(&self.metadata, factors)?;
 
         let encoded_factors = encode_factors(factors)?;
         let encoded_state = encode_readonly_state(readonly_state)?;
-        let encoded_params = encode_params(params);
+        let encoded_params = encode_params(&self.binding.canonical_parameters);
 
         let lift_limit = self
             .budget
@@ -108,10 +102,6 @@ impl WasmStrategyPlugin {
     pub(crate) fn strong_ref_count(&self) -> usize {
         Arc::strong_count(&self.compiled)
     }
-
-    pub(crate) fn host_version(&self) -> &'static str {
-        HOST_RUNTIME_VERSION
-    }
 }
 
 fn validate_strategy_inputs(metadata: &StrategyMetadata, factors: &[NamedFactor]) -> Result<()> {
@@ -125,12 +115,18 @@ fn validate_strategy_inputs(metadata: &StrategyMetadata, factors: &[NamedFactor]
         }
     }
     for required in &metadata.required_factors {
-        if !seen.contains(required.as_str()) {
+        if !seen.remove(required.as_str()) {
             return Err(Error::InvalidHostInput(format!(
                 "missing required bound factor '{required}' for strategy '{}'",
                 metadata.strategy_id
             )));
         }
+    }
+    if let Some(name) = seen.first() {
+        return Err(Error::InvalidHostInput(format!(
+            "undeclared factor '{name}' for strategy '{}'",
+            metadata.strategy_id
+        )));
     }
     Ok(())
 }

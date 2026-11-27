@@ -33,20 +33,28 @@ pub(crate) struct UnverifiedExtendedOperator {
 }
 
 impl UnverifiedExtendedOperator {
-    pub(crate) fn load(compiled: Arc<CompiledComponent>, budget: ResourceBudget) -> Result<Self> {
-        let mut instance = SandboxInstance::instantiate(Arc::clone(&compiled), budget)?;
-        let (val, _) = instance.call_interface_func(
+    pub(crate) fn load(
+        compiled: Arc<CompiledComponent>,
+        budget: ResourceBudget,
+    ) -> Result<(Self, u64)> {
+        let (_, startup_fuel, call) = SandboxInstance::instantiate_and_call(
+            Arc::clone(&compiled),
+            budget,
+            budget.max_certification_fuel,
             EXTENDED_OPERATOR_INTERFACE,
             "metadata",
             &[],
             METADATA_CALL_LIFT_BYTES,
         )?;
-        let metadata = decode_operator_metadata(&val)?;
-        Ok(Self {
-            compiled,
-            metadata,
-            budget,
-        })
+        let metadata = decode_operator_metadata(&call.value)?;
+        Ok((
+            Self {
+                compiled,
+                metadata,
+                budget,
+            },
+            startup_fuel + call.fuel_consumed,
+        ))
     }
 
     pub(crate) fn metadata(&self) -> &OperatorMetadata {
@@ -67,14 +75,16 @@ impl UnverifiedExtendedOperator {
         params: &BTreeMap<String, String>,
         fuel_limit: u64,
     ) -> Result<CallOutcome<Vec<Option<Decimal>>>> {
-        evaluate_vector_inner(
+        let (startup_fuel, mut outcome) = evaluate_vector_inner(
             &self.compiled,
             &self.metadata,
             self.budget,
             columns,
             params,
             fuel_limit,
-        )
+        )?;
+        outcome.fuel_consumed += startup_fuel;
+        Ok(outcome)
     }
 
     pub(crate) fn new_stream_with_fuel(
@@ -144,7 +154,7 @@ impl WasmExtendedOperator {
         }
     }
 
-    /// Executes the vectorized batch kernel inside a fresh bounded WASM store.
+    /// Returns the eval-vector export's fuel usage; store startup is metered separately.
     pub fn evaluate_vector(
         &self,
         columns: &[Vec<Option<Decimal>>],
@@ -155,8 +165,9 @@ impl WasmExtendedOperator {
             self.budget,
             columns,
             &self.canonical_parameters,
-            self.budget.max_fuel_per_call,
+            u64::MAX,
         )
+        .map(|(_, outcome)| outcome)
     }
 
     /// Creates a fresh isolated stateful incremental event stream for Backtest / SIM / LIVE.
@@ -167,7 +178,7 @@ impl WasmExtendedOperator {
             self.metadata.clone(),
             self.budget,
             &self.canonical_parameters,
-            self.budget.max_fuel_per_call,
+            u64::MAX,
         )?;
         Ok(stream)
     }
@@ -216,22 +227,23 @@ impl WasmOperatorStream {
         fuel_limit: u64,
     ) -> Result<(Self, u64)> {
         validate_canonical_parameters(params)?;
-        let mut instance = SandboxInstance::instantiate_with_fuel(compiled, budget, fuel_limit)?;
-        let (val, init_fuel) = instance.call_interface_func_with_limits(
+        let (instance, startup_fuel, call) = SandboxInstance::instantiate_and_call(
+            compiled,
+            budget,
+            fuel_limit,
             EXTENDED_OPERATOR_INTERFACE,
             "init-event",
             &[encode_params(params)],
             SMALL_CALL_LIFT_BYTES,
-            fuel_limit,
         )?;
-        unwrap_plugin_result(val, "extended-operator#init-event")?;
+        unwrap_plugin_result(call.value, "extended-operator#init-event")?;
         Ok((
             Self {
                 instance,
                 metadata,
                 poisoned: false,
             },
-            init_fuel,
+            startup_fuel + call.fuel_consumed,
         ))
     }
 
@@ -371,6 +383,10 @@ impl WasmOperatorStream {
         outcome
     }
 
+    pub(crate) fn consumed_call_fuel(&self, limit: u64) -> u64 {
+        self.instance.consumed_call_fuel(limit)
+    }
+
     pub fn live_memory_bytes(&self) -> usize {
         self.instance.live_memory_bytes()
     }
@@ -383,7 +399,7 @@ fn evaluate_vector_inner(
     columns: &[Vec<Option<Decimal>>],
     params: &BTreeMap<String, String>,
     fuel_limit: u64,
-) -> Result<CallOutcome<Vec<Option<Decimal>>>> {
+) -> Result<(u64, CallOutcome<Vec<Option<Decimal>>>)> {
     validate_canonical_parameters(params)?;
     if columns.len() != metadata.input_arity as usize {
         return Err(Error::InvalidHostInput(format!(
@@ -438,16 +454,16 @@ fn evaluate_vector_inner(
         .saturating_add(8 * 1024)
         .min(budget.max_host_lift_bytes);
 
-    let mut instance =
-        SandboxInstance::instantiate_with_fuel(Arc::clone(compiled), budget, fuel_limit)?;
-    let (val, fuel_consumed) = instance.call_interface_func_with_limits(
+    let (_, startup_fuel, call) = SandboxInstance::instantiate_and_call(
+        Arc::clone(compiled),
+        budget,
+        fuel_limit,
         EXTENDED_OPERATOR_INTERFACE,
         "eval-vector",
         &[encoded_columns, encode_params(params)],
         lift_limit,
-        fuel_limit,
     )?;
-    let ok_val = unwrap_plugin_result(val, "extended-operator#eval-vector")?
+    let ok_val = unwrap_plugin_result(call.value, "extended-operator#eval-vector")?
         .ok_or_else(|| Error::InvalidGuestOutput("eval-vector returned empty ok payload".into()))?;
     let fields = expect_record(&ok_val, "extended-operator#eval-vector")?;
     let values = expect_list(
@@ -467,10 +483,13 @@ fn evaluate_vector_inner(
             "extended-operator#eval-vector.values[]",
         )?);
     }
-    Ok(CallOutcome {
-        value: out,
-        fuel_consumed,
-    })
+    Ok((
+        startup_fuel,
+        CallOutcome {
+            value: out,
+            fuel_consumed: call.fuel_consumed,
+        },
+    ))
 }
 
 fn decode_operator_metadata(val: &Val) -> Result<OperatorMetadata> {

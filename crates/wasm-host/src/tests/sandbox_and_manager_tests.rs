@@ -13,6 +13,34 @@ use onlyalpha_operators::algebra::Decimal;
 use onlyalpha_operators::execution::VectorKernel;
 use std::collections::BTreeMap;
 
+#[test]
+fn linear_memory_growth_distinguishes_host_budget_from_module_maximum() {
+    use crate::config::{HostMetrics, SandboxState};
+    use std::sync::Arc;
+    use wasmtime::ResourceLimiter;
+
+    let page = crate::MIN_MEMORY_BYTES;
+    let budget = ResourceBudget {
+        max_memory_bytes: page,
+        ..ResourceBudget::default()
+    };
+    let metrics = Arc::new(HostMetrics::default());
+    let mut store = SandboxState::new(budget, Arc::clone(&metrics));
+    assert!(store.memory_growing(0, page, None).unwrap());
+    store
+        .memory_grow_failed(wasmtime::Error::msg("allocation failed"))
+        .unwrap();
+    assert_eq!(metrics.snapshot().live_linear_memory_bytes, 0);
+    assert!(store.memory_growing(0, page, None).unwrap());
+    assert!(!store.memory_growing(page, 2 * page, Some(page)).unwrap());
+    assert!(!store.memory_limit_exceeded());
+    assert!(store.memory_growing(page, 2 * page, None).is_err());
+    assert!(store.memory_limit_exceeded());
+    assert_eq!(metrics.snapshot().live_linear_memory_bytes, page);
+    drop(store);
+    assert_eq!(metrics.snapshot().live_linear_memory_bytes, 0);
+}
+
 fn dom(raw: &str) -> OnlyDecimal {
     raw.parse().unwrap()
 }
@@ -229,7 +257,9 @@ fn compile_operator_component(v: OperatorVariant) -> Vec<u8> {
   (component $iface_comp
     (core module $core
       (memory (export "memory") 1)
-      (global $heap (mut i32) (i32.const 4096))
+      (global $heap (mut i32) (i32.const 0))
+      (func $initialize_heap (global.set $heap (i32.const 4096)))
+      (start $initialize_heap)
 
       ;; Static strings
       (data (i32.const 0) "ext.lag1")
@@ -730,8 +760,13 @@ fn compile_strategy_component(emit_invalid_qty: bool, trap: bool) -> Vec<u8> {
           (i32.store offset=4 (local.get $intent) (i32.const 15))
           (i32.store8 offset=8 (local.get $intent) (i32.const 0))
           (i32.store8 offset=9 (local.get $intent) (i32.const 1))
-          (i32.store offset=12 (local.get $intent) (i32.const 128))
-          (i32.store offset=16 (local.get $intent) (i32.const {qty_len}))
+          (if (local.get $p_len)
+            (then
+              (i32.store offset=12 (local.get $intent) (i32.load offset=8 (local.get $p_ptr)))
+              (i32.store offset=16 (local.get $intent) (i32.load offset=12 (local.get $p_ptr))))
+            (else
+              (i32.store offset=12 (local.get $intent) (i32.const 128))
+              (i32.store offset=16 (local.get $intent) (i32.const {qty_len}))))
           (i32.store offset=20 (local.get $intent) (i32.const 1))
           (i32.store offset=24 (local.get $intent) (i32.const 160))
           (i32.store offset=28 (local.get $intent) (i32.const 8))
@@ -819,13 +854,8 @@ fn compile_strategy_component(emit_invalid_qty: bool, trap: bool) -> Vec<u8> {
     wat::parse_str(&wat).expect("valid component WAT for strategy fixture")
 }
 
-#[test]
-fn extended_operator_automatic_certification_vector_event_snapshot_and_hot_unload() {
-    let manager = WasmPluginManager::new(ResourceBudget::default()).expect("host init");
-    let wasm = compile_operator_component(OperatorVariant::default());
-    let sha = sha256_hex(&wasm);
-
-    let golden = GoldenCase {
+fn lag1_golden() -> GoldenCase {
+    GoldenCase {
         name: "lag1_independent_golden".into(),
         columns: vec![vec![
             Some(dec("10.5")),
@@ -834,7 +864,15 @@ fn extended_operator_automatic_certification_vector_event_snapshot_and_hot_unloa
             Some(dec("0")),
         ]],
         expected: vec![None, Some(dec("10.5")), None, Some(dec("-3.25"))],
-    };
+    }
+}
+
+#[test]
+fn extended_operator_automatic_certification_vector_event_snapshot_and_hot_unload() {
+    let manager = WasmPluginManager::new(ResourceBudget::default()).expect("host init");
+    let wasm = compile_operator_component(OperatorVariant::default());
+    let sha = sha256_hex(&wasm);
+    let golden = lag1_golden();
 
     let op = manager
         .load_extended_operator(
@@ -859,6 +897,10 @@ fn extended_operator_automatic_certification_vector_event_snapshot_and_hot_unloa
     assert!(cert.snapshot_restore_verified);
     assert!(cert.deterministic_fuel_verified);
     assert_eq!(cert.golden_cases_count, 1);
+    assert_eq!(
+        cert.golden_evidence_sha256,
+        "1b41e7d117ea7aef067905bdecb29736b405866e9dfefb670f6d57567d650187"
+    );
     assert_eq!(cert.certificate_digest.len(), 64);
 
     // VectorKernel trait implementation matches golden exactly.
@@ -917,6 +959,134 @@ fn extended_operator_automatic_certification_vector_event_snapshot_and_hot_unloa
 }
 
 #[test]
+fn admission_requires_independent_numeric_results_and_binds_their_content() {
+    let manager = WasmPluginManager::new(ResourceBudget::default()).unwrap();
+    let wasm = compile_operator_component(OperatorVariant::default());
+    let sha = sha256_hex(&wasm);
+    let load = |golden_cases| {
+        manager.load_extended_operator(
+            &wasm,
+            &sha,
+            CertificationRequest {
+                plugin_id: "op.numeric".into(),
+                golden_cases,
+                ..Default::default()
+            },
+            None,
+        )
+    };
+    let mut early = lag1_golden();
+    early.expected[0] = Some(dec("10.5"));
+    assert!(matches!(
+        load(vec![lag1_golden(), early]),
+        Err(Error::CertificationFailed { stage: "warmup", reason }) if reason.contains("index 0")
+    ));
+    assert!(manager.list_loaded().unwrap().is_empty());
+    let mut wrong = lag1_golden();
+    wrong.expected[1] = Some(dec("-1"));
+    assert!(matches!(
+        load(vec![wrong]),
+        Err(Error::CertificationFailed { stage: "golden", reason }) if reason.contains("differs from the independent expected values")
+    ));
+    assert!(manager.list_loaded().unwrap().is_empty());
+    for cases in [
+        vec![],
+        vec![GoldenCase {
+            name: "empty".into(),
+            columns: vec![vec![]],
+            expected: vec![],
+        }],
+        vec![GoldenCase {
+            name: "null".into(),
+            columns: vec![vec![None]],
+            expected: vec![None],
+        }],
+    ] {
+        assert!(matches!(
+            load(cases),
+            Err(Error::CertificationFailed {
+                stage: "golden",
+                ..
+            })
+        ));
+        assert!(manager.list_loaded().unwrap().is_empty());
+    }
+    let certificate = |golden| {
+        let cert = load(vec![golden]).unwrap().certificate().clone();
+        manager.unload("op.numeric").unwrap();
+        cert
+    };
+    let original = certificate(lag1_golden());
+    let mut equivalent = lag1_golden();
+    equivalent.expected[1] = Some(dec("10.500"));
+    assert_eq!(original, certificate(equivalent));
+    let mut changed = lag1_golden();
+    changed.columns[0][3] = Some(dec("42"));
+    let changed = certificate(changed);
+    assert_ne!(
+        original.golden_evidence_sha256,
+        changed.golden_evidence_sha256
+    );
+    assert_ne!(original.certificate_digest, changed.certificate_digest);
+}
+
+#[test]
+fn certification_fuel_limit_includes_every_store_start_and_expected_guest_rejection() {
+    let wasm = compile_operator_component(OperatorVariant::default());
+    let sha = sha256_hex(&wasm);
+    let load = |manager: &WasmPluginManager, budget| {
+        manager.load_extended_operator(
+            &wasm,
+            &sha,
+            CertificationRequest {
+                plugin_id: "op.metered".into(),
+                golden_cases: vec![lag1_golden()],
+                ..Default::default()
+            },
+            Some(budget),
+        )
+    };
+    let budget = ResourceBudget::default();
+    let manager = WasmPluginManager::new(budget).unwrap();
+    let operator = load(&manager, budget).unwrap();
+    let cost = manager.metrics().total_fuel_consumed;
+    let call = operator.evaluate_vector(&lag1_golden().columns).unwrap();
+    assert!(call.fuel_consumed > 0 && call.fuel_consumed <= budget.max_fuel_per_call);
+    assert!(manager.metrics().total_fuel_consumed - cost > call.fuel_consumed);
+
+    let exact = WasmPluginManager::new(budget).unwrap();
+    load(
+        &exact,
+        ResourceBudget {
+            max_certification_fuel: cost,
+            ..budget
+        },
+    )
+    .unwrap();
+    assert_eq!(exact.metrics().total_fuel_consumed, cost);
+
+    let short = WasmPluginManager::new(budget).unwrap();
+    let result = load(
+        &short,
+        ResourceBudget {
+            max_certification_fuel: cost - 1,
+            ..budget
+        },
+    );
+    assert!(
+        matches!(
+            result,
+            Err(Error::CertificationFailed { .. }) | Err(Error::FuelExhausted { .. })
+        ),
+        "cost={cost}, metered={}, error={:?}",
+        short.metrics().total_fuel_consumed,
+        result.err()
+    );
+    assert!(short.metrics().total_fuel_consumed < cost);
+    assert!(short.list_loaded().unwrap().is_empty());
+}
+
+#[test]
 fn admission_rejects_lookahead_vector_event_mismatch_broken_restore_and_warmup_violation() {
     let manager = WasmPluginManager::new(ResourceBudget::default()).expect("host init");
 
@@ -931,6 +1101,7 @@ fn admission_rejects_lookahead_vector_event_mismatch_broken_restore_and_warmup_v
             &sha256_hex(&lookahead),
             CertificationRequest {
                 plugin_id: "bad.lookahead".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             None,
@@ -957,6 +1128,7 @@ fn admission_rejects_lookahead_vector_event_mismatch_broken_restore_and_warmup_v
             &sha256_hex(&mismatched),
             CertificationRequest {
                 plugin_id: "bad.mismatch".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             None,
@@ -982,6 +1154,7 @@ fn admission_rejects_lookahead_vector_event_mismatch_broken_restore_and_warmup_v
             &sha256_hex(&broken_restore),
             CertificationRequest {
                 plugin_id: "bad.restore".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             None,
@@ -1007,6 +1180,7 @@ fn admission_rejects_lookahead_vector_event_mismatch_broken_restore_and_warmup_v
             &sha256_hex(&bad_warmup),
             CertificationRequest {
                 plugin_id: "bad.warmup".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             None,
@@ -1032,6 +1206,7 @@ fn admission_rejects_lookahead_vector_event_mismatch_broken_restore_and_warmup_v
             &sha256_hex(&huge_warmup),
             CertificationRequest {
                 plugin_id: "bad.huge_warmup".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             None,
@@ -1052,7 +1227,13 @@ fn sandbox_rejects_wasi_imports_wrong_wit_version_missing_export_and_sha256_tamp
     // 1. Forbidden WASI import rejected at load time.
     let wasi_wasm = compile_wasi_importing_component();
     let err = manager
-        .load_strategy("bad.wasi", &wasi_wasm, &sha256_hex(&wasi_wasm), None)
+        .load_strategy(
+            "bad.wasi",
+            &wasi_wasm,
+            &sha256_hex(&wasi_wasm),
+            BTreeMap::new(),
+            None,
+        )
         .err()
         .expect("WASI import must be forbidden");
     assert!(matches!(
@@ -1071,6 +1252,7 @@ fn sandbox_rejects_wasi_imports_wrong_wit_version_missing_export_and_sha256_tamp
             &sha256_hex(&wrong_ver),
             CertificationRequest {
                 plugin_id: "bad.version".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             None,
@@ -1090,6 +1272,7 @@ fn sandbox_rejects_wasi_imports_wrong_wit_version_missing_export_and_sha256_tamp
             &sha256_hex(&missing_fn),
             CertificationRequest {
                 plugin_id: "bad.missing_fn".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             None,
@@ -1107,6 +1290,7 @@ fn sandbox_rejects_wasi_imports_wrong_wit_version_missing_export_and_sha256_tamp
             &wrong_sha,
             CertificationRequest {
                 plugin_id: "bad.sha".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             None,
@@ -1133,6 +1317,7 @@ fn fuel_exhaustion_memory_limit_and_guest_traps_fail_closed_without_impacting_ho
             &sha256_hex(&healthy_wasm),
             CertificationRequest {
                 plugin_id: "healthy.lag1".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             Some(ResourceBudget::default()),
@@ -1177,6 +1362,7 @@ fn fuel_exhaustion_memory_limit_and_guest_traps_fail_closed_without_impacting_ho
             &sha256_hex(&oom_op_wasm),
             CertificationRequest {
                 plugin_id: "fault.oom_op".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             Some(tight_budget),
@@ -1199,6 +1385,7 @@ fn fuel_exhaustion_memory_limit_and_guest_traps_fail_closed_without_impacting_ho
             "fault.trap_strat",
             &trap_strat_wasm,
             &sha256_hex(&trap_strat_wasm),
+            BTreeMap::new(),
             Some(tight_budget),
         )
         .expect("load trapping strategy");
@@ -1207,7 +1394,6 @@ fn fuel_exhaustion_memory_limit_and_guest_traps_fail_closed_without_impacting_ho
         .on_event(
             &[NamedFactor::new("momentum_20", Some(dom("1.5"))).unwrap()],
             &state,
-            &BTreeMap::new(),
         )
         .expect_err("unreachable must trap");
     assert!(matches!(trap_err, Error::GuestTrap(_)));
@@ -1224,6 +1410,7 @@ fn fuel_exhaustion_memory_limit_and_guest_traps_fail_closed_without_impacting_ho
             &sha256_hex(&healthy_wasm),
             CertificationRequest {
                 plugin_id: "healthy.lag1_tight".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             Some(one_page_budget),
@@ -1334,11 +1521,24 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
     // Strategy plugin: emits OrderIntent when momentum_20 is Some, empty when None.
     let strat_wasm = compile_strategy_component(false, false);
     let strat_sha = sha256_hex(&strat_wasm);
+    let params = BTreeMap::from([("quantity".to_owned(), "13".to_owned())]);
     let strat_a = manager_a
-        .load_strategy("strat.momentum", &strat_wasm, &strat_sha, None)
+        .load_strategy(
+            "strat.momentum",
+            &strat_wasm,
+            &strat_sha,
+            params.clone(),
+            None,
+        )
         .expect("load strategy A");
     let strat_b = manager_b
-        .load_strategy("strat.momentum", &strat_wasm, &strat_sha, None)
+        .load_strategy(
+            "strat.momentum",
+            &strat_wasm,
+            &strat_sha,
+            params.clone(),
+            None,
+        )
         .expect("load strategy B");
     assert_eq!(strat_a.metadata().required_factors, vec!["momentum_20"]);
 
@@ -1354,10 +1554,10 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
 
     let active_factors = vec![NamedFactor::new("momentum_20", Some(dom("2.5"))).unwrap()];
     let strat_out_a = strat_a
-        .on_event(&active_factors, &account, &BTreeMap::new())
+        .on_event(&active_factors, &account)
         .expect("strategy A on_event");
     let strat_out_b = strat_b
-        .on_event(&active_factors, &account, &BTreeMap::new())
+        .on_event(&active_factors, &account)
         .expect("strategy B on_event");
     assert_eq!(
         strat_out_a, strat_out_b,
@@ -1370,24 +1570,31 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
     );
     assert_eq!(strat_out_a.value[0].side(), OnlyOrderSide::Buy);
     assert_eq!(strat_out_a.value[0].order_type(), OnlyOrderType::Limit);
-    assert_eq!(strat_out_a.value[0].quantity(), &dom("10"));
+    assert_eq!(strat_out_a.value[0].quantity(), &dom("13"));
     assert_eq!(strat_out_a.value[0].limit_price(), Some(&dom("50000.50")));
     assert_eq!(strat_out_a.value[0].time_in_force(), OnlyTimeInForce::Gtc);
     assert_eq!(strat_out_a.value[0].reason_code(), "SIGNAL_MOMENTUM_ENTRY");
 
     // Null factor produces zero intents cleanly.
     let null_out = strat_a
-        .on_event(
-            &[NamedFactor::new("momentum_20", None).unwrap()],
-            &account,
-            &BTreeMap::new(),
-        )
+        .on_event(&[NamedFactor::new("momentum_20", None).unwrap()], &account)
         .expect("null factor");
     assert!(null_out.value.is_empty());
 
     // Missing required factor rejected Fail-Closed before invoking guest.
     assert!(matches!(
-        strat_a.on_event(&[], &account, &BTreeMap::new()),
+        strat_a.on_event(&[], &account),
+        Err(Error::InvalidHostInput(_))
+    ));
+    let mut extra_factor = active_factors.clone();
+    extra_factor.push(NamedFactor::new("unbound", Some(dom("7"))).unwrap());
+    assert!(matches!(
+        strat_a.on_event(&extra_factor, &account),
+        Err(Error::InvalidHostInput(message)) if message.contains("undeclared factor 'unbound'")
+    ));
+    let duplicate = [active_factors[0].clone(), active_factors[0].clone()];
+    assert!(matches!(
+        strat_a.on_event(&duplicate, &account),
         Err(Error::InvalidHostInput(_))
     ));
 
@@ -1398,11 +1605,12 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
             "strat.bad_qty",
             &bad_strat_wasm,
             &sha256_hex(&bad_strat_wasm),
+            BTreeMap::new(),
             None,
         )
         .expect("load bad strategy");
     assert!(matches!(
-        bad_strat.on_event(&active_factors, &account, &BTreeMap::new()),
+        bad_strat.on_event(&active_factors, &account),
         Err(Error::InvalidGuestOutput(_))
     ));
 
@@ -1410,17 +1618,51 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
     let frozen_binding = ArtifactBinding::new(
         "strat.momentum",
         PluginKind::Strategy,
-        strat_sha,
-        BTreeMap::new(),
+        strat_sha.clone(),
+        params,
     )
     .expect("binding");
+    assert_eq!(strat_a.binding(), &frozen_binding);
     manager_a
         .verify_binding(&frozen_binding)
         .expect("frozen binding matches original");
-
+    let held = manager_a.get_strategy(&frozen_binding).unwrap();
     drop(strat_a);
     let unload_receipt = manager_a.unload("strat.momentum").expect("unload");
-    assert!(unload_receipt.reclaimed_immediately);
+    assert!(!unload_receipt.reclaimed_immediately);
+    let updated = manager_a
+        .load_strategy(
+            "strat.momentum",
+            &strat_wasm,
+            &strat_sha,
+            BTreeMap::from([("quantity".into(), "21".into())]),
+            None,
+        )
+        .unwrap();
+    assert!(matches!(
+        manager_a.verify_binding(&frozen_binding),
+        Err(Error::BindingMismatch { .. })
+    ));
+    assert!(matches!(
+        manager_a.get_strategy(&frozen_binding),
+        Err(Error::BindingMismatch { .. })
+    ));
+    let replay = manager_a.get_strategy(updated.binding()).unwrap();
+    assert_eq!(
+        replay.on_event(&active_factors, &account).unwrap().value[0].quantity(),
+        &dom("21")
+    );
+    assert_eq!(
+        held.on_event(&active_factors, &account).unwrap().value[0].quantity(),
+        &dom("13")
+    );
+    drop((held, updated, replay));
+    assert!(
+        manager_a
+            .unload("strat.momentum")
+            .unwrap()
+            .reclaimed_immediately
+    );
 
     // Hot-load a different binary under the same plugin_id: old frozen binding must be rejected!
     manager_a
@@ -1428,6 +1670,7 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
             "strat.momentum",
             &bad_strat_wasm,
             &sha256_hex(&bad_strat_wasm),
+            BTreeMap::new(),
             None,
         )
         .expect("reload different artifact");
@@ -1762,25 +2005,17 @@ fn hardening_enforces_static_abi_signatures_host_lift_budget_canonical_decimals_
         Err(Error::BindingMismatch { .. })
     ));
 
-    // 6. Strategy on_event rejects oversized canonical_parameters (> MAX_CANONICAL_PARAMETERS).
     let strat_wasm = compile_strategy_component(false, false);
-    let strat = manager
-        .load_strategy(
-            "strat.param_limit",
-            &strat_wasm,
-            &sha256_hex(&strat_wasm),
-            None,
-        )
-        .expect("load strategy");
     let too_many_params: BTreeMap<String, String> = (0..=crate::MAX_CANONICAL_PARAMETERS)
         .map(|i| (format!("k{i}"), "1".into()))
         .collect();
-    let account = snapshot(1_764_160_000_000_000_000, "1000", "1000", vec![]);
     assert!(matches!(
-        strat.on_event(
-            &[NamedFactor::new("momentum_20", None).unwrap()],
-            &account,
-            &too_many_params,
+        manager.load_strategy(
+            "strat.param_limit",
+            &strat_wasm,
+            &sha256_hex(&strat_wasm),
+            too_many_params,
+            None,
         ),
         Err(Error::InvalidHostInput(_))
     ));
@@ -1798,6 +2033,7 @@ fn hardening_enforces_static_abi_signatures_host_lift_budget_canonical_decimals_
             &sha256_hex(&healthy_wasm),
             CertificationRequest {
                 plugin_id: "op.cert_fuel_cap".into(),
+                golden_cases: vec![lag1_golden()],
                 ..Default::default()
             },
             Some(tiny_cert_budget),

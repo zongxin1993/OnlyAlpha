@@ -7,7 +7,7 @@
 
 use crate::config::{HostMetrics, ResourceBudget, SandboxState, WasmHostEngine};
 use crate::contract::{
-    Error, PluginKind, Result, WIT_CONTRACT_VERSION, is_valid_sha256_hex, sha256_hex,
+    CallOutcome, Error, PluginKind, Result, WIT_CONTRACT_VERSION, is_valid_sha256_hex, sha256_hex,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -16,6 +16,9 @@ use wasmtime::component::{
     types::{ComponentFunc, ComponentItem, Type},
 };
 use wasmtime::{Store, Trap};
+
+// Wasmtime's remaining fuel saturates at zero, so exact exhaustion needs a distinct reading.
+const FUEL_METER_RESERVE: u64 = 1;
 
 /// Maximum guest `plugin-error.code` byte length.
 pub(crate) const MAX_GUEST_ERROR_CODE_BYTES: usize = 128;
@@ -535,13 +538,42 @@ impl SandboxInstance {
         budget: ResourceBudget,
     ) -> Result<Self> {
         Self::instantiate_with_fuel(compiled, budget, budget.max_fuel_per_call)
+            .map(|(instance, _)| instance)
     }
 
-    pub(crate) fn instantiate_with_fuel(
+    pub(crate) fn instantiate_and_call(
+        compiled: Arc<CompiledComponent>,
+        budget: ResourceBudget,
+        remaining_fuel: u64,
+        interface: &str,
+        function: &str,
+        params: &[Val],
+        lift_limit: usize,
+    ) -> Result<(Self, u64, CallOutcome<Val>)> {
+        let (mut instance, startup_fuel) =
+            Self::instantiate_with_fuel(compiled, budget, remaining_fuel)?;
+        let (value, fuel_consumed) = instance.call_interface_func_with_limits(
+            interface,
+            function,
+            params,
+            lift_limit,
+            remaining_fuel - startup_fuel,
+        )?;
+        Ok((
+            instance,
+            startup_fuel,
+            CallOutcome {
+                value,
+                fuel_consumed,
+            },
+        ))
+    }
+
+    fn instantiate_with_fuel(
         compiled: Arc<CompiledComponent>,
         budget: ResourceBudget,
         fuel_limit: u64,
-    ) -> Result<Self> {
+    ) -> Result<(Self, u64)> {
         budget.validate()?;
         let effective_fuel = fuel_limit.min(budget.max_fuel_per_call);
         if effective_fuel == 0 {
@@ -554,37 +586,36 @@ impl SandboxInstance {
         store.set_max_component_handles(0);
         store.set_hostcall_fuel(SMALL_CALL_LIFT_BYTES.min(budget.max_host_lift_bytes));
         store
-            .set_fuel(effective_fuel)
+            .set_fuel(effective_fuel + FUEL_METER_RESERVE)
             .map_err(|err| Error::HostInitialization(err.to_string()))?;
 
         // Empty linker: zero WASI, zero host ambient capabilities.
         let linker: Linker<SandboxState> = Linker::new(compiled.engine().engine());
-        let instance = match linker.instantiate(&mut store, compiled.component()) {
-            Ok(instance) => instance,
-            Err(err) => {
-                let consumed = effective_fuel.saturating_sub(store.get_fuel().unwrap_or(0));
-                metrics.record_fuel(consumed);
-                return Err(classify_execution_error(
-                    &store,
-                    &metrics,
-                    budget,
-                    effective_fuel,
-                    SMALL_CALL_LIFT_BYTES.min(budget.max_host_lift_bytes),
-                    err,
-                ));
-            }
-        };
+        let result = linker.instantiate(&mut store, compiled.component());
+        let (instance, consumed) = finish_metered_execution(
+            result,
+            &store,
+            &metrics,
+            effective_fuel,
+            SMALL_CALL_LIFT_BYTES.min(budget.max_host_lift_bytes),
+        )?;
 
-        let remaining = store.get_fuel().unwrap_or(0);
-        let consumed = effective_fuel.saturating_sub(remaining);
-        metrics.record_fuel(consumed);
+        Ok((
+            Self {
+                store,
+                instance,
+                _compiled: compiled,
+                metrics,
+            },
+            consumed,
+        ))
+    }
 
-        Ok(Self {
-            store,
-            instance,
-            _compiled: compiled,
-            metrics,
-        })
+    pub(crate) fn consumed_call_fuel(&self, limit: u64) -> u64 {
+        metered_fuel_used(
+            limit.min(self.budget().max_fuel_per_call),
+            self.store.get_fuel().unwrap_or(0),
+        )
     }
 
     pub(crate) fn live_memory_bytes(&self) -> usize {
@@ -630,7 +661,7 @@ impl SandboxInstance {
         self.store.data_mut().reset_call_flags();
         self.store.set_hostcall_fuel(effective_lift_limit);
         self.store
-            .set_fuel(effective_fuel)
+            .set_fuel(effective_fuel + FUEL_METER_RESERVE)
             .map_err(|err| Error::HostInitialization(err.to_string()))?;
 
         let Some(iface_idx) = self
@@ -659,22 +690,14 @@ impl SandboxInstance {
         };
 
         let mut results = vec![Val::Bool(false)];
-        if let Err(err) = func.call(&mut self.store, params, &mut results) {
-            let consumed = effective_fuel.saturating_sub(self.store.get_fuel().unwrap_or(0));
-            self.metrics.record_fuel(consumed);
-            return Err(classify_execution_error(
-                &self.store,
-                &self.metrics,
-                budget,
-                effective_fuel,
-                effective_lift_limit,
-                err,
-            ));
-        }
-
-        let remaining = self.store.get_fuel().unwrap_or(0);
-        let consumed = effective_fuel.saturating_sub(remaining);
-        self.metrics.record_fuel(consumed);
+        let result = func.call(&mut self.store, params, &mut results);
+        let ((), consumed) = finish_metered_execution(
+            result,
+            &self.store,
+            &self.metrics,
+            effective_fuel,
+            effective_lift_limit,
+        )?;
 
         let value = results
             .into_iter()
@@ -682,6 +705,39 @@ impl SandboxInstance {
             .ok_or_else(|| Error::InvalidGuestOutput("missing return value".into()))?;
         Ok((value, consumed))
     }
+}
+
+fn metered_fuel_used(limit: u64, remaining: u64) -> u64 {
+    limit - remaining.saturating_sub(FUEL_METER_RESERVE)
+}
+
+fn finish_metered_execution<T>(
+    result: wasmtime::Result<T>,
+    store: &Store<SandboxState>,
+    metrics: &HostMetrics,
+    fuel_limit: u64,
+    lift_limit: usize,
+) -> Result<(T, u64)> {
+    let remaining = store
+        .get_fuel()
+        .map_err(|err| Error::HostInitialization(err.to_string()))?;
+    let consumed = metered_fuel_used(fuel_limit, remaining);
+    metrics.record_fuel(consumed);
+    let value = result.map_err(|err| {
+        classify_execution_error(
+            store,
+            metrics,
+            store.data().budget(),
+            fuel_limit,
+            lift_limit,
+            err,
+        )
+    })?;
+    if remaining < FUEL_METER_RESERVE {
+        metrics.record_trap_isolated();
+        return Err(Error::FuelExhausted { limit: fuel_limit });
+    }
+    Ok((value, consumed))
 }
 
 fn classify_execution_error(
