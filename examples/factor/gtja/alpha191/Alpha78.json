@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha78",
+  "expression": "(($high + $low + $close) / 3 - Mean(($high + $low + $close) / 3, 12)) / (0.015 * Mean(Abs($close - Mean(($high + $low + $close) / 3, 12)), 12))"
+}

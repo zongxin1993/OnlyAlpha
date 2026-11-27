@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha19",
+  "expression": "Where($close < Ref($close, 5), ($close - Ref($close, 5)) / Ref($close, 5), Where($close == Ref($close, 5), 0, ($close - Ref($close, 5)) / $close))"
+}

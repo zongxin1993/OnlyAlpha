@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha74",
+  "expression": "Rank(Corr(Sum($low * 0.35 + $vwap * 0.65, 20), Sum(Mean($volume, 40), 20), 7)) + Rank(Corr(Rank($vwap), Rank($volume), 6))"
+}

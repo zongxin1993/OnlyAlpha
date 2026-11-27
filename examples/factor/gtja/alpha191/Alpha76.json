@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha76",
+  "expression": "Std(Abs($close / Ref($close, 1) - 1) / $volume, 20) / Mean(Abs($close / Ref($close, 1) - 1) / $volume, 20)"
+}

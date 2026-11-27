@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha190",
+  "expression": "Log((Sum($close / Ref($close, 1) - 1 > Pow($close / Ref($close, 19), 1 / 20) - 1, 20) - 1) * Sum(Where($close / Ref($close, 1) - 1 < Pow($close / Ref($close, 19), 1 / 20) - 1, Pow($close / Ref($close, 1) - 1 - Pow($close / Ref($close, 19), 1 / 20) - 1, 2), 0), 20) / (Sum($close / Ref($close, 1) - 1 < Pow($close / Ref($close, 19), 1 / 20) - 1, 20) * Sum(Where($close / Ref($close, 1) - 1 > Pow($close / Ref($close, 19), 1 / 20) - 1, Pow($close / Ref($close, 1) - 1 - (Pow($close / Ref($close, 19), 1 / 20) - 1), 2), 0), 20)))"
+}

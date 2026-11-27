@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha67",
+  "expression": "SMA(Greater(0, $close - Ref($close, 1)), 24, 1) / SMA(Abs($close - Ref($close, 1)), 24, 1) * 100"
+}

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha22",
+  "expression": "SMA(($close - Mean($close, 6)) / Mean($close, 6) - Ref(($close - Mean($close, 6)) / Mean($close, 6), 3), 12, 1)"
+}

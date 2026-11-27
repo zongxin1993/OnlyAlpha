@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA084",
+  "expression": "Pow(TsRank($vwap - Max($vwap, 15), 20), Delta($close, 4))"
+}

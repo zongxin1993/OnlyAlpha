@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha10",
+  "expression": "Rank(Max(Pow(Where($close / Ref($close, 1) - 1 < 0, Std($close / Ref($close, 1) - 1, 20), $close), 2), 5))"
+}

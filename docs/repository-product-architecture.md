@@ -180,8 +180,9 @@ plugin or tool boundaries. Internal wheels may be build constituents; they are n
 Use one authoritative dependency description per actual installation closure; package metadata and deployment
 must agree. Do not resolve latest packages on startup or use the host venv/node_modules as container dependencies.
 
-Materialized immutable private Revisions are expression or WASM artifacts and enter the Runtime through the existing
-artifact, Catalog and Runtime Generation contracts. Changing a private factor need not rebuild backend. Changing bundled
+不可变因子版本以声明式表达式加载，策略版本可采用声明式规则或 WASM 工件。正式运行通过工件、Catalog 和 Runtime Generation 契约绑定所用版本。使用已注册算子的表达式可以在同一进程加载。
+
+Changing bundled
 plugin or executor content requires the owning release. No algorithm child may own backend Product stores, Commands,
 trading state or Generation selection.
 
@@ -206,8 +207,8 @@ declare a module migrated or authorize deletion by directory name.
 `capture_state`／`restore_state`）。每个算子必须通过独立数值 golden、`VectorKernel == EventKernel` 逐点等价、
 多前缀因果性、warmup／null 边界及检查点恢复后缀一致认证。
 
-`crates/indicators`、内置因子与私有因子只能组合已认证算子构建，不得各自维护手写滚动状态或私有数值逻辑。
-因子与 Research 评估标签以 Qlib 风格声明式表达式编写，解析为类型化算子 DAG 与紧凑指令流：`FactorExpr` 在编译期
+`crates/indicators` 与所有因子只能组合已认证算子构建，不得各自维护手写滚动状态或私有数值逻辑。
+因子与 Research 评估标签使用声明式因子表达式编写，解析为类型化算子 DAG 与紧凑指令流：`FactorExpr` 在编译期
 拒绝前视偏移 `Ref($x, n)`（`n < 0`）及账户、仓位、资金、成交等非确定输入，通用于 Research、Backtest、SIM、LIVE；
 `TargetExpr` 仅用于 Research 评估标签，禁止进入交易路径。不可变版本绑定规范化表达式、算子注册表版本、精确参数、
 数值规范与认证证书。
@@ -220,11 +221,11 @@ declare a module migrated or authorize deletion by directory name.
 当前实现状态：`crates/operators` 仍只包含少量流式算子，正式 Calculation 定义、实现清单与检查点适配位于
 `crates/calculation-bridge/src/native_operators.rs`，`crates/indicators` 中仍有指标自持手写状态，发行 Manifest `3`
 仍将内置算子 Provider 与原生实现清单绑定到同一个 `BACKEND_RUNTIME` ELF。旧受限 Python AST 因子接口见
-[factor-program.md](factor-program.md)，已列入 ADR 0152 清退范围，不再是目标契约。双内核算子注册表、Qlib 表达式与
+[factor-program.md](factor-program.md)，已列入 ADR 0152 清退范围，不再是目标契约。双内核算子注册表、声明式因子表达式与
 指标算子化按 ADR 0152 阶段 1 实施，完成前不得声称该架构已实现。
 
 ## Research／回测存储与信号边界演进
 
 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)及[有限作业契约](job-execution-contract.md)明确新框架：业务发布／控制／正式内容在PostgreSQL，K线实体在ClickHouse，有限作业未发布过程在内存；业务SQLite／文件Source退役。Runtime提供typed会话与纯持久化port，具体PostgreSQL接线属于Backend。原表中Runtime的store/replay职责不要求保留旧介质或逐Bar恢复。
 
-Research 与交易共用同一套 Qlib 因子定义与双内核算子语义：Research 以 `FactorExpr` 在冻结列式切片上向量化计算，Backtest／SIM／LIVE 以同一因子的 `EventKernel` 进入统一事件主循环，逐点结果一致。Research 不绑定策略修订或信号图；只读仓位、资金、风险和买卖意图属于后续交易环节。因子表达式解析、静态因果校验与数值执行均由 Rust 拥有，不再提供 Python 因子编写前端。开发阶段所有任务不提供历史代码、接口或开发数据兼容；不兼容开发状态直接成套删除并按当前契约初始化，不增加旧格式读取或迁移层。当前版本事实和恢复不变量仍须验证，不能用清空数据代替修复。实现与验证以当前源码和实际证据为准。
+Research 与交易共用同一套因子表达式定义与双内核算子语义：Research 以 `FactorExpr` 在冻结列式切片上向量化计算，Backtest／SIM／LIVE 以同一因子的 `EventKernel` 进入统一事件主循环，逐点结果一致。Research 不绑定策略修订或信号图；只读仓位、资金、风险和买卖意图属于后续交易环节。因子表达式解析、静态因果校验与数值执行均由 Rust 拥有，不再提供 Python 因子编写前端。开发阶段所有任务不提供历史代码、接口或开发数据兼容；不兼容开发状态直接成套删除并按当前契约初始化，不增加旧格式读取或迁移层。当前版本事实和恢复不变量仍须验证，不能用清空数据代替修复。实现与验证以当前源码和实际证据为准。

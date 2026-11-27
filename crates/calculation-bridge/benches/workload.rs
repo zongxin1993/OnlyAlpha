@@ -6,7 +6,7 @@ fn bench(c: &mut Criterion) {
     for name in ["rolling_mean", "delay"] {
         let op = OperatorCalculation::resolve(
             &format!("onlyalpha.operator.{name}"),
-            "2",
+            onlyalpha_calculation_bridge::native_operators::SEMANTIC_VERSION,
             &json!({"period":{"type":"INTEGER","value":20}}),
             &json!({"value":{"source":"bar.close","node_fingerprint":null,"output_name":"close"}}),
         )

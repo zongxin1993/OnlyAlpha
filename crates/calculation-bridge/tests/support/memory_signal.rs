@@ -36,7 +36,7 @@ pub fn parts() -> (Program, ProgramNodes) {
     let image = "f".repeat(64);
     let root = OperatorCalculation::resolve(
         "onlyalpha.operator.rolling_mean",
-        "2",
+        "3",
         &json!({"period":{"type":"INTEGER","value":2}}),
         &json!({"value":{"node_fingerprint":null,"output_name":"value","source":"bar.close"}}),
     )

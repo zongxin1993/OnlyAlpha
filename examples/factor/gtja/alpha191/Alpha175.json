@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha175",
+  "expression": "Mean(Greater(Greater($high - $low, Abs(Ref($close, 1) - $high)), Abs(Ref($close, 1) - $low)), 6)"
+}

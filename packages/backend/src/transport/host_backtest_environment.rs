@@ -4,6 +4,7 @@ use super::*;
 use crate::application::{
     backtest_preparation::BacktestOrigin, private_assets, private_strategy::Definition,
 };
+use onlyalpha_calculation_bridge::native_operators::SEMANTIC_VERSION;
 use std::collections::BTreeMap;
 use tracing::Instrument;
 const ENV_INVALID: &str = "BACKTEST_ENVIRONMENT_INPUT_MISMATCH";
@@ -80,7 +81,7 @@ fn explicit_factor_bindings(
                 .ok_or(ENV_INVALID)?;
             let period = parameters.get("period").ok_or(ENV_INVALID)?;
             if node["type_reference"]["kind"] != "INDICATOR"
-                || node["type_reference"]["semantic_version"] != "2"
+                || node["type_reference"]["semantic_version"] != SEMANTIC_VERSION
                 || inputs[0]["input_name"] != "value"
                 || period["kind"] != "FIXED"
                 || period["value"]["type"] != "INTEGER"
@@ -351,11 +352,9 @@ mod tests {
         let mut strategy = json!({"definition":definition});
         let bindings = explicit_factor_bindings(&strategy, &value["revision"]).unwrap();
         assert_eq!(bindings["close_lag_20"]["period"], 20);
-        assert_eq!(bindings["close_lag_20"]["semantic_version"], "2");
-        assert_eq!(bindings["volume_mean_20"]["semantic_version"], "2");
-        // Saved old/unknown references remain exact input records. Current
-        // native preparation rejects them instead of relabeling them as V2.
-        for version in [Value::Null, json!("1"), json!("3")] {
+        assert_eq!(bindings["close_lag_20"]["semantic_version"], "3");
+        assert_eq!(bindings["volume_mean_20"]["semantic_version"], "3");
+        for version in [Value::Null, json!("2"), json!("4")] {
             let mut historical = strategy.clone();
             for node in historical["definition"]["calculations"]
                 .as_array_mut()

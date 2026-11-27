@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha111",
+  "expression": "SMA($volume * ($close - $low - ($high - $close)) / ($high - $low), 11, 2) - SMA($volume * ($close - $low - ($high - $close)) / ($high - $low), 4, 2)"
+}

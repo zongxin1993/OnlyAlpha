@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha89",
+  "expression": "2 * (SMA($close, 13, 2) - SMA($close, 27, 2) - SMA(SMA($close, 13, 2) - SMA($close, 27, 2), 10, 2))"
+}

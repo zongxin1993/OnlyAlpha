@@ -36,9 +36,9 @@ pub mod product;
 #[path = "tests/program_tests.rs"]
 mod program_tests;
 
+pub mod factor_expr;
 pub mod program;
 mod program_execution;
-pub mod qlib;
 
 #[cfg(test)]
 #[path = "tests/program_execution_tests.rs"]

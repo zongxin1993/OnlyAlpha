@@ -1,14 +1,20 @@
-//! Decimal common algebra for native Operator semantics 2. No I/O, registration,
+//! Decimal common algebra for native operators. No I/O, registration,
 //! identity or Python boundary. Arithmetic uses precision 28 HALF_EVEN and q12
 //! public outputs. Every numeric zero is canonical positive zero, including
 //! signed-zero input spellings and negative results rounded to zero. This API
 //! does not preserve Python Decimal signed-zero representations.
 //! Cross-section columns describe one already bound event-time plane in canonical
 //! instrument order; the caller owns cohort membership and instrument identity.
+#[path = "power.rs"]
+mod power;
+#[path = "regression.rs"]
+mod regression;
+
 pub use bigdecimal::BigDecimal as Decimal;
 use bigdecimal::{RoundingMode, Zero};
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
+use std::collections::BTreeMap;
 use std::num::{NonZeroU64, NonZeroUsize};
 
 const PRECISION: u64 = 28;
@@ -29,7 +35,7 @@ pub enum Error {
     InvalidInputs,
     BudgetExceeded,
     NumericFailure,
-    ResearchOnly,
+    CrossSectionRequired,
     Interrupted,
 }
 impl std::fmt::Display for Error {
@@ -63,6 +69,11 @@ pub enum Operator {
     DecayLinear,
     Where,
     RollingSlope,
+    RollingRSquared,
+    RollingResidual,
+    RollingQuantile,
+    RollingArgMax,
+    RollingArgMin,
     EMA,
     RMA,
     CumSum,
@@ -71,12 +82,22 @@ pub enum Operator {
     CrossSectionZScore,
     CrossSectionDemean,
     CrossSectionCorrelation,
+    CrossSectionScale,
+    GroupDemean,
+    RollingProduct,
+    SMA,
+    Pow,
+    RegressionResidual3,
+    ConditionalBeta,
+    CumProductIf,
 }
 // Identity, arity, parameter and shape contract: see `crate::registry`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Parameters {
     pub period: Option<NonZeroUsize>,
+    pub weight: Option<NonZeroUsize>,
     pub factor: Option<Decimal>,
+    pub quantile: Option<Decimal>,
     pub lower_is_better: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +108,12 @@ pub struct Kernel {
 impl Kernel {
     pub fn new(operator: Operator, mut parameters: Parameters) -> Result<Self> {
         if operator.needs_period() != parameters.period.is_some()
+            || (operator == Operator::SMA) != parameters.weight.is_some()
+            || parameters
+                .period
+                .is_some_and(|p| p.get() < operator.minimum_period())
+            || parameters.weight > parameters.period
+            || (operator == Operator::RollingQuantile) != parameters.quantile.is_some()
             || (operator != Operator::Scale && parameters.factor.is_some())
             || (operator != Operator::CrossSectionPercentile && parameters.lower_is_better)
         {
@@ -100,6 +127,12 @@ impl Kernel {
         }
         if let Some(f) = &parameters.factor {
             validate(f)?;
+        }
+        if let Some(quantile) = &parameters.quantile {
+            validate(quantile)?;
+            if quantile < &Decimal::from(0) || quantile > &Decimal::from(1) {
+                return Err(Error::InvalidParameters);
+            }
         }
         Ok(Self {
             operator,
@@ -115,7 +148,10 @@ impl Kernel {
             .minimum_observations(self.parameters.period)
             .expect("validated period parameter")
     }
-    fn validate_columns(&self, columns: &[Vec<Cell>]) -> Result<usize> {
+    pub fn work_per_row(&self) -> usize {
+        self.history_limit() * self.operator.input_count()
+    }
+    pub(crate) fn validate_columns(&self, columns: &[Vec<Cell>]) -> Result<usize> {
         if columns.len() != self.operator.input_count() {
             return Err(Error::InvalidInputs);
         }
@@ -148,16 +184,13 @@ impl Kernel {
         }
         if let Some(mut recurrence) = RecurrenceState::new(self) {
             let mut out = Vec::with_capacity(n);
-            for cell in &columns[0] {
+            for (i, cell) in columns[0].iter().enumerate() {
                 check()?;
-                out.push(recurrence.step(cell)?);
+                out.push(recurrence.step(cell, columns.get(1).map(|c| &c[i]))?);
             }
             return Ok(out);
         }
-        if n.saturating_mul(self.history_limit())
-            .saturating_mul(columns.len())
-            > MAX_WINDOW_WORK
-        {
+        if n.saturating_mul(self.work_per_row()) > MAX_WINDOW_WORK {
             return Err(Error::BudgetExceeded);
         }
         (0..n)
@@ -171,7 +204,7 @@ impl Kernel {
         use Operator::*;
         let op = self.operator;
         let v = &c[0][i];
-        if matches!(op, Add | Subtract | Multiply | Divide) {
+        if matches!(op, Add | Subtract | Multiply | Divide | Pow) {
             let (Some(a), Some(b)) = (v.as_ref(), c[1][i].as_ref()) else {
                 return Ok(None);
             };
@@ -179,6 +212,7 @@ impl Kernel {
                 Add => add(a, b),
                 Subtract => sub(a, b),
                 Multiply => mul(a, b),
+                Pow => return power::power(a, b),
                 Divide => {
                     if b.is_zero() {
                         return Ok(None);
@@ -251,10 +285,18 @@ impl Kernel {
             return Ok(None);
         }
         let start = i + 1 - p;
+        match op {
+            RegressionResidual3 => return regression::regression_residual3(c, start..=i),
+            ConditionalBeta => return regression::conditional_beta(c, start..=i),
+            _ => {}
+        }
         if c.iter()
             .any(|col| col[start..=i].iter().any(Option::is_none))
         {
             return Ok(None);
+        }
+        if op == RollingCorrelation {
+            return pearson(&c[0][start..=i], &c[1][start..=i]);
         }
         let x: Vec<_> = c[0][start..=i]
             .iter()
@@ -262,11 +304,44 @@ impl Kernel {
             .collect();
         let result = match op {
             RollingSum => sum(&x),
-            RollingMean => mean(&x)?,
+            RollingProduct => {
+                if x.iter().any(|v| v.is_zero()) {
+                    Decimal::zero()
+                } else {
+                    let product = x.iter().fold(Decimal::from(1), |acc, v| mul(&acc, v));
+                    // A long product may have a huge exponent despite its bounded coefficient.
+                    let (_, scale) = product.as_bigint_and_exponent();
+                    match product.digits() as i64 - scale {
+                        17.. => return Err(Error::NumericFailure),
+                        ..=-13 => Decimal::zero(),
+                        _ => product,
+                    }
+                }
+            }
+            RollingMean => CenteredMean::new(&x)?.value(),
             RollingMin => (*x.iter().min().expect("nonempty window")).clone(),
             RollingMax => (*x.iter().max().expect("nonempty window")).clone(),
+            RollingArgMax | RollingArgMin => {
+                let mut first = 0;
+                for index in 1..p {
+                    if (op == RollingArgMax && x[index] > x[first])
+                        || (op == RollingArgMin && x[index] < x[first])
+                    {
+                        first = index;
+                    }
+                }
+                Decimal::from((first + 1) as u64)
+            }
+            RollingQuantile => rolling_quantile(
+                x,
+                self.parameters
+                    .quantile
+                    .as_ref()
+                    .expect("validated quantile"),
+            )?,
+            RollingRSquared | RollingResidual => return rolling_regression(&x, op),
             RollingVar | RollingStd => {
-                let var = variance(&x, &mean(&x)?)?;
+                let var = CenteredMean::new(&x)?.variance(&x)?;
                 if op == RollingStd { sqrt(&var)? } else { var }
             }
             TSRank => rank(&x, x[x.len() - 1])?,
@@ -293,36 +368,60 @@ impl Kernel {
                 }
                 div(&num, &den)?
             }
-            RollingCovariance | RollingCorrelation => {
+            RollingCovariance => {
                 let y: Vec<_> = c[1][start..=i]
                     .iter()
                     .map(|v| v.as_ref().expect("complete window"))
                     .collect();
-                let (mx, my) = (mean(&x)?, mean(&y)?);
-                let mut total = Decimal::from(0);
+                let (mx, my) = (CenteredMean::new(&x)?, CenteredMean::new(&y)?);
+                let mut total = Decimal::zero();
                 for (a, b) in x.iter().zip(&y) {
-                    total = add(&total, &mul(&sub(a, &mx), &sub(b, &my)));
+                    total = add(&total, &mul(&mx.deviation(a), &my.deviation(b)));
                 }
-                let cov = div(&total, &Decimal::from(p as u64))?;
-                if op == RollingCovariance {
-                    cov
-                } else {
-                    let (vx, vy) = (variance(&x, &mx)?, variance(&y, &my)?);
-                    if vx.is_zero() || vy.is_zero() {
-                        return Ok(None);
-                    }
-                    div(&cov, &sqrt(&mul(&vx, &vy))?)?
-                }
+                div(&total, &Decimal::from(p as u64))?
             }
             _ => return Err(Error::InvalidInputs),
         };
         q(result).map(Some)
     }
-    fn cross_section(&self, columns: &[Vec<Cell>]) -> Result<Vec<Cell>> {
+    pub(crate) fn cross_section(&self, columns: &[Vec<Cell>]) -> Result<Vec<Cell>> {
         if self.operator == Operator::CrossSectionCorrelation {
             return cross_section_correlation(&columns[0], &columns[1]);
         }
         let values = &columns[0];
+        if self.operator == Operator::GroupDemean {
+            let mut groups = BTreeMap::<&Decimal, Vec<&Decimal>>::new();
+            for (value, group) in values.iter().zip(&columns[1]) {
+                if let (Some(value), Some(group)) = (value, group) {
+                    groups.entry(group).or_default().push(value);
+                }
+            }
+            let means = groups
+                .into_iter()
+                .map(|(group, members)| Ok((group, CenteredMean::new(&members)?)))
+                .collect::<Result<BTreeMap<_, _>>>()?;
+            return values
+                .iter()
+                .zip(&columns[1])
+                .map(|(value, group)| match (value, group) {
+                    (Some(value), Some(group)) => q(means[group].deviation(value)).map(Some),
+                    _ => Ok(None),
+                })
+                .collect();
+        }
+        if self.operator == Operator::CrossSectionScale {
+            let norm = values
+                .iter()
+                .flatten()
+                .fold(Decimal::zero(), |acc, v| add(&acc, &v.abs()));
+            if norm.is_zero() {
+                return Ok(vec![None; values.len()]);
+            }
+            return values
+                .iter()
+                .map(|value| value.as_ref().map(|v| q(div(v, &norm)?)).transpose())
+                .collect();
+        }
         let eligible: Vec<_> = values.iter().flatten().collect();
         if eligible.is_empty() {
             return Ok(vec![None; values.len()]);
@@ -350,12 +449,12 @@ impl Kernel {
             op,
             Operator::CrossSectionDemean | Operator::CrossSectionZScore
         ) {
-            Some(mean(&eligible)?)
+            Some(CenteredMean::new(&eligible)?)
         } else {
             None
         };
         let std = if op == Operator::CrossSectionZScore {
-            let v = variance(&eligible, avg.as_ref().expect("mean"))?;
+            let v = avg.as_ref().expect("mean").variance(&eligible)?;
             if v.is_zero() {
                 return Ok(vec![None; values.len()]);
             }
@@ -376,9 +475,9 @@ impl Kernel {
                             r
                         }
                     }
-                    Operator::CrossSectionDemean => sub(v, avg.as_ref().expect("mean")),
+                    Operator::CrossSectionDemean => avg.as_ref().expect("mean").deviation(v),
                     Operator::CrossSectionZScore => div(
-                        &sub(v, avg.as_ref().expect("mean")),
+                        &avg.as_ref().expect("mean").deviation(v),
                         std.as_ref().expect("std"),
                     )?,
                     _ => return Err(Error::InvalidInputs),
@@ -395,43 +494,65 @@ impl Kernel {
 /// than two complete pairs, or a zero-variance side, yields no output at all
 /// rather than a misleading `0`.
 fn cross_section_correlation(xs: &[Cell], ys: &[Cell]) -> Result<Vec<Cell>> {
-    let mut x = Vec::new();
-    let mut y = Vec::new();
-    for (a, b) in xs.iter().zip(ys) {
-        if let (Some(a), Some(b)) = (a, b) {
-            x.push(a);
-            y.push(b);
-        }
-    }
-    let shared = if x.len() < 2 {
-        None
-    } else {
-        let (mx, my) = (mean(&x)?, mean(&y)?);
-        let mut total = Decimal::from(0);
-        for (a, b) in x.iter().zip(&y) {
-            total = add(&total, &mul(&sub(a, &mx), &sub(b, &my)));
-        }
-        let cov = div(&total, &Decimal::from(x.len() as u64))?;
-        let (vx, vy) = (variance(&x, &mx)?, variance(&y, &my)?);
-        if vx.is_zero() || vy.is_zero() {
-            None
-        } else {
-            Some(div(&cov, &sqrt(&mul(&vx, &vy))?)?)
-        }
-    };
-    xs.iter()
+    let coefficient = pearson(xs, ys)?;
+    Ok(xs
+        .iter()
         .zip(ys)
-        .map(|(a, b)| match (a, b, &shared) {
-            (Some(_), Some(_), Some(value)) => q(value.clone()).map(Some),
-            _ => Ok(None),
+        .map(|(x, y)| {
+            if x.is_some() && y.is_some() {
+                coefficient.clone()
+            } else {
+                None
+            }
         })
-        .collect()
+        .collect())
+}
+
+fn pearson(xs: &[Cell], ys: &[Cell]) -> Result<Cell> {
+    let pairs = xs
+        .iter()
+        .zip(ys)
+        .filter_map(|(x, y)| x.as_ref().zip(y.as_ref()));
+    let Some((origin_x, origin_y)) = pairs.clone().next() else {
+        return Ok(None);
+    };
+    // Translation preserves Pearson correlation and keeps small spreads visible at precision 28.
+    let offsets = pairs.map(|(x, y)| (sub(x, origin_x), sub(y, origin_y)));
+    let (mut sum_x, mut sum_y) = (Decimal::zero(), Decimal::zero());
+    let mut count = 0u64;
+    for (x, y) in offsets.clone() {
+        sum_x = add(&sum_x, &x);
+        sum_y = add(&sum_y, &y);
+        count += 1;
+    }
+    if count < 2 {
+        return Ok(None);
+    }
+    let count = Decimal::from(count);
+    let mean_x = div(&sum_x, &count)?;
+    let mean_y = div(&sum_y, &count)?;
+    let (mut xx, mut yy, mut xy) = (Decimal::zero(), Decimal::zero(), Decimal::zero());
+    for (x, y) in offsets {
+        let dx = sub(&x, &mean_x);
+        let dy = sub(&y, &mean_y);
+        xx = add(&xx, &mul(&dx, &dx));
+        yy = add(&yy, &mul(&dy, &dy));
+        xy = add(&xy, &mul(&dx, &dy));
+    }
+    if xx.is_zero() || yy.is_zero() {
+        return Ok(None);
+    }
+    q(div(&xy, &sqrt(&mul(&xx, &yy))?)?).map(Some)
 }
 
 #[derive(Clone, Debug)]
 enum RecurrenceState {
-    Ema {
-        period: usize,
+    WeightedMean {
+        denominator: usize,
+        weight: usize,
+        prior: Option<Decimal>,
+    },
+    CumProductIf {
         prior: Option<Decimal>,
     },
     Rma {
@@ -447,10 +568,19 @@ enum RecurrenceState {
 impl RecurrenceState {
     fn new(kernel: &Kernel) -> Option<Self> {
         match kernel.operator {
-            Operator::EMA => Some(Self::Ema {
-                period: kernel.parameters.period.expect("validated period").get(),
-                prior: None,
-            }),
+            Operator::EMA | Operator::SMA => {
+                let period = kernel.parameters.period.expect("validated period").get();
+                let (denominator, weight) = match kernel.parameters.weight {
+                    Some(weight) => (period, weight.get()),
+                    None => (period + 1, 2),
+                };
+                Some(Self::WeightedMean {
+                    denominator,
+                    weight,
+                    prior: None,
+                })
+            }
+            Operator::CumProductIf => Some(Self::CumProductIf { prior: None }),
             Operator::RMA => Some(Self::Rma {
                 period: kernel.parameters.period.expect("validated period").get(),
                 seed: Vec::new(),
@@ -461,20 +591,37 @@ impl RecurrenceState {
         }
     }
 
-    fn step(&mut self, value: &Cell) -> Result<Cell> {
+    fn step(&mut self, value: &Cell, condition: Option<&Cell>) -> Result<Cell> {
         let Some(x) = value.as_ref() else {
             return Ok(None);
         };
         match self {
-            Self::Ema { period, prior } => {
+            Self::CumProductIf { prior } => {
+                let Some(condition) = condition.and_then(Option::as_ref) else {
+                    return Ok(None);
+                };
+                let mut next = prior.clone().unwrap_or_else(|| Decimal::from(1));
+                if condition == &Decimal::from(1) {
+                    next = mul(&next, x);
+                }
+                let next = next.normalized();
+                let out = product_output(&next)?;
+                *prior = Some(next);
+                Ok(Some(out))
+            }
+            Self::WeightedMean {
+                denominator,
+                weight,
+                prior,
+            } => {
                 let next = match prior {
                     None => round(x.clone()),
                     Some(prev) => {
                         let num = add(
-                            &mul(prev, &Decimal::from((*period - 1) as u64)),
-                            &mul(&Decimal::from(2), x),
+                            &mul(prev, &Decimal::from((*denominator - *weight) as u64)),
+                            &mul(&Decimal::from(*weight as u64), x),
                         );
-                        div(&num, &Decimal::from((*period + 1) as u64))?
+                        div(&num, &Decimal::from(*denominator as u64))?
                     }
                 };
                 let out = q(next.clone())?;
@@ -522,7 +669,8 @@ impl RecurrenceState {
 
     fn to_columns(&self) -> Columns {
         match self {
-            Self::Ema { prior, .. } | Self::CumSum { total: prior } => match prior {
+            Self::CumProductIf { prior } => vec![prior.iter().cloned().map(Some).collect(), vec![]],
+            Self::WeightedMean { prior, .. } | Self::CumSum { total: prior } => match prior {
                 None => vec![Vec::new()],
                 Some(v) => vec![vec![Some(v.clone())]],
             },
@@ -542,7 +690,11 @@ impl RecurrenceState {
     }
 
     fn from_columns(kernel: &Kernel, candidate: &Columns) -> Result<Self> {
-        if candidate.len() != 1 {
+        if candidate.len() != kernel.operator.input_count()
+            || candidate
+                .get(1)
+                .is_some_and(|conditions| !conditions.is_empty())
+        {
             return Err(Error::InvalidInputs);
         }
         let col = &candidate[0];
@@ -553,33 +705,29 @@ impl RecurrenceState {
             validate(cell)?;
         }
         match kernel.operator {
-            Operator::EMA => {
-                let period = kernel.parameters.period.expect("validated period").get();
-                match col.as_slice() {
-                    [] => Ok(Self::Ema {
-                        period,
-                        prior: None,
-                    }),
+            Operator::EMA | Operator::SMA | Operator::CumProductIf | Operator::CumSum => {
+                let restored = match col.as_slice() {
+                    [] => None,
                     [Some(v)] => {
-                        validate_recurrence_prior(v)?;
-                        Ok(Self::Ema {
-                            period,
-                            prior: Some(v.clone()),
-                        })
+                        if kernel.operator == Operator::CumProductIf {
+                            product_output(v)?;
+                        } else {
+                            validate_recurrence_prior(v)?;
+                        }
+                        Some(v.clone())
                     }
-                    _ => Err(Error::InvalidInputs),
+                    _ => return Err(Error::InvalidInputs),
+                };
+                let mut state = Self::new(kernel).expect("recursive operator");
+                match &mut state {
+                    Self::WeightedMean { prior, .. } | Self::CumProductIf { prior } => {
+                        *prior = restored
+                    }
+                    Self::CumSum { total } => *total = restored,
+                    Self::Rma { .. } => unreachable!(),
                 }
+                Ok(state)
             }
-            Operator::CumSum => match col.as_slice() {
-                [] => Ok(Self::CumSum { total: None }),
-                [Some(v)] => {
-                    validate_recurrence_prior(v)?;
-                    Ok(Self::CumSum {
-                        total: Some(v.clone()),
-                    })
-                }
-                _ => Err(Error::InvalidInputs),
-            },
             Operator::RMA => {
                 let period = kernel.parameters.period.expect("validated period").get();
                 match col.as_slice() {
@@ -624,7 +772,9 @@ impl RecurrenceState {
 
     fn validate_step_count(&self, step_count: u64) -> Result<()> {
         match self {
-            Self::Ema { prior, .. } | Self::CumSum { total: prior } => {
+            Self::WeightedMean { prior, .. }
+            | Self::CumProductIf { prior }
+            | Self::CumSum { total: prior } => {
                 if prior.is_some() && step_count == 0 {
                     Err(Error::InvalidInputs)
                 } else {
@@ -660,7 +810,7 @@ pub struct Stream {
 impl Stream {
     pub fn new(kernel: Kernel) -> Result<Self> {
         if kernel.operator.is_cross_section() {
-            return Err(Error::ResearchOnly);
+            return Err(Error::CrossSectionRequired);
         }
         let recurrence = RecurrenceState::new(&kernel);
         let columns = vec![Vec::new(); kernel.operator.input_count()];
@@ -712,7 +862,7 @@ impl Stream {
         }
         if let Some(recurrence) = &self.recurrence {
             let mut candidate = recurrence.clone();
-            let result = candidate.step(&values[0])?;
+            let result = candidate.step(&values[0], values.get(1))?;
             self.recurrence = Some(candidate);
             return Ok(result);
         }
@@ -743,6 +893,14 @@ fn bound_recurrence_state(value: Decimal) -> Decimal {
         clamped.normalized()
     }
 }
+fn product_output(value: &Decimal) -> Result<Decimal> {
+    validate(value)?;
+    if value.digits() > PRECISION {
+        return Err(Error::InvalidInputs);
+    }
+    q(value.clone())
+}
+
 fn validate_recurrence_prior(value: &Decimal) -> Result<()> {
     let (_, scale) = value.as_bigint_and_exponent();
     if value.digits() > PRECISION || scale > MAX_RECURRENCE_SCALE {
@@ -860,13 +1018,100 @@ fn sum(values: &[&Decimal]) -> Decimal {
 fn mean(values: &[&Decimal]) -> Result<Decimal> {
     div(&sum(values), &Decimal::from(values.len() as u64))
 }
-fn variance(values: &[&Decimal], mean: &Decimal) -> Result<Decimal> {
-    let mut total = Decimal::from(0);
-    for v in values {
-        let delta = sub(v, mean);
-        total = add(&total, &mul(&delta, &delta));
+fn rolling_quantile(mut values: Vec<&Decimal>, quantile: &Decimal) -> Result<Decimal> {
+    use bigdecimal::ToPrimitive;
+
+    let position = quantile * Decimal::from((values.len() - 1) as u64);
+    let index = position.to_usize().ok_or(Error::NumericFailure)?;
+    let fraction = position - Decimal::from(index as u64);
+    let (_, lower, above) = values.select_nth_unstable(index);
+    if fraction.is_zero() {
+        return Ok(round((**lower).clone()));
     }
-    div(&total, &Decimal::from(values.len() as u64))
+    let upper = *above
+        .iter()
+        .min()
+        .expect("fractional position has a successor");
+    let offset = mul(&sub(upper, *lower), &fraction);
+    Ok(add(*lower, &offset))
+}
+
+fn rolling_regression(values: &[&Decimal], operator: Operator) -> Result<Cell> {
+    let n = values.len() as u64;
+    if n == 1 {
+        return Ok(None);
+    }
+    let base = values[0];
+    let mut sum_y = Decimal::zero();
+    let mut sum_y_squared = Decimal::zero();
+    let mut sum_ty = Decimal::zero();
+    // Twice the centered time index keeps the normal equations exact and integral.
+    for (i, &value) in values.iter().enumerate() {
+        let y = value - base;
+        let t = Decimal::from(2 * i as i64 - (n as i64 - 1));
+        sum_ty += t * &y;
+        if operator == Operator::RollingRSquared {
+            sum_y_squared += &y * &y;
+        }
+        sum_y += y;
+    }
+    let sum_t_squared = Decimal::from(n * (n * n - 1) / 3);
+    let count = Decimal::from(n);
+    let result = if operator == Operator::RollingRSquared {
+        let variance_numerator = &count * sum_y_squared - &sum_y * &sum_y;
+        if variance_numerator.is_zero() {
+            return Ok(None);
+        }
+        div(
+            &(&count * &sum_ty * &sum_ty),
+            &(sum_t_squared * variance_numerator),
+        )?
+    } else {
+        let last = values[values.len() - 1] - base;
+        let centered_last = &count * last - sum_y;
+        let numerator = centered_last * &sum_t_squared - &count * sum_ty * Decimal::from(n - 1);
+        div(&numerator, &(count * sum_t_squared))?
+    };
+    q(result).map(Some)
+}
+
+struct CenteredMean {
+    origin: Decimal,
+    offset: Decimal,
+}
+
+impl CenteredMean {
+    fn new(values: &[&Decimal]) -> Result<Self> {
+        // The point nearest zero in the sample range removes a shared offset without introducing one.
+        let (mut low, mut high) = (values[0], values[0]);
+        for &v in &values[1..] {
+            low = low.min(v);
+            high = high.max(v);
+        }
+        let origin = Decimal::zero().clamp(low.clone(), high.clone());
+        let total = values
+            .iter()
+            .fold(Decimal::zero(), |total, v| add(&total, &sub(v, &origin)));
+        let offset = div(&total, &Decimal::from(values.len() as u64))?;
+        Ok(Self { origin, offset })
+    }
+
+    fn value(&self) -> Decimal {
+        add(&self.origin, &self.offset)
+    }
+
+    fn deviation(&self, value: &Decimal) -> Decimal {
+        sub(&sub(value, &self.origin), &self.offset)
+    }
+
+    fn variance(&self, values: &[&Decimal]) -> Result<Decimal> {
+        let mut total = Decimal::zero();
+        for v in values {
+            let delta = self.deviation(v);
+            total = add(&total, &mul(&delta, &delta));
+        }
+        div(&total, &Decimal::from(values.len() as u64))
+    }
 }
 fn rank(values: &[&Decimal], target: &Decimal) -> Result<Decimal> {
     let low = values.iter().filter(|v| ***v < *target).count();

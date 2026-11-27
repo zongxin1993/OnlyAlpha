@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha188",
+  "expression": "($high - $low - SMA($high - $low, 11, 2)) / SMA($high - $low, 11, 2) * 100"
+}

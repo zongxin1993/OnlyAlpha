@@ -1,6 +1,6 @@
 //! 纯因子向量化研究：在冻结对齐面板上批量求值因子 DAG，并给出逐事件横截面 IC 证据。
 //! 统计量全部复用已认证算子，不引入独立浮点实现；证据只说明本次切片上的观察结果。
-use onlyalpha_calculation::qlib::{FactorExpr, TargetExpr};
+use onlyalpha_calculation::factor_expr::{FactorExpr, TargetExpr};
 use onlyalpha_execution::Error;
 use onlyalpha_operators::algebra::{Decimal, Error as OperatorError, Kernel, Operator, Parameters};
 use std::{collections::BTreeMap, num::NonZeroUsize};
@@ -22,7 +22,7 @@ fn operator_error(failure: OperatorError) -> Error {
     let code = match failure {
         OperatorError::InvalidParameters
         | OperatorError::InvalidInputs
-        | OperatorError::ResearchOnly
+        | OperatorError::CrossSectionRequired
         | OperatorError::Interrupted => "RESEARCH_OPERATOR_INVALID",
         OperatorError::BudgetExceeded => "RESEARCH_RESOURCE_BUDGET",
         OperatorError::NumericFailure => "RESEARCH_NUMERIC_FAILURE",

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA009",
+  "expression": "Where(Min(Delta($close, 1), 5) > 0, Delta($close, 1), Where(Max(Delta($close, 1), 5) < 0, Delta($close, 1), -Delta($close, 1)))"
+}

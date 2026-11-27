@@ -5,7 +5,7 @@
 - 决策人：仓库负责人
 - Constitution Impact: NO
 
-> **部分替代：** [ADR 0152](0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 替代本文“因子与策略”一节的受限 Python 编写接口及隔离执行安排，改为 Qlib 风格表达式 DAG（`FactorExpr`／`TargetExpr`）与声明式／WASM 策略模块。保留 `packages/` 目录、Agent 经正式 API 工作、`crates/operators` 与 `crates/indicators` 纯 Rust 无 Python 接口、PostgreSQL 草稿与不可变版本，以及本文其余决定。
+> **部分替代：** [ADR 0152](0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 替代本文“因子与策略”一节的受限 Python 编写接口及隔离执行安排，改为声明式因子表达式及其类型化算子 DAG（`FactorExpr`／`TargetExpr`）与声明式／WASM 策略模块。保留 `packages/` 目录、Agent 经正式 API 工作、`crates/operators` 与 `crates/indicators` 纯 Rust 无 Python 接口、PostgreSQL 草稿与不可变版本，以及本文其余决定。
 
 ## 工程目录和 Agent
 
@@ -21,7 +21,7 @@ Rust 实现因子和策略的正式契约，两者共用行情事件接口，并
 
 事件顺序、时间及其他影响结果的输入必须显式记录或绑定。策略编写接口的买卖操作形成正式订单意图。权限、风险、订单身份、交易场所接入、仓位更新及恢复由各自的 OnlyAlpha 模块负责。相同策略版本用于回测、模拟和实盘时，其含义保持一致。Python 编写接口通过受限、隔离的执行边界使用。具体接口、隔离实现和准入流程另按相关公开契约设计。
 
-私有因子和策略继续采用 PostgreSQL 中的可编辑草稿和不可变版本。冻结绑定实际执行的实现、参数、接口版本及所需精确工件。变更创建新版本。既有运行及历史证据保持原绑定。
+因子和策略继续采用 PostgreSQL 中的可编辑草稿和不可变版本。冻结绑定实际执行的实现、参数、接口版本及所需精确工件。变更创建新版本。既有运行及历史证据保持原绑定。
 
 NautilusTrader 的行情事件与策略权限分层提供了参考。OnlyAlpha 的因子输出、订单意图、准入和交易权限继续由 OnlyAlpha 的正式契约定义。[Actors](https://nautilustrader.io/docs/latest/concepts/actors/) · [Strategy trait](https://nautilustrader.io/docs/rust-api-latest/nautilus_trading/strategy/trait.Strategy.html)
 

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA007",
+  "expression": "Where(Mean($dollar_volume, 20) < $volume, -TsRank(Abs(Delta($close, 7)), 60) * Sign(Delta($close, 7)), -1)"
+}

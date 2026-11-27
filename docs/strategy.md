@@ -30,7 +30,7 @@ candidate，再原子替换。失败候选不得改变 receiver。外部保留�
 同一已绑定进程持有这些 Factor 的数值实例，封闭操作覆盖初始化、更新、checkpoint、fresh restore 和关闭，不提供任意方法或动态模块入口。
 Rust owner 核对完整 Definition、实际实现指纹、端口和状态能力，按声明的 warmup.minimum_observations 形成 readiness，
 并持有原 child 的取消和回收责任。私有 Factor 的 CONTEXT Decimal 使用 SDK 明确的 ROUND_HALF_EVEN context，
-实现身份绑定实际安装工件，不读取环境精度。原生 Operator 的正式新语义为 @2，具体数值约定见[内置算子、指标与因子表达](repository-product-architecture.md#内置算子指标与因子表达)。
+实现身份绑定实际安装工件，不读取环境精度。原生算子使用注册表声明的语义版本 `3`，具体数值约定见[内置算子、指标与因子表达](repository-product-architecture.md#内置算子指标与因子表达)。
 
 Infrastructure 的 `StrategyPreparation` 将真实 MarketData immutable plans/accepted preparation receipt 交给 Strategy；pure preparation callback
 只确认 preparation，不隐藏 Strategy 状态，也不代表实际决策执行。该首个 coordinator 限定一个 Cluster、一个 primary instrument 和 exact source/

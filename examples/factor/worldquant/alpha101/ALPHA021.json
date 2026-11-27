@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA021",
+  "expression": "Where(Mean($close, 8) + Std($close, 8) < Mean($close, 2), -1, Where(Mean($close, 2) < Mean($close, 8) - Std($close, 8), 1, Where($volume / Mean($dollar_volume, 20) >= 1, 1, -1)))"
+}

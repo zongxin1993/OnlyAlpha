@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha24",
+  "expression": "SMA($close - Ref($close, 5), 5, 1)"
+}

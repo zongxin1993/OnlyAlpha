@@ -760,7 +760,7 @@ mod native_stream_tests {
             "value": {"node_fingerprint": null, "output_name": "value", "source": "close"}
         });
         let calculation =
-            OperatorCalculation::resolve(type_id, "2", &parameters, &bindings).unwrap();
+            OperatorCalculation::resolve(type_id, "3", &parameters, &bindings).unwrap();
         let definition = calculation.definition().clone();
         let mut component = definition.to_record();
         component["schema_version"] = json!(3);

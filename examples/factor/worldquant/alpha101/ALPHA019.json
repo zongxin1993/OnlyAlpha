@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA019",
+  "expression": "-Sign(($close - Ref($close, 7)) + Delta($close, 7)) * (1 + Rank(1 + Sum($returns, 250)))"
+}

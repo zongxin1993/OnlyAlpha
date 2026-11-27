@@ -1,5 +1,5 @@
 use onlyalpha_operators::algebra::{Decimal, Error, Kernel, Parameters, Stream};
-use onlyalpha_operators::execution::{EventKernel, VectorKernel};
+use onlyalpha_operators::execution::{CrossSectionStream, EventKernel, VectorKernel};
 use onlyalpha_operators::registry::{self, ExecutionShape, OpSpec, ParameterKind, StateCapability};
 use std::num::NonZeroUsize;
 use std::str::FromStr;
@@ -25,11 +25,10 @@ fn kernel(spec: &OpSpec) -> Kernel {
     Kernel::new(
         spec.operator,
         Parameters {
-            period: if spec.parameter == ParameterKind::Period {
-                three()
-            } else {
-                None
-            },
+            period: declared_period(spec),
+            weight: NonZeroUsize::new(2).filter(|_| spec.parameter == ParameterKind::PeriodWeight),
+            factor: (spec.parameter == ParameterKind::Factor).then(|| d("-2")),
+            quantile: (spec.parameter == ParameterKind::PeriodQuantile).then(|| d("0.2")),
             ..Default::default()
         },
     )
@@ -49,8 +48,11 @@ fn systematic(spec: &OpSpec) -> Vec<Vec<Cell>> {
     if spec.inputs >= 2 {
         columns.push(values(&["2", "4", "6", "8", "10", "3", "0", "2", "2"]));
     }
-    if spec.inputs == 3 {
+    if spec.inputs >= 3 {
         columns.push(values(&["-1", "0", "5", "null", "7", "8", "9", "-2", "4"]));
+    }
+    if spec.inputs == 4 {
+        columns.push(values(&["1", "4", "2", "9", "0", "3", "4", "5", "6"]));
     }
     columns
 }
@@ -61,8 +63,11 @@ fn complete(spec: &OpSpec) -> Vec<Vec<Cell>> {
     if spec.inputs >= 2 {
         columns.push(values(&["2", "3", "4", "5", "6", "7", "8", "9"]));
     }
-    if spec.inputs == 3 {
-        columns.push(values(&["3", "4", "5", "6", "7", "8", "9", "10"]));
+    if spec.inputs >= 3 {
+        columns.push(values(&["1", "1", "1", "2", "1", "2", "1", "1"]));
+    }
+    if spec.inputs == 4 {
+        columns.push(values(&["3", "6", "4", "9", "2", "7", "1", "8"]));
     }
     columns
 }
@@ -85,8 +90,8 @@ fn step(stream: &mut Stream, columns: &[Vec<Cell>], index: usize) -> Cell {
 }
 
 fn declared_period(spec: &OpSpec) -> Option<NonZeroUsize> {
-    if spec.parameter == ParameterKind::Period {
-        three()
+    if spec.operator.needs_period() {
+        NonZeroUsize::new(3.max(spec.operator.minimum_period()))
     } else {
         None
     }
@@ -223,17 +228,76 @@ fn checkpoint_restore_preserves_every_suffix() {
 }
 
 #[test]
-fn cross_section_operators_are_research_only_for_event_execution() {
+fn cross_section_events_match_every_vector_prefix_and_restored_suffix() {
     for spec in registry::all()
         .iter()
-        .filter(|spec| spec.shape == ExecutionShape::CrossSection)
+        .filter(|s| s.shape == ExecutionShape::CrossSection)
     {
-        assert_eq!(spec.state(), StateCapability::ResearchOnly);
+        let kernel = kernel(spec);
+        assert_eq!(spec.state(), StateCapability::Stateless);
         assert_eq!(
-            Stream::new(kernel(spec)).unwrap_err(),
-            Error::ResearchOnly,
-            "{}",
-            spec.name
+            Stream::new(kernel.clone()).unwrap_err(),
+            Error::CrossSectionRequired
+        );
+        let first = systematic(spec);
+        let width = first[0].len();
+        let reversed = first
+            .iter()
+            .map(|col| col.iter().rev().cloned().collect())
+            .collect();
+        let events = [first, vec![vec![None; width]; spec.inputs], reversed];
+        let expected: Vec<_> = events
+            .iter()
+            .map(|plane| VectorKernel::evaluate(&kernel, plane).unwrap())
+            .collect();
+        assert_eq!(expected[1], vec![None; width]);
+        for split in 0..=events.len() {
+            let mut running = CrossSectionStream::new(kernel.clone(), width).unwrap();
+            for (i, plane) in events[..split].iter().enumerate() {
+                assert_eq!(
+                    running.step(plane).unwrap(),
+                    expected[i],
+                    "{} prefix {split}, event {i}",
+                    spec.name
+                );
+            }
+            let state = running.capture_state();
+            assert!(state.is_empty());
+            let mut restored = CrossSectionStream::new(kernel.clone(), width).unwrap();
+            restored.restore_state(state).unwrap();
+            for i in split..events.len() {
+                assert_eq!(
+                    restored.step(&events[i]).unwrap(),
+                    expected[i],
+                    "{} suffix {split}, event {i}",
+                    spec.name
+                );
+            }
+        }
+        let mut running = CrossSectionStream::new(kernel.clone(), width).unwrap();
+        assert_eq!(
+            running.restore_state(vec![vec![]]),
+            Err(Error::InvalidInputs)
+        );
+        assert_eq!(running.step(&[]), Err(Error::InvalidInputs));
+        assert_eq!(
+            running.step(&vec![vec![None; width - 1]; spec.inputs]),
+            Err(Error::InvalidInputs)
+        );
+        assert_eq!(running.step(&events[0]).unwrap(), expected[0]);
+        let empty_columns = vec![Vec::new(); spec.inputs];
+        assert!(
+            VectorKernel::evaluate(&kernel, &empty_columns)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            CrossSectionStream::new(kernel.clone(), 0).unwrap_err(),
+            Error::InvalidInputs
+        );
+        assert_eq!(
+            CrossSectionStream::new(kernel, usize::MAX).unwrap_err(),
+            Error::BudgetExceeded
         );
     }
 }
@@ -241,11 +305,179 @@ fn cross_section_operators_are_research_only_for_event_execution() {
 fn check(name: &str, parameters: Parameters, columns: Vec<Vec<Cell>>, expected: &[&str]) {
     let spec = registry::lookup(&format!("onlyalpha.operator.{name}")).unwrap();
     let kernel = Kernel::new(spec.operator, parameters).unwrap();
+    let expected = values(expected);
     assert_eq!(
         VectorKernel::evaluate(&kernel, &columns).unwrap(),
-        values(expected),
+        expected,
         "{name}"
     );
+    if spec.shape == ExecutionShape::CrossSection {
+        let mut event = CrossSectionStream::new(kernel, columns[0].len()).unwrap();
+        assert_eq!(event.step(&columns).unwrap(), expected, "{name} event");
+    } else {
+        let mut event = Stream::new(kernel).unwrap();
+        for (i, want) in expected.into_iter().enumerate() {
+            assert_eq!(step(&mut event, &columns, i), want, "{name} event {i}");
+        }
+    }
+}
+
+#[test]
+fn centered_statistics_preserve_large_levels_and_half_even_ties() {
+    let a = "9000000000000000.000000000001";
+    let b = "9000000000000000.000000000002";
+    let below = "8999999999999999.999999000001";
+    let above = "9000000000000000.000001000001";
+    let twice_above = "9000000000000000.000002000001";
+    let window = |p| Parameters {
+        period: NonZeroUsize::new(p),
+        ..Default::default()
+    };
+    check(
+        "rolling_mean",
+        window(2),
+        vec![values(&[a, a, b])],
+        &["null", a, b],
+    );
+    check(
+        "rolling_std",
+        window(2),
+        vec![values(&[a, a, b])],
+        &["null", "0", "0"],
+    );
+    check(
+        "rolling_var",
+        window(4),
+        vec![values(&[below, above, a, a])],
+        &["null", "null", "null", "0"],
+    );
+    check(
+        "rolling_covariance",
+        window(2),
+        vec![values(&[a, twice_above]), values(&[a, above])],
+        &["null", "0"],
+    );
+    for (op, expected) in [
+        ("cross_section_demean", "0"),
+        ("cross_section_zscore", "null"),
+    ] {
+        check(
+            op,
+            Parameters::default(),
+            vec![values(&[a, "null", a])],
+            &[expected, "null", expected],
+        );
+    }
+    check(
+        "cross_section_demean",
+        Parameters::default(),
+        vec![values(&[a, b])],
+        &["0", "0"],
+    );
+    check(
+        "cross_section_zscore",
+        Parameters::default(),
+        vec![values(&[a, b])],
+        &["-1", "1"],
+    );
+}
+
+#[test]
+fn singleton_cross_section_matches_each_operators_defined_value() {
+    for (name, expected) in [
+        ("cross_section_percentile", "0.5"),
+        ("cross_section_rank", "0.5"),
+        ("cross_section_demean", "0"),
+        ("cross_section_zscore", "null"),
+    ] {
+        check(
+            name,
+            Parameters::default(),
+            vec![values(&["7"])],
+            &[expected],
+        );
+    }
+    check(
+        "cross_section_correlation",
+        Parameters::default(),
+        vec![values(&["7"]), values(&["8"])],
+        &["null"],
+    );
+}
+
+#[test]
+fn cross_section_correlation_preserves_small_differences_at_large_offsets() {
+    let a = "9000000000000000.000000000001";
+    let b = "9000000000000000.000000000002";
+    for (x, y, expected) in [
+        ([a, a, a, "null"], [a, a, "null", b], ["null"; 4]),
+        (
+            [a, b, a, "null"],
+            [b, a, "null", b],
+            ["-1", "-1", "null", "null"],
+        ),
+        (
+            [b, a, "null", b],
+            [b, a, a, "null"],
+            ["1", "1", "null", "null"],
+        ),
+        ([a, b, "null", a], [b, b, a, "null"], ["null"; 4]),
+        ([a, "null", "null", "null"], [b, b, b, b], ["null"; 4]),
+    ] {
+        check(
+            "cross_section_correlation",
+            Parameters::default(),
+            vec![values(&x), values(&y)],
+            &expected,
+        );
+    }
+}
+
+#[test]
+fn rolling_correlation_preserves_small_spreads_and_requires_complete_windows() {
+    let a = "9000000000000000.000000000001";
+    let b = "9000000000000000.000000000002";
+    let cases = [
+        (
+            2,
+            [a, a, b, a, a],
+            [a, a, a, b, a],
+            ["null", "null", "null", "-1", "null"],
+        ),
+        (
+            3,
+            [a, "null", b, a, b],
+            [b, a, a, b, a],
+            ["null", "null", "null", "null", "-1"],
+        ),
+        (
+            3,
+            [b, a, b, a, b],
+            [b, "null", b, a, b],
+            ["null", "null", "null", "null", "1"],
+        ),
+    ];
+    for (period, x, y, expected) in cases {
+        let kernel = Kernel::new(
+            onlyalpha_operators::algebra::Operator::RollingCorrelation,
+            Parameters {
+                period: NonZeroUsize::new(period),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let columns = [values(&x), values(&y)];
+        let expected = values(&expected);
+        assert_eq!(VectorKernel::evaluate(&kernel, &columns).unwrap(), expected);
+        let mut stream = Stream::new(kernel).unwrap();
+        for (i, want) in expected.into_iter().enumerate() {
+            assert_eq!(
+                step(&mut stream, &columns, i),
+                want,
+                "period {period}, index {i}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -298,6 +530,104 @@ fn pointwise_goldens_are_independently_derived() {
         Parameters::default(),
         unary(),
         &["0.693147180560", "null", "null", "2.079441541680", "null"],
+    );
+}
+
+#[test]
+fn product_and_power_have_independent_numeric_goldens() {
+    check(
+        "rolling_product",
+        period_parameters(),
+        vec![values(&["-2", "0.5", "3", "0", "null", "2", "-4", "0.5"])],
+        &["null", "null", "-3", "0", "null", "null", "null", "-4"],
+    );
+    check(
+        "pow",
+        Parameters::default(),
+        vec![
+            values(&["-2", "-2", "4", "2", "0", "-4", "null"]),
+            values(&["3", "2", "0.5", "-3", "2", "0.5", "1"]),
+        ],
+        &["-8", "4", "2", "0.125", "0", "null", "null"],
+    );
+}
+
+#[test]
+fn regression_and_conditional_recurrence_have_independent_goldens() {
+    check(
+        "regression_residual3",
+        Parameters {
+            period: NonZeroUsize::new(5),
+            ..Default::default()
+        },
+        vec![
+            values(&["10", "12", "7", "15", "22"]),
+            values(&["0", "1", "0", "0", "1"]),
+            values(&["0", "0", "1", "0", "1"]),
+            values(&["0", "0", "0", "1", "1"]),
+        ],
+        &["null", "null", "null", "null", "1"],
+    );
+    check(
+        "conditional_beta",
+        Parameters {
+            period: NonZeroUsize::new(6),
+            ..Default::default()
+        },
+        vec![
+            values(&["7", "100", "13", "999", "null", "19"]),
+            values(&["1", "5", "3", "null", "8", "5"]),
+            values(&["1", "2", "1", "1", "1", "1"]),
+        ],
+        &["null", "null", "null", "null", "null", "3"],
+    );
+    check(
+        "cum_product_if",
+        Parameters::default(),
+        vec![
+            values(&["null", "2", "-3", "8", "5", "6", "0.5"]),
+            values(&["1", "0", "1", "null", "0", "2", "1"]),
+        ],
+        &["null", "1", "-3", "null", "-3", "-3", "-1.5"],
+    );
+}
+
+#[test]
+fn sma_preserves_prior_across_missing_observations() {
+    check(
+        "sma",
+        Parameters {
+            period: NonZeroUsize::new(4),
+            weight: NonZeroUsize::new(3),
+            ..Default::default()
+        },
+        vec![values(&["null", "8", "0", "null", "6", "-1"])],
+        &["null", "8", "2", "null", "5", "0.5"],
+    );
+}
+
+#[test]
+fn scale_and_group_demean_use_only_eligible_cohort_members() {
+    check(
+        "cross_section_scale",
+        Parameters::default(),
+        vec![values(&["-2", "null", "0", "6"])],
+        &["-0.25", "null", "0", "0.75"],
+    );
+    check(
+        "cross_section_scale",
+        Parameters::default(),
+        vec![values(&["0", "null", "0"])],
+        &["null", "null", "null"],
+    );
+    check(
+        "group_demean",
+        Parameters::default(),
+        vec![
+            values(&["2", "5", "null", "8", "-3", "9", "6"]),
+            values(&["1", "2", "1", "1.0", "2", "null", "3"]),
+        ],
+        &["-3", "4", "null", "3", "-4", "null", "0"],
     );
 }
 
@@ -385,6 +715,238 @@ fn lag_and_window_goldens_are_independently_derived() {
         },
         vec![values(&["1", "2", "4", "8"])],
         &["null", "null", "null", "2.3"],
+    );
+}
+
+#[test]
+fn rolling_regression_preserves_offsets_and_signed_endpoint_residuals() {
+    for input in [
+        ["3", "1", "2", "2", "5"],
+        [
+            "100000000000000000000000000000003",
+            "100000000000000000000000000000001",
+            "100000000000000000000000000000002",
+            "100000000000000000000000000000002",
+            "100000000000000000000000000000005",
+        ],
+    ] {
+        check(
+            "rolling_r_squared",
+            period_parameters(),
+            vec![values(&input)],
+            &["null", "null", "0.25", "0.75", "0.75"],
+        );
+        check(
+            "rolling_residual",
+            period_parameters(),
+            vec![values(&input)],
+            &["null", "null", "0.5", "-0.166666666667", "0.5"],
+        );
+    }
+    for (name, expected) in [
+        (
+            "rolling_r_squared",
+            ["null", "null", "1", "0", "0.75", "null"],
+        ),
+        (
+            "rolling_residual",
+            [
+                "null",
+                "null",
+                "0",
+                "0.333333333333",
+                "-0.166666666667",
+                "0",
+            ],
+        ),
+    ] {
+        check(
+            name,
+            period_parameters(),
+            vec![values(&["3", "2", "1", "2", "2", "2"])],
+            &expected,
+        );
+        check(
+            name,
+            Parameters {
+                period: NonZeroUsize::new(1),
+                ..Default::default()
+            },
+            vec![values(&["7", "8"])],
+            &["null", "null"],
+        );
+    }
+}
+
+#[test]
+fn rolling_quantile_interpolates_adjacent_order_statistics() {
+    for (quantile, expected) in [
+        ("0", "-3"),
+        ("1", "7"),
+        ("0.5", "1"),
+        ("0.2", "-1.4"),
+        ("0.8", "4.6"),
+    ] {
+        check(
+            "rolling_quantile",
+            Parameters {
+                quantile: Some(d(quantile)),
+                ..period_parameters()
+            },
+            vec![values(&["7", "-3", "1", "null"])],
+            &["null", "null", expected, "null"],
+        );
+    }
+    check(
+        "rolling_quantile",
+        Parameters {
+            period: NonZeroUsize::new(1),
+            quantile: Some(d("0.8")),
+            ..Default::default()
+        },
+        vec![values(&["2", "null", "-1"])],
+        &["2", "null", "-1"],
+    );
+}
+
+#[test]
+fn rolling_statistics_round_to_precision_28_before_q12_in_both_kernels() {
+    use onlyalpha_operators::algebra::Operator;
+
+    for (operator, quantile, input, expected) in [
+        (
+            Operator::RollingQuantile,
+            Some("0.00000000000050000000000000001"),
+            &["1", "2"][..],
+            "1.000000000000",
+        ),
+        (
+            Operator::RollingQuantile,
+            Some("0.500000000000000000000000000001"),
+            &["-1e30", "0", "1e30"][..],
+            "2.000000000000",
+        ),
+        (
+            Operator::RollingQuantile,
+            Some("0.5"),
+            &[
+                "-9000000000000000.000000000001",
+                "9000000000000000.000000000001",
+            ][..],
+            "-0.000000000001",
+        ),
+        (
+            Operator::RollingResidual,
+            None,
+            &["0", "0", "6.00000000000300000000000000006"][..],
+            "1.000000000000",
+        ),
+        (
+            Operator::RollingRSquared,
+            None,
+            &["0", "1.9999999999986666666666666666", "2"][..],
+            "0.750000000000",
+        ),
+    ] {
+        let kernel = Kernel::new(
+            operator,
+            Parameters {
+                period: NonZeroUsize::new(input.len()),
+                quantile: quantile.map(d),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let columns = [values(input)];
+        let mut golden = vec![None; input.len() - 1];
+        golden.push(Some(d(expected)));
+        assert_eq!(
+            VectorKernel::evaluate(&kernel, &columns).unwrap(),
+            golden,
+            "{operator:?}"
+        );
+        let mut stream = Stream::new(kernel).unwrap();
+        for (index, cell) in golden.iter().enumerate() {
+            assert_eq!(
+                &step(&mut stream, &columns, index),
+                cell,
+                "{operator:?} at {index}"
+            );
+        }
+    }
+}
+
+#[test]
+fn rolling_extrema_report_first_position_in_each_complete_window() {
+    let input = ["3", "3", "1", "1", "4", "0", "null", "2", "4", "6"];
+    check(
+        "rolling_arg_max",
+        period_parameters(),
+        vec![values(&input)],
+        &[
+            "null", "null", "1", "1", "3", "2", "null", "null", "null", "3",
+        ],
+    );
+    check(
+        "rolling_arg_min",
+        period_parameters(),
+        vec![values(&input)],
+        &[
+            "null", "null", "3", "2", "1", "3", "null", "null", "null", "1",
+        ],
+    );
+}
+
+#[test]
+fn rolling_quantile_requires_a_bounded_decimal_and_a_period() {
+    use onlyalpha_operators::algebra::Operator;
+
+    for quantile in [
+        None,
+        Some(d("-1e-60")),
+        Some(d("1.000000000000000000000000000001")),
+    ] {
+        assert_eq!(
+            Kernel::new(
+                Operator::RollingQuantile,
+                Parameters {
+                    quantile,
+                    ..period_parameters()
+                }
+            ),
+            Err(Error::InvalidParameters)
+        );
+    }
+    let quantile = Some(d("0.5"));
+    assert_eq!(
+        Kernel::new(
+            Operator::RollingQuantile,
+            Parameters {
+                quantile: quantile.clone(),
+                ..Default::default()
+            }
+        ),
+        Err(Error::InvalidParameters)
+    );
+    assert_eq!(
+        Kernel::new(
+            Operator::RollingMean,
+            Parameters {
+                quantile,
+                ..period_parameters()
+            }
+        ),
+        Err(Error::InvalidParameters)
+    );
+    assert_eq!(
+        Kernel::new(
+            Operator::RollingQuantile,
+            Parameters {
+                quantile: Some(d("1e-1025")),
+                ..period_parameters()
+            }
+        ),
+        Err(Error::BudgetExceeded)
     );
 }
 
@@ -509,6 +1071,42 @@ fn recurrence_long_zero_decay_self_recovers_and_rejects_tampered_checkpoints() {
     ema_stream.restore(vec![vec![Some(d("10"))]]).unwrap();
     assert_eq!(ema_stream.validate_step_count(0), Err(Error::InvalidInputs));
     assert!(ema_stream.validate_step_count(1).is_ok());
+}
+
+#[test]
+fn constant_window_goldens_cover_ties_zero_variance_and_missing_values() {
+    use onlyalpha_operators::algebra::Operator;
+
+    for (op, constant, varying) in [
+        (Operator::TSRank, "0.5", "1"),
+        (Operator::RollingSlope, "0", "1.5"),
+        (Operator::RollingVar, "0", "2"),
+        (Operator::RollingStd, "0", "1.414213562373"),
+        (Operator::RollingCovariance, "0", "1"),
+        (Operator::RollingCorrelation, "null", "0.866025403784"),
+    ] {
+        let mut columns = vec![values(&["4", "4", "4", "null", "4", "4", "4", "7"])];
+        if op.input_count() == 2 {
+            columns.push(values(&["1", "2", "3", "4", "5", "6", "7", "8"]));
+        }
+        let expected = values(&[
+            "null", "null", constant, "null", "null", "null", constant, varying,
+        ]);
+        let kernel = Kernel::new(op, period_parameters()).unwrap();
+        assert_eq!(
+            VectorKernel::evaluate(&kernel, &columns).unwrap(),
+            expected,
+            "{op:?}"
+        );
+        let mut stream = Stream::new(kernel).unwrap();
+        for (index, value) in expected.into_iter().enumerate() {
+            assert_eq!(
+                step(&mut stream, &columns, index),
+                value,
+                "{op:?} at {index}"
+            );
+        }
+    }
 }
 
 #[test]

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha98",
+  "expression": "Where(Delta(Sum($close, 100) / 100, 100) / Ref($close, 100) < 0.05 || Delta(Sum($close, 100) / 100, 100) / Ref($close, 100) == 0.05, -1 * ($close - Min($close, 100)), -1 * Delta($close, 3))"
+}

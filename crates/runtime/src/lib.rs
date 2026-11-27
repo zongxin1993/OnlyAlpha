@@ -1,14 +1,14 @@
 //! In-memory finite execution sessions and continuous-trading durability ports, outside Trading Kernel.
 //!
 //! [`OnlyAlphaRuntime`] is the single façade owning quant computation and trading semantics:
-//! Research and the Backtest/SIM/LIVE event loop are constructed from the same compiled Qlib
+//! Research and the Backtest/SIM/LIVE event loop are constructed from the same compiled declarative
 //! factor definitions and the same numeric policy (ADR 0152 §2.1, §2.2).
 pub mod durability;
 pub mod research;
 mod session;
 pub mod trading;
 
-use onlyalpha_calculation::qlib::{FactorExpr, TargetExpr};
+use onlyalpha_calculation::factor_expr::{FactorExpr, TargetExpr};
 use onlyalpha_domain::identifiers::OnlyInstrumentId;
 use onlyalpha_execution::Error;
 pub use research::{Cohort, ResearchEngine, ResearchPanel, ResearchReport, SeriesStatistics};

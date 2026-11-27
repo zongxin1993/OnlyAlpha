@@ -1,6 +1,6 @@
 use super::*;
 use crate::{OnlyAlphaRuntime, ResearchEngine, ResearchPanel};
-use onlyalpha_calculation::qlib::TargetExpr;
+use onlyalpha_calculation::factor_expr::TargetExpr;
 use onlyalpha_domain::{
     enums::{OnlyOrderSide, OnlyOrderType, OnlyTimeInForce},
     numeric::OnlyDecimal,

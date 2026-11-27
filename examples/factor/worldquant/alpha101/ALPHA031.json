@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA031",
+  "expression": "Rank(Rank(Rank(WMA(-Rank(Rank(Delta($close, 10))), 10)))) + Rank(-Delta($close, 3)) + Sign(CSScale(Corr(Mean($dollar_volume, 20), $low, 12)))"
+}

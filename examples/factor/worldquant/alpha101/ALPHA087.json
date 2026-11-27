@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA087",
+  "expression": "-Greater(Rank(WMA(Delta($close * 0.369701 + $vwap * 0.630299, 1), 2)), TsRank(WMA(Abs(Corr(GroupDemean(Mean($dollar_volume, 81), $industry), $close, 13)), 4), 14))"
+}

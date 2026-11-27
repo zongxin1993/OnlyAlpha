@@ -323,7 +323,7 @@ fn parameters_and_shape_are_strict() {
     );
     assert!(matches!(
         Stream::new(kernel(Operator::CrossSectionRank, None)),
-        Err(Error::ResearchOnly)
+        Err(Error::CrossSectionRequired)
     ));
 }
 

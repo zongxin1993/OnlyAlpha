@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA035",
+  "expression": "TsRank($volume, 32) * (1 - TsRank($close + $high - $low, 16)) * (1 - TsRank($returns, 32))"
+}

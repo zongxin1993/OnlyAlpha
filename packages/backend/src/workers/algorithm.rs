@@ -558,7 +558,7 @@ mod native_runtime_tests {
                 .unwrap(),
         );
         assert_eq!(native["implementations"], json!(expected));
-        assert_eq!(native["implementations"].as_array().unwrap().len(), 80);
+        assert_eq!(native["implementations"].as_array().unwrap().len(), 115);
     }
     #[test]
     fn loaded_image_survives_executable_path_replacement() {

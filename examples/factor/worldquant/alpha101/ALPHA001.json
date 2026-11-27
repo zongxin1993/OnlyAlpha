@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA001",
+  "expression": "Rank(IdxMax(Pow(Where($returns < 0, Std($returns, 20), $close), 2), 5)) - 0.5"
+}

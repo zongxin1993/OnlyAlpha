@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha49",
+  "expression": "Sum(Where($high + $low >= Ref($high, 1) + Ref($low, 1), 0, Greater(Abs($high - Ref($high, 1)), Abs($low - Ref($low, 1)))), 12) / (Sum(Where($high + $low >= Ref($high, 1) + Ref($low, 1), 0, Greater(Abs($high - Ref($high, 1)), Abs($low - Ref($low, 1)))), 12) + Sum(Where($high + $low <= Ref($high, 1) + Ref($low, 1), 0, Greater(Abs($high - Ref($high, 1)), Abs($low - Ref($low, 1)))), 12))"
+}

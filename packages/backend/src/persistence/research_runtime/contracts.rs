@@ -594,8 +594,8 @@ mod native_artifact_v2_tests {
         });
         manifest["implementations"] = json!(implementations);
         assert!(artifact(&manifest).is_ok());
-        assert_eq!(manifest["assets"].as_array().unwrap().len(), 24);
-        assert_eq!(manifest["implementations"].as_array().unwrap().len(), 80);
+        assert_eq!(manifest["assets"].as_array().unwrap().len(), 43);
+        assert_eq!(manifest["implementations"].as_array().unwrap().len(), 115);
         for attack in 0..7 {
             let mut changed = manifest.clone();
             match attack {

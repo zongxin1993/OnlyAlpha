@@ -527,7 +527,7 @@ def test_strategy_composition_reanchors_exact_revision_and_retains_public_contex
     calculation["type_reference"] = {
         "kind": "INDICATOR",
         "type_id": "onlyalpha.operator.delay",
-        "semantic_version": "2",
+        "semantic_version": "3",
     }
     calculation["parameters"] = {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}}
     calculation["input_bindings"] = [{"input_name": "value", "source": "bar.close"}]
@@ -643,7 +643,7 @@ def test_strategy_calculation_resolution_uses_held_generation_and_actual_install
     calculation["type_reference"] = {
         "kind": "INDICATOR",
         "type_id": "onlyalpha.operator.delay",
-        "semantic_version": "2",
+        "semantic_version": "3",
     }
     calculation["parameters"] = {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}}
     calculation["input_bindings"] = [{"input_name": "value", "source": "bar.close"}]
@@ -663,7 +663,10 @@ def test_strategy_calculation_resolution_uses_held_generation_and_actual_install
     assert "error" not in actual, actual
     assert actual["runtime_generation_fingerprint"] == selected["generation"]
     assert actual["composition"]["private_strategy_revision_fingerprint"] == revision["revision_fingerprint"]
-    assert actual["algorithm_resolution"]["source_artifacts"] == []
+    resolution = actual["algorithm_resolution"]
+    assert resolution["contract"] == "ONLYALPHA_NATIVE_SIGNAL_TARGET_RESOLUTION_V1"
+    assert resolution["native_execution"] == {"artifact": selected["executor_sha256"], "program_bindings": []}
+    assert resolution["target_resolution"]["source_artifacts"] == []
     assert len(actual["decision"]["decision_graph"]["nodes"]) == 7
     assert len(actual["target_graph"]["nodes"]) == 1
     assert "run_id" not in actual and "strategy_fingerprint" not in actual and "equivalence_evidence" not in actual

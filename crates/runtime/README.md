@@ -2,7 +2,7 @@
 
 ## 目的与职责
 
-[`OnlyAlphaRuntime`](src/lib.rs) 是 [ADR 0152](../../docs/adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) §2.1 定义的量化计算与交易语义唯一门面。它从同一份已编译 Qlib 因子定义、同一数值政策（`DECIMAL28_HALF_EVEN_Q12_V1`）出发，提供两条共用底座的能力：
+[`OnlyAlphaRuntime`](src/lib.rs) 是 [ADR 0152](../../docs/adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) §2.1 定义的量化计算与交易语义唯一门面。它从同一份已编译的因子表达式、同一数值政策（`DECIMAL28_HALF_EVEN_Q12_V1`）出发，提供两条共用底座的能力：
 
 - **Research（`research`）**：在冻结对齐面板上批量求值因子与标签 DAG，给出逐事件横截面 IC／RankIC 以及全样本统计证据。只读，不产出任何可发布事实。
 - **Trading（`trading`）**：Backtest／SIM／LIVE 共用的统一事件主循环。逐事件求值因子、读取只读账户、调用策略、提交规范化 `OrderIntent`。引擎不含模式字段，模式差异全部落在调用方注入的端口实现上。
@@ -22,7 +22,7 @@
 
 **派单权限属于执行端口。** 主循环只产出规范化意图并交给调用方注入的 `ExecutionPort`；本库不产出任何外部发单能力，也不绕过风控、准入与持久化。
 
-直接依赖的仓内库：[`onlyalpha-domain`](../domain/README.md)（标的、时间、数值与 `OrderIntent`／只读账户等交易值对象）、[`onlyalpha-operators`](../operators/README.md)（已认证算子与精确十进制）、[`onlyalpha-calculation`](../calculation/README.md)（Qlib 表达式编译、向量与事件内核、快照）、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-observability`](../observability/README.md)。
+直接依赖的仓内库：[`onlyalpha-domain`](../domain/README.md)（标的、时间、数值与 `OrderIntent`／只读账户等交易值对象）、[`onlyalpha-operators`](../operators/README.md)（已认证算子与精确十进制）、[`onlyalpha-calculation`](../calculation/README.md)（声明式因子表达式编译、向量与事件内核、快照）、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-observability`](../observability/README.md)。
 
 观测仅接入内存会话及诊断边界（`memory.admission`、`memory.apply`），记录原操作耗时与已有输入计数；不改变事实、恢复结果或状态摘要。公开调用方自行管理诊断 Session，库不读取环境或安装全局订阅器。
 

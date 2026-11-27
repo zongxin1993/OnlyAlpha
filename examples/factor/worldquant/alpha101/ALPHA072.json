@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA072",
+  "expression": "Rank(WMA(Corr((($high + $low) / 2), Mean($dollar_volume, 40), 8), 10)) / Rank(WMA(Corr(TsRank($vwap, 3), TsRank($volume, 18), 6), 2))"
+}

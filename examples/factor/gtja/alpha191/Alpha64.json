@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha64",
+  "expression": "Greater(Rank(WMA(Corr(Rank($vwap), Rank($volume), 4), 4)), Rank(WMA(Max(Corr(Rank($close), Rank(Mean($volume, 60)), 4), 13), 14))) * -1"
+}

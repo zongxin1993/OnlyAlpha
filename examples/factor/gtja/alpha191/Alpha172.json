@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha172",
+  "expression": "Mean(Abs(Sum(Where(Ref($low, 1) - $low > 0 && Ref($low, 1) - $low > $high - Ref($high, 1), Ref($low, 1) - $low, 0), 14) * 100 / Sum(Greater(Greater($high - $low, Abs($high - Ref($close, 1))), Abs($low - Ref($close, 1))), 14) - Sum(Where($high - Ref($high, 1) > 0 && $high - Ref($high, 1) > Ref($low, 1) - $low, $high - Ref($high, 1), 0), 14) * 100 / Sum(Greater(Greater($high - $low, Abs($high - Ref($close, 1))), Abs($low - Ref($close, 1))), 14)) / (Sum(Where(Ref($low, 1) - $low > 0 && Ref($low, 1) - $low > $high - Ref($high, 1), Ref($low, 1) - $low, 0), 14) * 100 / Sum(Greater(Greater($high - $low, Abs($high - Ref($close, 1))), Abs($low - Ref($close, 1))), 14) + Sum(Where($high - Ref($high, 1) > 0 && $high - Ref($high, 1) > Ref($low, 1) - $low, $high - Ref($high, 1), 0), 14) * 100 / Sum(Greater(Greater($high - $low, Abs($high - Ref($close, 1))), Abs($low - Ref($close, 1))), 14)) * 100, 6)"
+}

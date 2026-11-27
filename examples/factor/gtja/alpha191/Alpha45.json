@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha45",
+  "expression": "Rank(Delta($close * 0.6 + $open * 0.4, 1)) * Rank(Corr($vwap, Mean($volume, 150), 15))"
+}

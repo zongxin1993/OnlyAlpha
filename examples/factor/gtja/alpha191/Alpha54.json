@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha54",
+  "expression": "-1 * Rank(Std(Abs($close - $open), 10) + ($close - $open) + Corr($close, $open, 10))"
+}

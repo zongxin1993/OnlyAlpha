@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha171",
+  "expression": "-1 * (($low - $close) * Pow($open, 5)) / (($close - $high) * Pow($close, 5))"
+}

@@ -175,12 +175,6 @@ def test_native_environment_publication_uses_installed_algorithms_and_original_m
         case["next"] = 3
         return
 
-    from onlyalpha_backend_algorithms.sdk.private_factor_execution import (
-        OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1,
-        OnlyPrivateFactorSourceArtifactManifestV1,
-    )
-    from onlyalpha_backend_algorithms.sdk.private_factor_source import OnlyPrivateFactorExecutableSourceRecordV1
-
     assert first["snapshot"] == {"active_for_new_work": None, "states": {generation: "READY"}}
     assert prepare(case, fresh=False) == first
     assert (runtime / "generation-events.jsonl").read_bytes() == before
@@ -201,8 +195,8 @@ def test_native_environment_publication_uses_installed_algorithms_and_original_m
     )
     native = [record for record in archive_manifests if record["role"] == "BACKEND_RUNTIME"]
     assert len(native) == 1 and native[0]["schema_version"] == 3
-    assert len(native[0]["assets"]) == 24 and len(native[0]["implementations"]) == 80
-    assert all(asset["semantic_version"] == "2" for asset in native[0]["assets"])
+    assert len(native[0]["assets"]) == 43 and len(native[0]["implementations"]) == 115
+    assert all(asset["semantic_version"] == "3" for asset in native[0]["assets"])
     assert {record["distribution_name"] for record in archive_manifests}.isdisjoint({"onlyalpha-plugin-operators"})
     assert manifest["providers"] == [
         {
@@ -241,33 +235,11 @@ def test_native_environment_publication_uses_installed_algorithms_and_original_m
     assert events[-1]["validation_evidence_fingerprint"] == validation["validation_evidence_fingerprint"]
     assert first["proof"]["catalog"]["schema_version"] == 1
     assert only_canonical_fingerprint(first["proof"]["catalog"]) == manifest["catalog_generation_fingerprint"]
-    binding = manifest["private_factor_bindings"][0]
-    pin = binding["runtime_artifact_fingerprint"]
-    saved = json.loads((runtime / "artifacts/private-factor-runtime" / pin[:2] / f"{pin}.json").read_text())
-    sealed(saved, "runtime_artifact_fingerprint")
-    source = OnlyPrivateFactorSourceArtifactManifestV1.from_dict(saved["source_artifact"])
-    assert source.to_dict() == saved["source_artifact"]
-    revision = case["vector"]["revision"]
-    fields = OnlyPrivateFactorExecutableSourceRecordV1.__dataclass_fields__
-    projected = OnlyPrivateFactorExecutableSourceRecordV1.from_dict({key: revision[key] for key in fields})
-    assert projected.revision_fingerprint == revision["revision_fingerprint"]
-    assert projected.source_sha256 == source.source_sha256
-    source_root = (
-        runtime
-        / "artifacts/private-factor"
-        / source.source_artifact_fingerprint[:2]
-        / source.source_artifact_fingerprint
-    )
-    assert (source_root / "source.py").read_bytes() == revision["source_text"].encode()
-    assert json.loads((source_root / "manifest.json").read_text()) == saved["source_artifact"]
-    evidence = OnlyPrivateFactorResearchTradingEquivalenceEvidenceV1.from_dict(saved["equivalence_evidence"])
-    assert evidence.to_dict() == saved["equivalence_evidence"]
-    vectors = evidence.test_vector_set_fingerprint
-    retained = json.loads(
-        (runtime / "artifacts/private-factor-equivalence" / vectors[:2] / f"{vectors}.json").read_text()
-    )
-    assert only_canonical_fingerprint(retained) == vectors
-    assert retained == first["proof"]["algorithm_observation"]["certification_vectors"]
+    assert manifest["private_factor_bindings"] == []
+    observation = first["proof"]["algorithm_observation"]
+    assert observation["contract"] == "ONLYALPHA_INSTALLED_CALCULATION_ENVIRONMENT_V1"
+    assert observation["operator_artifact_sha256"] == native[0]["artifact_sha256"]
+    assert {"source_artifact", "equivalence_evidence", "certification_vectors"}.isdisjoint(observation)
     case["next"] = 2
 
 

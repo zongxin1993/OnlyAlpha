@@ -237,6 +237,22 @@ fn oscillator_range_and_volume_goldens_are_independently_derived() {
 }
 
 #[test]
+fn stochastic_recovers_after_a_flat_price_range() {
+    assert_indicator(
+        &stochastic(p(2), p(2), p(2)).unwrap(),
+        &[
+            values(&["4", "4", "4", "4", "8", "8", "8"]),
+            values(&["4", "4", "4", "4", "4", "4", "4"]),
+            values(&["4", "4", "4", "4", "6", "8", "4"]),
+        ],
+        &[
+            &["null", "null", "null", "null", "null", "75", "50"],
+            &["null", "null", "null", "null", "null", "null", "62.5"],
+        ],
+    );
+}
+
+#[test]
 fn every_composed_indicator_has_vector_event_equivalence_and_prefix_causality() {
     for (name, indicator) in every_composed_indicator() {
         let columns = systematic_inputs(indicator.input_count());
@@ -366,6 +382,15 @@ fn utc_session_vwap_matches_golden_equivalence_causality_and_restore() {
     );
 
     for cut in 0..=ts.len() {
+        let prefix = UtcSessionVWAP::evaluate_vector(
+            &ts[..cut],
+            &high[..cut],
+            &low[..cut],
+            &close[..cut],
+            &vol[..cut],
+        )
+        .unwrap();
+        assert_eq!(prefix, batch[..cut], "session vwap prefix {cut}");
         let mut left = UtcSessionVWAP::new();
         for i in 0..cut {
             left.step(

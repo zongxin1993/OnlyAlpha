@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA073",
+  "expression": "-Greater(Rank(WMA(Delta($vwap, 4), 2)), TsRank(WMA(-(Delta($open * 0.147155 + $low * 0.852845, 2) / ($open * 0.147155 + $low * 0.852845)), 3), 16))"
+}

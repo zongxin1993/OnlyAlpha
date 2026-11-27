@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha137",
+  "expression": "16 * ($close - Ref($close, 1) + ($close - $open) / 2 + Ref($close, 1) - Ref($open, 1)) / Where(Abs($high - Ref($close, 1)) > Abs($low - Ref($close, 1)) && Abs($high - Ref($close, 1)) > Abs($high - Ref($low, 1)), Abs($high - Ref($close, 1)) + Abs($low - Ref($close, 1)) / 2 + Abs(Ref($close, 1) - Ref($open, 1)) / 4, Where(Abs($low - Ref($close, 1)) > Abs($high - Ref($low, 1)) && Abs($low - Ref($close, 1)) > Abs($high - Ref($close, 1)), Abs($low - Ref($close, 1)) + Abs($high - Ref($close, 1)) / 2 + Abs(Ref($close, 1) - Ref($open, 1)) / 4, Abs($high - Ref($low, 1)) + Abs(Ref($close, 1) - Ref($open, 1)) / 4)) * Greater(Abs($high - Ref($close, 1)), Abs($low - Ref($close, 1)))"
+}

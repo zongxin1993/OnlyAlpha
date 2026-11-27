@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha37",
+  "expression": "-1 * Rank(Sum($open, 5) * Sum($close / Ref($close, 1) - 1, 5) - Ref(Sum($open, 5) * Sum($close / Ref($close, 1) - 1, 5), 10))"
+}

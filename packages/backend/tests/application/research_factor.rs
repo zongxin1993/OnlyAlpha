@@ -11,30 +11,16 @@ fn reference() -> Value {
     .unwrap()
 }
 #[test]
-fn historical_graph_keeps_its_original_exact_identity() {
-    use onlyalpha_calculation::product::Graph;
-    let r = reference();
-    let historical = Graph::from_record(&r["graph"], 1024 * 1024).unwrap();
-    assert_eq!(historical.to_record(), r["graph"]);
-    assert_eq!(
-        historical.fingerprint(),
-        r["graph_fingerprint"].as_str().unwrap()
-    );
-    for definition in historical.ordered_nodes() {
-        assert_eq!(definition.to_record()["semantic_version"], "1");
-    }
-}
-#[test]
-fn current_graph_uses_actual_native_operator_contracts_and_a_distinct_identity() {
+fn compiled_graph_matches_the_reference_and_current_native_operator_definitions() {
     use onlyalpha_calculation_bridge::native_operators::OperatorCalculation;
     let r = reference();
     let c = compile(&r["candidate"], &r["draft"], &r["revision"]).unwrap();
-    assert_ne!(c.graph().to_record(), r["graph"]);
-    assert_ne!(
+    assert_eq!(c.graph().to_record(), r["graph"]);
+    assert_eq!(
         c.graph().fingerprint(),
         r["graph_fingerprint"].as_str().unwrap()
     );
-    assert_ne!(
+    assert_eq!(
         c.root_fingerprint(),
         r["root_fingerprint"].as_str().unwrap()
     );
@@ -43,7 +29,7 @@ fn current_graph_uses_actual_native_operator_contracts_and_a_distinct_identity()
         let record = definition.to_record();
         if record["kind"] == "INDICATOR" {
             operators += 1;
-            assert_eq!(record["semantic_version"], "2");
+            assert_eq!(record["semantic_version"], "3");
             let actual = OperatorCalculation::from_record(&record).unwrap();
             assert_eq!(actual.definition(), definition);
         } else {
@@ -329,9 +315,9 @@ fn an_exact_published_revision_and_explicit_strategy_bindings_share_the_original
     use onlyalpha_backend::application::research_factor::compile_revision;
     let r = reference();
     let dependencies = json!({"close":{"input":"close","closed_only":true},
-        "close_lag_20":{"input":"close","operator":"onlyalpha.operator.delay","semantic_version":"2","period":20,"closed_only":true},
+        "close_lag_20":{"input":"close","operator":"onlyalpha.operator.delay","semantic_version":"3","period":20,"closed_only":true},
         "volume":{"input":"volume","closed_only":true},
-        "volume_mean_20":{"input":"volume","operator":"onlyalpha.operator.rolling_mean","semantic_version":"2","period":20,"closed_only":true}});
+        "volume_mean_20":{"input":"volume","operator":"onlyalpha.operator.rolling_mean","semantic_version":"3","period":20,"closed_only":true}});
     let compiled = compile_revision(&r["revision"], &dependencies).unwrap();
     let original = compile(&r["candidate"], &r["draft"], &r["revision"]).unwrap();
     assert_eq!(compiled.graph().to_record(), original.graph().to_record());
@@ -367,8 +353,8 @@ fn an_exact_published_revision_and_explicit_strategy_bindings_share_the_original
                     .unwrap()
                     .remove("semantic_version");
             }
-            "legacy-version" => bindings["close_lag_20"]["semantic_version"] = json!("1"),
-            _ => bindings["close_lag_20"]["semantic_version"] = json!("3"),
+            "legacy-version" => bindings["close_lag_20"]["semantic_version"] = json!("2"),
+            _ => bindings["close_lag_20"]["semantic_version"] = json!("4"),
         }
         assert!(
             compile_revision(&r["revision"], &bindings).is_err(),

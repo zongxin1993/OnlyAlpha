@@ -65,11 +65,12 @@ def affected_packages(root: Path, paths: tuple[str, ...]) -> tuple[str, ...]:
         if path.startswith(("scripts/", "tests/tools/")):
             continue
         matches = {name for name, (directory, _) in packages.items() if Path(path).is_relative_to(directory)}
+        resource_owners = [owner for owner, resources in _INFRASTRUCTURE_RESOURCES.items() if path in resources.values()]
         if matches and not (
             path.endswith(".rs")
             or path == "packages/backend/tests/transport/frozen_strategy_fixture.py"
             or Path(path).name == "Cargo.toml"
-            or any(path in resources.values() for resources in _INFRASTRUCTURE_RESOURCES.values())
+            or resource_owners
         ):
             raise ValueError(f"RUST_IMPACT_REVIEW_REQUIRED: owning non-Rust tests are unmapped for {path}")
         if path.startswith("test-data/"):
@@ -78,9 +79,8 @@ def affected_packages(root: Path, paths: tuple[str, ...]) -> tuple[str, ...]:
                 "predicates" if area == "predicate" else _CORPUS_OWNERS.get(area, area).replace("-", "_")
             )
             matches.update(name for name, (member, _) in packages.items() if member == directory)
-            for owner, resources in _INFRASTRUCTURE_RESOURCES.items():
-                if path in resources.values():
-                    matches.update(name for name, (member, _) in packages.items() if Path(owner).is_relative_to(member))
+        for owner in resource_owners:
+            matches.update(name for name, (member, _) in packages.items() if Path(owner).is_relative_to(member))
         if path.startswith("contracts/gateway/"):
             matches.add("onlyalpha-calculation-bridge")
         if path.startswith("contracts/wasm/"):
@@ -1538,7 +1538,38 @@ def validate_calculation_sources(root: Path) -> None:
 # Exact compile-time resources, owned by their consuming source. These paths are
 # also materialized in isolated builds and covered by source_inputs hashing.
 
+_ALPHA158_ROOT = "examples/factor/qlib/alpha158"
+_ALPHA158_FILES = (
+    "manifest.json",
+    *(f"{name}.json" for name in "KMID KLEN KMID2 KUP KUP2 KLOW KLOW2 KSFT KSFT2 OPEN0 HIGH0 LOW0 VWAP0".split()),
+    *(
+        f"{name}{window}.json"
+        for name in (
+            "ROC MA STD BETA RSQR RESI MAX MIN QTLU QTLD RANK RSV IMAX IMIN IMXD CORR CORD "
+            "CNTP CNTN CNTD SUMP SUMN SUMD VMA VSTD WVMA VSUMP VSUMN VSUMD"
+        ).split()
+        for window in (5, 10, 20, 30, 60)
+    ),
+)
+
+_FORMULA_ALPHA_FILES = (
+    *(f"examples/factor/worldquant/alpha101/{file}" for file in (
+        "manifest.json", *(f"ALPHA{number:03d}.json" for number in range(1, 102)),
+    )),
+    *(f"examples/factor/gtja/alpha191/{file}" for file in (
+        "manifest.json", *(f"Alpha{number}.json" for number in range(1, 192)),
+    )),
+)
+
 _INFRASTRUCTURE_RESOURCES = {
+    "crates/calculation/tests/formula_alphas.rs": {
+        "fixtures/formula_alphas/expected.jsonl": "crates/calculation/tests/fixtures/formula_alphas/expected.jsonl",
+        **{f"../../../{path}": path for path in _FORMULA_ALPHA_FILES},
+    },
+    "crates/calculation/tests/alpha158.rs": {
+        "fixtures/alpha158/expected.jsonl": "crates/calculation/tests/fixtures/alpha158/expected.jsonl",
+        **{f"../../../{_ALPHA158_ROOT}/{file}": f"{_ALPHA158_ROOT}/{file}" for file in _ALPHA158_FILES},
+    },
     "packages/backend/src/persistence/node_access.rs": {
         "node_access.sql": "packages/backend/src/persistence/node_access.sql",
     },
@@ -1782,7 +1813,13 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "packages/backend/tests/transport/backtest_preparation_window.rs": {
         "backtest_owner_scenarios.rs": "packages/backend/tests/transport/backtest_owner_scenarios.rs",
     },
-    "crates/operators/src/algebra.rs": {"tests/algebra_tests.rs": "crates/operators/src/tests/algebra_tests.rs"},
+    "crates/operators/src/algebra.rs": {
+        "power.rs": "crates/operators/src/power.rs",
+        "regression.rs": "crates/operators/src/regression.rs",
+        "tests/algebra_tests.rs": "crates/operators/src/tests/algebra_tests.rs",
+    },
+    "crates/operators/src/power.rs": {"tests/power_tests.rs": "crates/operators/src/tests/power_tests.rs"},
+    "crates/operators/src/regression.rs": {"tests/regression_tests.rs": "crates/operators/src/tests/regression_tests.rs"},
     "packages/backend/src/persistence/research_runtime.rs": {
         "../tests/generation_lock_observation.rs": "packages/backend/src/tests/generation_lock_observation.rs",
         "research_runtime/metadata_read_tests.rs": "packages/backend/src/persistence/research_runtime/metadata_read_tests.rs",

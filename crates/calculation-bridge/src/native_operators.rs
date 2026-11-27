@@ -1,10 +1,9 @@
-//! Bounded native Operator semantic-version 2 Calculation adapter.
-//! Native decimal zero is canonical positive zero; historical @1 is rejected. The caller owns event-time,
-//! instrument/cohort ordering, graph readiness and Runtime admission.
+//! 原生算子的 Calculation 适配器。事件时间、标的顺序和准入由调用方负责。
 use onlyalpha_calculation::product::{Definition, TypeDeclaration, normalize_scalar};
 use onlyalpha_operators::algebra::{
     Decimal, Error as KernelError, Kernel, Operator, Parameters, Stream,
 };
+pub use onlyalpha_operators::registry::SEMANTIC_VERSION;
 use onlyalpha_operators::registry::{OpSpec, StateCapability};
 use serde_json::{Map, Value, json};
 use std::{num::NonZeroUsize, str::FromStr};
@@ -22,10 +21,17 @@ fn port(name: &str) -> Value {
     json!({"name":name,"data_type":"DECIMAL","nullable":true,"dimensions":["TIME"],"semantic_type":"NUMERIC_SERIES","unit":null})
 }
 fn names(op: Operator) -> &'static [&'static str] {
-    match op.input_count() {
-        3 => &["condition", "when_true", "when_false"],
-        2 => &["left", "right"],
-        _ => &["value"],
+    match op {
+        Operator::RegressionResidual3 => &["response", "x1", "x2", "x3"],
+        Operator::ConditionalBeta => &["response", "predictor", "condition"],
+        Operator::CumProductIf => &["value", "condition"],
+        Operator::GroupDemean => &["value", "group"],
+        Operator::Pow => &["base", "exponent"],
+        _ => match op.input_count() {
+            3 => &["condition", "when_true", "when_false"],
+            2 => &["left", "right"],
+            _ => &["value"],
+        },
     }
 }
 fn output_name(op: Operator) -> &'static str {
@@ -70,30 +76,56 @@ fn spec(
     kind: &str,
     required: bool,
     default: Value,
-    minimum: Value,
+    [minimum, maximum]: [Value; 2],
     choices: Value,
     uppercase: bool,
 ) -> Value {
-    json!({"name":name,"parameter_type":kind,"required":required,"default":default,"minimum":minimum,"maximum":null,"enum_values":choices,"uppercase":uppercase})
+    json!({"name":name,"parameter_type":kind,"required":required,"default":default,"minimum":minimum,"maximum":maximum,"enum_values":choices,"uppercase":uppercase})
 }
 fn parameter_specs(op: Operator) -> Vec<Value> {
     if op.needs_period() {
-        vec![spec(
+        let mut specs = vec![spec(
             "period",
             "INTEGER",
             true,
             Value::Null,
-            json!(1),
+            [
+                json!(op.minimum_period()),
+                json!(onlyalpha_operators::algebra::MAX_WINDOW),
+            ],
             json!([]),
             false,
-        )]
+        )];
+        if op == Operator::SMA {
+            specs.push(spec(
+                "weight",
+                "INTEGER",
+                true,
+                Value::Null,
+                [json!(1), json!(onlyalpha_operators::algebra::MAX_WINDOW)],
+                json!([]),
+                false,
+            ));
+        }
+        if op == Operator::RollingQuantile {
+            specs.push(spec(
+                "quantile",
+                "DECIMAL",
+                true,
+                Value::Null,
+                [json!("0"), json!("1")],
+                json!([]),
+                false,
+            ));
+        }
+        specs
     } else if op == Operator::Scale {
         vec![spec(
             "factor",
             "DECIMAL",
             false,
             json!("1"),
-            Value::Null,
+            [Value::Null, Value::Null],
             json!([]),
             false,
         )]
@@ -104,7 +136,7 @@ fn parameter_specs(op: Operator) -> Vec<Value> {
                 "STRING",
                 false,
                 json!("HIGHER_IS_BETTER"),
-                Value::Null,
+                [Value::Null, Value::Null],
                 json!(["HIGHER_IS_BETTER", "LOWER_IS_BETTER"]),
                 true,
             ),
@@ -113,7 +145,7 @@ fn parameter_specs(op: Operator) -> Vec<Value> {
                 "STRING",
                 false,
                 json!("AVERAGE"),
-                Value::Null,
+                [Value::Null, Value::Null],
                 json!(["AVERAGE"]),
                 true,
             ),
@@ -142,7 +174,7 @@ impl OperatorCalculation {
     ) -> Result<Self> {
         bounded(parameters)?;
         bounded(bindings)?;
-        if version != "2" {
+        if version != SEMANTIC_VERSION {
             return Err(INVALID);
         }
         let op = operation(type_id)?;
@@ -182,6 +214,19 @@ impl OperatorCalculation {
                 .ok_or(INVALID)?;
             params.period = Some(n);
         }
+        if op == Operator::SMA {
+            params.weight = Some(
+                normalized["weight"]["value"]
+                    .as_u64()
+                    .and_then(|n| usize::try_from(n).ok())
+                    .and_then(NonZeroUsize::new)
+                    .ok_or(INVALID)?,
+            );
+        }
+        if op == Operator::RollingQuantile {
+            let mut remaining = WORK;
+            params.quantile = decimal(&normalized["quantile"]["value"], &mut remaining)?;
+        }
         if op == Operator::Scale {
             let mut remaining = WORK;
             params.factor = decimal(&normalized["factor"]["value"], &mut remaining)?;
@@ -205,7 +250,7 @@ impl OperatorCalculation {
         } else {
             "declared inputs are available"
         };
-        let record = json!({"schema_version":2,"kind":"INDICATOR","type_id":type_id,"semantic_version":"2","parameters":normalized,"inputs":names(op).iter().map(|n|port(n)).collect::<Vec<_>>(),"input_bindings":bindings,"outputs":[port(output_name(op))],"warmup":{"minimum_observations":observations,"ready_condition":ready,"pre_ready_output":"NULL","initialization":"UPSTREAM"},"missing_values":"PROPAGATE","timestamp":"EVENT_TIME","numeric":numeric(),"factor_kind":null,"extensions":{}});
+        let record = json!({"schema_version":2,"kind":"INDICATOR","type_id":type_id,"semantic_version":SEMANTIC_VERSION,"parameters":normalized,"inputs":names(op).iter().map(|n|port(n)).collect::<Vec<_>>(),"input_bindings":bindings,"outputs":[port(output_name(op))],"warmup":{"minimum_observations":observations,"ready_condition":ready,"pre_ready_output":"NULL","initialization":"UPSTREAM"},"missing_values":"PROPAGATE","timestamp":"EVENT_TIME","numeric":numeric(),"factor_kind":null,"extensions":{}});
         Ok(Self {
             definition: Definition::from_record(&record, WORK).map_err(|_| INVALID)?,
             kernel,
@@ -232,10 +277,13 @@ impl OperatorCalculation {
         (self.state_capability() == "CHECKPOINTABLE").then_some(1)
     }
     pub fn state_capability(&self) -> &'static str {
+        // This bridge advances scalar observations and cannot bind a complete event plane.
+        if self.kernel.operator().is_cross_section() {
+            return "RESEARCH_ONLY";
+        }
         match self.kernel.operator().spec().state() {
             StateCapability::Stateless => "STATELESS",
             StateCapability::Checkpointable => "CHECKPOINTABLE",
-            StateCapability::ResearchOnly => "RESEARCH_ONLY",
         }
     }
     pub fn type_declaration(&self) -> Result<Value> {
@@ -244,7 +292,7 @@ impl OperatorCalculation {
         let values = specs.iter().map(|s| json!({"default":typed(&s["parameter_type"], &s["default"]),"minimum":typed(&s["parameter_type"], &s["minimum"]),"maximum":typed(&s["parameter_type"], &s["maximum"]),"enum_values":s["enum_values"].as_array().unwrap().iter().map(|v|typed(&s["parameter_type"], v)).collect::<Vec<_>>()})).collect::<Vec<_>>();
         let mut bounds = Map::new();
         bounds.insert(output_name(self.kernel.operator()).into(), Value::Null);
-        let descriptor = json!({"kind":"INDICATOR","type_id":r["type_id"],"semantic_version":"2","parameters":specs,"inputs":r["inputs"],"outputs":r["outputs"],"missing_values":"PROPAGATE","timestamp":"EVENT_TIME","numeric":numeric(),"factor_kind":null,"execution_shape":if self.kernel.operator().is_cross_section(){"CROSS_SECTION"}else{"TIME_SERIES"},"semantic_bounds":bounds});
+        let descriptor = json!({"kind":"INDICATOR","type_id":r["type_id"],"semantic_version":SEMANTIC_VERSION,"parameters":specs,"inputs":r["inputs"],"outputs":r["outputs"],"missing_values":"PROPAGATE","timestamp":"EVENT_TIME","numeric":numeric(),"factor_kind":null,"execution_shape":if self.kernel.operator().is_cross_section(){"CROSS_SECTION"}else{"TIME_SERIES"},"semantic_bounds":bounds});
         TypeDeclaration::from_record(
             &json!({"schema_version":1,"descriptor":descriptor,"parameter_values":values}),
             WORK,
@@ -334,7 +382,7 @@ impl OperatorCalculation {
         let bundle = onlyalpha_strategy::record_fingerprint(
             &json!({"domain":"onlyalpha.calculation.implementation-bundle","schema_version":1,"resources":resources}),
         );
-        let mut identity = json!({"domain":"onlyalpha.calculation.implementation","schema_version":1,"calculation_type_reference":{"kind":"INDICATOR","type_id":record["type_id"],"semantic_version":"2"},"backend_kind":backend,"entrypoint_identity":if backend=="RESEARCH" {"onlyalpha_calculation_bridge.native_operators:OperatorCalculation.evaluate_batch"}else{"onlyalpha_calculation_bridge.native_operators:OperatorStream.push"},"implementation_bundle_fingerprint":bundle,"semantic_dependencies":[]});
+        let mut identity = json!({"domain":"onlyalpha.calculation.implementation","schema_version":1,"calculation_type_reference":{"kind":"INDICATOR","type_id":record["type_id"],"semantic_version":SEMANTIC_VERSION},"backend_kind":backend,"entrypoint_identity":if backend=="RESEARCH" {"onlyalpha_calculation_bridge.native_operators:OperatorCalculation.evaluate_batch"}else{"onlyalpha_calculation_bridge.native_operators:OperatorStream.push"},"implementation_bundle_fingerprint":bundle,"semantic_dependencies":[]});
         let fingerprint = onlyalpha_strategy::record_fingerprint(&identity);
         identity.as_object_mut().ok_or(INVALID)?.remove("domain");
         identity["resources"] = resources;
@@ -407,14 +455,23 @@ fn calculations() -> Result<Vec<OperatorCalculation>> {
             for n in names(op) {
                 bindings.insert((*n).into(), reference.clone());
             }
+            let mut parameters = Map::new();
+            if op.needs_period() {
+                parameters.insert(
+                    "period".into(),
+                    json!({"type":"INTEGER","value":op.minimum_period()}),
+                );
+            }
+            if op == Operator::SMA {
+                parameters.insert("weight".into(), json!({"type":"INTEGER","value":1}));
+            }
+            if op == Operator::RollingQuantile {
+                parameters.insert("quantile".into(), json!({"type":"DECIMAL","value":"0.5"}));
+            }
             OperatorCalculation::resolve(
                 &id,
-                "2",
-                &if op.needs_period() {
-                    json!({"period":{"type":"INTEGER","value":1}})
-                } else {
-                    json!({})
-                },
+                SEMANTIC_VERSION,
+                &Value::Object(parameters),
                 &Value::Object(bindings),
             )
         })
@@ -484,7 +541,7 @@ pub fn provider_record(image_sha256: &str, distribution_version: &str) -> Result
         "kind":"OPERATOR","calculations":calculations,"private_factor_snapshot":null
     }));
     Ok(json!({
-        "manifest":{"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"7","kind":"OPERATOR",
+        "manifest":{"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"8","kind":"OPERATOR",
             "source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":distribution_version}},
         "content_fingerprint":content_fingerprint,"calculations":calculations,"private_factor_snapshot":null
     }))
@@ -502,29 +559,30 @@ mod tests {
                 json!({"node_fingerprint":"a".repeat(64),"output_name":"value","source":null}),
             );
         }
-        OperatorCalculation::resolve(&id, "2", &parameters, &Value::Object(bindings)).unwrap()
+        OperatorCalculation::resolve(&id, SEMANTIC_VERSION, &parameters, &Value::Object(bindings))
+            .unwrap()
     }
     #[test]
     fn inventory_is_exact_and_bound_to_current_image() {
         let all = calculations().unwrap();
-        assert_eq!(all.len(), 30);
+        assert_eq!(all.len(), 43);
         assert_eq!(
             all.iter()
                 .filter(|c| c.state_capability() == "STATELESS")
                 .count(),
-            9
+            10
         );
         assert_eq!(
             all.iter()
                 .filter(|c| c.state_capability() == "CHECKPOINTABLE")
                 .count(),
-            16
+            26
         );
         assert_eq!(
             all.iter()
                 .filter(|c| c.state_capability() == "RESEARCH_ONLY")
                 .count(),
-            5
+            7
         );
         for c in all {
             assert!(c.type_declaration().is_ok());
@@ -548,9 +606,107 @@ mod tests {
                     .unwrap()["implementation_fingerprint"]
             );
         }
-        assert_eq!(implementation_manifests(&"a".repeat(64)).unwrap().len(), 55);
-        assert_eq!(catalog_rows(&"a".repeat(64)).unwrap().len(), 55);
+        assert_eq!(implementation_manifests(&"a".repeat(64)).unwrap().len(), 79);
+        assert_eq!(catalog_rows(&"a".repeat(64)).unwrap().len(), 79);
         assert!(implementation_manifests(&"A".repeat(64)).is_err());
+    }
+    #[test]
+    fn rolling_statistics_preserve_their_parameters_and_checkpoint_identity() {
+        let period = json!({"type":"INTEGER","value":3});
+        let inputs = json!({"value":["2","4","2"]});
+        for (name, quantile, expected) in [
+            ("rolling_r_squared", None, "0.000000000000"),
+            ("rolling_residual", None, "-0.666666666667"),
+            ("rolling_arg_max", None, "2.000000000000"),
+            ("rolling_arg_min", None, "1.000000000000"),
+            ("rolling_quantile", Some("0"), "2.000000000000"),
+            ("rolling_quantile", Some("0.75"), "3.000000000000"),
+            ("rolling_quantile", Some("1"), "4.000000000000"),
+        ] {
+            let mut parameters = json!({"period":period});
+            if let Some(q) = quantile {
+                parameters["quantile"] = json!({"type":"DECIMAL","value":q});
+            }
+            let c = resolve(name, parameters);
+            let expected = json!([null, null, expected]);
+            assert_eq!(
+                c.evaluate_batch(&inputs).unwrap()["value"],
+                expected,
+                "{name}"
+            );
+            let mut stream = c.stream().unwrap();
+            for (i, input) in inputs["value"].as_array().unwrap().iter().enumerate() {
+                stream = c
+                    .stream()
+                    .unwrap()
+                    .restored_candidate(&stream.checkpoint().unwrap())
+                    .unwrap();
+                assert_eq!(
+                    stream.push(&json!({"value":input})).unwrap()["value"],
+                    expected[i],
+                    "{name} at {i}"
+                );
+            }
+        }
+
+        let c = resolve(
+            "rolling_quantile",
+            json!({"period":period,"quantile":{"type":"DECIMAL","value":"0.5"}}),
+        );
+        let other = resolve(
+            "rolling_quantile",
+            json!({"period":period,"quantile":{"type":"DECIMAL","value":"0.75"}}),
+        );
+        let declaration = c.type_declaration().unwrap();
+        let q = &declaration["descriptor"]["parameters"][1];
+        assert_eq!(q["name"], "quantile");
+        assert_eq!(q["minimum"], "0");
+        assert_eq!(q["maximum"], "1");
+        assert_eq!(q["required"], true);
+        assert!(
+            other
+                .stream()
+                .unwrap()
+                .restored_candidate(&c.stream().unwrap().checkpoint().unwrap())
+                .is_err()
+        );
+        let bindings = &c.definition().to_record()["input_bindings"];
+        for invalid in [
+            json!({"period":period}),
+            json!({"period":period,"quantile":{"type":"STRING","value":"0.5"}}),
+            json!({"period":period,"quantile":{"type":"DECIMAL","value":"-0.01"}}),
+            json!({"period":period,"quantile":{"type":"DECIMAL","value":"1.01"}}),
+        ] {
+            assert!(
+                OperatorCalculation::resolve(
+                    "onlyalpha.operator.rolling_quantile",
+                    SEMANTIC_VERSION,
+                    &invalid,
+                    bindings
+                )
+                .is_err(),
+                "{invalid}"
+            );
+        }
+    }
+    #[test]
+    fn conditional_product_checkpoint_preserves_both_ports() {
+        let c = resolve("cum_product_if", json!({}));
+        let values = [json!("2"), Value::Null, json!("9"), json!("3")];
+        let conditions = ["1", "1", "0", "1"];
+        let expected = json!(["2.000000000000", null, "2.000000000000", "6.000000000000"]);
+        let batch = json!({"value":values,"condition":conditions});
+        assert_eq!(c.evaluate_batch(&batch).unwrap()["value"], expected);
+        let mut stream = c.stream().unwrap();
+        for (i, value) in values.iter().enumerate() {
+            let checkpoint = stream.checkpoint().unwrap();
+            assert_eq!(checkpoint["windows"]["condition"], json!([]));
+            stream = c.stream().unwrap().restored_candidate(&checkpoint).unwrap();
+            let output = stream
+                .push(&json!({"value":value,"condition":conditions[i]}))
+                .unwrap();
+            assert_eq!(output["value"], expected[i]);
+        }
     }
     #[test]
     fn controlled_batch_interrupts_without_partial_result() {
@@ -593,9 +749,9 @@ mod tests {
         );
     }
     #[test]
-    fn native_two_and_shared_provider_have_exact_current_identity() {
+    fn native_operators_and_shared_provider_have_exact_current_identity() {
         let c = resolve("scale", json!({}));
-        assert_eq!(c.definition().to_record()["semantic_version"], "2");
+        assert_eq!(c.definition().to_record()["semantic_version"], "3");
         assert_eq!(
             c.evaluate(&json!({"value":"-0"})).unwrap()["value"],
             "0.000000000000"
@@ -603,14 +759,14 @@ mod tests {
         let provider = provider_record(&"a".repeat(64), "0.9.0").unwrap();
         assert_eq!(
             provider["manifest"],
-            json!({"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"7","kind":"OPERATOR","source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":"0.9.0"}})
+            json!({"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"8","kind":"OPERATOR","source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":"0.9.0"}})
         );
         let calculations = provider["calculations"].as_array().unwrap();
-        assert_eq!(calculations.len(), 55);
+        assert_eq!(calculations.len(), 79);
         assert!(
             calculations
                 .iter()
-                .all(|row| row["type"]["semantic_version"] == "2")
+                .all(|row| row["type"]["semantic_version"] == "3")
         );
         let fingerprints = calculations
             .iter()
@@ -653,17 +809,27 @@ mod tests {
             json!({"unknown":{"type":"INTEGER","value":1}}),
         ] {
             assert!(
-                OperatorCalculation::resolve("onlyalpha.operator.scale", "2", &params, bindings)
-                    .is_err()
+                OperatorCalculation::resolve(
+                    "onlyalpha.operator.scale",
+                    SEMANTIC_VERSION,
+                    &params,
+                    bindings
+                )
+                .is_err()
             );
         }
         assert!(
-            OperatorCalculation::resolve("onlyalpha.operator.scale", "1", &json!({}), bindings)
+            OperatorCalculation::resolve("onlyalpha.operator.scale", "2", &json!({}), bindings)
                 .is_err()
         );
         assert!(
-            OperatorCalculation::resolve("onlyalpha.operator.scale_v2", "2", &json!({}), bindings)
-                .is_err()
+            OperatorCalculation::resolve(
+                "onlyalpha.operator.scale_v2",
+                SEMANTIC_VERSION,
+                &json!({}),
+                bindings
+            )
+            .is_err()
         );
         assert!(c.evaluate(&json!({"value":2})).is_err());
         assert!(c.evaluate(&json!({"value":"NaN"})).is_err());

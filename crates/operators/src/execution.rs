@@ -13,7 +13,10 @@ pub trait VectorKernel {
 }
 
 pub trait EventKernel {
-    fn step(&mut self, values: &[Option<Decimal>]) -> Result<Option<Decimal>>;
+    type Input: ?Sized;
+    type Output;
+
+    fn step(&mut self, values: &Self::Input) -> Result<Self::Output>;
     fn capture_state(&self) -> Columns;
     fn restore_state(&mut self, state: Columns) -> Result<()>;
 }
@@ -24,7 +27,57 @@ impl VectorKernel for Kernel {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct CrossSectionStream {
+    kernel: Kernel,
+    instrument_count: usize,
+}
+
+impl CrossSectionStream {
+    pub fn new(kernel: Kernel, instrument_count: usize) -> Result<Self> {
+        if !kernel.operator().is_cross_section() || instrument_count == 0 {
+            return Err(Error::InvalidInputs);
+        }
+        if instrument_count.saturating_mul(kernel.operator().input_count())
+            > crate::algebra::MAX_CELLS
+        {
+            return Err(Error::BudgetExceeded);
+        }
+        Ok(Self {
+            kernel,
+            instrument_count,
+        })
+    }
+}
+
+impl EventKernel for CrossSectionStream {
+    type Input = [Vec<Option<Decimal>>];
+    type Output = Vec<Option<Decimal>>;
+
+    fn step(&mut self, values: &Self::Input) -> Result<Self::Output> {
+        if self.kernel.validate_columns(values)? != self.instrument_count {
+            return Err(Error::InvalidInputs);
+        }
+        self.kernel.cross_section(values)
+    }
+
+    fn capture_state(&self) -> Columns {
+        Vec::new()
+    }
+
+    fn restore_state(&mut self, state: Columns) -> Result<()> {
+        if state.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::InvalidInputs)
+        }
+    }
+}
+
 impl EventKernel for Stream {
+    type Input = [Option<Decimal>];
+    type Output = Option<Decimal>;
+
     fn step(&mut self, values: &[Option<Decimal>]) -> Result<Option<Decimal>> {
         Stream::push(self, values)
     }

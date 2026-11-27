@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha110",
+  "expression": "Sum(Greater(0, $high - Ref($close, 1)), 20) / Sum(Greater(0, Ref($close, 1) - $low), 20) * 100"
+}

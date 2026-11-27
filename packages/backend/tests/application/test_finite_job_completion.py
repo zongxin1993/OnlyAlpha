@@ -69,8 +69,6 @@ def prepare_runtime_login(postgres_dsn: str) -> None:
 def test_actual_finite_research_joins_and_retains_all_members_without_publishing(
     native_environment_case: dict, native_release_probe: Path, database, postgres_dsn: str, tmp_path: Path
 ) -> None:
-    # Build a current asset through the actual value owner; the historical
-    # research_factor.json remains byte-for-byte bound to its old ABI identity.
     native_environment_case = copy.deepcopy(native_environment_case)
     reference = subprocess.run(
         [str(native_release_probe)],

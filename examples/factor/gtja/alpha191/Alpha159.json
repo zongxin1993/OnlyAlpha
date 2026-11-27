@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha159",
+  "expression": "(($close - Sum(Less($low, Ref($close, 1)), 6)) / Sum(Greater($high, Ref($close, 1)) - Less($low, Ref($close, 1)), 6) * 12 * 24 + ($close - Sum(Less($low, Ref($close, 1)), 12)) / Sum(Greater($high, Ref($close, 1)) - Less($low, Ref($close, 1)), 12) * 6 * 24 + ($close - Sum(Less($low, Ref($close, 1)), 24)) / Sum(Greater($high, Ref($close, 1)) - Less($low, Ref($close, 1)), 24) * 6 * 24) * 100 / (6 * 12 + 6 * 24 + 12 * 24)"
+}

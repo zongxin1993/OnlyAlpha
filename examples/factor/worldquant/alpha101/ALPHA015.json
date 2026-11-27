@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA015",
+  "expression": "-Sum(Rank(Corr(Rank($high), Rank($volume), 3)), 3)"
+}

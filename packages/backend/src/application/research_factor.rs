@@ -5,6 +5,7 @@ use crate::application::{
     private_assets::authoring::{Draft, validate_revision},
 };
 use onlyalpha_calculation::product::{Definition, Graph};
+use onlyalpha_calculation_bridge::native_operators::{OperatorCalculation, SEMANTIC_VERSION};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 type Result<T> = std::result::Result<T, &'static str>;
@@ -225,7 +226,7 @@ pub fn compile_revision(
                 ]
                 .iter()
                 .all(|key| fields.contains_key(*key))
-                || dependency["semantic_version"] != "2"
+                || dependency["semantic_version"] != SEMANTIC_VERSION
             {
                 return Err(INVALID);
             }
@@ -233,35 +234,30 @@ pub fn compile_revision(
                 .as_u64()
                 .filter(|period| (1..=10000).contains(period))
                 .ok_or(INVALID)?;
-            let delayed = operator == "onlyalpha.operator.delay";
-            if !delayed && operator != "onlyalpha.operator.rolling_mean" {
+            if !matches!(
+                operator,
+                "onlyalpha.operator.delay" | "onlyalpha.operator.rolling_mean"
+            ) {
                 return Err(INVALID);
             }
-            let observations = if delayed { period + 1 } else { period };
-            history = history.max(observations - 1);
-            let mut d = definition(
-                "INDICATOR",
+            let node = OperatorCalculation::resolve(
                 operator,
-                "2",
-                vec![port("value")],
-                json!({"value":external(input)}),
-            );
-            d["parameters"] = json!({"period":{"type":"INTEGER","value":period}});
-            d["warmup"]["minimum_observations"] = json!(observations);
-            d["warmup"]["ready_condition"] = json!(if delayed {
-                "complete inclusive declared window is available"
-            } else if period > 1 {
-                "complete declared input window is available"
-            } else {
-                "declared input is available"
-            });
-            let d =
-                Definition::from_record(&d, WORK).map_err(|_| "RESEARCH_FACTOR_GRAPH_INVALID")?;
+                SEMANTIC_VERSION,
+                &json!({"period":{"type":"INTEGER","value":period}}),
+                &json!({"value":external(input)}),
+            )
+            .map_err(|_| "RESEARCH_FACTOR_GRAPH_INVALID")?;
+            let d = node.definition();
+            let record = d.to_record();
+            let observations = record["warmup"]["minimum_observations"]
+                .as_u64()
+                .ok_or(INVALID)?;
+            history = history.max(observations - 1);
             bindings.insert(
                 name.clone(),
                 json!({"node_fingerprint":d.fingerprint(),"output_name":"value","source":null}),
             );
-            nodes.push(json!({"definition":d.to_record(),"alias":null}));
+            nodes.push(json!({"definition":record,"alias":null}));
         } else {
             if fields.len() != 2
                 || !fields.contains_key("input")

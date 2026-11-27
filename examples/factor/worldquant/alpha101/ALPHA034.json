@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA034",
+  "expression": "Rank((1 - Rank(Std($returns, 2) / Std($returns, 5))) + (1 - Rank(Delta($close, 1))))"
+}

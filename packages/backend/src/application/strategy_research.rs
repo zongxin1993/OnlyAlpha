@@ -492,7 +492,18 @@ mod tests {
 
     #[test]
     fn decision_graph_lowers_the_exact_calculations_and_three_native_terminals() {
+        use onlyalpha_calculation_bridge::native_operators::OperatorCalculation;
         let fixture = calculation_fixture();
+        for node in fixture["nodes"].as_array().unwrap() {
+            if node["definition"]["kind"] == "INDICATOR" {
+                let native = OperatorCalculation::from_record(&node["definition"]).unwrap();
+                assert_eq!(native.type_declaration().unwrap(), node["type_declaration"]);
+                assert_eq!(
+                    native.definition().fingerprint(),
+                    node["definition_fingerprint"].as_str().unwrap()
+                );
+            }
+        }
         let mut value = strategy();
         value["calculations"] = fixture["instances"].clone();
         value["factor_revision_dependencies"] = fixture["factor_revision_dependencies"].clone();

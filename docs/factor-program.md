@@ -1,6 +1,6 @@
 # 一次构建的因子程序
 
-> **已退役（目标）：** 本文描述的受限 Python AST 因子编写接口由 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 替代。目标实现为 Qlib 风格表达式、算子 DAG 与双内核执行；本文、对应编译器、`packages/backend/python/algorithms/` 及相关构建路径按 ADR 0152 阶段 4 清退。本文仅用于说明清退前的当前源码与既有绑定，不再是目标契约，也不得用于新增实现。
+> **已退役（目标）：** 本文描述的受限 Python AST 因子编写接口由 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 替代。目标实现为声明式因子表达式、类型化算子 DAG 与双内核执行；本文、对应编译器、`packages/backend/python/algorithms/` 及相关构建路径按 ADR 0152 阶段 4 清退。本文仅用于说明清退前的当前源码与既有绑定，不再是目标契约，也不得用于新增实现。
 
 ## 职责与身份
 

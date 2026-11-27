@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha119",
+  "expression": "Rank(WMA(Corr($vwap, Sum(Mean($volume, 5), 26), 5), 7)) - Rank(WMA(Rank(Min(Corr(Rank($open), Rank(Mean($volume, 15)), 21), 9), 7), 8))"
+}

@@ -130,7 +130,7 @@
             }
           },
           "schema_version": 2,
-          "semantic_version": "1",
+          "semantic_version": "3",
           "timestamp": "EVENT_TIME",
           "type_id": "onlyalpha.operator.delay",
           "warmup": {
@@ -192,7 +192,7 @@
             }
           },
           "schema_version": 2,
-          "semantic_version": "1",
+          "semantic_version": "3",
           "timestamp": "EVENT_TIME",
           "type_id": "onlyalpha.operator.rolling_mean",
           "warmup": {
@@ -215,7 +215,7 @@
               "source": "close"
             },
             "close_lag_20": {
-              "node_fingerprint": "4262d346437dc887136659d5ce9dd0430f64e52b7f868f1fbb8c7cc43ca20144",
+              "node_fingerprint": "1c06312d74c80948bf86480f22cb9fa2b1bbe9afa938249a072f3728ed2d551c",
               "output_name": "value",
               "source": null
             },
@@ -225,7 +225,7 @@
               "source": "volume"
             },
             "volume_mean_20": {
-              "node_fingerprint": "c6ed1f4dcf9f61ca5a8e2e92405d267b608282a09165e93f43e8fa49fd595ff8",
+              "node_fingerprint": "d6496113f521566dfa1bd3354c6912e4aeeb05d024e8bcc2339c14c0ab2e4d37",
               "output_name": "value",
               "source": null
             }
@@ -313,7 +313,7 @@
     ],
     "schema_version": 1
   },
-  "graph_fingerprint": "d9924d6f623a4ac30ea55e3f7c5525a26dd6671a76d34c31cf9877022e0093ca",
+  "graph_fingerprint": "c8f84dac80168e0d7bc01d94b72ba7bb3bc6e4a4fe5d2e54e3e8c644dc274e48",
   "required_history_bars": 20,
   "revision": {
     "category": "chat",
@@ -361,5 +361,5 @@
     "source_text": "def calculate(api, inputs, parameters):\n    return {'value': api.mul(api.sub(api.div(inputs['close'], inputs['close_lag_20']), parameters['literal_1']), api.div(inputs['volume'], inputs['volume_mean_20']))}\n",
     "tags": []
   },
-  "root_fingerprint": "f025a49a86b8c2fbbf44f2055c3454ce6cec481513ca3c68a1ecca8f213400b4"
+  "root_fingerprint": "ec12259a92037afada5c37a39eb1914960c21eb002df6be60cc941a631891b84"
 }

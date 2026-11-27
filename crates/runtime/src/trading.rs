@@ -1,10 +1,10 @@
-//! Backtest／SIM／LIVE 共用的统一事件主循环：同一事件链路、同一份 Qlib 因子定义与同一数值政策。
+//! Backtest／SIM／LIVE 共用的统一事件主循环：同一事件链路、同一份 声明式因子定义与同一数值政策。
 //!
 //! 主循环不知道当前模式。行情与时钟、策略、风控／准入／券商／持久化事实全部由注入端口承担，
 //! 因此回测与实盘只在端口实现上不同，不出现 `if mode == Backtest` 之类的分支。
 //! 实盘派单权限属于执行端口；本模块不产出任何外部发单能力。
 use crate::research::Cell;
-use onlyalpha_calculation::qlib::{
+use onlyalpha_calculation::factor_expr::{
     DagState, EventExecutor, FactorExpr, PanelDagState, PanelEventExecutor,
 };
 use onlyalpha_domain::{

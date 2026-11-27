@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA056",
+  "expression": "-(Rank(Sum($returns, 10) / Sum(Sum($returns, 2), 3)) * Rank($returns * $market_cap))"
+}

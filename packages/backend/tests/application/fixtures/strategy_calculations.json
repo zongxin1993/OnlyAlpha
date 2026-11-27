@@ -29,7 +29,7 @@
       ],
       "type_reference": {
         "kind": "INDICATOR",
-        "semantic_version": "1",
+        "semantic_version": "3",
         "type_id": "onlyalpha.operator.delay"
       }
     },
@@ -56,7 +56,7 @@
       ],
       "type_reference": {
         "kind": "INDICATOR",
-        "semantic_version": "1",
+        "semantic_version": "3",
         "type_id": "onlyalpha.operator.rolling_mean"
       }
     },
@@ -120,7 +120,7 @@
             "source": "bar.close"
           },
           "close_lag_20": {
-            "node_fingerprint": "143a99631ed98cf24c9a5c4df1ec7d4bab220c23345096a522f7295f2d7422cc",
+            "node_fingerprint": "910a3465a3380d427e692d0e05b450b5be5deb735ddf899b6a126889336a2459",
             "output_name": "value",
             "source": null
           },
@@ -130,7 +130,7 @@
             "source": "bar.volume"
           },
           "volume_mean_20": {
-            "node_fingerprint": "a51a843bc347ea2d7a1e9bc8be5af34e5f2a8b2f4052cf7346021b5034469567",
+            "node_fingerprint": "772234f87d2df1e4495b0b1b7ef929a1bd6979a8aa90ab29737b3282f3d91fb7",
             "output_name": "value",
             "source": null
           }
@@ -214,7 +214,7 @@
           "ready_condition": "point inputs are available"
         }
       },
-      "definition_fingerprint": "e49341784929de5ea2f2abdf1f0238249f6789bd42d34090c5caab9369411d98",
+      "definition_fingerprint": "06f0cb7be9a854590916afa0cfe7977ea73deb1368b51fe0238a4c0492e5b22c",
       "instance_key": "momentum",
       "type_declaration": {
         "descriptor": {
@@ -371,7 +371,7 @@
           }
         },
         "schema_version": 2,
-        "semantic_version": "1",
+        "semantic_version": "3",
         "timestamp": "EVENT_TIME",
         "type_id": "onlyalpha.operator.delay",
         "warmup": {
@@ -381,7 +381,7 @@
           "ready_condition": "complete inclusive declared window is available"
         }
       },
-      "definition_fingerprint": "143a99631ed98cf24c9a5c4df1ec7d4bab220c23345096a522f7295f2d7422cc",
+      "definition_fingerprint": "910a3465a3380d427e692d0e05b450b5be5deb735ddf899b6a126889336a2459",
       "instance_key": "node_0",
       "type_declaration": {
         "descriptor": {
@@ -423,7 +423,7 @@
             {
               "default": null,
               "enum_values": [],
-              "maximum": null,
+              "maximum": 100000,
               "minimum": 1,
               "name": "period",
               "parameter_type": "INTEGER",
@@ -434,7 +434,7 @@
           "semantic_bounds": {
             "value": null
           },
-          "semantic_version": "1",
+          "semantic_version": "3",
           "timestamp": "EVENT_TIME",
           "type_id": "onlyalpha.operator.delay"
         },
@@ -446,8 +446,8 @@
             },
             "enum_values": [],
             "maximum": {
-              "type": "NULL",
-              "value": null
+              "type": "INTEGER",
+              "value": 100000
             },
             "minimum": {
               "type": "INTEGER",
@@ -508,7 +508,7 @@
           }
         },
         "schema_version": 2,
-        "semantic_version": "1",
+        "semantic_version": "3",
         "timestamp": "EVENT_TIME",
         "type_id": "onlyalpha.operator.rolling_mean",
         "warmup": {
@@ -518,7 +518,7 @@
           "ready_condition": "complete declared input window is available"
         }
       },
-      "definition_fingerprint": "a51a843bc347ea2d7a1e9bc8be5af34e5f2a8b2f4052cf7346021b5034469567",
+      "definition_fingerprint": "772234f87d2df1e4495b0b1b7ef929a1bd6979a8aa90ab29737b3282f3d91fb7",
       "instance_key": "node_1",
       "type_declaration": {
         "descriptor": {
@@ -560,7 +560,7 @@
             {
               "default": null,
               "enum_values": [],
-              "maximum": null,
+              "maximum": 100000,
               "minimum": 1,
               "name": "period",
               "parameter_type": "INTEGER",
@@ -571,7 +571,7 @@
           "semantic_bounds": {
             "value": null
           },
-          "semantic_version": "1",
+          "semantic_version": "3",
           "timestamp": "EVENT_TIME",
           "type_id": "onlyalpha.operator.rolling_mean"
         },
@@ -583,8 +583,8 @@
             },
             "enum_values": [],
             "maximum": {
-              "type": "NULL",
-              "value": null
+              "type": "INTEGER",
+              "value": 100000
             },
             "minimum": {
               "type": "INTEGER",
@@ -596,18 +596,18 @@
       }
     }
   ],
-  "reference_decision_graph_fingerprint": "e1eb7dfb706e06fdf60ffb1cb2426d4d28853d0b1805dd0b8eb12b8e80556896",
+  "reference_decision_graph_fingerprint": "aab83545a48d8313a2c18e6dd13873ce22b44dd7b081ef29b5e1a9b0a4eaa580",
   "reference_signal_semantics": {
     "eligibility": {
       "node_fingerprint": "59aa8d3c5997ec794afc7dcd3b1ccda8aee3d5e2d9bee913bf17c700a9bcfd2f",
       "output_name": "value"
     },
     "entry": {
-      "node_fingerprint": "b9d866313364f0f5da5a5444b6657e29810d2e1020301e8aeaa687fd04e40245",
+      "node_fingerprint": "9e7d6420699ed0c6667fff75c8f45a2fabd9b86a5f2a1e8830dc5478b7915983",
       "output_name": "value"
     },
     "exit": {
-      "node_fingerprint": "09ca96a3c3bd5f06ae0cc07683ac00e2662226e61d0ef1a607b00c53f04c9703",
+      "node_fingerprint": "45976c462107881039d849d5cf13a27b5b86c5b24449b16936d9e0c860b36d24",
       "output_name": "value"
     },
     "missing_decision": "FALSE",

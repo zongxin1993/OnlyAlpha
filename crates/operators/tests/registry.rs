@@ -6,7 +6,15 @@ use onlyalpha_operators::registry::{
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 
-const EVERY_OPERATOR: [Operator; 30] = [
+const EVERY_OPERATOR: [Operator; 43] = [
+    Operator::RegressionResidual3,
+    Operator::ConditionalBeta,
+    Operator::CumProductIf,
+    Operator::CrossSectionScale,
+    Operator::GroupDemean,
+    Operator::RollingProduct,
+    Operator::SMA,
+    Operator::Pow,
     Operator::Add,
     Operator::Subtract,
     Operator::Multiply,
@@ -29,6 +37,11 @@ const EVERY_OPERATOR: [Operator; 30] = [
     Operator::DecayLinear,
     Operator::Where,
     Operator::RollingSlope,
+    Operator::RollingRSquared,
+    Operator::RollingResidual,
+    Operator::RollingQuantile,
+    Operator::RollingArgMax,
+    Operator::RollingArgMin,
     Operator::EMA,
     Operator::RMA,
     Operator::CumSum,
@@ -42,7 +55,7 @@ const EVERY_OPERATOR: [Operator; 30] = [
 #[test]
 fn registry_owns_one_row_per_operator_with_unique_identity() {
     assert_eq!(REGISTRY.len(), EVERY_OPERATOR.len());
-    assert_eq!(all().len(), 30);
+    assert_eq!(all().len(), 43);
     let names = REGISTRY
         .iter()
         .map(|spec| spec.name)
@@ -65,7 +78,7 @@ fn registry_owns_one_row_per_operator_with_unique_identity() {
 #[test]
 fn canonical_type_ids_require_the_exact_prefix_and_name() {
     assert_eq!(TYPE_ID_PREFIX, "onlyalpha.operator.");
-    assert_eq!(SEMANTIC_VERSION, "2");
+    assert_eq!(SEMANTIC_VERSION, "3");
     assert_eq!(NUMERIC_POLICY, "DECIMAL28_HALF_EVEN_Q12_V1");
     assert_eq!(
         Operator::RollingMean.type_id(),
@@ -95,22 +108,26 @@ fn state_capabilities_follow_shape_and_warmup() {
     assert_eq!(
         stateless,
         [
-            "abs", "add", "divide", "log", "multiply", "scale", "sign", "subtract", "where"
-        ]
-    );
-    assert_eq!(count(StateCapability::Checkpointable).len(), 16);
-    let mut research_only = count(StateCapability::ResearchOnly);
-    research_only.sort_unstable();
-    assert_eq!(
-        research_only,
-        [
+            "abs",
+            "add",
             "cross_section_correlation",
             "cross_section_demean",
             "cross_section_percentile",
             "cross_section_rank",
-            "cross_section_zscore"
+            "cross_section_scale",
+            "cross_section_zscore",
+            "divide",
+            "group_demean",
+            "log",
+            "multiply",
+            "pow",
+            "scale",
+            "sign",
+            "subtract",
+            "where"
         ]
     );
+    assert_eq!(count(StateCapability::Checkpointable).len(), 26);
 }
 
 #[test]
@@ -121,6 +138,8 @@ fn minimum_observations_encode_warmup_without_off_by_one_ambiguity() {
     assert_eq!(observations(Operator::Scale), Some(1));
     assert_eq!(observations(Operator::Delay), Some(4));
     assert_eq!(observations(Operator::Delta), Some(4));
+    assert_eq!(Operator::RegressionResidual3.minimum_period(), 5);
+    assert_eq!(Operator::ConditionalBeta.minimum_period(), 2);
     assert_eq!(observations(Operator::RollingMean), Some(3));
     assert_eq!(observations(Operator::RollingCorrelation), Some(3));
     assert_eq!(observations(Operator::DecayLinear), Some(3));
@@ -141,11 +160,19 @@ fn minimum_observations_encode_warmup_without_off_by_one_ambiguity() {
 #[test]
 fn parameter_shape_and_arity_match_the_numeric_kernel() {
     for spec in REGISTRY {
-        let period = NonZeroUsize::new(3).filter(|_| spec.parameter == ParameterKind::Period);
+        let needs_period = matches!(
+            spec.parameter,
+            ParameterKind::Period | ParameterKind::PeriodQuantile | ParameterKind::PeriodWeight
+        );
+        let period =
+            NonZeroUsize::new(3.max(spec.operator.minimum_period())).filter(|_| needs_period);
         let kernel = onlyalpha_operators::algebra::Kernel::new(
             spec.operator,
             onlyalpha_operators::algebra::Parameters {
                 period,
+                weight: NonZeroUsize::new(2)
+                    .filter(|_| spec.parameter == ParameterKind::PeriodWeight),
+                quantile: (spec.parameter == ParameterKind::PeriodQuantile).then(|| 0.into()),
                 ..Default::default()
             },
         )
@@ -159,9 +186,6 @@ fn parameter_shape_and_arity_match_the_numeric_kernel() {
             spec.shape == ExecutionShape::CrossSection,
             spec.operator.is_cross_section()
         );
-        assert_eq!(
-            spec.parameter == ParameterKind::Period,
-            spec.operator.needs_period()
-        );
+        assert_eq!(needs_period, spec.operator.needs_period());
     }
 }

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA046",
+  "expression": "Where(((Ref($close, 20) - Ref($close, 10)) / 10 - (Ref($close, 10) - $close) / 10) > 0.25, -1, Where(((Ref($close, 20) - Ref($close, 10)) / 10 - (Ref($close, 10) - $close) / 10) < 0, 1, -Delta($close, 1)))"
+}

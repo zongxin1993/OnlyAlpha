@@ -29,16 +29,9 @@ def installed_trading_environment(root: Path, output: Path) -> dict[str, str]:
     )
     base["bar_type"]["instrument_id"]["symbol"]["value"] = "BTCUSDT"
     base["bar_type"]["instrument_id"]["venue"]["value"] = "BINANCE"
-    # These are reusable authoring inputs, not upgraded immutable Definitions.
-    # The current graph/identities are rebuilt in the actually tested Rust ELF.
-    historical = json.loads(
+    instances = json.loads(
         (root / "packages/backend/tests/application/fixtures/strategy_calculations.json").read_text()
-    )
-    instances = historical["instances"]
-    for instance in instances:
-        reference = instance["type_reference"]
-        if reference["type_id"].startswith("onlyalpha.operator."):
-            reference["semantic_version"] = "2"
+    )["instances"]
     request = output / "inputs.json"
     request.write_text(
         json.dumps(

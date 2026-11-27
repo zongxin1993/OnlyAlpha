@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA029",
+  "expression": "Min(Rank(Rank(CSScale(Log(Min(Rank(Rank(-Rank(Delta($close - 1, 5)))), 2))))), 5) + TsRank(Ref(-$returns, 6), 5)"
+}

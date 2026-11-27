@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA022",
+  "expression": "-(Delta(Corr($high, $volume, 5), 5) * Rank(Std($close, 20)))"
+}

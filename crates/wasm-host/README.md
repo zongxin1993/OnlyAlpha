@@ -14,7 +14,7 @@
 ## 边界与依赖
 
 - **拥有**：L3 WASM 确定性执行沙箱、版本化 WIT 契约校验、扩展算子双内核自动认证与 `ReadyCertificate` 签发、插件运行期热加载／热卸载管理、线性内存与隔离故障计量。
-- **不拥有**：L1 内置算子数值语义（归属 `onlyalpha-operators`）、L2 Qlib 表达式编译执行（归属 `onlyalpha-calculation`）、L4 券商与数据源子进程插件协议、HTTP／WS 路由、持久化存储、风控准入、订单身份或实盘人工授权门槛。
+- **不拥有**：L1 内置算子数值语义（归属 `onlyalpha-operators`）、L2 声明式因子表达式的编译与执行（归属 `onlyalpha-calculation`）、L4 券商与数据源子进程插件协议、HTTP／WS 路由、持久化存储、风控准入、订单身份或实盘人工授权门槛。
 - **直接依赖**：`onlyalpha-domain`（策略输入输出与账户只读视图的交易值对象，见 `onlyalpha_domain::strategy`）、`onlyalpha-operators`、`wasmtime`（仅启用 `cranelift`、`runtime`、`std`、`component-model`，不含任何 `wasmtime-wasi`）、`sha2`、`serde_json`；测试依赖 `wat` 与 `wit-parser`。全库遵守 workspace `unsafe_code = "forbid"`。
 
 ## 公开接口

@@ -4,7 +4,7 @@
 
 在通用算子之上表达稳定金融含义，提供均线、波动率、动量、成交量及价格区间指标。
 
-所有内置指标均通过 [`compose`] 模块仅由 [`onlyalpha-operators`](../operators/README.md) 的已认证双内核算子组合构建，不维护手写滚动状态；每个指标天然同时支持批量 `evaluate_vector` 与逐事件 `event_stream`（含 `capture_state` / `restore_state`），并共享 `DECIMAL28_HALF_EVEN_Q12_V1` 数值契约。
+所有内置指标均通过 [`compose`](src/compose.rs) 组合 [`onlyalpha-operators`](../operators/README.md) 的已认证双内核算子，共享 `DECIMAL28_HALF_EVEN_Q12_V1` 数值契约。组合指标以 `evaluate_vector` 批量计算，通过 `event_stream` 返回的执行器逐事件 `step`。[`UtcSessionVWAP`](src/builtin.rs) 直接接收带时间戳的事件；两类事件接口均提供 `capture_state` 和 `restore_state`。
 
 本库是 `crates/` 下的 Rust 库，供其他库、后端或插件通过 Rust 公开接口复用。
 职责依据[仓库架构](../../docs/repository-product-architecture.md)和各语义所属契约；此说明不新增 Authority，也不替代正式契约。

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha140",
+  "expression": "Less(Rank(WMA(Rank($open) + Rank($low) - (Rank($high) + Rank($close)), 8)), Rank(WMA(Corr(Rank($close, 8), Rank(Mean($volume, 60), 20), 8), 7), 3))"
+}

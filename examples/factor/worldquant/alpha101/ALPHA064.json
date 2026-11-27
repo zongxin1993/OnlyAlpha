@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA064",
+  "expression": "-(Rank(Corr(Sum($open * 0.178404 + $low * 0.821596, 12), Sum(Mean($dollar_volume, 120), 12), 16)) < Rank(Delta((($high + $low) / 2) * 0.178404 + $vwap * 0.821596, 3)))"
+}

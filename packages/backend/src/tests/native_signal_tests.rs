@@ -7,7 +7,7 @@ fn batch_blocks_downstream_until_every_parent_is_ready() {
         json!({"value":{"node_fingerprint":null,"output_name":"value","source":"bar.close"}});
     let mean = OperatorCalculation::resolve(
         "onlyalpha.operator.rolling_mean",
-        "2",
+        "3",
         &json!({"period":{"type":"INTEGER","value":2}}),
         &source,
     )

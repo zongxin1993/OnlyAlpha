@@ -22,7 +22,9 @@
 
 实例按 scope／商品／节点持有可变状态。恢复采用独立候选，核对完整字段、绑定、游标、receipt 与窗口，错误使当前执行失效。`ProgramFactor::new` 和 `ProgramNodes::new` 只校验传入的数学绑定值，不证明 PostgreSQL 证书存在、READY、私有资产权限或发布资格；这些证明必须由 Backend 的 owning reader 提供。
 
-Worker::from_stream 接入已有通道并执行握手和请求；WorkerConnector / ProcessControl 提供连接与生命周期端口。StrategyNodes、StrategyPreparation 连接计算与行情准备；ChartInstallation 校验安装资源；native_operators / native_predicates 暴露定义、清单与求值，protocol 提供协议绑定。fingerprint 计算原始字节摘要。
+Worker::from_stream 接入已有通道并执行握手和请求；WorkerConnector / ProcessControl 提供连接与生命周期端口。StrategyNodes、StrategyPreparation 连接计算与行情准备；ChartInstallation 校验安装资源；[`native_operators::OperatorCalculation`](src/native_operators.rs) 和 [`native_predicates`](src/native_predicates.rs) 暴露定义、清单与求值。滚动分位数 `onlyalpha.operator.rolling_quantile` 要求同时传入正整数 `period` 和 `[0,1]` 内的 `DECIMAL` 参数 `quantile`；`resolve` 按声明解析参数并纳入精确定义。递推平滑 `onlyalpha.operator.sma` 绑定两个整数 `period` 和 `weight`，其中 `1 ≤ weight ≤ period`。`protocol` 提供协议绑定。fingerprint 计算原始字节摘要。
+
+[`native_operators::SEMANTIC_VERSION`](src/native_operators.rs) 取自内核注册表。`regression_residual3` 绑定 `response`、`x1`、`x2`、`x3`，窗口至少 5 期。`conditional_beta` 绑定 `response`、`predictor`、`condition`，窗口至少 2 期。`cum_product_if` 绑定 `value` 与 `condition`，按标的保存累计乘积。检查点绑定规范化参数所在的定义指纹。标量交易端口只接受时序算子，截面算子通过完整截面批量输入求值。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
 

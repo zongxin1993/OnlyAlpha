@@ -7,7 +7,7 @@ use crate::algebra::Operator;
 use std::num::NonZeroUsize;
 
 pub const TYPE_ID_PREFIX: &str = "onlyalpha.operator.";
-pub const SEMANTIC_VERSION: &str = "2";
+pub const SEMANTIC_VERSION: &str = "3";
 pub const NUMERIC_POLICY: &str = "DECIMAL28_HALF_EVEN_Q12_V1";
 
 /// Configurable parameter contract of one operator.
@@ -16,6 +16,10 @@ pub enum ParameterKind {
     None,
     /// Positive integer lookback `period`.
     Period,
+    /// Positive `period` and a required decimal `quantile` in [0, 1].
+    PeriodQuantile,
+    /// Positive integers `weight` and `period`, with `weight <= period`.
+    PeriodWeight,
     /// Decimal `factor`, defaulting to one.
     Factor,
     /// `HIGHER_IS_BETTER` / `LOWER_IS_BETTER` direction; ties are averaged.
@@ -49,7 +53,6 @@ pub enum WarmupRule {
 pub enum StateCapability {
     Stateless,
     Checkpointable,
-    ResearchOnly,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,18 +70,14 @@ impl OpSpec {
         format!("{TYPE_ID_PREFIX}{}", self.name)
     }
 
-    /// Time-series kernels can carry state across events; a cross-section plane
-    /// is only meaningful as one complete research batch.
+    /// A complete cross-section is evaluated without retaining prior events.
     pub fn state(self) -> StateCapability {
-        match self.shape {
-            ExecutionShape::CrossSection => StateCapability::ResearchOnly,
-            ExecutionShape::TimeSeries => match self.warmup {
-                WarmupRule::Current => StateCapability::Stateless,
-                WarmupRule::Window
-                | WarmupRule::Lag
-                | WarmupRule::Recursive
-                | WarmupRule::SeededWindow => StateCapability::Checkpointable,
-            },
+        match self.warmup {
+            WarmupRule::Current => StateCapability::Stateless,
+            WarmupRule::Window
+            | WarmupRule::Lag
+            | WarmupRule::Recursive
+            | WarmupRule::SeededWindow => StateCapability::Checkpointable,
         }
     }
 
@@ -111,7 +110,71 @@ const fn spec(
     }
 }
 
-pub static REGISTRY: [OpSpec; 30] = [
+pub static REGISTRY: [OpSpec; 43] = [
+    spec(
+        "regression_residual3",
+        Operator::RegressionResidual3,
+        4,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
+        "conditional_beta",
+        Operator::ConditionalBeta,
+        3,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
+        "cum_product_if",
+        Operator::CumProductIf,
+        2,
+        ParameterKind::None,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Recursive,
+    ),
+    spec(
+        "cross_section_scale",
+        Operator::CrossSectionScale,
+        1,
+        ParameterKind::None,
+        ExecutionShape::CrossSection,
+        WarmupRule::Current,
+    ),
+    spec(
+        "group_demean",
+        Operator::GroupDemean,
+        2,
+        ParameterKind::None,
+        ExecutionShape::CrossSection,
+        WarmupRule::Current,
+    ),
+    spec(
+        "rolling_product",
+        Operator::RollingProduct,
+        1,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
+        "sma",
+        Operator::SMA,
+        1,
+        ParameterKind::PeriodWeight,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Recursive,
+    ),
+    spec(
+        "pow",
+        Operator::Pow,
+        2,
+        ParameterKind::None,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Current,
+    ),
     spec(
         "add",
         Operator::Add,
@@ -289,6 +352,46 @@ pub static REGISTRY: [OpSpec; 30] = [
         WarmupRule::Window,
     ),
     spec(
+        "rolling_r_squared",
+        Operator::RollingRSquared,
+        1,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
+        "rolling_residual",
+        Operator::RollingResidual,
+        1,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
+        "rolling_quantile",
+        Operator::RollingQuantile,
+        1,
+        ParameterKind::PeriodQuantile,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
+        "rolling_arg_max",
+        Operator::RollingArgMax,
+        1,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
+        "rolling_arg_min",
+        Operator::RollingArgMin,
+        1,
+        ParameterKind::Period,
+        ExecutionShape::TimeSeries,
+        WarmupRule::Window,
+    ),
+    spec(
         "ema",
         Operator::EMA,
         1,
@@ -383,8 +486,19 @@ impl Operator {
         self.spec().inputs
     }
 
+    pub fn minimum_period(self) -> usize {
+        match self {
+            Self::RegressionResidual3 => 5,
+            Self::ConditionalBeta => 2,
+            _ => 1,
+        }
+    }
+
     pub fn needs_period(self) -> bool {
-        self.spec().parameter == ParameterKind::Period
+        matches!(
+            self.spec().parameter,
+            ParameterKind::Period | ParameterKind::PeriodQuantile | ParameterKind::PeriodWeight
+        )
     }
 
     pub fn is_cross_section(self) -> bool {

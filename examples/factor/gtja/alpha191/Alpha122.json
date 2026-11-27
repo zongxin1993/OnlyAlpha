@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha122",
+  "expression": "(SMA(SMA(SMA(Log($close), 13, 2), 13, 2), 13, 2) - Ref(SMA(SMA(SMA(Log($close), 13, 2), 13, 2), 13, 2), 1)) / Ref(SMA(SMA(SMA(Log($close), 13, 2), 13, 2), 13, 2), 1)"
+}

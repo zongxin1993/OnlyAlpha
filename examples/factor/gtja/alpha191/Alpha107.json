@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha107",
+  "expression": "-1 * Rank($open - Ref($high, 1)) * Rank($open - Ref($close, 1)) * Rank($open - Ref($low, 1))"
+}

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha8",
+  "expression": "Rank(Delta(($high + $low) / 2 * 0.2 + $vwap * 0.8, 4) * -1)"
+}

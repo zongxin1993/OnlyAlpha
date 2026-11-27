@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA025",
+  "expression": "Rank(-$returns * Mean($dollar_volume, 20) * $vwap * ($high - $close))"
+}

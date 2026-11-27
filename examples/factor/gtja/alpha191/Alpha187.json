@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha187",
+  "expression": "Sum(Where($open <= Ref($open, 1), 0, Greater($high - $open, $open - Ref($open, 1))), 20)"
+}

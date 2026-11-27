@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha164",
+  "expression": "SMA((Where($close > Ref($close, 1), 1 / ($close - Ref($close, 1)), 1) - Min(Where($close > Ref($close, 1), 1 / ($close - Ref($close, 1)), 1), 12)) / ($high - $low) * 100, 13, 2)"
+}

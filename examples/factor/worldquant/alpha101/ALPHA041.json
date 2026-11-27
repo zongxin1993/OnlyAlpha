@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA041",
+  "expression": "Pow($high * $low, 0.5) - $vwap"
+}

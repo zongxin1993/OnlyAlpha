@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha149",
+  "expression": "ConditionalBeta($close / Ref($close, 1) - 1, $index_close / Ref($index_close, 1) - 1, $index_close < Ref($index_close, 1), 252)"
+}

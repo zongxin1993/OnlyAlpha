@@ -1,0 +1,960 @@
+{
+  "schema_version": 2,
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha191",
+  "expression_language": "factor_expr",
+  "description": "国泰君安 Alpha191 的191条声明式因子定义。原始研报、参考实现及影响数值的工程解释分别列出；定义本身不构成运行时认证。",
+  "source": {
+    "report": "基于短周期价量特征的多因子选股体系——数量化专题之九十三",
+    "publisher": "国泰君安证券研究",
+    "authors": [
+      "李辰",
+      "刘富兵"
+    ],
+    "date": "2017-06-15",
+    "url": "https://guorn.com/static/upload/file/3/134065454575605.pdf",
+    "sha256": "863f62c2e23bd87ddb42b8338c8fe2b0276d94260ac985e1a0edfff318693c6c",
+    "formula_table": "表6，第11–17页；变量和函数见表15，第30–31页",
+    "report_rights": "原研报版权归国泰君安证券股份有限公司，使用声明见第32页。",
+    "implementation": {
+      "repository": "https://github.com/nori735/qweave",
+      "commit": "cb65e739ab9d218ea8f92da1e908851aa4d0e5c6",
+      "path": "crates/qweave-factors/src/gtja_alpha191.rs",
+      "sha256": "9febf870222a599003680e967306b2d17c2b69443db506a8f01b69a16bca5de9",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "kernel_path": "crates/qweave-core/src/alpha_eval.rs"
+    }
+  },
+  "expression_conventions": {
+    "amount": "AMOUNT 直接绑定成交额字段 amount。",
+    "returns": "RET 为收盘价除以前收盘价减一。",
+    "weighting": "原研报 DECAYLINEAR 使用 WMA 表达；Alpha27 原研报 WMA 以 0.9 的日龄幂为权重并除以权重和。",
+    "extrema": "逐点极值使用 Greater/Less，明确的时序极值使用 Max/Min。",
+    "spelling": "L 按 LOW、VOL 按 VOLUME、HGIH 按 HIGH、DELAT 按 DELTA、COVIANCE 按协方差、MA 按 MEAN 转写。"
+  },
+  "features": [
+    {
+      "file": "Alpha1.json",
+      "sha256": "01c5ade64642ea4d30fabf48b5d1fef37971588156e1d7f042936931a570da96"
+    },
+    {
+      "file": "Alpha2.json",
+      "sha256": "feb0f7a1d8e32fb9ddcb131479d45e10c515114d961aecd4e94a2efaed588ff9"
+    },
+    {
+      "file": "Alpha3.json",
+      "sha256": "85ae9c3fc8bb7b7d6acd16d35cf59b471ae3c4497aed4fe301be730c6003a68f"
+    },
+    {
+      "file": "Alpha4.json",
+      "sha256": "ccc584331bdb84a0859b882a506efebf62fb0fdc1896673c1e4efe0812f270ea"
+    },
+    {
+      "file": "Alpha5.json",
+      "sha256": "fec4bcba9c724e02899723729ce0d73479ae966cc0bfb1e1da44de61164c374b"
+    },
+    {
+      "file": "Alpha6.json",
+      "sha256": "7f1d7a6020fb0c93763dc58794a1fbcb04456ad4cb9c4c32840efe7748be03dd"
+    },
+    {
+      "file": "Alpha7.json",
+      "sha256": "d9b6e81cd636a061fcb056a02349c15f621779580a7eea008f60673e43c2df19"
+    },
+    {
+      "file": "Alpha8.json",
+      "sha256": "58777f4d2be83f2731ca7419f30d2246e96f816d50a9ac81b816f187fc1dffce"
+    },
+    {
+      "file": "Alpha9.json",
+      "sha256": "9e5214d963dd90f03ef92c77b729978abc651403ea9fc00b71ed66126847fd03"
+    },
+    {
+      "file": "Alpha10.json",
+      "sha256": "18fcb24fca169de3b109bbf41631e2996562298fd248474e9299eca266865e87"
+    },
+    {
+      "file": "Alpha11.json",
+      "sha256": "ff7c8d4e3066f918fb7bab04986bad5b7338d3c782b96beb85a4584c0002ad9f"
+    },
+    {
+      "file": "Alpha12.json",
+      "sha256": "e33d8039e853ecf8399b9fdd611b0fbe37066c42044fc95b46446239697018e7"
+    },
+    {
+      "file": "Alpha13.json",
+      "sha256": "11a0274df4a298ee69534fad2d83b5fd55b98d8a9b9dc770c3fb925f1c81ebbc"
+    },
+    {
+      "file": "Alpha14.json",
+      "sha256": "b9b7d80610139018a9bee6b36cbf917f77863c2df2899045a21db6c6d5c22354"
+    },
+    {
+      "file": "Alpha15.json",
+      "sha256": "be93ba47bae9403c619c0beaf1e4545480efdc63bd1f8f55d557311204302be5"
+    },
+    {
+      "file": "Alpha16.json",
+      "sha256": "3bf5a9c730a8ba03cbc66ea6fd19cd3f51f7b983e30185208b34b2d5bd4483e4"
+    },
+    {
+      "file": "Alpha17.json",
+      "sha256": "fdf613387e96f138e3fc5e9fbf22a1102960a030a6695152d07f476d59f5658a"
+    },
+    {
+      "file": "Alpha18.json",
+      "sha256": "2a94c5c6fa5dac987f3191f45976f2c6aa5be118d25d7bdd766ed22527e0d34f"
+    },
+    {
+      "file": "Alpha19.json",
+      "sha256": "e0ec7ce0674a7adcda8ad95ccfcdc6b7606ccc4eeed7e16d3d2c33b5cf21e2e2"
+    },
+    {
+      "file": "Alpha20.json",
+      "sha256": "9cebf18292f2c938b505373b981fe8d148b59c8ab29650620c609e371060d03a"
+    },
+    {
+      "file": "Alpha21.json",
+      "sha256": "4d7fe154558781f43f7b26958e9cb7b3048b440ae0e65332cb17c78e8f8bd977"
+    },
+    {
+      "file": "Alpha22.json",
+      "sha256": "76a4f9ea94782bb850de9f82c9c1cccdf7e4aa9d4500fb4133f906ba930be235"
+    },
+    {
+      "file": "Alpha23.json",
+      "sha256": "f548c2cfaadfde4183266cc443bb955599dc9634febdc05e18752213357c45cb"
+    },
+    {
+      "file": "Alpha24.json",
+      "sha256": "096281c8c41cca36abe86a0065b3d134583fc9794637c7aa6850a4d8704550a9"
+    },
+    {
+      "file": "Alpha25.json",
+      "sha256": "425db1e38015b93735f293d86f1312c263d8138112424978548144c6ce0f7d5b"
+    },
+    {
+      "file": "Alpha26.json",
+      "sha256": "1cc3e8608fd5cc7732726762d82f9ed2e563d7eccff92bbe8489dafb5163c504"
+    },
+    {
+      "file": "Alpha27.json",
+      "sha256": "ebad2f157f7b67df8aa94283367d7e71b976fea76653ef11925ce20681d6557f"
+    },
+    {
+      "file": "Alpha28.json",
+      "sha256": "6cbe0c36c4f3167faff8190ad29332ca1219ddb037c989c613b66af42302baa4"
+    },
+    {
+      "file": "Alpha29.json",
+      "sha256": "618980a65d77f84c6e2df06d9b0a21431424819091749ab414c1ac3d20f8cc2c"
+    },
+    {
+      "file": "Alpha30.json",
+      "sha256": "afee0931fc10c471dddbba16c63782a4f0e9d78791e13192350acf8f96ee3907"
+    },
+    {
+      "file": "Alpha31.json",
+      "sha256": "39d8904db164815eaa5edafed9f491f77bc1eb1966497b2a85fd4ab74a7b3bdf"
+    },
+    {
+      "file": "Alpha32.json",
+      "sha256": "e69e142c6890a8b79dacfc9a13ad3438156b5eb3b9af244e350fac59dcb3c5a6"
+    },
+    {
+      "file": "Alpha33.json",
+      "sha256": "285bce7df523b6f8c54c6810b8ace92fb9b55ba257151645e00cb52d2da787de"
+    },
+    {
+      "file": "Alpha34.json",
+      "sha256": "1c0445fd21b8dd3f727f7e93f9aeb206d908742caeabb38d29685a30dea9e2f0"
+    },
+    {
+      "file": "Alpha35.json",
+      "sha256": "77b15e372b4d34a95799f9b427f1b3664d283239cd881b187cdadb370e5aee9d"
+    },
+    {
+      "file": "Alpha36.json",
+      "sha256": "4b22eab1e9a9adaa0350bdc5230a8cb22baeedf731240851980e8974132f54d7"
+    },
+    {
+      "file": "Alpha37.json",
+      "sha256": "c19fd28798d752d53b151928ae4cb697d43b28544cccdc78990417b752bb2b9e"
+    },
+    {
+      "file": "Alpha38.json",
+      "sha256": "9b64d1b39bd955d6cf3050dbe0f3e9fac849a0386c6f0f7d1a66f951733a395b"
+    },
+    {
+      "file": "Alpha39.json",
+      "sha256": "45a748925ee91251bdfcadf0f91ff3122547ccdf38d6b694e64c8105c23749e5"
+    },
+    {
+      "file": "Alpha40.json",
+      "sha256": "a684b71460f4591a60a905093ed069ad723b12d7c8cda7a0aae60574bb139273"
+    },
+    {
+      "file": "Alpha41.json",
+      "sha256": "b78e206b60737b02760c12aa6c7b485c6f9c58f18d7037a5127f4cca99e5ce5e"
+    },
+    {
+      "file": "Alpha42.json",
+      "sha256": "e62659b274c9fc6008871a85fde397e53663a090da7d5c201c1cf3a75d5b084b"
+    },
+    {
+      "file": "Alpha43.json",
+      "sha256": "3ac462ebe2a5b102ceab0efd358edfdd215339a19e0f13f18caa996e340fdeff"
+    },
+    {
+      "file": "Alpha44.json",
+      "sha256": "4b0030227bd14b334dfdc8fc35c2a599ab50e792e64ab45aa7f503d311ab9e5a"
+    },
+    {
+      "file": "Alpha45.json",
+      "sha256": "eeef6faf647d4706de86fd4eed0f8ebd063d5214d8a3527e8c05a21bce879268"
+    },
+    {
+      "file": "Alpha46.json",
+      "sha256": "af4b86387681d8148995233f5ff8d1f8a6d96051e6a8447bf260d026732cd1a8"
+    },
+    {
+      "file": "Alpha47.json",
+      "sha256": "4cef5a3d3d37c1d9fdbb868c094ed4fd465bc38b8fc412ce3eac89da1d5e7725"
+    },
+    {
+      "file": "Alpha48.json",
+      "sha256": "15d96e3e0560fec1f5d0c3054691c0a01bd524712c7eef3ed4566478053ecf37"
+    },
+    {
+      "file": "Alpha49.json",
+      "sha256": "9db93872ebb29474ba4797595630afe9005a5279260bf491321c5ab7f2581b86"
+    },
+    {
+      "file": "Alpha50.json",
+      "sha256": "a6cdd8ea71bbcf64a7bc09fb038f2c13dfc76749c95450995b10082071cc5adc"
+    },
+    {
+      "file": "Alpha51.json",
+      "sha256": "d5b3a85fa8201033fec55dfc360d20b9469c05c6701f573e04988c871c36ee4c"
+    },
+    {
+      "file": "Alpha52.json",
+      "sha256": "a39c51f9c42ea0d089ab7776d5f7365f8587b45cfdc3d81ecf8763c6abd795e0"
+    },
+    {
+      "file": "Alpha53.json",
+      "sha256": "af6ec4d1804753a672e7507a6f04cf321548ff77bf03e950b96c321f9fb451bc"
+    },
+    {
+      "file": "Alpha54.json",
+      "sha256": "b4ebd36b85451d4d0bcb2c2f7dc866e5e71fb93956b8abbca5c055eb5707fa15"
+    },
+    {
+      "file": "Alpha55.json",
+      "sha256": "0b285cec7108f1c1bedc4ada011ad62b095d6490534b633be1f73c6860137468"
+    },
+    {
+      "file": "Alpha56.json",
+      "sha256": "2ace13081a9fd2af5b8eff7c33f734562c2dec43295fc89ea3bff33fd3019024"
+    },
+    {
+      "file": "Alpha57.json",
+      "sha256": "90ce9b7221d167a0b28450f858274f5237db02e3d489534dba566c61d3234c41"
+    },
+    {
+      "file": "Alpha58.json",
+      "sha256": "bd7c1d163dba0bf4c69798d36e3af5b71ae3ae0ca460b7fc5fb13529eaa9b1b3"
+    },
+    {
+      "file": "Alpha59.json",
+      "sha256": "a37dad0a90bb14b3bdec3bcd5bd8ddf611c6cce0a6e352372c423ed0dc9d03e4"
+    },
+    {
+      "file": "Alpha60.json",
+      "sha256": "33b86a6279250c84ed72e8956a505d4e15aef5efdb46c8534f56fdfbb459ce0c"
+    },
+    {
+      "file": "Alpha61.json",
+      "sha256": "215f55a48cb268d2cdf56a32b6387292ac2d3f814d813eb047bed7a7ad1e4194"
+    },
+    {
+      "file": "Alpha62.json",
+      "sha256": "167df0d66b864de96f0dafa6dec7fcc67962a3f8dc84f559f485d25b74a313e7"
+    },
+    {
+      "file": "Alpha63.json",
+      "sha256": "f55c4960d3bd0b27e4c2ec6548cb048b2cc089971de255541ab1880661e543b7"
+    },
+    {
+      "file": "Alpha64.json",
+      "sha256": "eb595b54899d6e7921a67d706d08c80c81d22f4a247af0e6f68e18bed6022ebe"
+    },
+    {
+      "file": "Alpha65.json",
+      "sha256": "41549ae757788b83fc3c46dabed410c1c9048733e8155f54880c1b9ba2c82948"
+    },
+    {
+      "file": "Alpha66.json",
+      "sha256": "57bffe93e5e1c160dcac30bbb5eeb1ff4b7ed8030b6887b96cf7c03cc086a175"
+    },
+    {
+      "file": "Alpha67.json",
+      "sha256": "bc888fcc97fb625a2457bac40195dfe569f1638499431334b622e63ca7ca3a05"
+    },
+    {
+      "file": "Alpha68.json",
+      "sha256": "dd658e157a615fc110c89db7968bd9864a3e4c66d20d6c610e38bd60abbfa262"
+    },
+    {
+      "file": "Alpha69.json",
+      "sha256": "7a9ed99f5726eb72d664d0aa75fcfd019f19bc4a1baced163a0f2e30f83349f3"
+    },
+    {
+      "file": "Alpha70.json",
+      "sha256": "c0efd818cbece6c96da7345d6884de35a668ddc83a9328bd9afe2b9d0d449927"
+    },
+    {
+      "file": "Alpha71.json",
+      "sha256": "ba9b2449fd4bfb99def9e8c60fea8c27508812ddf6177bb9246c8ed22462a263"
+    },
+    {
+      "file": "Alpha72.json",
+      "sha256": "97def925913110118c220990eb24b5daaf90b750b14b46ecbefbcb57953558c5"
+    },
+    {
+      "file": "Alpha73.json",
+      "sha256": "4f032e73aa0483510a0d9369e36c309e21fee845115db29f2c89e68d8d3817e9"
+    },
+    {
+      "file": "Alpha74.json",
+      "sha256": "08bbc5f9bf47f0a540689ae7066ce5a7e4a6cb9d6c80faa08a1809d691476ad2"
+    },
+    {
+      "file": "Alpha75.json",
+      "sha256": "f3b822f017c12f5331f32e8e875841c81ae9a09fdb63a53e81b98c6a7d3bfa0f"
+    },
+    {
+      "file": "Alpha76.json",
+      "sha256": "1ff3076b365c61df31719450e916bcde7b5653853dd27f11e583e2afc60559e8"
+    },
+    {
+      "file": "Alpha77.json",
+      "sha256": "a91bcf383bbefe9513607dcf83f91a1ed4c69828030942b1d4615d3c0e8762f2"
+    },
+    {
+      "file": "Alpha78.json",
+      "sha256": "046710245d105f4116f0a4a5c86d10151c1ad7c9f0c37df508d5e7a5e59106fb"
+    },
+    {
+      "file": "Alpha79.json",
+      "sha256": "75ca779cdd3e07631aa28dbc6eb7f9cfb8e29c3612c207d947635c7e808ce5ec"
+    },
+    {
+      "file": "Alpha80.json",
+      "sha256": "ea3a92b4332b9f9a59a6c84a0bbd55d684783cd8dc446b3c0006148d206c121c"
+    },
+    {
+      "file": "Alpha81.json",
+      "sha256": "287fd49febf4236c68239edf76e8cd6fa7d790415f451341393425b550415060"
+    },
+    {
+      "file": "Alpha82.json",
+      "sha256": "bb8098d0acbf68523b8db88f4bcb043891eecfeacad3c3308a69d7a6612ba66b"
+    },
+    {
+      "file": "Alpha83.json",
+      "sha256": "2285be6f9f24f90bfabed1af855327c1db8134b0c8e5bb740ffcbffaf62c136a"
+    },
+    {
+      "file": "Alpha84.json",
+      "sha256": "23e7178b535a9e4c8cb91fb19fcb493ae1420384fe3b22668c19daf1820f79ff"
+    },
+    {
+      "file": "Alpha85.json",
+      "sha256": "a7910757227bfc74588bef194bed2539cd82a6495f93f9c230e2b7e0e1b732ac"
+    },
+    {
+      "file": "Alpha86.json",
+      "sha256": "fb3ea35cb5824665f1b71243be72e7f5c600d32bbb5d55d071ef11cf8c03bf91"
+    },
+    {
+      "file": "Alpha87.json",
+      "sha256": "4e1448ac97045b6ff3e174996e3dc2d8f07f107bbd4e33c20098b9816c983e92"
+    },
+    {
+      "file": "Alpha88.json",
+      "sha256": "54cbaf6330882f114e53583d37834eb71b48ada0c9471fc5ccda32f5e8424865"
+    },
+    {
+      "file": "Alpha89.json",
+      "sha256": "9ec9005305715e9f22b4cc4019b463c0ddadd56c4cc5622368a47888d26b2b78"
+    },
+    {
+      "file": "Alpha90.json",
+      "sha256": "088e00ba3e10888cbca223a34af7b976484d60aa7eaabf3f90c5e585b337adcf"
+    },
+    {
+      "file": "Alpha91.json",
+      "sha256": "399bd90aad0d99ee320907bdc654501abbd84a6856f47e72ca07cbf7ad87ce62"
+    },
+    {
+      "file": "Alpha92.json",
+      "sha256": "8b942d0848373523f70b0c5390ff0d7e2e7029f80d098d34109e5de545c80410"
+    },
+    {
+      "file": "Alpha93.json",
+      "sha256": "ffd8ca7490e14e7967fb71063a0708f0b9ba8f4ce343478b1d09810f9e2a3983"
+    },
+    {
+      "file": "Alpha94.json",
+      "sha256": "452b88c62060dd19214c0e4e99f77e5867afee6e5803559f4a9179e57c7d6cd6"
+    },
+    {
+      "file": "Alpha95.json",
+      "sha256": "c3985febd40fbe7ee3d0d4deb9bdac18560343e676645244117974786195ee56"
+    },
+    {
+      "file": "Alpha96.json",
+      "sha256": "a6bc977ddf148785c45b436b9bbca6a5ad6d473d1566c1d33b42ab3abd9accc2"
+    },
+    {
+      "file": "Alpha97.json",
+      "sha256": "a518884bf085dfc2e13cabd7593188b3f5fb1e7b6dd1685292ec493d6e6274f7"
+    },
+    {
+      "file": "Alpha98.json",
+      "sha256": "e439bedffd62a88d89a3bae4b47f938363bdc6f27128113c805cf89536046940"
+    },
+    {
+      "file": "Alpha99.json",
+      "sha256": "41493484bd9d4c57429dad05ca541b485d063f87ee1a59e0aa57c8663754ac07"
+    },
+    {
+      "file": "Alpha100.json",
+      "sha256": "2218401798c2d869a8e9b91aee86a58924338876c205f754a10e4c2796d58726"
+    },
+    {
+      "file": "Alpha101.json",
+      "sha256": "7b48569d153888e639cc10b6659e1032cd222650207cbbe1609e9992ee4d7b60"
+    },
+    {
+      "file": "Alpha102.json",
+      "sha256": "0fbdaf4bcbe94eb28e99ee347182174143f9f7d1803543e4698a111eb782a603"
+    },
+    {
+      "file": "Alpha103.json",
+      "sha256": "d055bee9603e180f6f5f7a4c24e5165e06c8d8d4e7d812a887878c0a605cdc8d"
+    },
+    {
+      "file": "Alpha104.json",
+      "sha256": "bb0d3f386158828c9b97989a9c595ca4fffc83501681de9397c0f056e7eb6043"
+    },
+    {
+      "file": "Alpha105.json",
+      "sha256": "c587dcf4742fe6023998af8551b9d666f6bf966349000d00f623e2e562b2e4f4"
+    },
+    {
+      "file": "Alpha106.json",
+      "sha256": "c447b8cc55be17602508879bf376ce65d779b8bd6ed6e18856afdb895dd65949"
+    },
+    {
+      "file": "Alpha107.json",
+      "sha256": "9351e4cc328308f8f9dd1d8351307acccb7da5f82191c6a9c2c4dc6b2f430fc4"
+    },
+    {
+      "file": "Alpha108.json",
+      "sha256": "4828f76ac28a01b34da4c8892d241429e47f31b31b438e7fec33045b7aa5c79b"
+    },
+    {
+      "file": "Alpha109.json",
+      "sha256": "0e1ff4f5d3dad11cecbe57fbeb501aa1d28ce4c562b79dd60c89953530442241"
+    },
+    {
+      "file": "Alpha110.json",
+      "sha256": "614b681a561e8b2650a8dc49e78547b611980070bc9c959d3bfbf397d1489509"
+    },
+    {
+      "file": "Alpha111.json",
+      "sha256": "7227ecd35990fe75590703bdee8b6cfa86c9bb58c3b42df87a56dbec4a009a17"
+    },
+    {
+      "file": "Alpha112.json",
+      "sha256": "f71da2e837fb5cea0247e3c5a5917e5b261607bd7dd89f63f9f246dd8180ff1c"
+    },
+    {
+      "file": "Alpha113.json",
+      "sha256": "a91fa811ac53c38b40192bc2de289323b2f9fbafd15e41e3d1be46a509cf5785"
+    },
+    {
+      "file": "Alpha114.json",
+      "sha256": "57e3550fa0c5cbfc15c2698763c7fd1281a7c82c10b7dc110f1252a6c548a9a2"
+    },
+    {
+      "file": "Alpha115.json",
+      "sha256": "0967e12f29a2ea23f67c3b51d3dfc6309dbc36ecbcc148421651529e0c731b31"
+    },
+    {
+      "file": "Alpha116.json",
+      "sha256": "57e47d46f9ec6c9f0e7982b155fe5f9dbb57f8b31146ce0fd8d46eb9b1803de1"
+    },
+    {
+      "file": "Alpha117.json",
+      "sha256": "67eb2562595a40d31eb0c61e69b549e70d279f9df563ec1df94f65a8e7d85c4b"
+    },
+    {
+      "file": "Alpha118.json",
+      "sha256": "bdf3a5d0eecae951ade83d233430d0da2298d4baa236f31372bf72af7773a43b"
+    },
+    {
+      "file": "Alpha119.json",
+      "sha256": "a09c18f060726ea090affa9270dcc043b5da704b6dc8e22127d7ba8fae2445d9"
+    },
+    {
+      "file": "Alpha120.json",
+      "sha256": "05662c4571de2afeb4bd9cf8abbd7758171215eb08345226b9643d24dd1237e2"
+    },
+    {
+      "file": "Alpha121.json",
+      "sha256": "bd2480cd422ef4c81b60391b22d316e8b907b0569a4b9b747c03572023b77ad0"
+    },
+    {
+      "file": "Alpha122.json",
+      "sha256": "a6469990f584c95a0ccda4376d1ebd979310f35fe8c2b54fde5168ea14d8356f"
+    },
+    {
+      "file": "Alpha123.json",
+      "sha256": "c2fbd7188f0af902bb9a5e9daf25ee1fa36a4aafc90e623c98e80132df4075de"
+    },
+    {
+      "file": "Alpha124.json",
+      "sha256": "acda17264ed08a67e3c8a99a45c9606d7fa2478814832f6e0b638a0b85ffdf48"
+    },
+    {
+      "file": "Alpha125.json",
+      "sha256": "4d016b2f20c05eb34347f676b0969493792910e2c705a481e77c478d1283559a"
+    },
+    {
+      "file": "Alpha126.json",
+      "sha256": "fd413a8b79259a3bb0868fd6139e80ebc6cd7dc64cc5ad6977f01224c8ca1ecd"
+    },
+    {
+      "file": "Alpha127.json",
+      "sha256": "1ddd7a0ae4ea40ba06cab1650726d8325429cc4e794b0315fae82ab3eefeec7f"
+    },
+    {
+      "file": "Alpha128.json",
+      "sha256": "558d1b58d0a4a02e5dacc550b1a3c4d3a6b99a710a56cdb6b064049c21ea71b6"
+    },
+    {
+      "file": "Alpha129.json",
+      "sha256": "1471e334fc560d93ad0c53c98e31f3f6d0f15fe31a1ce16b6107be81a74ab2ea"
+    },
+    {
+      "file": "Alpha130.json",
+      "sha256": "f9a743572b45b20c6b8c16237671ffa5ca9bd2117072abe99908bb93efd017d2"
+    },
+    {
+      "file": "Alpha131.json",
+      "sha256": "f0612a8db44e45c997dd51a672082b0a578aa887cca9c561392fd60bc347f4d4"
+    },
+    {
+      "file": "Alpha132.json",
+      "sha256": "c4c258dcfb0e521f171e1da9cff6cd2a15b486f81a0075a8c1f8d15016ea3276"
+    },
+    {
+      "file": "Alpha133.json",
+      "sha256": "f1046d6ba66f81fa8fa76ce659059875626ee13216b5827651707431daf5b541"
+    },
+    {
+      "file": "Alpha134.json",
+      "sha256": "10c5f26c863d7a8dabca5c6cb0bf440471c2c6983ea571eb41e2e81481a274d1"
+    },
+    {
+      "file": "Alpha135.json",
+      "sha256": "a00c4639266871b75c84cc9c39380d8be299be786309d06e8ab1b2f86ec1516e"
+    },
+    {
+      "file": "Alpha136.json",
+      "sha256": "4604c583dca0c9120eef44115f6941e5814b35f6cc57eff22e7091fdac80e53e"
+    },
+    {
+      "file": "Alpha137.json",
+      "sha256": "f7dce7488377d48282fb8735aff7b1a0951b31298e59a4aed8ba6ae11c022d43"
+    },
+    {
+      "file": "Alpha138.json",
+      "sha256": "fab6bedeb47ca4d6ddae9193f53aa5a3850ddf7d086dc68f38ddc7fda770ec88"
+    },
+    {
+      "file": "Alpha139.json",
+      "sha256": "6f617157272e9c777e51e5b83952d0efaa4d6e7f26f31545f9e5a89390e4840a"
+    },
+    {
+      "file": "Alpha140.json",
+      "sha256": "81e35e363a8c32714128c81eca2092cad8fa62835e7c405785b18d26247606e1"
+    },
+    {
+      "file": "Alpha141.json",
+      "sha256": "9f701b931f4f182b006adba1711f3cec11aa181fda9cda9f360e1f5eaf8c26bd"
+    },
+    {
+      "file": "Alpha142.json",
+      "sha256": "3e1aca6c6c30228cd50d0bf9c086ed74dc282c74df13c17c33a7800abf3dc93c"
+    },
+    {
+      "file": "Alpha143.json",
+      "sha256": "07a628887ddcd0e330c36bcc92b81fee7dfd87fcb1583bcbcdbfa9adeb6b7aac"
+    },
+    {
+      "file": "Alpha144.json",
+      "sha256": "99566174f4c1a6bf04aa816bff536431e3041543962bb89433ac7660ae2c95f3"
+    },
+    {
+      "file": "Alpha145.json",
+      "sha256": "b3a486b3f41ee7bba7c4cb183de9e47955dc6843d71c0556546dc2aea8ee02d2"
+    },
+    {
+      "file": "Alpha146.json",
+      "sha256": "877d0c939d489076fca3169e32e10d672eb9d76dd36e7fe4f407333138ef1cb2"
+    },
+    {
+      "file": "Alpha147.json",
+      "sha256": "4b96ebff48ec6f04c02b8a7f71ded2378b7439e682ea1a7dbb355b19d32a4c1e"
+    },
+    {
+      "file": "Alpha148.json",
+      "sha256": "6f0c5a86b7c692c81372da547b6258e9a6e375af05efc37a4620fad2de19c804"
+    },
+    {
+      "file": "Alpha149.json",
+      "sha256": "a1e1d31e8638d545fcbd711a08fe6c718822403026b9288c2022b409829590a1"
+    },
+    {
+      "file": "Alpha150.json",
+      "sha256": "0d109588381888680a0b09b8c8d6257725e8abd98259670b4b7dd322fe55d82c"
+    },
+    {
+      "file": "Alpha151.json",
+      "sha256": "2ec9b4809281c254974441ab0e6c4d09e9c171dd20128f84ff0303b9bf76327e"
+    },
+    {
+      "file": "Alpha152.json",
+      "sha256": "fa8a8b11cea4cdaa574d3d2c78fdfeb62cd80edbe7eb519bc8d5b0a6708227d8"
+    },
+    {
+      "file": "Alpha153.json",
+      "sha256": "c97edab8b798dc820b9af1df294acc36ffe7290d95e168cfca8e7866866f8d36"
+    },
+    {
+      "file": "Alpha154.json",
+      "sha256": "6b4cdfa5aa486e95a2d88747a58ae215fa4b99778b569eaba0fd3bcc53547a8e"
+    },
+    {
+      "file": "Alpha155.json",
+      "sha256": "9ab6a75f847b988708a779d3187ede5c96d6d0e6c9282827f115d5563f7dd056"
+    },
+    {
+      "file": "Alpha156.json",
+      "sha256": "545f2360eb46187605555ec4f04e5da2a77179caab8d9d56e5c02aac47e0007b"
+    },
+    {
+      "file": "Alpha157.json",
+      "sha256": "de92f6ae057c413597ba5ee0e531a227264b0287484d761a48362791ed7c75e1"
+    },
+    {
+      "file": "Alpha158.json",
+      "sha256": "8c502e3540d0d70b1df99adc7d21e3bdcaf4719958dccc9bd98eb6378cfae91f"
+    },
+    {
+      "file": "Alpha159.json",
+      "sha256": "c49b2e33a118de5ea9dad8928836a7d16d29e81ad747c76d7b5d8bc3d47a7291"
+    },
+    {
+      "file": "Alpha160.json",
+      "sha256": "e607b4c5ff87bc429cb2dced4cf35cb2b85dbde9c99308122acd3c400c3e7c91"
+    },
+    {
+      "file": "Alpha161.json",
+      "sha256": "58fe43f5de7a3b03552bb1ffbe133a71c5344333f2d4176472ab5650154dcc8c"
+    },
+    {
+      "file": "Alpha162.json",
+      "sha256": "52edb80f5761592697e1e68d36173c5c39ce08ec16971444d3df4cd2417a1291"
+    },
+    {
+      "file": "Alpha163.json",
+      "sha256": "bc51625834999d18332d20731468a513ec051c91a08a64d479451967af22b780"
+    },
+    {
+      "file": "Alpha164.json",
+      "sha256": "c58df045fa3ecf3d96b5665a0b6f76b64a3ccd96a0e9648e729751c44d88dc68"
+    },
+    {
+      "file": "Alpha165.json",
+      "sha256": "11b8d1a25f6bd72f2f37da65867593e85374ff74afcd773fbf17acd90a2bdfcd"
+    },
+    {
+      "file": "Alpha166.json",
+      "sha256": "75dc56bbfb8fceaf00c3c496dcf4ebb4c6e023ec551eb09c170a0aec165e2814"
+    },
+    {
+      "file": "Alpha167.json",
+      "sha256": "05d0eb0d33a55f0192dc1be6c71839e26fa9d3d2a26d0365356de0d956e131ae"
+    },
+    {
+      "file": "Alpha168.json",
+      "sha256": "a8dc9a9a808411598dc86f6629f5ed05da5cb63b9fb8fe6a4f0cc3f21d895e23"
+    },
+    {
+      "file": "Alpha169.json",
+      "sha256": "fd47da5e029a7c75b5b27138fac4fdfd006db887d79b5ca08d29ed834ec1a668"
+    },
+    {
+      "file": "Alpha170.json",
+      "sha256": "fed59e0723736ca187891be561fc085cad1eab4a541ea135f493e95f8b7923cd"
+    },
+    {
+      "file": "Alpha171.json",
+      "sha256": "b0dee5ec5c88c8f5d2b21401290abbe8d0048062a2a52d58a135e3b6080127ca"
+    },
+    {
+      "file": "Alpha172.json",
+      "sha256": "9e37dacb47a881d648a31053dbc43be4343dbcb28d4a60e8ce6dbe8f8b07b90f"
+    },
+    {
+      "file": "Alpha173.json",
+      "sha256": "9b1166e328a56fa1c2c6f600acf04a0be195344d616a7fca4a4162ee4acabc1a"
+    },
+    {
+      "file": "Alpha174.json",
+      "sha256": "679c93e10df8d48fc03b97535c3a0b19462646372aca77e7d80f7374099d5d1e"
+    },
+    {
+      "file": "Alpha175.json",
+      "sha256": "af1a374448e29198f4b3a69c75e1d122e6127635a8ac9e6d3b376f544b4a8e42"
+    },
+    {
+      "file": "Alpha176.json",
+      "sha256": "8661c625cf8821b9d329b56013de1759e5b63bdb4b2bb0f064656bad4eca3987"
+    },
+    {
+      "file": "Alpha177.json",
+      "sha256": "4d3874fb67ddcaf5b3b7c7cbeefc9f4907527342c64dd1cb4f5ce77ca01f8d10"
+    },
+    {
+      "file": "Alpha178.json",
+      "sha256": "bfe57fa5337a58077245769e6e026148c944e764c540e4b2a380ba4bfab53b8f"
+    },
+    {
+      "file": "Alpha179.json",
+      "sha256": "8888928876dea36725c0f633a7714042604007d084db88060b370b31f53c7ff1"
+    },
+    {
+      "file": "Alpha180.json",
+      "sha256": "17cee85b69bb04d349e2ac252b60fad8db16f3fe50495d3b360b9e9ae4c16862"
+    },
+    {
+      "file": "Alpha181.json",
+      "sha256": "94a04565e1b3fd5d19bf5c9d35637f24ec9f6874fb208aa45cb4a616c9e4985c"
+    },
+    {
+      "file": "Alpha182.json",
+      "sha256": "120556bcfc6eedae77827f44f43abca786396b294dbcade1f1a303b93d0d2282"
+    },
+    {
+      "file": "Alpha183.json",
+      "sha256": "379a337351f01e0d24d8e48086b816fe614d802cf3f9180150c0954c1cbaf82f"
+    },
+    {
+      "file": "Alpha184.json",
+      "sha256": "df1468c77d231f4f7a69dc85df497a65cf3a5b5cb23276b8d132f26ddc9b2982"
+    },
+    {
+      "file": "Alpha185.json",
+      "sha256": "dcefb62c8c0177456608ce42e970c3029063c2330416ee048ef46cb158c241e7"
+    },
+    {
+      "file": "Alpha186.json",
+      "sha256": "d2fba9755128deec29fd3adacde32204fb9a0afbb1b268148f000dbafd0c51be"
+    },
+    {
+      "file": "Alpha187.json",
+      "sha256": "05b9e8a9be2aef7b5ef25b97856cacb7fce158405ff13b6cb566282c3745c157"
+    },
+    {
+      "file": "Alpha188.json",
+      "sha256": "96f7fc820b976b7081da40d5b149178018e8081d96c07a5cd595a2bab5e518fc"
+    },
+    {
+      "file": "Alpha189.json",
+      "sha256": "068e2c617b4ea56164043b8f49f184f50eedb5f2d598d3f7b3d76e59da17439c"
+    },
+    {
+      "file": "Alpha190.json",
+      "sha256": "b00535c424b2e10902803bbb416dceca1035704befcaa0b5703b3098b3a14448"
+    },
+    {
+      "file": "Alpha191.json",
+      "sha256": "b9230002643d167067c66476a831ceebf5fc7814b742c5595fe6826eda177dc6"
+    }
+  ],
+  "interpretations": [
+    {
+      "name": "Alpha7",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha10",
+      "source_ambiguity": "原式 MAX 和 RANK 的参数及窗口 5 的归属有歧义。",
+      "interpretation": "先对负收益时的20日标准差或其余情况下的收盘价平方，再取5日时序最大值，最后做截面排名。"
+    },
+    {
+      "name": "Alpha17",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha22",
+      "source_ambiguity": "原文 SMEAN 未在附录中定义，其数值与初始化规则待确定。",
+      "interpretation": "SMEAN 按 SMA(x,12,1) 解释。"
+    },
+    {
+      "name": "Alpha28",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha30",
+      "source_ambiguity": "三因子滚动回归的截距、退化样本处理及因子数据绑定待确定。",
+      "interpretation": "以60个完整日期拟合含截距和三条解释变量的回归，取最后一行的残差。平方后按20日 0.9 的日龄幂归一化加权。"
+    },
+    {
+      "name": "Alpha36",
+      "source_ambiguity": "原文 CORR 缺窗口，SUM 与 RANK 的括号使窗口 6 和 2 的归属不明确。",
+      "interpretation": "取两个截面排名的6日相关，进行2日求和，再做截面排名。"
+    },
+    {
+      "name": "Alpha41",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha54",
+      "source_ambiguity": "原文 STD 缺少窗口。",
+      "interpretation": "STD(ABS(CLOSE-OPEN)) 的窗口取10日。"
+    },
+    {
+      "name": "Alpha64",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha75",
+      "source_ambiguity": "附录所列基准字段名与开盘、收盘中文释义相反。",
+      "interpretation": "按字段名绑定指数收盘 index_close 与指数开盘 index_open。"
+    },
+    {
+      "name": "Alpha91",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha103",
+      "source_ambiguity": "附录 LOWDAY 的极值释义与名称相反，需确定取高点还是低点。",
+      "interpretation": "LOWDAY 取最低点距当前交易日的距离；并列沿用 IdxMin 的首个极值。"
+    },
+    {
+      "name": "Alpha108",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha119",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha121",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha127",
+      "source_ambiguity": "原文 MEAN 缺少窗口，MAX 的维度也不明确。",
+      "interpretation": "MAX 与外层 MEAN 的窗口均取12日。"
+    },
+    {
+      "name": "Alpha133",
+      "source_ambiguity": "附录 LOWDAY 的极值释义与名称相反，需确定取高点还是低点。",
+      "interpretation": "LOWDAY 取最低点，HIGHDAY 取最高点；并列沿用窗口内首个极值。"
+    },
+    {
+      "name": "Alpha143",
+      "source_ambiguity": "原文 SELF 指前一日因子值，未给出递归初值。",
+      "interpretation": "条件乘积以1初始化。上涨时乘当日收益率，其余有效日延续前值；缺值当日保持状态，输出空值。"
+    },
+    {
+      "name": "Alpha146",
+      "source_ambiguity": "分母 SMA 缺少平滑参数 m。",
+      "interpretation": "分母最外层平滑使用 SMA(x,60,1)。"
+    },
+    {
+      "name": "Alpha149",
+      "source_ambiguity": "筛选后 252 个样本与最近 252 日内筛选对应不同日期，基准字段名与附录释义相反。",
+      "interpretation": "按字段名取指数收盘价。窗口为最近252个交易日，其内仅纳入指数下跌且两条收益都有效的配对；至少2对且指数收益方差非零。"
+    },
+    {
+      "name": "Alpha154",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha157",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha162",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha164",
+      "source_ambiguity": "原文在窗口位置使用同时表示逐点极值的 MAX 或 MIN，需确定该位置取滚动极值还是逐点极值。",
+      "interpretation": "参考实现将与正整数窗口组合的价格或指标极值解释为时序极值；同一公式中按行比较两个量的极值仍为逐点运算。"
+    },
+    {
+      "name": "Alpha165",
+      "source_ambiguity": "原文 SUMAC 缺窗口，一元 MAX 和 MIN 缺少取极值的维度。",
+      "interpretation": "使用48日滚动和，再对该序列分别取48日最大、最小。仅最小值除以48日标准差。"
+    },
+    {
+      "name": "Alpha166",
+      "source_ambiguity": "分母中存在缺运算符与错位窗口，幂及求和的顺序无法唯一确定。",
+      "interpretation": "依固定参考实现重建分母：将20日价格比之和平方，与19、18相乘后取1.5次幂。"
+    },
+    {
+      "name": "Alpha181",
+      "source_ambiguity": "原文分母 SUM 缺窗口，且基准字段名与附录释义相反。",
+      "interpretation": "基准字段按名称取指数收盘价；分母立方项取20日和。"
+    },
+    {
+      "name": "Alpha182",
+      "source_ambiguity": "附录所列基准字段名与开盘、收盘中文释义相反。",
+      "interpretation": "按字段名绑定指数收盘 index_close 与指数开盘 index_open。"
+    },
+    {
+      "name": "Alpha183",
+      "source_ambiguity": "原文 SUMAC 缺窗口，一元 MAX 和 MIN 缺少取极值的维度。",
+      "interpretation": "使用24日滚动和，再对该序列分别取24日最大、最小。仅最小值除以24日标准差。"
+    },
+    {
+      "name": "Alpha190",
+      "source_ambiguity": "原文 DELAY 缺周期，上下行 SUMIF 中的幂和减一括号不对称。",
+      "interpretation": "缺省 DELAY 使用1日。涨跌两侧 SUMIF 的括号依固定参考实现分别保留；分子平方的是日收益减价格比的二十分之一次幂再减1，分母平方的是日收益减去该幂与1的差。"
+    }
+  ]
+}

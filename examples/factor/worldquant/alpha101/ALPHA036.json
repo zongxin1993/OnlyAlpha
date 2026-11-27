@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA036",
+  "expression": "2.21 * Rank(Corr($close - $open, Ref($volume, 1), 15)) + 0.7 * Rank($open - $close) + 0.73 * Rank(TsRank(Ref(-$returns, 6), 5)) + Rank(Abs(Corr($vwap, Mean($dollar_volume, 20), 6))) + 0.6 * Rank((Mean($close, 200) - $open) * ($close - $open))"
+}

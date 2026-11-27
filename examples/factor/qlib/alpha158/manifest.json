@@ -3,7 +3,7 @@
   "factor_set": "onlyalpha.alpha158",
   "factor_set_version": "1",
   "name": "Alpha158",
-  "expression_language": "qlib",
+  "expression_language": "factor_expr",
   "description": "OnlyAlpha 的 Alpha158 因子集合定义。公式来源见 source，不含研究标签或运行时认证。",
   "source": {
     "repository": "https://github.com/microsoft/qlib",

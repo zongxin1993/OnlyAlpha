@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha182",
+  "expression": "Sum($close > $open && $index_close > $index_open || ($close < $open && $index_close < $index_open), 20) / 20"
+}

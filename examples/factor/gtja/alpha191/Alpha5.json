@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha5",
+  "expression": "-1 * Max(Corr(Rank($volume, 5), Rank($high, 5), 5), 3)"
+}

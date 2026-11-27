@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA080",
+  "expression": "-Pow(Rank(Sign(Delta(GroupDemean($open * 0.868128 + $high * 0.131872, $industry), 4))), TsRank(Corr($high, Mean($dollar_volume, 10), 5), 5))"
+}

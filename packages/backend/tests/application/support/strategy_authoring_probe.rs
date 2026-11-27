@@ -26,7 +26,11 @@ pub async fn run(request: &Value, client: &mut tokio_postgres::Client) -> Value 
                 request["algorithm_artifact"].as_str().unwrap(),
             )
             .unwrap();
+            let mut facts = crate::job_fact_connection::Connection::reader()
+                .await
+                .expect("controlled job reader");
             return match Composer::new(client)
+                .with_fact_reader(&mut facts.client)
                 .resolve(
                     request["strategy_id"].as_str().unwrap(),
                     request["revision_fingerprint"].as_str().unwrap(),

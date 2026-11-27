@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha181",
+  "expression": "Sum($close / Ref($close, 1) - 1 - Mean($close / Ref($close, 1) - 1, 20) - Pow($index_close - Mean($index_close, 20), 2), 20) / Sum(Pow($index_close - Mean($index_close, 20), 3), 20)"
+}

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha12",
+  "expression": "Rank($open - Sum($vwap, 10) / 10) * (-1 * Rank(Abs($close - $vwap)))"
+}

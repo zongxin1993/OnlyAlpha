@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha86",
+  "expression": "Where(0.25 < (Ref($close, 20) - Ref($close, 10)) / 10 - (Ref($close, 10) - $close) / 10, -1 * 1, Where((Ref($close, 20) - Ref($close, 10)) / 10 - (Ref($close, 10) - $close) / 10 < 0, 1, -1 * 1 * ($close - Ref($close, 1))))"
+}

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha162",
+  "expression": "(SMA(Greater(0, $close - Ref($close, 1)), 12, 1) / SMA(Abs($close - Ref($close, 1)), 12, 1) * 100 - Min(SMA(Greater(0, $close - Ref($close, 1)), 12, 1) / SMA(Abs($close - Ref($close, 1)), 12, 1) * 100, 12)) / (Max(SMA(Greater(0, $close - Ref($close, 1)), 12, 1) / SMA(Abs($close - Ref($close, 1)), 12, 1) * 100, 12) - Min(SMA(Greater(0, $close - Ref($close, 1)), 12, 1) / SMA(Abs($close - Ref($close, 1)), 12, 1) * 100, 12))"
+}

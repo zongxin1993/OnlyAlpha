@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA037",
+  "expression": "Rank(Corr(Ref($open - $close, 1), $close, 200)) + Rank($open - $close)"
+}

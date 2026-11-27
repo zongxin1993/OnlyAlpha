@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha25",
+  "expression": "-1 * Rank(Delta($close, 7) * (1 - Rank(WMA($volume / Mean($volume, 20), 9)))) * (1 + Rank(Sum($close / Ref($close, 1) - 1, 250)))"
+}

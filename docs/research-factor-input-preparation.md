@@ -24,7 +24,7 @@ identity. There is no `latest` lookup or normalization of another accepted sourc
 ## Graph and algorithm ownership
 
 Plain OHLCV leaves bind explicit external Dataset field names. A `lag:p` leaf becomes the exact
-`onlyalpha.operator.delay@1` node, and a `mean:p` leaf becomes `onlyalpha.operator.rolling_mean@1`.
+`onlyalpha.operator.delay@3` node, and a `mean:p` leaf becomes `onlyalpha.operator.rolling_mean@3`.
 Identical declared dependencies share one node. The root retains the selected private Factor ID,
 its original stateless API V1 source, nullable decimal inputs, `FACTOR_VALUE` output and numeric
 policy. Integer literals and arithmetic remain in that reviewed source, not invented graph nodes.

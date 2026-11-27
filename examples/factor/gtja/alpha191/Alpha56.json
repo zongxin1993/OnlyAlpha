@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha56",
+  "expression": "Rank($open - Min($open, 12)) < Rank(Pow(Rank(Corr(Sum(($high + $low) / 2, 19), Sum(Mean($volume, 40), 19), 13)), 5))"
+}

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha4",
+  "expression": "Where(Sum($close, 8) / 8 + Std($close, 8) < Sum($close, 2) / 2, -1 * 1, Where(Sum($close, 2) / 2 < Sum($close, 8) / 8 - Std($close, 8), 1, Where(1 < $volume / Mean($volume, 20) || $volume / Mean($volume, 20) == 1, 1, -1 * 1)))"
+}

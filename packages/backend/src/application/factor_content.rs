@@ -1,5 +1,6 @@
 //! Human-led Factor authoring. No Research or execution admission.
 use crate::application::private_assets::authoring::{API_FINGERPRINT, Draft};
+use onlyalpha_calculation_bridge::native_operators::SEMANTIC_VERSION;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 pub type Result<T> = std::result::Result<T, &'static str>;
@@ -79,7 +80,7 @@ fn expression(
             (
                 format!("{input}_{key}_{period}"),
                 format!("{key}({input}, {period})"),
-                json!({"input":input,"operator":if key=="lag"{"onlyalpha.operator.delay"}else{"onlyalpha.operator.rolling_mean"},"semantic_version":"2","period":period,"closed_only":true}),
+                json!({"input":input,"operator":if key=="lag"{"onlyalpha.operator.delay"}else{"onlyalpha.operator.rolling_mean"},"semantic_version":SEMANTIC_VERSION,"period":period,"closed_only":true}),
             )
         } else {
             fields(v, &["input"])?;
@@ -181,7 +182,7 @@ mod native_operator_version_tests {
             "onlyalpha.operator.rolling_mean"
         );
         for dependency in value["dependencies"].as_object().unwrap().values() {
-            assert_eq!(dependency["semantic_version"], "2");
+            assert_eq!(dependency["semantic_version"], "3");
         }
     }
 }

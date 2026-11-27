@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha123",
+  "expression": "(Rank(Corr(Sum(($high + $low) / 2, 20), Sum(Mean($volume, 60), 20), 9)) < Rank(Corr($low, $volume, 6))) * -1"
+}

@@ -1612,7 +1612,7 @@ mod scalar_boundary_tests {
         };
         let parent = OperatorCalculation::resolve(
             "onlyalpha.operator.rolling_mean",
-            "2",
+            "3",
             &json!({"period":{"type":"INTEGER","value":2}}),
             &json!({"value":{"node_fingerprint":null,"output_name":"value","source":"bar.close"}}),
         )

@@ -530,7 +530,7 @@ fn native_factor_batch_preserves_exact_volume_momentum_vectors() -> Result<()> {
         let operator = |kind: &str, source: &str, values: &[Value]| -> Result<Value> {
             let node = OperatorCalculation::resolve(
                 kind,
-                "2",
+                "3",
                 &json!({"period":{"type":"INTEGER","value":20}}),
                 &json!({"value":{"node_fingerprint":null,"output_name":"value","source":source}}),
             )?;

@@ -23,7 +23,7 @@
 
 市场插件输出显式输入确定的规则和经济约束。通用订单、费用应用、结算状态、资金、持仓和风险由对应 Rust 库拥有；模拟撮合由 Virtual Broker / Backtest 的所属机制处理。新的市场差异不得以具体市场分支进入 Kernel。
 
-目标架构按 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 将扩展与插件分为四层，全部纳入 Rust Runtime 生命周期：L1 内置双内核算子静态编译进 Kernel；L2 Qlib 表达式因子与组合指标以内存算子 DAG 承载，运行期热加载／热卸载；L3 扩展算子、市场交易规则与可编程策略以 WASM 插件承载（`wasmtime` + 版本化 WIT 契约，禁用非确定 WASI 能力，显式内存与 fuel 预算，trap 按 Fail-Closed 隔离）；L4 券商与数据源以独立子进程插件承载，经版本化 IPC／gRPC 契约通信。明确拒绝原生 `.so`／`.dylib` 动态库热卸载。Python 因子与策略编写环境不属于目标架构。
+目标架构按 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 将扩展与插件分为四层，全部纳入 Rust Runtime 生命周期：L1 内置双内核算子静态编译进 Kernel；L2 声明式因子表达式与组合指标编译为内存中的类型化算子 DAG，运行期热加载／热卸载；L3 扩展算子、市场交易规则与可编程策略以 WASM 插件承载（`wasmtime` + 版本化 WIT 契约，禁用非确定 WASI 能力，显式内存与 fuel 预算，trap 按 Fail-Closed 隔离）；L4 券商与数据源以独立子进程插件承载，经版本化 IPC／gRPC 契约通信。明确拒绝原生 `.so`／`.dylib` 动态库热卸载。Python 因子与策略编写环境不属于目标架构。
 
 当前 `plugs/` 下的 Rust 库是现行实现；迁移到 L3／L4 由 ADR 0152 阶段 2–4 完成，完成前不得声称对应插件已具备热加载或子进程宿主。已登记的发行 ID、插件身份与历史工件绑定不因承载形态变化而重写。
 

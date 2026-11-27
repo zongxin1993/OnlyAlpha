@@ -33,18 +33,20 @@ pub use state::{
 };
 pub mod product;
 pub mod program;
-pub mod qlib;
+pub mod factor_expr;
 ```
 
 库根直接声明：`CalculationError`、`Result`。
 
-### Qlib 表达式 DAG 与双模式执行器
+### 声明式因子表达式与双模式执行器
 
-[`qlib`](src/qlib/mod.rs) 实现 ADR 0152 规定的声明式因子表达式解析、静态因果校验与双模式 DAG／指令流执行器，全部算子语义直接复用 [`onlyalpha-operators`](../operators/README.md) 已认证双内核：
+[`factor_expr`](src/factor_expr/mod.rs) 实现 ADR 0152 规定的声明式因子表达式解析、静态因果校验与双模式 DAG／指令流执行器，全部算子语义直接复用 [`onlyalpha-operators`](../operators/README.md) 已认证双内核：
 
 - 顶层类型静态区分 `FactorExpr` 与 `TargetExpr`：`FactorExpr` 在编译期强制拒绝一切前视偏移（如 `Ref($x, -n)`、`Lead($x, n)`、负窗口期）与账户／持仓／资金／成交／时钟／随机数／未来标签输入，并支持单序列 `evaluate_vector`、`event_executor` 以及对齐多标的面板 `evaluate_panel`、`panel_event_executor`；`TargetExpr` 仅限 Research 评估标签，允许显式有界前瞻偏移，类型系统禁止其构造事件执行器或进入交易引擎。
+- `CSScale(x)` 用当日有效截面的绝对值之和归一化，`GroupDemean(x, group)` 按当日数值分组去均值，两者通过面板执行。`Product(x, n)` 计算完整窗口的连乘，`SMA(x, n, m)` 从首个有效值按整数权重 `m/n` 递推，`Pow(x, y)` 逐点计算幂。窗口和权重须为编译期常量，递推权重随 DAG 指纹绑定。
+- `RegressionResidual3(y, x1, x2, x3, n)` 求滚动三元回归的末点残差，`ConditionalBeta(y, x, cond, n)` 在最近 `n` 个事件内按条件求回归斜率，`CumProductIf(value, cond)` 从 1 开始按条件累乘。后二者以条件值等于 1 为真。回归窗口下限分别是 5 和 2，窗口计算预算累计每个输入列的访问量。
 - 编译阶段完成公共子表达式去重（CSE）、静态预热长度与资源预算计算、规范表达与 SHA-256 指纹绑定；`EventExecutor` 与 `PanelEventExecutor` 支持事务化 `step` 与 `DagState`／`PanelDagState` 检查点恢复（含规范 JSON 编解码与指纹绑定校验）。
-- 认证测试位于 [`tests/qlib_dag.rs`](tests/qlib_dag.rs)，覆盖编译期前视拒绝、禁区输入拒绝、独立 golden、`Vector == Event` 与面板逐点等价、多前缀因果、warmup/null 边界、检查点恢复与解析预算边界。
+- [`factor_expr_dag`](tests/factor_expr_dag.rs) 覆盖编译期前视拒绝、禁区输入拒绝、独立 golden、`Vector == Event` 与面板逐点等价、多前缀因果、warmup/null 边界、检查点恢复与解析预算边界。[`alpha158`](tests/alpha158.rs) 从[示例清单](../../examples/factor/qlib/alpha158/manifest.json)读取 158 份表达式，核对定义摘要，并将面板批量、逐事件和检查点恢复后的输出与冻结的十进制预期值逐点比较。
 
 ## 状态与生命周期
 

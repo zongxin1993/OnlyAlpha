@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA090",
+  "expression": "-Pow(Rank($close - Max($close, 4)), TsRank(Corr(GroupDemean(Mean($dollar_volume, 40), $subindustry), $low, 5), 3))"
+}

@@ -75,7 +75,7 @@
               "template_node_id": "node_0",
               "type_reference": {
                 "kind": "INDICATOR",
-                "semantic_version": "1",
+                "semantic_version": "3",
                 "type_id": "onlyalpha.operator.delay"
               }
             },
@@ -100,7 +100,7 @@
               "template_node_id": "node_1",
               "type_reference": {
                 "kind": "INDICATOR",
-                "semantic_version": "1",
+                "semantic_version": "3",
                 "type_id": "onlyalpha.operator.rolling_mean"
               }
             }
@@ -219,7 +219,7 @@
       }
     ]
   },
-  "specification_fingerprint": "487d65d1e863076885f1a97aa63433eb85f8d4262827af316b8b4de9121d7236",
+  "specification_fingerprint": "88ecc0a1fc1e75cae5ab57df23c549300e2ec3621ea732c4cba82c2b339adee1",
   "target_definition": {
     "extensions": {},
     "factor_kind": null,

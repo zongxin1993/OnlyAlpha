@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA095",
+  "expression": "Rank($open - Min($open, 12)) < TsRank(Pow(Rank(Corr(Sum((($high + $low) / 2), 19), Sum(Mean($dollar_volume, 40), 19), 12)), 5), 11)"
+}

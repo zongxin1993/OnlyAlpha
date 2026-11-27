@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha72",
+  "expression": "SMA((Max($high, 6) - $close) / (Max($high, 6) - Min($low, 6)) * 100, 15, 1)"
+}

@@ -1,4 +1,4 @@
-# ADR 0152：统一 Runtime 门面、双内核算子底座、Qlib 表达式 DAG 与 WASM/子进程插件架构
+# ADR 0152：统一 Runtime 门面、双内核算子底座、类型化算子 DAG 与 WASM/子进程插件架构
 
 - 状态：Accepted（核心方向经架构讨论确认，仓库负责人于 2026-11-26 签收）
 - 日期：2026-11-26
@@ -82,12 +82,12 @@ MarketEvent
 2. **原子算子等价认证**
    - 每个原子算子必须通过独立数值 golden、`VectorKernel == EventKernel` 逐点等价、多前缀因果性、warmup/null 边界、以及检查点快照恢复后缀一致测试。
 3. **指标与因子强制算子化**
-   - `crates/indicators` 与所有内置/私有因子**必须且只能**通过组合 `crates/operators` 中已认证的算子构建，不得绕过算子底座各自维护手写滚动状态或私有数值逻辑。
+   - `crates/indicators` 与所有因子**必须且只能**通过组合 `crates/operators` 中已认证的算子构建，不得绕过算子底座各自维护手写滚动状态或私有数值逻辑。
    - 由此，任何由已认证原子算子组合而成的指标或因子，天然继承双模式等价性、因果性与快照可恢复性。
 
-### 2.4 Qlib 风格表达式作为唯一因子表现形式，废弃旧受限 Python AST
+### 2.4 声明式因子表达式与编译期因果校验
 
-全面采用 Qlib 风格声明式表达式作为 OnlyAlpha 的唯一因子表达形式，直接废弃旧的受限 Python AST 编写接口（[factor-program.md](../factor-program.md)）：
+OnlyAlpha 的唯一因子编写语言为声明式因子表达式（`factor_expr`）。运行时加载的内容是表达式文本；`FactorExpr` 将其编译为类型化算子 DAG，供 Research 与交易执行器使用。仓库中的开源示例按 `examples/factor/<因子源名称>/<因子集名称>/` 组织，例如 `examples/factor/qlib/alpha158/`。字段引用和函数调用形式参考 Qlib，表达式语义、算子契约及版本由 OnlyAlpha 定义。该语言替代旧的受限 Python AST 编写接口（[factor-program.md](../factor-program.md)）：
 
 1. **表达式即算子 DAG**
    - 因子以声明式表达式编写（例如 `Mean($close, 20) / Std($close, 20)`、`Corr($close, Log($volume + 1), 10)`、`Rank(Delta($close, 5))`），解析后直接编译为基于 `operators` 注册表的类型化有向无环图（DAG）与紧凑内存指令流。
@@ -106,7 +106,7 @@ MarketEvent
 | 层级 | 涵盖对象 | 承载形态 | 动态生命周期 | 隔离与复现保证 |
 |---|---|---|---|---|
 | **L1 核心内置算子** | `crates/operators` 基础算子双内核 | 静态编译进 Rust Kernel | 随 Rust 库统一发版（低变更率） | 零 FFI 开销、吃满内联与 SIMD；随 Kernel 版本精确绑定 |
-| **L2 因子与组合指标** | Qlib 表达式因子、内置/私有组合指标 | 声明式表达式 → 内存算子 DAG / 紧凑指令流（数据即插件） | **运行期毫秒级自由热加载/热卸载**，零 `rustc` 编译等待 | 100% 内存安全、跨平台比特级复现；数据库仅存表达式与版本指纹 |
+| **L2 因子与组合指标** | 声明式因子表达式、内置/私有组合指标 | 声明式表达式 → 内存算子 DAG / 紧凑指令流（数据即插件） | **运行期毫秒级自由热加载/热卸载**，零 `rustc` 编译等待 | 100% 内存安全、跨平台比特级复现；数据库仅存表达式与版本指纹 |
 | **L3 扩展计算与规则插件** | 自定义扩展算子、市场交易规则（`onlyalpha-market-*`）、可编程策略模块 | **WASM 插件**（`wasmtime` + Component Model / WIT 契约） | **运行期安全自由热加载/热卸载**，可按需卸载并完整回收线性内存与实例 | 强内存沙箱与资源预算，绝不污染或拖垮宿主；单份 `.wasm` 跨 macOS/Linux 比特级一致 |
 | **L4 外部 IO 网关插件** | 券商协议（`onlyalpha-broker-*`）、外部数据源（`onlyalpha-data-source-*`） | **独立子进程插件**（版本化 IPC / gRPC 契约） | 独立进程启动、健康检查、受控重启与升级 | 彻底隔离网络异常、第三方 SDK 崩溃与 OS 依赖，故障域独立 |
 
@@ -141,7 +141,7 @@ MarketEvent
 | 2. 权威归属是否显式（Single Authority） | YES | Runtime 独占计算与交易状态机语义，Backend 独占外部控制与人工授权装配，PG/CH 事实归属不变 |
 | 3. 行为是否确定性（Determinism） | YES | 双内核等价认证 + 精确十进制/整数规范 + WASM 禁用非确定 WASI 能力，消除隐藏非确定性 |
 | 4. 内核是否仍与具体市场无关（Market-Agnostic） | YES | 市场规则下沉至 L3 WASM 插件，券商与数据源下沉至 L4 子进程插件，内核无具体市场分支 |
-| 5. 结果是否可复现（Reproducibility） | YES | Qlib 表达式文本 + 算子版本 + `.wasm` SHA-256 + 冻结 CH 切片完整锁定全部输入 |
+| 5. 结果是否可复现（Reproducibility） | YES | 因子表达式文本 + 算子版本 + `.wasm` SHA-256 + 冻结 CH 切片完整锁定全部输入 |
 | 6. 因果链是否可追溯（Traceability） | YES | 完整保留 `MarketFact → Factor → Strategy → OrderIntent → Risk → Broker → Fill → State` 因果链 |
 | 7. 崩溃后是否可恢复（Recoverability） | YES | `EventKernel` 与 WASM 算子支持确定性快照恢复；SIM/LIVE 沿用 PG 逐步持久化与外部对账，有限作业沿用冻结输入重算 |
 | 8. 不确定性是否 Fail-Closed | YES | WASM trap/超预算、插件缺失、认证未 READY 或提交结果 `UNKNOWN` 均拒绝新增增险动作并保持安全观察路径 |
@@ -156,7 +156,7 @@ MarketEvent
 ### 4.1 明确替代与修订
 
 1. **修订 [ADR 0150](0150-product-layout-and-programmable-quant-assets.md)**：
-   - 替代其中关于“受限 Python 因子与策略编写接口”及 Backend Python 算法隔离执行器的决定，改为本文的 **Qlib 表达式 DAG（因子/指标）+ 声明式/WASM 策略模块**。
+   - 替代其中关于“受限 Python 因子与策略编写接口”及 Backend Python 算法隔离执行器的决定，改为本文的 **类型化算子 DAG（因子/指标）+ 声明式/WASM 策略模块**。
    - 保留 `packages/` 仅含 `backend`/`frontend`、Agent 仅通过正式 API 工作、`crates/operators` 与 `crates/indicators` 纯 Rust 无 Python 接口、以及 PG 草稿与不可变版本模型。
 2. **修订 [ADR 0151](0151-postgresql-business-publication-and-memory-work.md)**：
    - 修订第 9 条中“Research 与交易共用策略纯信号图”的条款：改为 **Research 面向纯因子（`FactorExpr`）与标签（`TargetExpr`）向量化执行，与交易层共用同一套因子定义与双内核算子语义**，不再要求 Research 绑定策略修订或信号图。
@@ -190,15 +190,15 @@ MarketEvent
 | 阶段 | 核心交付范围 | 关键验收标准 |
 |---|---|---|
 | **阶段 0：规范定稿** | 本 ADR 签收生效；同步更新 `docs/repository-product-architecture.md`、`docs/plugin-capabilities.md` 与 `docs/job-execution-contract.md` | 架构文档、替代关系与术语全部对齐，无规范冲突 |
-| **阶段 1：双内核算子与 Qlib DAG** | 重构 `crates/operators`（Op 注册表 + `VectorKernel` / `EventKernel`）与 `crates/indicators`；实现 Qlib 表达式解析器、静态因果校验（`FactorExpr` vs `TargetExpr`）及 DAG/指令流双模式执行器 | 全部内置算子与指标通过独立 golden、`Vector == Event` 逐点等价、多前缀因果、warmup/null 与快照恢复测试；编译期拒绝一切前视 `FactorExpr` |
+| **阶段 1：双内核算子与声明式因子表达式** | 重构 `crates/operators`（Op 注册表 + `VectorKernel` / `EventKernel`）与 `crates/indicators`；实现声明式因子表达式解析器、静态因果校验（`FactorExpr` vs `TargetExpr`）及 DAG/指令流双模式执行器 | 全部内置算子与指标通过独立 golden、`Vector == Event` 逐点等价、多前缀因果、warmup/null 与快照恢复测试；编译期拒绝一切前视 `FactorExpr` |
 | **阶段 2：WASM 宿主与 WIT 契约** | 引入 `wasmtime` 确定性宿主（禁用非确定 WASI、显式内存与燃料预算），定义扩展算子、市场规则与策略的正式版本化 WIT 契约与热加载/热卸载管理器 | 支持运行期加载/卸载与内存回收；扩展算子通过自动双内核等价认证；越界/超时 trap 按 Fail-Closed 隔离且宿主不受影响；跨平台校验工件 SHA-256 与确定输出 |
-| **阶段 3：统一 `OnlyAlphaRuntime`** | 在 `crates/runtime` 落地纯因子向量化 `ResearchEngine` 与 Backtest/SIM/LIVE 统一事件主循环 `TradingEngine`，收拢全部外部端口 trait | Backtest/SIM/LIVE 运行完全同一核心事件循环；Research 与 Backtest 消费同一 Qlib 因子结果逐点一致；持续交易支持崩溃恢复与对账 |
+| **阶段 3：统一 `OnlyAlphaRuntime`** | 在 `crates/runtime` 落地纯因子向量化 `ResearchEngine` 与 Backtest/SIM/LIVE 统一事件主循环 `TradingEngine`，收拢全部外部端口 trait | Backtest/SIM/LIVE 运行完全同一核心事件循环；Research 与 Backtest 对同一声明式因子表达式的求值结果逐点一致；持续交易支持崩溃恢复与对账 |
 | **阶段 4：Backend 瘦身与旧路径清退** | `packages/backend` 收拢为仅依赖 `OnlyAlphaRuntime` 的薄外壳；外部 IO 网关对接 L4 子进程插件边界；删除旧 Python AST 因子链路与重复驱动；重建 `onlyalpha-dev` 并跑通全链路 API/Web 回归 | Backend 无自持量化执行循环；旧 Python 算法目录与废弃文档清理完毕；API、权限、实盘门槛、故障恢复与全链路测试通过 |
 
 ---
 
 ## 6. 签收记录
 
-仓库负责人于 2026-11-26 签收本 ADR，确认第 2 节四项决策作为目标架构：薄 Backend 与唯一抽象门面 `OnlyAlphaRuntime`；Research 纯因子向量化与 Backtest／SIM／LIVE 统一事件主循环；类 CUDA 双内核算子底座与 Qlib 表达式 DAG；L1–L4 四层插件承载模型并明确拒绝原生 `.so`／`.dylib` 热卸载。
+仓库负责人于 2026-11-26 签收本 ADR，确认第 2 节四项决策作为目标架构：薄 Backend 与唯一抽象门面 `OnlyAlphaRuntime`；Research 纯因子向量化与 Backtest／SIM／LIVE 统一事件主循环；类 CUDA 双内核算子底座与类型化算子 DAG；L1–L4 四层插件承载模型并明确拒绝原生 `.so`／`.dylib` 热卸载。
 
 签收同时执行阶段 0：同步更新 `docs/repository-product-architecture.md`、`docs/plugin-capabilities.md`、`docs/job-execution-contract.md` 与 `AGENTS.md`，并在 ADR 0142、0150、0151 标注替代范围。签收只使目标架构生效，不表示阶段 1–4 已实现或通过验收；当前实现状态仍以工作树源码和可执行证据为准。

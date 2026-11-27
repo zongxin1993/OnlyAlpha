@@ -26,7 +26,7 @@ fn btc_defaults_write_actual_fixed_bindings_and_exact_factor_dependency() {
         assert_eq!(
             reference["semantic_version"],
             if reference["kind"] == "INDICATOR" {
-                "2"
+                "3"
             } else {
                 "1"
             }

@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha170",
+  "expression": "Rank(1 / $close) * $volume / Mean($volume, 20) * ($high * Rank($high - $close) / (Sum($high, 5) / 5)) - Rank($vwap - Ref($vwap, 5))"
+}

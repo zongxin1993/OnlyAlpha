@@ -22,8 +22,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 @pytest.fixture
 def prepared_runtime(tmp_path: Path, native_release_probe: Path, schema_db: str) -> dict[str, Any]:
-    # The historical fixture contributes a candidate expression only. All current
-    # source/Definition/implementation identities come from the actual Rust owner.
     candidate = json.loads((Path(__file__).parent / "fixtures/research_factor.json").read_text())["candidate"]
     runtime = tmp_path / "runtime"
     selected = build(
@@ -128,7 +126,7 @@ def operator_instances() -> list[dict[str, Any]]:
             "type_reference": {
                 "kind": "INDICATOR",
                 "type_id": f"onlyalpha.operator.{operator}",
-                "semantic_version": "2",
+                "semantic_version": "3",
             },
             "parameters": {"period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 20}}},
             "published_outputs": ["value"],
@@ -162,7 +160,7 @@ def test_selected_installed_preparation_rejects_rehashed_foreign_operator_resour
     assert proof["native_descriptor"]["image"]["artifact"] == selected["executor_sha256"]
     # The installed generation is not a Factor build or parameter certificate.
     # The persisted build's numerical vectors and exact bindings are tested in Rust.
-    assert all(row["type"]["semantic_version"] == "2" for row in actual["operator_calculations"])
+    assert all(row["type"]["semantic_version"] == "3" for row in actual["operator_calculations"])
     assert not list((selected["release"] / "wheels").glob("onlyalpha_plugin_operators-*.whl"))
     foreign = selected["release"] / "bin/onlyalpha-backend"
     raw = bytearray(foreign.read_bytes())
@@ -421,6 +419,29 @@ def test_installed_node_profiles_reject_foreign_definitions_scalars_control_and_
         else:
             request["schema_version"] = 2
         assert exchange(prepared_runtime, request, "evaluate") == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}, fault
+
+
+def test_installed_quantile_binds_its_declared_parameter(prepared_runtime: dict[str, Any]) -> None:
+    instance = operator_instances()[0]
+    instance["instance_key"] = "quantile"
+    instance["type_reference"]["type_id"] = "onlyalpha.operator.rolling_quantile"
+    instance["parameters"] = {
+        "period": {"kind": "FIXED", "value": {"type": "INTEGER", "value": 3}},
+        "quantile": {"kind": "FIXED", "value": {"type": "DECIMAL", "value": "0.75"}},
+    }
+    request = resolution(prepared_runtime, [instance])
+    rows = [{"at_ns": i * 60_000_000_000, "values": {"close": v}} for i, v in enumerate(["2", "4", "2"], 1)]
+    result = exchange(
+        prepared_runtime,
+        {"contract": "ONLYALPHA_CALCULATION_PLANES_OBSERVATION_V1", "resolution": request, "rows": rows},
+        "evaluate",
+    )
+    assert "error" not in result, result
+    (output,) = result["evaluation"]["feature"]["outputs"]
+    assert output["values"]["value"] == [None, None, "3.000000000000"]
+    for invalid in ("-0.1", "1.1"):
+        instance["parameters"]["quantile"]["value"]["value"] = invalid
+        assert exchange(prepared_runtime, request) == {"error": "RESEARCH_ALGORITHM_UNAVAILABLE"}
 
 
 def test_installed_graph_observation_without_targets_uses_actual_feature_factories(

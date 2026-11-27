@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA068",
+  "expression": "-(TsRank(Corr(Rank($high), Rank(Mean($dollar_volume, 15)), 8), 13) < Rank(Delta($close * 0.518371 + $low * 0.481629, 1)))"
+}

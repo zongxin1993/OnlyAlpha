@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA011",
+  "expression": "(Rank(Max($vwap - $close, 3)) + Rank(Min($vwap - $close, 3))) * Rank(Delta($volume, 3))"
+}

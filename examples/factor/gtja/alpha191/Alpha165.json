@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha191",
+  "factor_set_version": "1",
+  "name": "Alpha165",
+  "expression": "Max(Sum($close - Mean($close, 48), 48), 48) - Min(Sum($close - Mean($close, 48), 48), 48) / Std($close, 48)"
+}

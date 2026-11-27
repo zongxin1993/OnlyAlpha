@@ -1,0 +1,6 @@
+{
+  "factor_set": "onlyalpha.alpha101",
+  "factor_set_version": "1",
+  "name": "ALPHA048",
+  "expression": "GroupDemean(Corr(Delta($close, 1), Delta(Ref($close, 1), 1), 250) * Delta($close, 1) / $close, $subindustry) / Sum(Pow(Delta($close, 1) / Ref($close, 1), 2), 250)"
+}

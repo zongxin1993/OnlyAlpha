@@ -17,7 +17,7 @@ PostgreSQL 拥有资产版本、构建程序／认证、Command／Run／Attempt�
 | kind | RESEARCH／BACKTEST 有限作业类别，不是新的 Runtime 经济模式 |
 | scope.namespace／owner／run_id | 原语义数据库 UUID4、原所有者、原 Run UUID4；复用既有身份语言 |
 | strategy_revision | 仅 BACKTEST：不可变策略版本（声明式规则或 WASM 策略模块）；Research 不绑定策略修订或信号图 |
-| factor_bindings | Research／Backtest 共用：不可变因子版本、Qlib 表达式规范化内容、算子注册表版本、解析后精确参数、数值规范及精确认证引用 |
+| factor_bindings | Research／Backtest 共用：不可变因子版本、因子表达式的规范化内容、算子注册表版本、解析后精确参数、数值规范及精确认证引用 |
 | target_expressions | 仅 RESEARCH：评估标签 `TargetExpr` 的规范化内容与版本；严禁进入交易路径 |
 | kernel_artifact／runtime_generation | 实际 Kernel 工件和既有 Generation 绑定 |
 | initial_state／execution_configuration | 完整初始状态及执行配置的确切内容引用 |
@@ -37,7 +37,7 @@ Run 属业务 scope，不能随重试替换。Attempt、lease、fence、PID、�
 
 因子只依赖行情与显式参数；不读仓位／资金／风控／成交，后续交易环节消费因子并负责这些状态。Research 与 Backtest 使用同一份因子定义与规范化精确参数：Research 走 `VectorKernel` 列式批处理，Backtest／SIM／LIVE 走同一因子的 `EventKernel` 增量推进，逐点结果一致，不比较经过交易过滤后的结果。
 
-构建身份绑定规范化 Qlib 表达式、编写接口版本、算子注册表版本、类型程序、原语实现和数值规范；精确参数绑定身份独立。`FactorExecutionBinding` 引用 revision／program／parameters／numeric_policy／certificate。parameters 指向现有参数解析器按类型、默认值和约束解析后的完整规范化内容，不能把未解析的用户 JSON 或展示格式当成精确参数。
+构建身份绑定规范化因子表达式、编写接口版本、算子注册表版本、类型程序、原语实现和数值规范；精确参数绑定身份独立。`FactorExecutionBinding` 引用 revision／program／parameters／numeric_policy／certificate。parameters 指向现有参数解析器按类型、默认值和约束解析后的完整规范化内容，不能把未解析的用户 JSON 或展示格式当成精确参数。
 
 BUILDING／READY／FAILED 仅表示这个精确认证绑定的状态，不是整个参数域或作业状态。READY 且所有绑定相同才满足值一致谓词；真实证书存在、签发 owner、程序内容、关联和状态由 PostgreSQL owning reader 在准入时验证。版本创建自动构建并认证默认参数；新参数只做绑定和受影响认证，同一表达式版本不重新解析为另一份程序。未就绪作业明确拒绝，不在 Research 热路径补跑认证。
 
@@ -101,7 +101,7 @@ AttemptClaim 继续由现有认领模块私有构造，不新增可由客户端�
 
 | 当前入口／消费者 | 迁移目的地 | 实施阶段 |
 |---|---|---|
-| private_assets/authoring、private_factor_postgres、Python private_factor_execution | Qlib 表达式规范化、算子 DAG 编译与精确认证；旧 Python 因子执行路径清退 | 一、四 |
+| private_assets/authoring、private_factor_postgres、Python private_factor_execution | 因子表达式规范化、类型化算子 DAG 编译与精确认证；旧 Python 因子执行路径清退 | 一、四 |
 | strategy_research/execution::observe_graph／run_case、workers/research | 纯因子 Research 向量化执行；解除策略修订与信号图绑定 | 一、三、四、六 |
 | workers/trading_program、strategy::Executor、backtest::next_open | 统一事件主循环；策略读取因子与只读状态，账户访问只在后续交易环节 | 一、三、五 |
 | backtest_service／backtest_worker、RunLoop、Runtime::create/open | 精确输入＋内存会话；新Attempt冻结重算 | 四至六 |
