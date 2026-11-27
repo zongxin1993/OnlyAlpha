@@ -6,7 +6,7 @@ use onlyalpha_operators::registry::{
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 
-const EVERY_OPERATOR: [Operator; 29] = [
+const EVERY_OPERATOR: [Operator; 30] = [
     Operator::Add,
     Operator::Subtract,
     Operator::Multiply,
@@ -36,12 +36,13 @@ const EVERY_OPERATOR: [Operator; 29] = [
     Operator::CrossSectionRank,
     Operator::CrossSectionZScore,
     Operator::CrossSectionDemean,
+    Operator::CrossSectionCorrelation,
 ];
 
 #[test]
 fn registry_owns_one_row_per_operator_with_unique_identity() {
     assert_eq!(REGISTRY.len(), EVERY_OPERATOR.len());
-    assert_eq!(all().len(), 29);
+    assert_eq!(all().len(), 30);
     let names = REGISTRY
         .iter()
         .map(|spec| spec.name)
@@ -103,6 +104,7 @@ fn state_capabilities_follow_shape_and_warmup() {
     assert_eq!(
         research_only,
         [
+            "cross_section_correlation",
             "cross_section_demean",
             "cross_section_percentile",
             "cross_section_rank",

@@ -484,6 +484,7 @@ fn cross_section_panel_equivalence_causality_and_single_series_guard() {
         "CSPercentile($close, 1)",
         "CSPercentile($close, -1)",
         "Rank(Mean($close, 2)) - CSDemean($volume)",
+        "CSCorr($close, $volume)",
     ];
 
     let panel = vec![

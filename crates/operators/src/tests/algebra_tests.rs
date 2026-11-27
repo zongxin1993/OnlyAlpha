@@ -192,6 +192,33 @@ fn cross_section_nulls_ties_and_singleton() {
     );
 }
 #[test]
+fn cross_section_correlation_is_one_plane_wide_pearson() {
+    let check = |x: &[&str], y: &[&str], expected: &[&str]| {
+        assert_eq!(
+            kernel(Operator::CrossSectionCorrelation, None)
+                .evaluate(&[values(x), values(y)])
+                .unwrap(),
+            values(expected)
+        );
+    };
+    // Perfect linear relationship, one instrument missing on each input.
+    check(
+        &["1", "null", "2", "3", "4"],
+        &["2", "9", "4", "6", "8"],
+        &["1", "null", "1", "1", "1"],
+    );
+    // Reversed relationship gives the negated coefficient.
+    check(
+        &["1", "2", "3", "4"],
+        &["8", "6", "4", "2"],
+        &["-1", "-1", "-1", "-1"],
+    );
+    // A single complete pair carries no correlation information.
+    check(&["1", "null", "null"], &["2", "null", "null"], &["null"; 3]);
+    // A constant side has zero variance, so the coefficient is undefined.
+    check(&["1", "2", "3"], &["5", "5", "5"], &["null"; 3]);
+}
+#[test]
 fn stream_batch_checkpoint_equivalence_all_time_series() {
     let ops = [
         Operator::Add,
@@ -391,6 +418,7 @@ fn all_operators_preserve_missing_values() {
         Operator::CrossSectionRank,
         Operator::CrossSectionZScore,
         Operator::CrossSectionDemean,
+        Operator::CrossSectionCorrelation,
     ];
     for op in ops {
         let k = kernel(op, op.needs_period().then_some(2));

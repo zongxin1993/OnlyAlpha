@@ -678,6 +678,9 @@ impl<'a> Compiler<'a> {
             "csdemean" | "cross_section_demean" => {
                 self.compile_unary_op(Operator::CrossSectionDemean, args)
             }
+            "cscorr" | "cross_section_correlation" => {
+                self.compile_binary_op(Operator::CrossSectionCorrelation, args)
+            }
             "cspercentile" | "cross_section_percentile" => {
                 if args.is_empty() || args.len() > 2 {
                     return Err(err("QLIB_ARITY"));
@@ -850,6 +853,7 @@ fn canonical_op_name(op: Operator) -> &'static str {
         CrossSectionRank => "CSRank",
         CrossSectionZScore => "CSZScore",
         CrossSectionDemean => "CSDemean",
+        CrossSectionCorrelation => "CSCorr",
     }
 }
 
