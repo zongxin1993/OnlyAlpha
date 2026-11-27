@@ -245,6 +245,8 @@ RUNTIME_PERSISTENCE_DEPENDENCIES = {
     "onlyalpha-observability": {"path": "../observability"},
     "onlyalpha-broker": {"path": "../broker"},
     "onlyalpha-execution": {"path": "../execution"},
+    "onlyalpha-operators": {"path": "../operators"},
+    "onlyalpha-calculation": {"path": "../calculation"},
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
 }
 BACKTEST_DRIVER_DEPENDENCIES = {
@@ -1885,6 +1887,9 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     },
     "crates/runtime/src/durability.rs": {
         "tests/durability_tests.rs": "crates/runtime/src/tests/durability_tests.rs",
+    },
+    "crates/runtime/src/research.rs": {
+        "tests/research_tests.rs": "crates/runtime/src/tests/research_tests.rs",
     },
     "plugs/onlyalpha-data-source-binance/src/spot_source.rs": {
         "spot_temporary.rs": "plugs/onlyalpha-data-source-binance/src/spot_temporary.rs",

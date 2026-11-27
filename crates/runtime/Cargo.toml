@@ -13,6 +13,8 @@ workspace = true
 onlyalpha-observability = { path = "../observability" }
 onlyalpha-broker = { path = "../broker" }
 onlyalpha-execution = { path = "../execution" }
+onlyalpha-operators = { path = "../operators" }
+onlyalpha-calculation = { path = "../calculation" }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
 [dev-dependencies]
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }

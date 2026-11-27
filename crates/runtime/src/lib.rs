@@ -1,7 +1,9 @@
 //! In-memory finite execution sessions and continuous-trading durability ports, outside Trading Kernel.
 pub mod durability;
+pub mod research;
 mod session;
 
+pub use research::{Cohort, ResearchEngine, ResearchPanel, ResearchReport, SeriesStatistics};
 pub use session::{
     AppliedEvent, CompletedSession, RunBinding, RunConfiguration, Session, TradingInput,
 };
