@@ -1,5 +1,9 @@
 //! Formal WIT contract versions, immutable artifact bindings, domain types, and Fail-Closed errors.
 
+use onlyalpha_domain::{
+    enums::{OnlyOrderSide, OnlyOrderType, OnlyTimeInForce},
+    numeric::OnlyDecimal,
+};
 use onlyalpha_operators::algebra::Decimal;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -249,87 +253,56 @@ pub struct MarketRuleMetadata {
     pub version: String,
 }
 
-/// Canonical order side matching `onlyalpha:plugin@1.0.0` (`order-side`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OrderSide {
-    Buy,
-    Sell,
-}
-
-impl OrderSide {
-    pub const fn wit_name(self) -> &'static str {
-        match self {
-            Self::Buy => "buy",
-            Self::Sell => "sell",
-        }
-    }
-
-    pub fn from_wit_name(name: &str) -> Result<Self> {
-        match name {
-            "buy" => Ok(Self::Buy),
-            "sell" => Ok(Self::Sell),
-            other => Err(Error::InvalidGuestOutput(format!(
-                "unknown order-side enum case: {other}"
-            ))),
-        }
+/// Canonical `onlyalpha:plugin@1.0.0` WIT name for a Domain order side.
+pub(crate) const fn order_side_wit_name(side: OnlyOrderSide) -> &'static str {
+    match side {
+        OnlyOrderSide::Buy => "buy",
+        OnlyOrderSide::Sell => "sell",
     }
 }
 
-/// Canonical order type matching `onlyalpha:plugin@1.0.0` (`order-type`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OrderType {
-    Market,
-    Limit,
-}
-
-impl OrderType {
-    pub const fn wit_name(self) -> &'static str {
-        match self {
-            Self::Market => "market",
-            Self::Limit => "limit",
-        }
-    }
-
-    pub fn from_wit_name(name: &str) -> Result<Self> {
-        match name {
-            "market" => Ok(Self::Market),
-            "limit" => Ok(Self::Limit),
-            other => Err(Error::InvalidGuestOutput(format!(
-                "unknown order-type enum case: {other}"
-            ))),
-        }
+pub(crate) fn order_side_from_wit_name(name: &str) -> Result<OnlyOrderSide> {
+    match name {
+        "buy" => Ok(OnlyOrderSide::Buy),
+        "sell" => Ok(OnlyOrderSide::Sell),
+        other => Err(Error::InvalidGuestOutput(format!(
+            "unknown order-side enum case: {other}"
+        ))),
     }
 }
 
-/// Canonical order time-in-force matching `onlyalpha:plugin@1.0.0` (`time-in-force`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TimeInForce {
-    Day,
-    Gtc,
-    Ioc,
-    Fok,
+/// The WIT `order-type` contract carries market and limit only; other Domain order types
+/// cannot cross this boundary.
+pub(crate) fn order_type_wit_name(order_type: OnlyOrderType) -> Result<&'static str> {
+    match order_type {
+        OnlyOrderType::Market => Ok("market"),
+        OnlyOrderType::Limit => Ok("limit"),
+        other => Err(Error::InvalidHostInput(format!(
+            "order type {} is outside the onlyalpha:plugin@1.0.0 order-type contract",
+            other.as_str()
+        ))),
+    }
 }
 
-impl TimeInForce {
-    pub const fn wit_name(self) -> &'static str {
-        match self {
-            Self::Day => "day",
-            Self::Gtc => "gtc",
-            Self::Ioc => "ioc",
-            Self::Fok => "fok",
-        }
+pub(crate) fn order_type_from_wit_name(name: &str) -> Result<OnlyOrderType> {
+    match name {
+        "market" => Ok(OnlyOrderType::Market),
+        "limit" => Ok(OnlyOrderType::Limit),
+        other => Err(Error::InvalidGuestOutput(format!(
+            "unknown order-type enum case: {other}"
+        ))),
     }
+}
 
-    pub fn from_wit_name(name: &str) -> Result<Self> {
-        match name {
-            "day" => Ok(Self::Day),
-            "gtc" => Ok(Self::Gtc),
-            "ioc" => Ok(Self::Ioc),
-            "fok" => Ok(Self::Fok),
-            other => Err(Error::InvalidGuestOutput(format!(
-                "unknown time-in-force enum case: {other}"
-            ))),
-        }
+pub(crate) fn time_in_force_from_wit_name(name: &str) -> Result<OnlyTimeInForce> {
+    match name {
+        "day" => Ok(OnlyTimeInForce::Day),
+        "gtc" => Ok(OnlyTimeInForce::Gtc),
+        "ioc" => Ok(OnlyTimeInForce::Ioc),
+        "fok" => Ok(OnlyTimeInForce::Fok),
+        other => Err(Error::InvalidGuestOutput(format!(
+            "unknown time-in-force enum case: {other}"
+        ))),
     }
 }
 
@@ -338,8 +311,8 @@ impl TimeInForce {
 pub struct MarketRuleInput {
     pub trading_day: String,
     pub instrument_id: String,
-    pub side: OrderSide,
-    pub order_type: OrderType,
+    pub side: OnlyOrderSide,
+    pub order_type: OnlyOrderType,
     pub quantity: Decimal,
     pub price: Option<Decimal>,
     pub reference_price: Option<Decimal>,
@@ -363,42 +336,6 @@ pub struct StrategyMetadata {
     pub strategy_id: String,
     pub version: String,
     pub required_factors: Vec<String>,
-}
-
-/// One bound causal factor value supplied to a strategy plugin.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NamedFactor {
-    pub name: String,
-    pub value: Option<Decimal>,
-}
-
-/// Read-only position view supplied to a strategy plugin.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReadonlyPosition {
-    pub instrument_id: String,
-    pub quantity: Decimal,
-    pub average_cost: Option<Decimal>,
-}
-
-/// Read-only account/portfolio snapshot supplied to a strategy plugin.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReadonlyAccountState {
-    pub timestamp_ns: i64,
-    pub cash_available: Decimal,
-    pub total_equity: Decimal,
-    pub positions: Vec<ReadonlyPosition>,
-}
-
-/// Canonical order intent emitted by a strategy WASM plugin.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OrderIntent {
-    pub instrument_id: String,
-    pub side: OrderSide,
-    pub order_type: OrderType,
-    pub quantity: Decimal,
-    pub limit_price: Option<Decimal>,
-    pub time_in_force: TimeInForce,
-    pub reason_code: String,
 }
 
 /// Fail-Closed error model for L3 WASM plugin loading, certification, and execution.
@@ -653,4 +590,21 @@ pub(crate) fn parse_guest_decimal(raw: &str, field: &str) -> Result<Decimal> {
     } else {
         Ok(parsed.normalized())
     }
+}
+
+/// Parses a guest decimal directly into the canonical Domain decimal. Both sides are exact
+/// base-10, so the conversion is lossless in either direction.
+pub(crate) fn parse_guest_domain_decimal(raw: &str, field: &str) -> Result<OnlyDecimal> {
+    let parsed = parse_guest_decimal(raw, field)?;
+    parsed.to_plain_string().parse().map_err(|_| {
+        Error::InvalidGuestOutput(format!("{field} is outside the Domain decimal range"))
+    })
+}
+
+/// Formats a Domain decimal for the WIT ABI under the same canonical host rules.
+pub(crate) fn format_domain_decimal(value: &OnlyDecimal, field: &str) -> Result<String> {
+    let host: Decimal = value.to_string().parse().map_err(|_| {
+        Error::InvalidHostInput(format!("{field} cannot be represented as a host decimal"))
+    })?;
+    format_host_decimal(&host, field)
 }

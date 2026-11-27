@@ -1,6 +1,6 @@
 # Strategy 模型
 
-> **目标形态（ADR 0152）：** 策略统一为声明式规则或 WASM 模块，读取声明绑定的因子值与只读状态并产出 `OrderIntent`；Research 不再绑定策略修订或信号图。本文所述注册 Calculation TRADING Plugin 的承载方式按 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 阶段 4 迁移；BACKTEST／SIM／LIVE 语义一致、immutable Revision 身份及各 owning Authority 的边界不变。
+> **目标形态（ADR 0152）：** 策略统一为声明式规则或 WASM 模块，读取声明绑定的因子值与只读状态并产出 `OrderIntent`；Research 不再绑定策略修订或信号图。统一事件主循环已由 `crates/runtime` 的 `TradingEngine` 提供，规范化 `OrderIntent` 与只读账户视图定义在 `onlyalpha_domain::strategy`，策略实现只作为 `StrategyPort` 接入。本文所述注册 Calculation TRADING Plugin 的承载方式按 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 阶段 4 迁移；BACKTEST／SIM／LIVE 语义一致、immutable Revision 身份及各 owning Authority 的边界不变。
 
 按 Accepted ADR0098，正式 Strategy 身份由 immutable Strategy Revision 定义；正常 authoring/Freeze、加载和 Runtime admission
 通过各自 owning Authority 完成。旧 callback/Context adapter 不定义另一套正式策略语义。Web 只提交正式 Command 和展示结果。

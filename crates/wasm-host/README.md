@@ -15,14 +15,14 @@
 
 - **拥有**：L3 WASM 确定性执行沙箱、版本化 WIT 契约校验、扩展算子双内核自动认证与 `ReadyCertificate` 签发、插件运行期热加载／热卸载管理、线性内存与隔离故障计量。
 - **不拥有**：L1 内置算子数值语义（归属 `onlyalpha-operators`）、L2 Qlib 表达式编译执行（归属 `onlyalpha-calculation`）、L4 券商与数据源子进程插件协议、HTTP／WS 路由、持久化存储、风控准入、订单身份或实盘人工授权门槛。
-- **直接依赖**：`onlyalpha-operators`、`wasmtime`（仅启用 `cranelift`、`runtime`、`std`、`component-model`，不含任何 `wasmtime-wasi`）、`sha2`、`serde_json`；测试依赖 `wat` 与 `wit-parser`。全库遵守 workspace `unsafe_code = "forbid"`。
+- **直接依赖**：`onlyalpha-domain`（策略输入输出与账户只读视图的交易值对象，见 `onlyalpha_domain::strategy`）、`onlyalpha-operators`、`wasmtime`（仅启用 `cranelift`、`runtime`、`std`、`component-model`，不含任何 `wasmtime-wasi`）、`sha2`、`serde_json`；测试依赖 `wat` 与 `wit-parser`。全库遵守 workspace `unsafe_code = "forbid"`。
 
 ## 公开接口
 
 公开入口位于 [src/lib.rs](src/lib.rs)：
 
 - 配置与指标（[src/config.rs](src/config.rs)）：`ResourceBudget`、`WasmHostEngine`、`HostMetricsSnapshot`、`MIN_MEMORY_BYTES`、`HARD_MAX_MEMORY_BYTES`、`HARD_MAX_ARTIFACT_BYTES`、`MIN_HOST_LIFT_BYTES`、`HARD_MAX_HOST_LIFT_BYTES`、`HARD_MAX_SNAPSHOT_BYTES`、`HARD_MAX_OUTPUT_ITEMS`、`HARD_MAX_TABLE_ELEMENTS`、`HARD_MAX_INSTANCES`、`HARD_MAX_TABLES`、`HARD_MAX_MEMORIES`、`HARD_MAX_FUEL_PER_CALL`、`HARD_MAX_CERTIFICATION_FUEL`。
-- 契约与绑定（[src/contract.rs](src/contract.rs)）：`WIT_CONTRACT_VERSION`、`HOST_RUNTIME_VERSION`、`EXTENDED_OPERATOR_INTERFACE`、`MARKET_RULE_INTERFACE`、`STRATEGY_INTERFACE`、`NUMERIC_POLICY`、`MAX_DECIMAL_PRECISION`、`MAX_DECIMAL_SCALE`、`MAX_CANONICAL_PARAMETERS`、`MAX_PARAMETER_KEY_BYTES`、`MAX_PARAMETER_VALUE_BYTES`、`PluginKind`、`ArtifactBinding`、`ReadyCertificate`、`CallOutcome`、`OperatorMetadata`、`MarketRuleMetadata`、`MarketRuleInput`、`MarketRuleDecision`、`StrategyMetadata`、`NamedFactor`、`ReadonlyPosition`、`ReadonlyAccountState`、`OrderSide`、`OrderType`、`TimeInForce`、`OrderIntent`、`Error`、`Result`、`sha256_hex`、`is_valid_sha256_hex`。
+- 契约与绑定（[src/contract.rs](src/contract.rs)）：`WIT_CONTRACT_VERSION`、`HOST_RUNTIME_VERSION`、`EXTENDED_OPERATOR_INTERFACE`、`MARKET_RULE_INTERFACE`、`STRATEGY_INTERFACE`、`NUMERIC_POLICY`、`MAX_DECIMAL_PRECISION`、`MAX_DECIMAL_SCALE`、`MAX_CANONICAL_PARAMETERS`、`MAX_PARAMETER_KEY_BYTES`、`MAX_PARAMETER_VALUE_BYTES`、`PluginKind`、`ArtifactBinding`、`ReadyCertificate`、`CallOutcome`、`OperatorMetadata`、`MarketRuleMetadata`、`MarketRuleInput`、`MarketRuleDecision`、`StrategyMetadata`、`Error`、`Result`、`sha256_hex`、`is_valid_sha256_hex`。
 - 插件句柄与认证（[src/operator_plugin.rs](src/operator_plugin.rs)、[src/certification.rs](src/certification.rs)、[src/market_rule_plugin.rs](src/market_rule_plugin.rs)、[src/strategy_plugin.rs](src/strategy_plugin.rs)）：`WasmExtendedOperator`（实现 `onlyalpha_operators::execution::VectorKernel`）、`WasmOperatorStream`、`MAX_OPERATOR_ARITY`、`MAX_OPERATOR_WARMUP`、`MAX_VECTOR_CELLS`、`CertificationRequest`、`GoldenCase`、`WasmMarketRulePlugin`、`WasmStrategyPlugin`。
 - 热插拔生命周期管理（[src/manager.rs](src/manager.rs)）：`WasmPluginManager`、`LoadedPluginSummary`、`UnloadReceipt`。
 

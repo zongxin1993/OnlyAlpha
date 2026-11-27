@@ -92,6 +92,7 @@ interface market-rule {
     /// Explicit market-rule validation input provided by the host.
     record market-rule-input {
         trading-day: string,
+        /// Instrument identity in `SYMBOL.VENUE` form.
         instrument-id: string,
         side: order-side,
         order-type: order-type,
@@ -159,6 +160,7 @@ interface strategy {
 
     /// Read-only view of a single instrument position.
     record readonly-position {
+        /// Instrument identity in `SYMBOL.VENUE` form.
         instrument-id: string,
         quantity: decimal-str,
         average-cost: option<decimal-str>,
@@ -195,6 +197,7 @@ interface strategy {
     /// Canonical order intent emitted by a strategy plugin.
     /// Risk approval, order identity, broker submission, and ledger authority remain in Kernel.
     record order-intent {
+        /// Instrument identity in `SYMBOL.VENUE` form.
         instrument-id: string,
         side: order-side,
         order-type: order-type,

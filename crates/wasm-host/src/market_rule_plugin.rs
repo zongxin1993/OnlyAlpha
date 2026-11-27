@@ -4,7 +4,8 @@ use crate::config::ResourceBudget;
 use crate::contract::{
     ArtifactBinding, CallOutcome, Error, HOST_RUNTIME_VERSION, MARKET_RULE_INTERFACE,
     MarketRuleDecision, MarketRuleInput, MarketRuleMetadata, PluginKind, Result,
-    format_host_decimal, parse_guest_decimal, validate_non_empty_id,
+    format_host_decimal, order_side_wit_name, order_type_wit_name, parse_guest_decimal,
+    validate_non_empty_id,
 };
 use crate::sandbox::{
     CompiledComponent, MARKET_RULE_LIFT_BYTES, METADATA_CALL_LIFT_BYTES, SandboxInstance,
@@ -146,10 +147,13 @@ fn encode_market_rule_input(input: &MarketRuleInput) -> Result<Val> {
             "instrument-id".into(),
             Val::String(input.instrument_id.clone()),
         ),
-        ("side".into(), Val::Enum(input.side.wit_name().into())),
+        (
+            "side".into(),
+            Val::Enum(order_side_wit_name(input.side).into()),
+        ),
         (
             "order-type".into(),
-            Val::Enum(input.order_type.wit_name().into()),
+            Val::Enum(order_type_wit_name(input.order_type)?.into()),
         ),
         ("quantity".into(), Val::String(quantity)),
         ("price".into(), Val::Option(price)),
