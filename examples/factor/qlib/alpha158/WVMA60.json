@@ -1,5 +1,6 @@
 {
-  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "factor_set": "onlyalpha.alpha158",
+  "factor_set_version": "1",
   "name": "WVMA60",
   "expression": "Std(Abs($close/Ref($close, 1)-1)*$volume, 60)/(Mean(Abs($close/Ref($close, 1)-1)*$volume, 60)+1e-12)"
 }

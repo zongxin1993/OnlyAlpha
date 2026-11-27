@@ -1,5 +1,6 @@
 {
-  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "factor_set": "onlyalpha.alpha158",
+  "factor_set_version": "1",
   "name": "VSTD20",
   "expression": "Std($volume, 20)/($volume+1e-12)"
 }

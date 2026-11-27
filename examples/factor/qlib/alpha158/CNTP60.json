@@ -1,5 +1,6 @@
 {
-  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "factor_set": "onlyalpha.alpha158",
+  "factor_set_version": "1",
   "name": "CNTP60",
   "expression": "Mean($close>Ref($close, 1), 60)"
 }

@@ -1,5 +1,6 @@
 {
-  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "factor_set": "onlyalpha.alpha158",
+  "factor_set_version": "1",
   "name": "VSUMD30",
   "expression": "(Sum(Greater($volume-Ref($volume, 1), 0), 30)-Sum(Greater(Ref($volume, 1)-$volume, 0), 30))/(Sum(Abs($volume-Ref($volume, 1)), 30)+1e-12)"
 }
