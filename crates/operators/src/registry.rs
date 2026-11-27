@@ -111,7 +111,7 @@ const fn spec(
     }
 }
 
-pub static REGISTRY: [OpSpec; 29] = [
+pub static REGISTRY: [OpSpec; 30] = [
     spec(
         "add",
         Operator::Add,
@@ -340,6 +340,14 @@ pub static REGISTRY: [OpSpec; 29] = [
         "cross_section_demean",
         Operator::CrossSectionDemean,
         1,
+        ParameterKind::None,
+        ExecutionShape::CrossSection,
+        WarmupRule::Current,
+    ),
+    spec(
+        "cross_section_correlation",
+        Operator::CrossSectionCorrelation,
+        2,
         ParameterKind::None,
         ExecutionShape::CrossSection,
         WarmupRule::Current,

@@ -33,3 +33,5 @@ pub mod market;
 
 pub mod execution;
 pub mod market_source;
+
+pub mod strategy;

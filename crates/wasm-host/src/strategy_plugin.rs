@@ -2,16 +2,16 @@
 
 use crate::config::ResourceBudget;
 use crate::contract::{
-    ArtifactBinding, CallOutcome, Error, HOST_RUNTIME_VERSION, NamedFactor, OrderIntent, OrderSide,
-    OrderType, PluginKind, ReadonlyAccountState, Result, STRATEGY_INTERFACE, StrategyMetadata,
-    TimeInForce, format_host_decimal, parse_guest_decimal, validate_canonical_parameters,
-    validate_non_empty_id,
+    ArtifactBinding, CallOutcome, Error, HOST_RUNTIME_VERSION, PluginKind, Result,
+    STRATEGY_INTERFACE, StrategyMetadata, format_domain_decimal, order_side_from_wit_name,
+    order_type_from_wit_name, parse_guest_domain_decimal, time_in_force_from_wit_name,
+    validate_canonical_parameters,
 };
 use crate::sandbox::{
     CompiledComponent, METADATA_CALL_LIFT_BYTES, SandboxInstance, encode_params, expect_enum,
     expect_list, expect_option, expect_record, expect_string, record_field, unwrap_plugin_result,
 };
-use onlyalpha_operators::algebra::Decimal;
+use onlyalpha_domain::strategy::{NamedFactor, OrderIntent, ReadonlyAccountState};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use wasmtime::component::Val;
@@ -75,7 +75,7 @@ impl WasmStrategyPlugin {
         params: &BTreeMap<String, String>,
     ) -> Result<CallOutcome<Vec<OrderIntent>>> {
         validate_canonical_parameters(params)?;
-        validate_strategy_inputs(&self.metadata, factors, readonly_state)?;
+        validate_strategy_inputs(&self.metadata, factors)?;
 
         let encoded_factors = encode_factors(factors)?;
         let encoded_state = encode_readonly_state(readonly_state)?;
@@ -114,18 +114,13 @@ impl WasmStrategyPlugin {
     }
 }
 
-fn validate_strategy_inputs(
-    metadata: &StrategyMetadata,
-    factors: &[NamedFactor],
-    readonly_state: &ReadonlyAccountState,
-) -> Result<()> {
+fn validate_strategy_inputs(metadata: &StrategyMetadata, factors: &[NamedFactor]) -> Result<()> {
     let mut seen = BTreeSet::new();
     for factor in factors {
-        validate_non_empty_id(&factor.name, "factor.name")?;
-        if !seen.insert(factor.name.as_str()) {
+        if !seen.insert(factor.name()) {
             return Err(Error::InvalidHostInput(format!(
                 "duplicate factor name '{}'",
-                factor.name
+                factor.name()
             )));
         }
     }
@@ -137,24 +132,21 @@ fn validate_strategy_inputs(
             )));
         }
     }
-    for pos in &readonly_state.positions {
-        validate_non_empty_id(&pos.instrument_id, "position.instrument_id")?;
-    }
     Ok(())
 }
 
 fn encode_factors(factors: &[NamedFactor]) -> Result<Val> {
     let mut items = Vec::with_capacity(factors.len());
-    for f in factors {
-        let value = match &f.value {
-            Some(v) => Some(Box::new(Val::String(format_host_decimal(
-                v,
+    for factor in factors {
+        let value = match factor.value() {
+            Some(value) => Some(Box::new(Val::String(format_domain_decimal(
+                value,
                 "strategy.factor.value",
             )?))),
             None => None,
         };
         items.push(Val::Record(vec![
-            ("name".into(), Val::String(f.name.clone())),
+            ("name".into(), Val::String(factor.name().to_owned())),
             ("value".into(), Val::Option(value)),
         ]));
     }
@@ -162,26 +154,32 @@ fn encode_factors(factors: &[NamedFactor]) -> Result<Val> {
 }
 
 fn encode_readonly_state(state: &ReadonlyAccountState) -> Result<Val> {
-    let cash_available = format_host_decimal(&state.cash_available, "strategy.cash_available")?;
-    let total_equity = format_host_decimal(&state.total_equity, "strategy.total_equity")?;
-    let mut positions = Vec::with_capacity(state.positions.len());
-    for p in &state.positions {
-        let quantity = format_host_decimal(&p.quantity, "strategy.position.quantity")?;
-        let average_cost = match &p.average_cost {
-            Some(c) => Some(Box::new(Val::String(format_host_decimal(
-                c,
+    let timestamp_ns = i64::try_from(state.timestamp().unix_nanos()).map_err(|_| {
+        Error::InvalidHostInput("strategy.timestamp exceeds the WIT timestamp-ns range".into())
+    })?;
+    let cash_available = format_domain_decimal(state.cash_available(), "strategy.cash_available")?;
+    let total_equity = format_domain_decimal(state.total_equity(), "strategy.total_equity")?;
+    let mut positions = Vec::with_capacity(state.positions().len());
+    for position in state.positions() {
+        let quantity = format_domain_decimal(position.quantity(), "strategy.position.quantity")?;
+        let average_cost = match position.average_cost() {
+            Some(cost) => Some(Box::new(Val::String(format_domain_decimal(
+                cost,
                 "strategy.position.average_cost",
             )?))),
             None => None,
         };
         positions.push(Val::Record(vec![
-            ("instrument-id".into(), Val::String(p.instrument_id.clone())),
+            (
+                "instrument-id".into(),
+                Val::String(position.instrument().to_string()),
+            ),
             ("quantity".into(), Val::String(quantity)),
             ("average-cost".into(), Val::Option(average_cost)),
         ]));
     }
     Ok(Val::Record(vec![
-        ("timestamp-ns".into(), Val::S64(state.timestamp_ns)),
+        ("timestamp-ns".into(), Val::S64(timestamp_ns)),
         ("cash-available".into(), Val::String(cash_available)),
         ("total-equity".into(), Val::String(total_equity)),
         ("positions".into(), Val::List(positions)),
@@ -247,88 +245,62 @@ fn decode_order_intents(val: &Val, max_items: usize) -> Result<Vec<OrderIntent>>
             items.len()
         )));
     }
-    let zero = Decimal::from(0);
     let mut out = Vec::with_capacity(items.len());
     for item in items {
         let fields = expect_record(item, "strategy.order-intent")?;
-        let instrument_id = expect_string(
+        let instrument = expect_string(
             record_field(&fields, "instrument-id", "strategy.order-intent")?,
             "strategy.order-intent.instrument-id",
         )?
-        .to_owned();
-        if instrument_id.trim().is_empty() || instrument_id.len() > 128 {
-            return Err(Error::InvalidGuestOutput(
-                "order-intent instrument-id must be non-empty and <= 128 bytes".into(),
-            ));
-        }
-        let side = OrderSide::from_wit_name(expect_enum(
+        .parse()
+        .map_err(|_| {
+            Error::InvalidGuestOutput("order-intent instrument-id must use SYMBOL.VENUE".into())
+        })?;
+        let side = order_side_from_wit_name(expect_enum(
             record_field(&fields, "side", "strategy.order-intent")?,
             "strategy.order-intent.side",
         )?)?;
-        let order_type = OrderType::from_wit_name(expect_enum(
+        let order_type = order_type_from_wit_name(expect_enum(
             record_field(&fields, "order-type", "strategy.order-intent")?,
             "strategy.order-intent.order-type",
         )?)?;
-        let quantity = parse_guest_decimal(
+        let quantity = parse_guest_domain_decimal(
             expect_string(
                 record_field(&fields, "quantity", "strategy.order-intent")?,
                 "strategy.order-intent.quantity",
             )?,
             "strategy.order-intent.quantity",
         )?;
-        if quantity <= zero {
-            return Err(Error::InvalidGuestOutput(
-                "order-intent quantity must be strictly positive".into(),
-            ));
-        }
         let limit_price = match expect_option(
             record_field(&fields, "limit-price", "strategy.order-intent")?,
             "strategy.order-intent.limit-price",
         )? {
-            Some(v) => Some(parse_guest_decimal(
-                expect_string(v, "strategy.order-intent.limit-price")?,
+            Some(value) => Some(parse_guest_domain_decimal(
+                expect_string(value, "strategy.order-intent.limit-price")?,
                 "strategy.order-intent.limit-price",
             )?),
             None => None,
         };
-        match (order_type, &limit_price) {
-            (OrderType::Limit, Some(p)) if *p > zero => {}
-            (OrderType::Limit, _) => {
-                return Err(Error::InvalidGuestOutput(
-                    "limit order-intent must specify strictly positive limit-price".into(),
-                ));
-            }
-            (OrderType::Market, None) => {}
-            (OrderType::Market, Some(_)) => {
-                return Err(Error::InvalidGuestOutput(
-                    "market order-intent must not specify limit-price".into(),
-                ));
-            }
-        }
-        let time_in_force = TimeInForce::from_wit_name(expect_enum(
+        let time_in_force = time_in_force_from_wit_name(expect_enum(
             record_field(&fields, "time-in-force", "strategy.order-intent")?,
             "strategy.order-intent.time-in-force",
         )?)?;
         let reason_code = expect_string(
             record_field(&fields, "reason-code", "strategy.order-intent")?,
             "strategy.order-intent.reason-code",
-        )?
-        .to_owned();
-        if reason_code.trim().is_empty() || reason_code.len() > 128 {
-            return Err(Error::InvalidGuestOutput(
-                "order-intent reason-code must be non-empty and <= 128 bytes".into(),
-            ));
-        }
-
-        out.push(OrderIntent {
-            instrument_id,
-            side,
-            order_type,
-            quantity,
-            limit_price,
-            time_in_force,
-            reason_code,
-        });
+        )?;
+        out.push(
+            OrderIntent::new(
+                instrument,
+                side,
+                order_type,
+                quantity,
+                limit_price,
+                time_in_force,
+                reason_code,
+            )
+            .map_err(|failure| Error::InvalidGuestOutput(failure.to_string()))?,
+        );
     }
     Ok(out)
 }

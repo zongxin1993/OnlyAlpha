@@ -12,14 +12,16 @@ workspace = true
 [dependencies]
 onlyalpha-observability = { path = "../observability" }
 onlyalpha-broker = { path = "../broker" }
+onlyalpha-domain = { path = "../domain" }
 onlyalpha-execution = { path = "../execution" }
+onlyalpha-operators = { path = "../operators" }
+onlyalpha-calculation = { path = "../calculation" }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }
 [dev-dependencies]
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 criterion = { workspace = true }
 onlyalpha-broker-virtual = { path = "../../plugs/onlyalpha-broker-virtual" }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
-onlyalpha-domain = { path = "../domain" }
 onlyalpha-risk = { path = "../risk" }
 
 [[bench]]

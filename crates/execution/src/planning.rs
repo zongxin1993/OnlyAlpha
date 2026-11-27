@@ -43,7 +43,7 @@ pub(crate) fn validate_fill_price(
     price: &BigDecimal,
     quantity: &BigDecimal,
 ) -> Result<(), Error> {
-    if price <= &0 || quantity <= &0 {
+    if price <= 0 || quantity <= 0 {
         return Err(err("EXECUTION_LIMIT_OR_POSITIVE"));
     }
     if order["order_type"] != "MARKET" {

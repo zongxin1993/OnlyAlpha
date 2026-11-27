@@ -70,6 +70,7 @@ pub enum Operator {
     CrossSectionRank,
     CrossSectionZScore,
     CrossSectionDemean,
+    CrossSectionCorrelation,
 }
 // Identity, arity, parameter and shape contract: see `crate::registry`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -143,7 +144,7 @@ impl Kernel {
         check()?;
         let n = self.validate_columns(columns)?;
         if self.operator.is_cross_section() {
-            return self.cross_section(&columns[0]);
+            return self.cross_section(columns);
         }
         if let Some(mut recurrence) = RecurrenceState::new(self) {
             let mut out = Vec::with_capacity(n);
@@ -317,7 +318,11 @@ impl Kernel {
         };
         q(result).map(Some)
     }
-    fn cross_section(&self, values: &[Cell]) -> Result<Vec<Cell>> {
+    fn cross_section(&self, columns: &[Vec<Cell>]) -> Result<Vec<Cell>> {
+        if self.operator == Operator::CrossSectionCorrelation {
+            return cross_section_correlation(&columns[0], &columns[1]);
+        }
+        let values = &columns[0];
         let eligible: Vec<_> = values.iter().flatten().collect();
         if eligible.is_empty() {
             return Ok(vec![None; values.len()]);
@@ -382,6 +387,45 @@ impl Kernel {
             })
             .collect()
     }
+}
+
+/// One cohort-wide Pearson correlation, broadcast to every instrument that
+/// contributes a complete pair. Instruments missing either side stay missing,
+/// matching the null propagation of every other cross-section kernel. Fewer
+/// than two complete pairs, or a zero-variance side, yields no output at all
+/// rather than a misleading `0`.
+fn cross_section_correlation(xs: &[Cell], ys: &[Cell]) -> Result<Vec<Cell>> {
+    let mut x = Vec::new();
+    let mut y = Vec::new();
+    for (a, b) in xs.iter().zip(ys) {
+        if let (Some(a), Some(b)) = (a, b) {
+            x.push(a);
+            y.push(b);
+        }
+    }
+    let shared = if x.len() < 2 {
+        None
+    } else {
+        let (mx, my) = (mean(&x)?, mean(&y)?);
+        let mut total = Decimal::from(0);
+        for (a, b) in x.iter().zip(&y) {
+            total = add(&total, &mul(&sub(a, &mx), &sub(b, &my)));
+        }
+        let cov = div(&total, &Decimal::from(x.len() as u64))?;
+        let (vx, vy) = (variance(&x, &mx)?, variance(&y, &my)?);
+        if vx.is_zero() || vy.is_zero() {
+            None
+        } else {
+            Some(div(&cov, &sqrt(&mul(&vx, &vy))?)?)
+        }
+    };
+    xs.iter()
+        .zip(ys)
+        .map(|(a, b)| match (a, b, &shared) {
+            (Some(_), Some(_), Some(value)) => q(value.clone()).map(Some),
+            _ => Ok(None),
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug)]

@@ -593,6 +593,17 @@ fn scale_and_cross_section_goldens_are_independently_derived() {
             "-0.301511344578",
         ],
     );
+    // Deviations pair up as four equal 0.75 products over 4 pairs, so the
+    // coefficient is exactly 0.75 / 1.25 without any rounding residue.
+    check(
+        "cross_section_correlation",
+        Parameters::default(),
+        vec![
+            values(&["0", "null", "1", "2", "3"]),
+            values(&["1", "7", "0", "3", "2"]),
+        ],
+        &["0.6", "null", "0.6", "0.6", "0.6"],
+    );
     check(
         "cross_section_percentile",
         Parameters {

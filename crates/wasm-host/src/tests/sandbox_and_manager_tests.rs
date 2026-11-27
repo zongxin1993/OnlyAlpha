@@ -1,11 +1,40 @@
 use crate::{
-    ArtifactBinding, CertificationRequest, Error, GoldenCase, MarketRuleInput, NamedFactor,
-    OrderSide, OrderType, PluginKind, ReadonlyAccountState, ReadonlyPosition, ResourceBudget,
-    TimeInForce, WIT_CONTRACT_VERSION, WasmPluginManager, sha256_hex,
+    ArtifactBinding, CertificationRequest, Error, GoldenCase, MarketRuleInput, PluginKind,
+    ResourceBudget, WIT_CONTRACT_VERSION, WasmPluginManager, sha256_hex,
+};
+use onlyalpha_domain::{
+    enums::{OnlyOrderSide, OnlyOrderType, OnlyTimeInForce},
+    identifiers::OnlyInstrumentId,
+    numeric::OnlyDecimal,
+    strategy::{NamedFactor, ReadonlyAccountState, ReadonlyPosition},
+    time::OnlyTimestamp,
 };
 use onlyalpha_operators::algebra::Decimal;
 use onlyalpha_operators::execution::VectorKernel;
 use std::collections::BTreeMap;
+
+fn dom(raw: &str) -> OnlyDecimal {
+    raw.parse().unwrap()
+}
+
+fn instrument(raw: &str) -> OnlyInstrumentId {
+    raw.parse().unwrap()
+}
+
+fn snapshot(
+    timestamp_ns: i64,
+    cash: &str,
+    equity: &str,
+    positions: Vec<ReadonlyPosition>,
+) -> ReadonlyAccountState {
+    ReadonlyAccountState::new(
+        OnlyTimestamp::from_unix_nanos(timestamp_ns.into()),
+        dom(cash),
+        dom(equity),
+        positions,
+    )
+    .unwrap()
+}
 
 fn dec(raw: &str) -> Decimal {
     raw.parse::<Decimal>().expect("valid test decimal")
@@ -612,7 +641,7 @@ fn compile_market_rule_component(missing_reject_code: bool, infinite_loop: bool)
 ///
 /// Behavior:
 /// - Declares `required-factors = ["momentum_20"]`.
-/// - When `factors[0].value` is `Some(...)`, emits one Buy Limit order intent for `BTCUSDT`.
+/// - When `factors[0].value` is `Some(...)`, emits one Buy Limit order intent for `BTCUSDT.BINANCE`.
 /// - When `factors[0].value` is `None`, emits empty intent list `[]`.
 fn compile_strategy_component(emit_invalid_qty: bool, trap: bool) -> Vec<u8> {
     let fault = if trap { "(unreachable)" } else { "" };
@@ -629,7 +658,7 @@ fn compile_strategy_component(emit_invalid_qty: bool, trap: bool) -> Vec<u8> {
       (data (i32.const 0) "strat.momentum.v1")
     (data (i32.const 32) "1.0.0")
     (data (i32.const 64) "momentum_20")
-    (data (i32.const 96) "BTCUSDT")
+    (data (i32.const 96) "BTCUSDT.BINANCE")
     (data (i32.const 128) "{qty_str}")
     (data (i32.const 160) "50000.50")
     (data (i32.const 192) "SIGNAL_MOMENTUM_ENTRY")
@@ -698,7 +727,7 @@ fn compile_strategy_component(emit_invalid_qty: bool, trap: bool) -> Vec<u8> {
         (then
           (local.set $intent (call $alloc (i32.const 44)))
           (i32.store offset=0 (local.get $intent) (i32.const 96))
-          (i32.store offset=4 (local.get $intent) (i32.const 7))
+          (i32.store offset=4 (local.get $intent) (i32.const 15))
           (i32.store8 offset=8 (local.get $intent) (i32.const 0))
           (i32.store8 offset=9 (local.get $intent) (i32.const 1))
           (i32.store offset=12 (local.get $intent) (i32.const 128))
@@ -1123,8 +1152,8 @@ fn fuel_exhaustion_memory_limit_and_guest_traps_fail_closed_without_impacting_ho
     let sample_input = MarketRuleInput {
         trading_day: "2026-11-26".into(),
         instrument_id: "600519.SH".into(),
-        side: OrderSide::Buy,
-        order_type: OrderType::Limit,
+        side: OnlyOrderSide::Buy,
+        order_type: OnlyOrderType::Limit,
         quantity: dec("100"),
         price: Some(dec("1500.00")),
         reference_price: Some(dec("1490.00")),
@@ -1173,18 +1202,10 @@ fn fuel_exhaustion_memory_limit_and_guest_traps_fail_closed_without_impacting_ho
             Some(tight_budget),
         )
         .expect("load trapping strategy");
-    let state = ReadonlyAccountState {
-        timestamp_ns: 1_700_000_000_000_000_000,
-        cash_available: dec("100000"),
-        total_equity: dec("100000"),
-        positions: vec![],
-    };
+    let state = snapshot(1_700_000_000_000_000_000, "100000", "100000", vec![]);
     let trap_err = trap_strat
         .on_event(
-            &[NamedFactor {
-                name: "momentum_20".into(),
-                value: Some(dec("1.5")),
-            }],
+            &[NamedFactor::new("momentum_20", Some(dom("1.5"))).unwrap()],
             &state,
             &BTreeMap::new(),
         )
@@ -1263,8 +1284,8 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
     let buy_input = MarketRuleInput {
         trading_day: "2026-11-26".into(),
         instrument_id: "600519.SH".into(),
-        side: OrderSide::Buy,
-        order_type: OrderType::Limit,
+        side: OnlyOrderSide::Buy,
+        order_type: OnlyOrderType::Limit,
         quantity: dec("100"),
         price: Some(dec("1500.00")),
         reference_price: Some(dec("1490.00")),
@@ -1282,7 +1303,7 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
     assert_eq!(out_a.value.fee_estimate, Some(dec("0.01")));
 
     let t1_sell_input = MarketRuleInput {
-        side: OrderSide::Sell,
+        side: OnlyOrderSide::Sell,
         settled_quantity: dec("0"),
         ..buy_input.clone()
     };
@@ -1321,21 +1342,17 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
         .expect("load strategy B");
     assert_eq!(strat_a.metadata().required_factors, vec!["momentum_20"]);
 
-    let account = ReadonlyAccountState {
-        timestamp_ns: 1_764_160_000_000_000_000,
-        cash_available: dec("250000"),
-        total_equity: dec("300000"),
-        positions: vec![ReadonlyPosition {
-            instrument_id: "BTCUSDT".into(),
-            quantity: dec("1"),
-            average_cost: Some(dec("50000")),
-        }],
-    };
+    let account = snapshot(
+        1_764_160_000_000_000_000,
+        "250000",
+        "300000",
+        vec![
+            ReadonlyPosition::new(instrument("BTCUSDT.BINANCE"), dom("1"), Some(dom("50000")))
+                .unwrap(),
+        ],
+    );
 
-    let active_factors = vec![NamedFactor {
-        name: "momentum_20".into(),
-        value: Some(dec("2.5")),
-    }];
+    let active_factors = vec![NamedFactor::new("momentum_20", Some(dom("2.5"))).unwrap()];
     let strat_out_a = strat_a
         .on_event(&active_factors, &account, &BTreeMap::new())
         .expect("strategy A on_event");
@@ -1347,21 +1364,21 @@ fn market_rule_and_strategy_plugins_enforce_contract_invariants_and_determinism(
         "cross-host strategy intents and fuel must match bit-for-bit"
     );
     assert_eq!(strat_out_a.value.len(), 1);
-    assert_eq!(strat_out_a.value[0].instrument_id, "BTCUSDT");
-    assert_eq!(strat_out_a.value[0].side, OrderSide::Buy);
-    assert_eq!(strat_out_a.value[0].order_type, OrderType::Limit);
-    assert_eq!(strat_out_a.value[0].quantity, dec("10"));
-    assert_eq!(strat_out_a.value[0].limit_price, Some(dec("50000.50")));
-    assert_eq!(strat_out_a.value[0].time_in_force, TimeInForce::Gtc);
-    assert_eq!(strat_out_a.value[0].reason_code, "SIGNAL_MOMENTUM_ENTRY");
+    assert_eq!(
+        strat_out_a.value[0].instrument().to_string(),
+        "BTCUSDT.BINANCE"
+    );
+    assert_eq!(strat_out_a.value[0].side(), OnlyOrderSide::Buy);
+    assert_eq!(strat_out_a.value[0].order_type(), OnlyOrderType::Limit);
+    assert_eq!(strat_out_a.value[0].quantity(), &dom("10"));
+    assert_eq!(strat_out_a.value[0].limit_price(), Some(&dom("50000.50")));
+    assert_eq!(strat_out_a.value[0].time_in_force(), OnlyTimeInForce::Gtc);
+    assert_eq!(strat_out_a.value[0].reason_code(), "SIGNAL_MOMENTUM_ENTRY");
 
     // Null factor produces zero intents cleanly.
     let null_out = strat_a
         .on_event(
-            &[NamedFactor {
-                name: "momentum_20".into(),
-                value: None,
-            }],
+            &[NamedFactor::new("momentum_20", None).unwrap()],
             &account,
             &BTreeMap::new(),
         )
@@ -1651,8 +1668,8 @@ fn hardening_enforces_static_abi_signatures_host_lift_budget_canonical_decimals_
     let order_input = MarketRuleInput {
         trading_day: "2026-11-26".into(),
         instrument_id: "600519.SH".into(),
-        side: OrderSide::Buy,
-        order_type: OrderType::Limit,
+        side: OnlyOrderSide::Buy,
+        order_type: OnlyOrderType::Limit,
         quantity: dec("100"),
         price: Some(dec("1500")),
         reference_price: Some(dec("1490")),
@@ -1758,18 +1775,10 @@ fn hardening_enforces_static_abi_signatures_host_lift_budget_canonical_decimals_
     let too_many_params: BTreeMap<String, String> = (0..=crate::MAX_CANONICAL_PARAMETERS)
         .map(|i| (format!("k{i}"), "1".into()))
         .collect();
-    let account = ReadonlyAccountState {
-        timestamp_ns: 1_764_160_000_000_000_000,
-        cash_available: dec("1000"),
-        total_equity: dec("1000"),
-        positions: vec![],
-    };
+    let account = snapshot(1_764_160_000_000_000_000, "1000", "1000", vec![]);
     assert!(matches!(
         strat.on_event(
-            &[NamedFactor {
-                name: "momentum_20".into(),
-                value: None,
-            }],
+            &[NamedFactor::new("momentum_20", None).unwrap()],
             &account,
             &too_many_params,
         ),

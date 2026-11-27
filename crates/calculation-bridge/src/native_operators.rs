@@ -34,6 +34,7 @@ fn output_name(op: Operator) -> &'static str {
         Operator::CrossSectionRank => "rank",
         Operator::CrossSectionZScore => "zscore",
         Operator::CrossSectionDemean => "demeaned",
+        Operator::CrossSectionCorrelation => "correlation",
         _ => "value",
     }
 }
@@ -506,7 +507,7 @@ mod tests {
     #[test]
     fn inventory_is_exact_and_bound_to_current_image() {
         let all = calculations().unwrap();
-        assert_eq!(all.len(), 29);
+        assert_eq!(all.len(), 30);
         assert_eq!(
             all.iter()
                 .filter(|c| c.state_capability() == "STATELESS")
@@ -523,7 +524,7 @@ mod tests {
             all.iter()
                 .filter(|c| c.state_capability() == "RESEARCH_ONLY")
                 .count(),
-            4
+            5
         );
         for c in all {
             assert!(c.type_declaration().is_ok());
@@ -547,8 +548,8 @@ mod tests {
                     .unwrap()["implementation_fingerprint"]
             );
         }
-        assert_eq!(implementation_manifests(&"a".repeat(64)).unwrap().len(), 54);
-        assert_eq!(catalog_rows(&"a".repeat(64)).unwrap().len(), 54);
+        assert_eq!(implementation_manifests(&"a".repeat(64)).unwrap().len(), 55);
+        assert_eq!(catalog_rows(&"a".repeat(64)).unwrap().len(), 55);
         assert!(implementation_manifests(&"A".repeat(64)).is_err());
     }
     #[test]
@@ -605,7 +606,7 @@ mod tests {
             json!({"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"7","kind":"OPERATOR","source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":"0.9.0"}})
         );
         let calculations = provider["calculations"].as_array().unwrap();
-        assert_eq!(calculations.len(), 54);
+        assert_eq!(calculations.len(), 55);
         assert!(
             calculations
                 .iter()

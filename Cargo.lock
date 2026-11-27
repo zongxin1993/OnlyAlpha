@@ -2314,9 +2314,11 @@ dependencies = [
  "criterion",
  "onlyalpha-broker",
  "onlyalpha-broker-virtual",
+ "onlyalpha-calculation",
  "onlyalpha-domain",
  "onlyalpha-execution",
  "onlyalpha-observability",
+ "onlyalpha-operators",
  "onlyalpha-risk",
  "serde_json",
  "tracing",
@@ -2363,6 +2365,7 @@ dependencies = [
 name = "onlyalpha-wasm-host"
 version = "0.11.1"
 dependencies = [
+ "onlyalpha-domain",
  "onlyalpha-operators",
  "serde_json",
  "sha2 0.11.1",

@@ -244,7 +244,10 @@ OBSERVABILITY_TEST_DEPENDENCIES = {
 RUNTIME_PERSISTENCE_DEPENDENCIES = {
     "onlyalpha-observability": {"path": "../observability"},
     "onlyalpha-broker": {"path": "../broker"},
+    "onlyalpha-domain": {"path": "../domain"},
     "onlyalpha-execution": {"path": "../execution"},
+    "onlyalpha-operators": {"path": "../operators"},
+    "onlyalpha-calculation": {"path": "../calculation"},
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
 }
 BACKTEST_DRIVER_DEPENDENCIES = {
@@ -270,7 +273,6 @@ BACKTEST_DRIVER_TEST_DEPENDENCIES = {
 RUNTIME_PERSISTENCE_TEST_DEPENDENCIES = {
     "tracing": {"version": "=0.1.44", "default-features": False, "features": ["std"]},
     "onlyalpha-broker-virtual": {"path": "../../plugs/onlyalpha-broker-virtual"},
-    "onlyalpha-domain": {"path": "../domain"},
     "onlyalpha-risk": {"path": "../risk"},
     "bigdecimal": DOMAIN_DEPENDENCIES["bigdecimal"],
 }
@@ -471,6 +473,7 @@ BUILTIN_CALCULATION_DEPENDENCIES = {
     },
 }
 WASM_HOST_DEPENDENCIES = {
+    "onlyalpha-domain": {"path": "../domain"},
     "onlyalpha-operators": {"path": "../operators"},
     "serde_json": DOMAIN_DEPENDENCIES["serde_json"],
     "sha2": DOMAIN_DEPENDENCIES["sha2"],
@@ -1886,6 +1889,12 @@ _INFRASTRUCTURE_SOURCE_MODULES = {
     "crates/runtime/src/durability.rs": {
         "tests/durability_tests.rs": "crates/runtime/src/tests/durability_tests.rs",
     },
+    "crates/runtime/src/research.rs": {
+        "tests/research_tests.rs": "crates/runtime/src/tests/research_tests.rs",
+    },
+    "crates/runtime/src/trading.rs": {
+        "tests/trading_tests.rs": "crates/runtime/src/tests/trading_tests.rs",
+    },
     "plugs/onlyalpha-data-source-binance/src/spot_source.rs": {
         "spot_temporary.rs": "plugs/onlyalpha-data-source-binance/src/spot_temporary.rs",
         "tests/spot_probe.rs": "plugs/onlyalpha-data-source-binance/src/tests/spot_probe.rs",
@@ -2385,7 +2394,7 @@ def isolated_indicators(root: Path, destination: Path) -> Path:
 
 
 def isolated_wasm_host(root: Path, destination: Path) -> Path:
-    manifest = _isolated_modules(root, destination, ("operators", "wasm_host"))
+    manifest = _isolated_modules(root, destination, ("operators", "domain", "wasm_host"))
     wit_rel = Path("contracts/wasm/v1/onlyalpha-plugin.wit")
     wit_src = root / wit_rel
     if wit_src.is_symlink() or not wit_src.is_file():

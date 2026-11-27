@@ -29,10 +29,8 @@ pub use contract::{
     ArtifactBinding, CallOutcome, EXTENDED_OPERATOR_INTERFACE, Error, HOST_RUNTIME_VERSION,
     MARKET_RULE_INTERFACE, MAX_CANONICAL_PARAMETERS, MAX_DECIMAL_PRECISION, MAX_DECIMAL_SCALE,
     MAX_PARAMETER_KEY_BYTES, MAX_PARAMETER_VALUE_BYTES, MarketRuleDecision, MarketRuleInput,
-    MarketRuleMetadata, NUMERIC_POLICY, NamedFactor, OperatorMetadata, OrderIntent, OrderSide,
-    OrderType, PluginKind, ReadonlyAccountState, ReadonlyPosition, ReadyCertificate, Result,
-    STRATEGY_INTERFACE, StrategyMetadata, TimeInForce, WIT_CONTRACT_VERSION, is_valid_sha256_hex,
-    sha256_hex,
+    MarketRuleMetadata, NUMERIC_POLICY, OperatorMetadata, PluginKind, ReadyCertificate, Result,
+    STRATEGY_INTERFACE, StrategyMetadata, WIT_CONTRACT_VERSION, is_valid_sha256_hex, sha256_hex,
 };
 pub use manager::{LoadedPluginSummary, UnloadReceipt, WasmPluginManager};
 pub use market_rule_plugin::WasmMarketRulePlugin;
