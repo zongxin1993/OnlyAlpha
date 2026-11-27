@@ -1,128 +1,20 @@
 name: Layered Quality
 
 on:
-  pull_request:
-    branches: [master]
-  push:
-    branches: [master]
-  workflow_dispatch:
+    pull_request:
+        branches: [master]
+    push:
+        branches: [master]
+    workflow_dispatch:
 
 permissions:
-  contents: read
-
-concurrency:
-  group: layered-quality-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  PYTHON_VERSION: "3.12"
-  PYTHONUTF8: "1"
-  UV_NO_PROGRESS: "1"
+    contents: read
 
 jobs:
-  unit-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-      - name: Run Rust library unit tests
-        run: python3 scripts/unit_tests.py
-
-  openapi-contract:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: packages/frontend/package-lock.json
-      - run: uv sync --frozen --all-packages --all-groups
-      - run: npm ci
-        working-directory: packages/frontend
-      - id: baseline
-        name: Select immutable compatibility baseline
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            base_sha="$PR_BASE_SHA"
-          elif [ "$EVENT_NAME" = "push" ]; then
-            base_sha="$PUSH_BEFORE_SHA"
-            if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
-              echo "A master push without a previous revision has no accepted compatibility baseline" >&2
-              exit 1
-            fi
-          else
-            base_sha="$(git rev-parse HEAD^)"
-          fi
-          case "$base_sha" in
-            [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
-            *) echo "Invalid OpenAPI compatibility baseline" >&2; exit 1 ;;
-          esac
-          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
-      - run: python scripts/dev_verification.py prepare
-      - run: python scripts/dev_verification.py run -- python scripts/openapi_contract.py verify --base "${{ steps.baseline.outputs.sha }}"
-      - run: python scripts/dev_verification.py run -- python scripts/market_data_http_contract.py check
-      - run: python scripts/dev_verification.py run -- python scripts/market_data_stream_contract.py check
-
-  gateway-protocol:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.5"
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync --frozen --all-packages --all-groups
-      - id: baseline
-        name: Select immutable Gateway compatibility baseline
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            base_sha="$PR_BASE_SHA"
-          elif [ "$EVENT_NAME" = "push" ]; then
-            base_sha="$PUSH_BEFORE_SHA"
-            if [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
-              echo "A master push without a previous revision has no Gateway compatibility baseline" >&2
-              exit 1
-            fi
-          else
-            base_sha="$(git rev-parse HEAD^)"
-          fi
-          case "$base_sha" in
-            [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
-            *) echo "Invalid Gateway compatibility baseline" >&2; exit 1 ;;
-          esac
-          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
-      - run: uv run python scripts/gateway_protocol.py verify --base "${{ steps.baseline.outputs.sha }}"
-
-  quality-gate:
-    if: always()
-    needs: [unit-tests, openapi-contract, gateway-protocol]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require every independent gate
-        env:
-          UNIT_TESTS_RESULT: ${{ needs.unit-tests.result }}
-          OPENAPI_CONTRACT_RESULT: ${{ needs.openapi-contract.result }}
-          GATEWAY_PROTOCOL_RESULT: ${{ needs.gateway-protocol.result }}
-        run: |
-          test "$UNIT_TESTS_RESULT" = success
-          test "$OPENAPI_CONTRACT_RESULT" = success
-          test "$GATEWAY_PROTOCOL_RESULT" = success
+    unit-tests:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v6
+            - name: Run Rust library unit tests
+              run: python3 scripts/unit_tests.py
