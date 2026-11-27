@@ -247,20 +247,6 @@ fn rank_ic_assigns_midpoints_to_ties_and_preserves_later_rank_positions() {
 }
 
 #[test]
-fn a_positive_deviation_that_rounds_to_zero_still_gives_a_valid_ir() {
-    let observations = values(&["1", "1", "1", "1", "0.999999999999"]);
-    let summary = statistics::summarize(observations.into_iter()).unwrap();
-    assert_eq!(summary.observations, 5);
-    assert_eq!(summary.mean_status, Valid);
-    assert_eq!(summary.mean, Some(d("1")));
-    // 样本标准差为 10^-12/√5，只有发布到 12 位小数时才变为零。
-    assert_eq!(summary.std_status, Valid);
-    assert_eq!(summary.std, Some(d("0")));
-    assert_eq!(summary.ir_status, Valid);
-    assert_eq!(summary.ir, Some(d("2236067977499.342482813674")));
-}
-
-#[test]
 fn statistics_cover_every_defined_event_and_ignore_the_rest() {
     let panel = panel(vec![
         cohort(&[("close", &["1", "null", "3"]), ("volume", &["1", "2", "3"])]),
@@ -628,6 +614,141 @@ fn a_batch_above_the_comparison_budget_is_rejected_before_evaluation() {
     let failure = ResearchEngine::new()
         .unwrap()
         .run(&panel, &plan)
+        .unwrap_err();
+    assert_eq!(failure, Error("RESEARCH_RESOURCE_BUDGET".into()));
+}
+
+#[test]
+fn runtime_reports_observed_pairs_signs_and_the_last_timestamp_slice() {
+    let times = [i64::MAX - 3, i64::MAX - 2, i64::MAX - 1, i64::MAX];
+    let panel = ResearchPanel::new(
+        SNAPSHOT,
+        vec![
+            instrument(
+                "A.TEST",
+                &times,
+                cohort(&[
+                    ("close", &["1", "1", "1", "null"]),
+                    ("volume", &["1", "3", "2", "1"]),
+                ]),
+            ),
+            instrument(
+                "B.TEST",
+                &times,
+                cohort(&[
+                    ("close", &["2", "2", "2", "2"]),
+                    ("volume", &["2", "2", "1", "null"]),
+                ]),
+            ),
+            instrument(
+                "C.TEST",
+                &times,
+                cohort(&[
+                    ("close", &["3", "3", "3", "3"]),
+                    ("volume", &["3", "1", "2", "3"]),
+                ]),
+            ),
+        ],
+        0,
+    )
+    .unwrap();
+    let base = plan(
+        &[("price", "$close"), ("quantity", "$volume")],
+        &[("label", "$volume")],
+        2,
+    )
+    .unwrap();
+    let slices = vec![
+        TimeSlice {
+            start_ns: 0,
+            end_ns: 1,
+        },
+        TimeSlice {
+            start_ns: times[0],
+            end_ns: times[1].into(),
+        },
+        TimeSlice {
+            start_ns: times[1],
+            end_ns: times[2].into(),
+        },
+        TimeSlice {
+            start_ns: times[2],
+            end_ns: times[3].into(),
+        },
+        TimeSlice {
+            start_ns: times[3],
+            end_ns: i128::from(i64::MAX) + 1,
+        },
+    ];
+    let runtime = crate::OnlyAlphaRuntime::new().unwrap();
+    let run_pair = |first: &str, second: &str| {
+        let statistics =
+            StatisticsPlan::new(slices.clone(), vec![(first.into(), second.into())]).unwrap();
+        runtime
+            .run_research(&panel, &base.clone().with_statistics(statistics).unwrap())
+            .unwrap()
+    };
+    let report = run_pair("price", "quantity");
+    let stats = report.factor_report();
+    assert_eq!(stats, run_pair("quantity", "price").factor_report());
+    assert_eq!(stats.pairs().len(), 1);
+    let pair = &stats.pairs()[0];
+    assert!(
+        stats.factors()[pair.first_index].fingerprint
+            < stats.factors()[pair.second_index].fingerprint
+    );
+    let comparison = &report.comparisons()[0];
+    for (row, pair_row) in comparison.rows.iter().zip(&pair.rows) {
+        assert_eq!(pair_row.correlation, row.ic);
+        assert_eq!(pair_row.rank_correlation, row.rank_ic);
+    }
+    let signs = &comparison.ic_statistics.signs;
+    assert_eq!(
+        (signs.positive_count, signs.negative_count, signs.zero_count),
+        (1, 1, 1)
+    );
+    let coverage = &comparison.coverage;
+    assert_eq!(
+        (
+            coverage.total_timestamp_count,
+            coverage.valid_timestamp_count,
+            coverage.pair_count_total
+        ),
+        (4, 3, 10)
+    );
+    let stability = comparison.stability.as_ref().unwrap();
+    assert_eq!(stability.slices[0].coverage.total_timestamp_count, 0);
+    assert_eq!(stability.ic.valid_slice_count, 3);
+    assert_eq!(stability.ic.min_slice_mean, Some(d("-1")));
+    assert_eq!(stability.slices[4].coverage.insufficient_timestamp_count, 1);
+    assert_eq!(
+        stats.slice_view(0, 4).unwrap()["interval"]["end_ns"],
+        "9223372036854775808"
+    );
+}
+
+#[test]
+fn runtime_checks_slice_summary_budget_before_evaluating_missing_fields() {
+    let panel = panel(vec![cohort(&[("close", &["2"])])]);
+    let factor = FactorExpr::compile("$volume").unwrap();
+    let factors = (0..1000)
+        .map(|i| (format!("f{i}"), factor.clone()))
+        .collect();
+    let targets = vec![("label".into(), TargetExpr::compile("$close").unwrap())];
+    let slices = (0..999)
+        .map(|i| TimeSlice {
+            start_ns: i,
+            end_ns: i128::from(i) + 1,
+        })
+        .collect();
+    let statistics = StatisticsPlan::new(slices, vec![]).unwrap();
+    let plan = ResearchPlan::new(factors, targets, 2)
+        .unwrap()
+        .with_statistics(statistics)
+        .unwrap();
+    let failure = crate::OnlyAlphaRuntime::new()
+        .unwrap()
+        .run_research(&panel, &plan)
         .unwrap_err();
     assert_eq!(failure, Error("RESEARCH_RESOURCE_BUDGET".into()));
 }

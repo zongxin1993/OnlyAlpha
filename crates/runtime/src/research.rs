@@ -1,17 +1,21 @@
-//! 在同一冻结面板上求值因子与标签，并按有效配对计算逐时点统计。
+//! 在冻结面板上求值因子和标签，将同轴结果交给研究统计库。
 use onlyalpha_calculation::factor_expr::{FactorExpr, TargetExpr};
 use onlyalpha_domain::{identifiers::OnlyInstrumentId, time::OnlyTimestamp};
 use onlyalpha_execution::Error;
-use onlyalpha_operators::algebra::{Decimal, MAX_CELLS, MAX_WINDOW_WORK};
+use onlyalpha_operators::algebra::{Decimal, MAX_WINDOW_WORK};
+use onlyalpha_research_statistics::{
+    EvaluationAxis, EvaluationInput, FactorSeriesRef, SeriesRef, TargetSeriesRef, evaluate,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "research_panel.rs"]
 mod panel;
-#[path = "research_statistics.rs"]
-mod statistics;
 
+pub use onlyalpha_research_statistics::{
+    ComparisonRef, FactorReport, ResearchComparison, SeriesStatistics, StatisticRow,
+    StatisticStatus, StatisticsPlan, TimeSlice,
+};
 pub use panel::ResearchPanel;
-pub use statistics::{SeriesStatistics, StatisticRow, StatisticStatus};
 
 pub type Cell = Option<Decimal>;
 pub type Cohort = BTreeMap<String, Vec<Cell>>;
@@ -25,6 +29,7 @@ pub struct ResearchPlan {
     factors: Vec<(String, FactorExpr)>,
     targets: Vec<(String, TargetExpr)>,
     minimum_observations: usize,
+    statistics: StatisticsPlan,
 }
 
 impl ResearchPlan {
@@ -45,7 +50,21 @@ impl ResearchPlan {
             factors,
             targets,
             minimum_observations,
+            statistics: StatisticsPlan::default(),
         })
+    }
+
+    pub fn with_statistics(mut self, statistics: StatisticsPlan) -> Result<Self, Error> {
+        let names: BTreeSet<_> = self.factors.iter().map(|(name, _)| name).collect();
+        if statistics
+            .pairs()
+            .iter()
+            .any(|(a, b)| !names.contains(a) || !names.contains(b))
+        {
+            return Err(error("RESEARCH_PLAN_INVALID"));
+        }
+        self.statistics = statistics;
+        Ok(self)
     }
 }
 
@@ -71,52 +90,47 @@ pub struct ResearchSeries {
     pub values: Vec<Vec<Cell>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResearchComparison {
-    pub factor_index: usize,
-    pub target_index: usize,
-    /// 第一行对应报告时间轴的 `warmup` 位置。
-    pub rows: Vec<StatisticRow>,
-    pub ic_statistics: SeriesStatistics,
-    pub rank_ic_statistics: SeriesStatistics,
+impl ResearchSeries {
+    fn as_ref<'a>(&'a self, axis: EvaluationAxis<'a>) -> SeriesRef<'a> {
+        SeriesRef {
+            axis,
+            name: &self.name,
+            fingerprint: &self.fingerprint,
+            values: &self.values,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResearchReport {
-    snapshot: String,
-    content_digest: String,
-    instruments: Vec<OnlyInstrumentId>,
-    timestamps: Vec<OnlyTimestamp>,
-    warmup: usize,
-    minimum_observations: usize,
     factors: Vec<ResearchSeries>,
     targets: Vec<ResearchSeries>,
-    comparisons: Vec<ResearchComparison>,
+    factor_report: FactorReport,
 }
 
 impl ResearchReport {
     pub fn snapshot(&self) -> &str {
-        &self.snapshot
+        self.factor_report.snapshot()
     }
 
     pub fn content_digest(&self) -> &str {
-        &self.content_digest
+        self.factor_report.content_digest()
     }
 
     pub fn instruments(&self) -> &[OnlyInstrumentId] {
-        &self.instruments
+        self.factor_report.instruments()
     }
 
     pub fn timestamps(&self) -> &[OnlyTimestamp] {
-        &self.timestamps
+        self.factor_report.timestamps()
     }
 
     pub fn warmup(&self) -> usize {
-        self.warmup
+        self.factor_report.warmup()
     }
 
     pub fn minimum_observations(&self) -> usize {
-        self.minimum_observations
+        self.factor_report.minimum_observations()
     }
 
     pub fn factors(&self) -> &[ResearchSeries] {
@@ -128,7 +142,11 @@ impl ResearchReport {
     }
 
     pub fn comparisons(&self) -> &[ResearchComparison] {
-        &self.comparisons
+        self.factor_report.comparisons()
+    }
+
+    pub fn factor_report(&self) -> &FactorReport {
+        &self.factor_report
     }
 }
 
@@ -141,9 +159,14 @@ impl ResearchEngine {
     }
 
     pub fn run(&self, panel: &ResearchPanel, plan: &ResearchPlan) -> Result<ResearchReport, Error> {
-        let definitions = plan.factors.len().saturating_add(plan.targets.len());
+        plan.statistics.check_budget(
+            panel.instrument_count(),
+            panel.periods(),
+            panel.warmup(),
+            plan.factors.len(),
+            plan.targets.len(),
+        )?;
         let panel_cells = panel.periods().saturating_mul(panel.instrument_count());
-        let matrix_cells = panel_cells.saturating_mul(definitions);
         let definitions_work = plan
             .factors
             .iter()
@@ -162,16 +185,7 @@ impl ResearchEngine {
                 .saturating_add(columns.saturating_mul(panel.instrument_count()))
                 .saturating_add(budget.work_per_row.saturating_mul(panel_cells));
         }
-        let comparison_rows = plan
-            .factors
-            .len()
-            .saturating_mul(plan.targets.len())
-            .saturating_mul(panel.periods() - panel.warmup());
-        if matrix_cells > MAX_CELLS
-            || vector_work > MAX_WINDOW_WORK
-            || comparison_rows > MAX_CELLS
-            || comparison_rows.saturating_mul(panel.instrument_count()) > MAX_WINDOW_WORK
-        {
+        if vector_work > MAX_WINDOW_WORK {
             return Err(error("RESEARCH_RESOURCE_BUDGET"));
         }
         let factors = evaluate_series(&plan.factors, |expr| {
@@ -186,40 +200,32 @@ impl ResearchEngine {
                 expr.evaluate_panel(panel.instruments())?,
             ))
         })?;
-        let mut comparisons = Vec::new();
-        for (factor_index, factor) in factors.iter().enumerate() {
-            for (target_index, target) in targets.iter().enumerate() {
-                let mut rows = Vec::with_capacity(panel.periods() - panel.warmup());
-                for t in panel.warmup()..panel.periods() {
-                    let pairs = factor
-                        .values
-                        .iter()
-                        .zip(&target.values)
-                        .filter_map(|(x, y)| x[t].as_ref().zip(y[t].as_ref()))
-                        .collect();
-                    rows.push(statistics::row(pairs, plan.minimum_observations)?);
-                }
-                comparisons.push(ResearchComparison {
-                    factor_index,
-                    target_index,
-                    ic_statistics: statistics::summarize(rows.iter().map(|row| row.ic.clone()))?,
-                    rank_ic_statistics: statistics::summarize(
-                        rows.iter().map(|row| row.rank_ic.clone()),
-                    )?,
-                    rows,
-                });
-            }
-        }
-        Ok(ResearchReport {
-            snapshot: panel.snapshot().to_owned(),
-            content_digest: panel.content_digest().to_owned(),
-            instruments: panel.instrument_ids().to_vec(),
-            timestamps: panel.timestamps().to_vec(),
+        let axis = EvaluationAxis {
+            snapshot: panel.snapshot(),
+            content_digest: panel.content_digest(),
+            instruments: panel.instrument_ids(),
+            timestamps: panel.timestamps(),
             warmup: panel.warmup(),
+        };
+        let factor_refs: Vec<_> = factors
+            .iter()
+            .map(|series| FactorSeriesRef(series.as_ref(axis)))
+            .collect();
+        let target_refs: Vec<_> = targets
+            .iter()
+            .map(|series| TargetSeriesRef(series.as_ref(axis)))
+            .collect();
+        let input = EvaluationInput {
+            axis,
+            factors: &factor_refs,
+            targets: &target_refs,
             minimum_observations: plan.minimum_observations,
+        };
+        let factor_report = evaluate(input, &plan.statistics)?;
+        Ok(ResearchReport {
             factors,
             targets,
-            comparisons,
+            factor_report,
         })
     }
 }

@@ -11,8 +11,9 @@ pub mod trading;
 use onlyalpha_domain::identifiers::OnlyInstrumentId;
 use onlyalpha_execution::Error;
 pub use research::{
-    Cohort, ResearchComparison, ResearchEngine, ResearchPanel, ResearchPlan, ResearchReport,
-    ResearchSeries, SeriesStatistics, StatisticRow, StatisticStatus,
+    Cohort, ComparisonRef, FactorReport, ResearchComparison, ResearchEngine, ResearchPanel,
+    ResearchPlan, ResearchReport, ResearchSeries, SeriesStatistics, StatisticRow, StatisticStatus,
+    StatisticsPlan, TimeSlice,
 };
 pub use session::{
     AppliedEvent, CompletedSession, RunBinding, RunConfiguration, Session, TradingInput,

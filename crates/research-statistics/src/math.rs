@@ -25,10 +25,23 @@ pub struct StatisticRow {
     pub rank_ic: Cell,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignStatistics {
+    pub positive_count: usize,
+    pub negative_count: usize,
+    pub zero_count: usize,
+    pub positive_ratio: Cell,
+    pub negative_ratio: Cell,
+    pub zero_ratio: Cell,
+    pub ratio_status: StatisticStatus,
+}
+
 /// 每个标量独立记录状态。例如，常数序列的样本标准差有效且为零。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeriesStatistics {
+    pub total_count: usize,
     pub observations: usize,
+    pub signs: SignStatistics,
     pub mean: Cell,
     pub mean_status: StatisticStatus,
     pub std: Cell,
@@ -210,13 +223,47 @@ pub(super) fn row(pairs: Vec<(&Decimal, &Decimal)>, minimum: usize) -> Result<St
     })
 }
 
+pub(super) fn ratio(numerator: usize, denominator: usize) -> Result<Cell, Error> {
+    if denominator == 0 {
+        return Ok(None);
+    }
+    let value = divide(
+        &Decimal::from(numerator as u64),
+        &Decimal::from(denominator as u64),
+    )?;
+    Ok(Some(publish(&value)?))
+}
+
+fn signs(values: &[Decimal]) -> Result<SignStatistics, Error> {
+    let n = values.len();
+    let positive_count = values.iter().filter(|v| v.is_positive()).count();
+    let negative_count = values.iter().filter(|v| v.is_negative()).count();
+    let zero_count = n - positive_count - negative_count;
+    Ok(SignStatistics {
+        positive_count,
+        negative_count,
+        zero_count,
+        positive_ratio: ratio(positive_count, n)?,
+        negative_ratio: ratio(negative_count, n)?,
+        zero_ratio: ratio(zero_count, n)?,
+        ratio_status: if n == 0 {
+            StatisticStatus::NoValidObservations
+        } else {
+            StatisticStatus::Valid
+        },
+    })
+}
+
 pub(super) fn summarize(values: impl Iterator<Item = Cell>) -> Result<SeriesStatistics, Error> {
     use StatisticStatus::{InsufficientObservations, NoValidObservations, Valid, ZeroVariance};
 
-    let mut values: Vec<_> = values.flatten().collect();
+    let mut total_count = 0;
+    let mut values: Vec<_> = values.inspect(|_| total_count += 1).flatten().collect();
     let observations = values.len();
     let mut summary = SeriesStatistics {
+        total_count,
         observations,
+        signs: signs(&values)?,
         mean: None,
         mean_status: NoValidObservations,
         std: None,

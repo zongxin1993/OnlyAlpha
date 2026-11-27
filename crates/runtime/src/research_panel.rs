@@ -1,8 +1,9 @@
 //! 冻结研究切片。来源快照由 Dataset Store 负责，内容摘要标识本次实际消费的面板。
-use super::{Cell, Cohort, error};
+use super::{Cohort, error};
 use onlyalpha_domain::{identifiers::OnlyInstrumentId, time::OnlyTimestamp};
 use onlyalpha_execution::{Error, digest};
-use onlyalpha_operators::algebra::{MAX_CELLS, MAX_INPUT_DIGITS, MAX_INPUT_SCALE};
+use onlyalpha_operators::algebra::MAX_CELLS;
+use onlyalpha_research_statistics::column_digest;
 
 /// 标的按 `SYMBOL.VENUE` 文本顺序排列，所有列共用同一条严格递增的事件时间轴。
 #[derive(Clone, Debug)]
@@ -158,26 +159,6 @@ fn panel_digest(
         for column in cohort.values() {
             bytes.extend_from_slice(column_digest(column)?.as_bytes());
         }
-    }
-    Ok(digest(&bytes))
-}
-
-fn column_digest(column: &[Cell]) -> Result<String, Error> {
-    let mut bytes = Vec::new();
-    for cell in column {
-        let Some(value) = cell else {
-            bytes.push(0);
-            continue;
-        };
-        // 沿用因子执行器的输入预算，在消除尾零之前检查原始 scale，覆盖 i64 的两个极值。
-        let (_, scale) = value.as_bigint_and_exponent();
-        if scale.unsigned_abs() > MAX_INPUT_SCALE as u64 || value.digits() > MAX_INPUT_DIGITS {
-            return Err(error("FACTOR_EXPR_NUMERIC_BUDGET"));
-        }
-        let (coefficient, scale) = value.normalized().as_bigint_and_exponent();
-        bytes.push(1);
-        push_text(&mut bytes, &coefficient.to_string());
-        bytes.extend_from_slice(&scale.to_be_bytes());
     }
     Ok(digest(&bytes))
 }

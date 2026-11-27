@@ -4,7 +4,7 @@
 
 [`OnlyAlphaRuntime`](src/lib.rs) 是 [ADR 0152](../../docs/adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) §2.1 定义的量化计算与交易语义唯一门面。它从同一份已编译的因子表达式、同一数值政策（`DECIMAL28_HALF_EVEN_Q12_V1`）出发，提供两条共用底座的能力：
 
-- **Research（`research`）**：在冻结对齐面板上批量求值因子与标签 DAG，给出逐事件横截面 IC／RankIC 以及全样本统计证据。只读，不产出任何可发布事实。
+- **Research（`research`）**：在冻结对齐面板上批量求值因子与标签 DAG，将同轴矩阵交给研究统计库，返回预测效果、观测覆盖、分期稳定性和指定因子对的内存报告。只读，不产出任何可发布事实。
 - **Trading（`trading`）**：Backtest／SIM／LIVE 共用的统一事件主循环。逐事件求值因子、读取只读账户、调用策略、提交规范化 `OrderIntent`。引擎不含模式字段，模式差异全部落在调用方注入的端口实现上。
 
 同一因子经向量内核与事件内核求值时逐点一致，不靠容差掩盖差异；这是 ADR 0152 双内核要求在本库的直接体现。
@@ -22,7 +22,7 @@
 
 **派单权限属于执行端口。** 主循环只产出规范化意图并交给调用方注入的 `ExecutionPort`；本库不产出任何外部发单能力，也不绕过风控、准入与持久化。
 
-直接依赖的仓内库：[`onlyalpha-domain`](../domain/README.md)（标的、时间、数值与 `OrderIntent`／只读账户等交易值对象）、[`onlyalpha-operators`](../operators/README.md)（已认证算子与精确十进制）、[`onlyalpha-calculation`](../calculation/README.md)（声明式因子表达式编译、向量与事件内核、快照）、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-observability`](../observability/README.md)。
+直接依赖的仓内库：[`onlyalpha-domain`](../domain/README.md)（标的、时间、数值与 `OrderIntent`／只读账户等交易值对象）、[`onlyalpha-operators`](../operators/README.md)（已认证算子与精确十进制）、[`onlyalpha-calculation`](../calculation/README.md)（声明式因子表达式编译、向量与事件内核、快照）、[`onlyalpha-research-statistics`](../research-statistics/README.md)（已求值矩阵的截面统计与报告）、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-observability`](../observability/README.md)。
 
 观测仅接入内存会话及诊断边界（`memory.admission`、`memory.apply`），记录原操作耗时与已有输入计数；不改变事实、恢复结果或状态摘要。公开调用方自行管理诊断 Session，库不读取环境或安装全局订阅器。
 
@@ -39,8 +39,9 @@ mod session;
 pub mod trading;
 
 pub use research::{
-    Cohort, ResearchComparison, ResearchEngine, ResearchPanel, ResearchPlan, ResearchReport,
-    ResearchSeries, SeriesStatistics, StatisticRow, StatisticStatus,
+    Cohort, ComparisonRef, FactorReport, ResearchComparison, ResearchEngine, ResearchPanel, ResearchPlan,
+    ResearchReport, ResearchSeries, SeriesStatistics, StatisticRow, StatisticStatus, StatisticsPlan,
+    TimeSlice,
 };
 pub use session::{
     AppliedEvent, CompletedSession, RunBinding, RunConfiguration, Session, TradingInput,
@@ -65,24 +66,34 @@ impl OnlyAlphaRuntime {
 1. `ResearchPanel::new(snapshot, instruments, warmup)` 接受读取方提供的冻结快照引用，以及逐标的的 `(OnlyInstrumentId, Vec<OnlyTimestamp>, Cohort)`。`Cohort` 按字段存放 `Option<Decimal>` 列。构造器排序标的，拒绝重复标的，核对各标的严格递增的 i64 纳秒时间轴、字段集合和列长，并在计算摘要前限制输入总格数和字段名字节长度。字段名上限沿用表达式解析器的 `MAX_IDENT_LEN`。预热行参与因子求值；从 `warmup` 下标开始计入统计。重放时，用 `verify_content` 将实际面板摘要与原先留存的预期值核对。快照授权与原始行情封印由读取方负责。[面板实现](src/research_panel.rs)
 2. `ResearchPlan::new(factors, targets, minimum_observations)` 按声明顺序接收 `(String, FactorExpr)` 因子和 `(String, TargetExpr)` 标签；同一角色内名字唯一。最小有效配对数至少为 2。窗口等精确参数在编译表达式时固定，报告沿用包含实参、算子语义版本与数值政策的 DAG 指纹。因子执行器拒绝前视。研究计划只接受逐标的时间序列标签，横截面标签返回 `RESEARCH_TARGET_SHAPE`。标签可以向前读取同一标的在冻结切片内的值，尾部不足保留 NULL。[表达式接口](../calculation/src/factor_expr/mod.rs)
 3. `run_research` 对每个声明分别求值一次。`ResearchReport` 保留快照引用、面板摘要、排序后的标的、完整事件时间、预热行数和最小配对数。报告通过只读访问器提供轴和结果。`factors()` 和 `targets()` 分别返回名字、指纹和 `[标的][事件]` 值矩阵。`comparisons()` 按因子优先、标签其次的声明顺序返回统计，每组保存两侧在报告内的固定索引。结果矩阵和统计行在分配前按算子库的 `MAX_CELLS` 核对。全部表达式的累计向量求值开销、横截面配对槽位分别按 `MAX_WINDOW_WORK` 核对，超限返回 `RESEARCH_RESOURCE_BUDGET`。统计行 `rows[i]` 对应 `timestamps[warmup + i]`。[研究门面](src/lib.rs) · [研究结果](src/research.rs)
-4. 每行对同一时点的完整配对计算等权 Pearson IC 和精确平均秩的 RankIC，保留配对数和状态。配对不足、因子或标签零方差时返回有明确原因的空值。样本摘要只消费已输出的有效 Q12 值，样本标准差分母为 `n−1`，IR 为均值除以样本标准差，不年化。因子 DAG 使用注册表的 28 位政策；研究统计使用 38 位 Decimal 上下文，输出按 half-even 舍入到 Q12。[统计实现](src/research_statistics.rs) · [统计定义](../../docs/adr/0082-research-target-statistics-evaluation-authority.md) · [摘要定义](../../docs/adr/0119-rich-research-statistics-authority-and-factor-quality-evidence-contract.md)
+4. 每行对同一时点的完整配对计算等权 Pearson IC 和精确平均秩的 RankIC，保留配对数和状态。配对不足、因子或标签零方差时返回有明确原因的空值。样本摘要只消费已输出的有效 Q12 值，样本标准差分母为 `n−1`，IR 为均值除以样本标准差，不年化。因子 DAG 使用注册表的 28 位政策；研究统计使用 38 位 Decimal 上下文，输出按 half-even 舍入到 Q12。[统计实现](../research-statistics/src/math.rs) · [统计定义](../../docs/adr/0082-research-target-statistics-evaluation-authority.md) · [摘要定义](../../docs/adr/0119-rich-research-statistics-authority-and-factor-quality-evidence-contract.md)
+5. `ResearchPlan::with_statistics` 附加按事件时间排列且互不重叠的半开分期，以及按因子名指定的比较对。`run_research` 在表达式求值前核算报告中比较与分期摘要的分配预算。`factor_report()` 提供只读类型化数据和 JSON 视图。`comparisons()` 与其中的因子对标签结果共用同一份数据。正式结果发布和 Qualification 准入各由所属模块负责。[统计计划](../research-statistics/src/plan.rs) · [报告视图](../research-statistics/src/view.rs)
 
-例如，已有冻结快照引用 `snapshot` 和同轴行情 `instruments` 时，下面的调用从第 5 个时点开始，用五期均价检验下一期简单收益。每行至少需要 3 只有效配对标的。`instruments` 至少包含 5 个时点，每只标的均提供 `close` 列。
+例如，在已有 `snapshot` 和同轴行情 `instruments` 上，用五期均价检验下一期简单收益，同时比较均价因子与成交量因子。面板每个标的均提供 `close`、`volume` 两列，至少包含 5 个时点。`start_ns` 和 `end_ns` 是调用方选定的样本区间，每行至少需要 3 个完整配对。
 
 ```rust
 use onlyalpha_calculation::factor_expr::{FactorExpr, TargetExpr};
-use onlyalpha_runtime::{OnlyAlphaRuntime, ResearchPanel, ResearchPlan};
+use onlyalpha_runtime::{
+    ComparisonRef, OnlyAlphaRuntime, ResearchPanel, ResearchPlan, StatisticsPlan, TimeSlice,
+};
 
 let panel = ResearchPanel::new(snapshot, instruments, 4)?;
+let statistics = StatisticsPlan::new(
+    vec![TimeSlice { start_ns, end_ns }],
+    vec![("mean5".into(), "quantity".into())],
+)?;
 let plan = ResearchPlan::new(
-    vec![("mean5".into(), FactorExpr::compile("Mean($close, 5)")?)],
+    vec![
+        ("mean5".into(), FactorExpr::compile("Mean($close, 5)")?),
+        ("quantity".into(), FactorExpr::compile("$volume")?),
+    ],
     vec![("next_return".into(), TargetExpr::compile("Lead($close, 1) / $close - 1")?)],
     3,
-)?;
+)?.with_statistics(statistics)?;
 let report = OnlyAlphaRuntime::new()?.run_research(&panel, &plan)?;
-let comparison = &report.comparisons()[0];
-let first_sample_time = &report.timestamps()[report.warmup()];
-let first_row = &comparison.rows[0];
+let observations = &report.comparisons()[0].coverage;
+let factor_pair = report.factor_report().comparison_view(ComparisonRef::FactorPair(0))?;
+let slice = report.factor_report().slice_view(0, 0)?;
 ```
 
 **主循环（[src/trading.rs](src/trading.rs)）**：

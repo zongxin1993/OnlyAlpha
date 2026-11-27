@@ -2295,6 +2295,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "onlyalpha-research-statistics"
+version = "0.11.1"
+dependencies = [
+ "bigdecimal",
+ "onlyalpha-domain",
+ "onlyalpha-execution",
+ "onlyalpha-operators",
+ "serde_json",
+ "sha2 0.11.1",
+]
+
+[[package]]
 name = "onlyalpha-risk"
 version = "0.11.1"
 dependencies = [
@@ -2319,6 +2331,7 @@ dependencies = [
  "onlyalpha-execution",
  "onlyalpha-observability",
  "onlyalpha-operators",
+ "onlyalpha-research-statistics",
  "onlyalpha-risk",
  "serde_json",
  "tracing",
