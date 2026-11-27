@@ -8,10 +8,12 @@ pub mod research;
 mod session;
 pub mod trading;
 
-use onlyalpha_calculation::factor_expr::{FactorExpr, TargetExpr};
 use onlyalpha_domain::identifiers::OnlyInstrumentId;
 use onlyalpha_execution::Error;
-pub use research::{Cohort, ResearchEngine, ResearchPanel, ResearchReport, SeriesStatistics};
+pub use research::{
+    Cohort, ResearchComparison, ResearchEngine, ResearchPanel, ResearchPlan, ResearchReport,
+    ResearchSeries, SeriesStatistics, StatisticRow, StatisticStatus,
+};
 pub use session::{
     AppliedEvent, CompletedSession, RunBinding, RunConfiguration, Session, TradingInput,
 };
@@ -38,10 +40,9 @@ impl OnlyAlphaRuntime {
     pub fn run_research(
         &self,
         panel: &ResearchPanel,
-        factor: &FactorExpr,
-        target: &TargetExpr,
+        plan: &ResearchPlan,
     ) -> Result<ResearchReport, Error> {
-        self.research.run(panel, factor, target)
+        self.research.run(panel, plan)
     }
 
     /// 用调用方给出的同一份因子定义构建事件主循环。

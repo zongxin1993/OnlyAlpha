@@ -1,5 +1,5 @@
 use super::*;
-use crate::{OnlyAlphaRuntime, ResearchEngine, ResearchPanel};
+use crate::{OnlyAlphaRuntime, ResearchPanel, ResearchPlan};
 use onlyalpha_calculation::factor_expr::TargetExpr;
 use onlyalpha_domain::{
     enums::{OnlyOrderSide, OnlyOrderType, OnlyTimeInForce},
@@ -47,16 +47,38 @@ fn cohort(items: &[&str]) -> Vec<Cell> {
         .collect()
 }
 
-fn panel(closes: &[&[&str]]) -> ResearchPanel {
-    ResearchPanel::new(
-        closes
+fn close_panel(bars: &[MarketBar], warmup: usize) -> ResearchPanel {
+    let times: Vec<_> = bars.iter().map(|bar| bar.timestamp().clone()).collect();
+    let instruments = bars[0]
+        .instruments()
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let closes = bars
+                .iter()
+                .map(|bar| bar.cohort()[i]["close"].clone())
+                .collect();
+            (
+                id.clone(),
+                times.clone(),
+                BTreeMap::from([("close".into(), closes)]),
+            )
+        })
+        .collect();
+    ResearchPanel::new(&"a".repeat(64), instruments, warmup).unwrap()
+}
+
+fn research_plan(factors: &[NamedFactorExpr]) -> ResearchPlan {
+    ResearchPlan::new(
+        factors
             .iter()
-            .map(|values| {
-                let mut columns = BTreeMap::new();
-                columns.insert("close".to_string(), cohort(values));
-                columns
-            })
+            .map(|factor| (factor.name().into(), factor.expr().clone()))
             .collect(),
+        vec![(
+            "next_close".into(),
+            TargetExpr::compile("Ref($close, -1)").unwrap(),
+        )],
+        2,
     )
     .unwrap()
 }
@@ -244,36 +266,69 @@ fn series(outcomes: &[BarOutcome], instrument: usize, factor: usize) -> Vec<Cell
 
 #[test]
 fn factor_values_match_the_vectorized_panel_pointwise() {
-    let bars = two_instrument_bars();
-    let closes: [&[&str]; 2] = [&["1", "3", "6", "10"], &["2", "4", "8", "12"]];
-    let research = ResearchEngine::new().unwrap();
-    for factor in ["$close", "CSDemean($close)"] {
-        let mut engine = trading_engine(factor);
-        let mut book = RecordingBook::new("memory", false);
-        let outcomes = engine
-            .run(
-                &mut FrozenSlice {
-                    bars: bars.clone().into_iter(),
-                },
-                &Quiet,
-                &mut book,
-            )
-            .unwrap();
-        let report = research
-            .run(
-                &panel(&closes),
-                &FactorExpr::compile(factor).unwrap(),
-                &TargetExpr::compile("Ref($close, -1)").unwrap(),
-            )
-            .unwrap();
-        assert_eq!(series(&outcomes, 0, 0), report.factors()[0]);
-        assert_eq!(series(&outcomes, 1, 0), report.factors()[1]);
-        if factor.starts_with("CSDemean") {
-            // 横截面去均值确实按事件跨标的计算，而不是被当成时序因子。
-            assert_eq!(outcomes[0].values()[0][0], Some(d("-0.5")));
-            assert_eq!(outcomes[0].values()[1][0], Some(d("0.5")));
+    let mut bars = two_instrument_bars();
+    bars[1].cohort[0].insert("close".into(), None);
+    let panel = close_panel(&bars, 1);
+    let runtime = OnlyAlphaRuntime::new().unwrap();
+    let factors = [
+        ("price", "$close"),
+        ("demeaned", "CSDemean($close)"),
+        ("mean_two", "Mean($close, 2)"),
+        ("mean_three", "Mean($close, 3)"),
+    ]
+    .map(|(name, source)| NamedFactorExpr::compile(name, source).unwrap());
+    let report = runtime
+        .run_research(&panel, &research_plan(&factors))
+        .unwrap();
+    let mut engine = runtime
+        .trading_engine(bars[0].instruments().to_vec(), factors.to_vec())
+        .unwrap();
+    assert_eq!(engine.instruments(), report.instruments());
+    let outcomes = engine
+        .run(
+            &mut FrozenSlice {
+                bars: bars.into_iter(),
+            },
+            &Quiet,
+            &mut RecordingBook::new("memory", false),
+        )
+        .unwrap();
+    let event_times: Vec<_> = outcomes
+        .iter()
+        .map(|outcome| outcome.timestamp().clone())
+        .collect();
+    assert_eq!(report.timestamps(), event_times);
+    assert_eq!(report.factors().len(), factors.len());
+    for (f, factor) in factors.iter().enumerate() {
+        let research = &report.factors()[f];
+        assert_eq!(research.name, factor.name());
+        assert_eq!(research.fingerprint, factor.expr().fingerprint());
+        assert_eq!(research.values.len(), report.instruments().len());
+        for (i, instrument) in report.instruments().iter().enumerate() {
+            assert_eq!(
+                series(&outcomes, i, f),
+                research.values[i],
+                "{} {instrument}",
+                factor.name()
+            );
         }
     }
+    assert_eq!(outcomes[0].values()[0][1], Some(d("-0.5")));
+    assert_eq!(outcomes[0].values()[1][1], Some(d("0.5")));
+    // 第一个标的在第二个时点缺值。两期均线在最后一个时点重新就绪，三期仍缺值。
+    assert_eq!(
+        series(&outcomes, 0, 2),
+        cohort(&["null", "null", "null", "8"])
+    );
+    assert_eq!(
+        series(&outcomes, 0, 3),
+        cohort(&["null", "null", "null", "null"])
+    );
+    assert_eq!(series(&outcomes, 1, 2), cohort(&["null", "3", "6", "10"]));
+    assert_eq!(
+        series(&outcomes, 1, 3),
+        cohort(&["null", "null", "4.666666666667", "8"])
+    );
 }
 
 #[test]
@@ -479,27 +534,16 @@ fn bar_shape_is_canonical_and_strict() {
 #[test]
 fn the_facade_builds_research_and_trading_from_the_same_definition() {
     let runtime = OnlyAlphaRuntime::new().unwrap();
+    let bars = [bar(1, &[("000001.XSHE", &[("close", "3")])])];
+    let factors = [NamedFactorExpr::compile("momentum", "$close").unwrap()];
     let mut engine = runtime
-        .trading_engine(
-            vec![instrument("000001.XSHE")],
-            vec![NamedFactorExpr::compile("momentum", "$close").unwrap()],
-        )
+        .trading_engine(bars[0].instruments().to_vec(), factors.to_vec())
         .unwrap();
     let mut book = RecordingBook::new("memory", false);
-    let outcome = engine
-        .advance(
-            &bar(1, &[("000001.XSHE", &[("close", "3")])]),
-            &Quiet,
-            &mut book,
-        )
-        .unwrap();
+    let outcome = engine.advance(&bars[0], &Quiet, &mut book).unwrap();
     let report = runtime
-        .run_research(
-            &panel(&[&["3"]]),
-            &FactorExpr::compile("$close").unwrap(),
-            &TargetExpr::compile("Ref($close, -1)").unwrap(),
-        )
+        .run_research(&close_panel(&bars, 0), &research_plan(&factors))
         .unwrap();
-    assert_eq!(outcome.values()[0][0], report.factors()[0][0]);
+    assert_eq!(outcome.values()[0][0], report.factors()[0].values[0][0]);
     assert_eq!(outcome.values()[0][0], Some(d("3")));
 }

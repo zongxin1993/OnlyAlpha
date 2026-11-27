@@ -1,239 +1,245 @@
-//! 纯因子向量化研究：在冻结对齐面板上批量求值因子 DAG，并给出逐事件横截面 IC 证据。
-//! 统计量全部复用已认证算子，不引入独立浮点实现；证据只说明本次切片上的观察结果。
+//! 在同一冻结面板上求值因子与标签，并按有效配对计算逐时点统计。
 use onlyalpha_calculation::factor_expr::{FactorExpr, TargetExpr};
+use onlyalpha_domain::{identifiers::OnlyInstrumentId, time::OnlyTimestamp};
 use onlyalpha_execution::Error;
-use onlyalpha_operators::algebra::{Decimal, Error as OperatorError, Kernel, Operator, Parameters};
-use std::{collections::BTreeMap, num::NonZeroUsize};
+use onlyalpha_operators::algebra::{Decimal, MAX_CELLS, MAX_WINDOW_WORK};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[path = "research_panel.rs"]
+mod panel;
+#[path = "research_statistics.rs"]
+mod statistics;
+
+pub use panel::ResearchPanel;
+pub use statistics::{SeriesStatistics, StatisticRow, StatisticStatus};
 
 pub type Cell = Option<Decimal>;
-
-/// 单只标的的列式切片：字段名到等长时间序列。
 pub type Cohort = BTreeMap<String, Vec<Cell>>;
 
 fn error(code: &str) -> Error {
-    Error(code.to_string())
+    Error(code.to_owned())
 }
 
-fn boundary(failure: impl std::fmt::Display) -> Error {
-    Error(failure.to_string())
-}
-
-fn operator_error(failure: OperatorError) -> Error {
-    let code = match failure {
-        OperatorError::InvalidParameters
-        | OperatorError::InvalidInputs
-        | OperatorError::CrossSectionRequired
-        | OperatorError::Interrupted => "RESEARCH_OPERATOR_INVALID",
-        OperatorError::BudgetExceeded => "RESEARCH_RESOURCE_BUDGET",
-        OperatorError::NumericFailure => "RESEARCH_NUMERIC_FAILURE",
-    };
-    error(code)
-}
-
-/// 一个冻结切片：每只标的一组等长列，同一索引 `t` 是同一事件时间。
-/// 面板不携带时间戳或来源身份，读取与授权由调用方的正式数据端口负责。
 #[derive(Clone, Debug)]
-pub struct ResearchPanel {
-    instruments: Vec<Cohort>,
-    periods: usize,
+pub struct ResearchPlan {
+    factors: Vec<(String, FactorExpr)>,
+    targets: Vec<(String, TargetExpr)>,
+    minimum_observations: usize,
 }
 
-impl ResearchPanel {
-    pub fn new(instruments: Vec<Cohort>) -> Result<Self, Error> {
-        let Some(first) = instruments.first() else {
-            return Err(error("RESEARCH_PANEL_EMPTY"));
-        };
-        let Some(column) = first.values().next() else {
-            return Err(error("RESEARCH_PANEL_NO_FIELDS"));
-        };
-        let periods = column.len();
-        for cohort in &instruments {
-            if cohort.keys().ne(first.keys()) {
-                return Err(error("RESEARCH_PANEL_SCHEMA"));
-            }
-            if cohort.values().any(|column| column.len() != periods) {
-                return Err(error("RESEARCH_PANEL_LENGTH"));
-            }
+impl ResearchPlan {
+    pub fn new(
+        factors: Vec<(String, FactorExpr)>,
+        targets: Vec<(String, TargetExpr)>,
+        minimum_observations: usize,
+    ) -> Result<Self, Error> {
+        if factors.is_empty() || targets.is_empty() || minimum_observations < 2 {
+            return Err(error("RESEARCH_PLAN_INVALID"));
+        }
+        validate_names(&factors)?;
+        validate_names(&targets)?;
+        if targets.iter().any(|(_, target)| target.has_cross_section()) {
+            return Err(error("RESEARCH_TARGET_SHAPE"));
         }
         Ok(Self {
-            instruments,
-            periods,
+            factors,
+            targets,
+            minimum_observations,
         })
     }
-
-    pub fn instruments(&self) -> &[Cohort] {
-        &self.instruments
-    }
-
-    pub fn instrument_count(&self) -> usize {
-        self.instruments.len()
-    }
-
-    pub fn periods(&self) -> usize {
-        self.periods
-    }
 }
 
-/// 一个统计量的全样本证据。`observations` 是实际给出该事件取值的数量，
-/// 缺失事件不参与均值、标准差与 IR，也不被当作零。
+fn validate_names<T>(definitions: &[(String, T)]) -> Result<(), Error> {
+    let mut seen = BTreeSet::new();
+    for (name, _) in definitions {
+        if name.trim().is_empty()
+            || name.trim() != name
+            || name.chars().count() > 128
+            || !seen.insert(name)
+        {
+            return Err(error("RESEARCH_DEFINITION_NAME"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SeriesStatistics {
-    pub observations: usize,
-    pub mean: Cell,
-    pub std: Cell,
-    pub ir: Cell,
+pub struct ResearchSeries {
+    pub name: String,
+    pub fingerprint: String,
+    /// 完整冻结轴上的 `[标的][事件]` 矩阵，包含预热行。
+    pub values: Vec<Vec<Cell>>,
 }
 
-/// 一次 Research 运行的确定性结果。
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResearchComparison {
+    pub factor_index: usize,
+    pub target_index: usize,
+    /// 第一行对应报告时间轴的 `warmup` 位置。
+    pub rows: Vec<StatisticRow>,
+    pub ic_statistics: SeriesStatistics,
+    pub rank_ic_statistics: SeriesStatistics,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResearchReport {
-    factors: Vec<Vec<Cell>>,
-    ic: Vec<Cell>,
-    rank_ic: Vec<Cell>,
-    ic_statistics: SeriesStatistics,
-    rank_ic_statistics: SeriesStatistics,
+    snapshot: String,
+    content_digest: String,
+    instruments: Vec<OnlyInstrumentId>,
+    timestamps: Vec<OnlyTimestamp>,
+    warmup: usize,
+    minimum_observations: usize,
+    factors: Vec<ResearchSeries>,
+    targets: Vec<ResearchSeries>,
+    comparisons: Vec<ResearchComparison>,
 }
 
 impl ResearchReport {
-    /// 因子矩阵，按 `[标的][事件]` 索引，与面板列对齐。
-    pub fn factors(&self) -> &[Vec<Cell>] {
+    pub fn snapshot(&self) -> &str {
+        &self.snapshot
+    }
+
+    pub fn content_digest(&self) -> &str {
+        &self.content_digest
+    }
+
+    pub fn instruments(&self) -> &[OnlyInstrumentId] {
+        &self.instruments
+    }
+
+    pub fn timestamps(&self) -> &[OnlyTimestamp] {
+        &self.timestamps
+    }
+
+    pub fn warmup(&self) -> usize {
+        self.warmup
+    }
+
+    pub fn minimum_observations(&self) -> usize {
+        self.minimum_observations
+    }
+
+    pub fn factors(&self) -> &[ResearchSeries] {
         &self.factors
     }
 
-    pub fn ic(&self) -> &[Cell] {
-        &self.ic
+    pub fn targets(&self) -> &[ResearchSeries] {
+        &self.targets
     }
 
-    pub fn rank_ic(&self) -> &[Cell] {
-        &self.rank_ic
-    }
-
-    pub fn ic_statistics(&self) -> &SeriesStatistics {
-        &self.ic_statistics
-    }
-
-    pub fn rank_ic_statistics(&self) -> &SeriesStatistics {
-        &self.rank_ic_statistics
+    pub fn comparisons(&self) -> &[ResearchComparison] {
+        &self.comparisons
     }
 }
 
-/// 纯因子向量化引擎。因子与标签共用同一个已编译 DAG 底座，
-/// 因此 Research 与事件主循环消费的是同一定义与同一数值政策。
 #[derive(Clone, Debug)]
-pub struct ResearchEngine {
-    rank: Kernel,
-    correlation: Kernel,
-    divide: Kernel,
-}
+pub struct ResearchEngine;
 
 impl ResearchEngine {
     pub fn new() -> Result<Self, Error> {
-        Ok(Self {
-            rank: Kernel::new(Operator::CrossSectionRank, Parameters::default())
-                .map_err(operator_error)?,
-            correlation: Kernel::new(Operator::CrossSectionCorrelation, Parameters::default())
-                .map_err(operator_error)?,
-            divide: Kernel::new(Operator::Divide, Parameters::default()).map_err(operator_error)?,
-        })
+        Ok(Self)
     }
 
-    /// 只读求值：不改变面板、因子或标签，也不产出任何可发布事实。
-    pub fn run(
-        &self,
-        panel: &ResearchPanel,
-        factor: &FactorExpr,
-        target: &TargetExpr,
-    ) -> Result<ResearchReport, Error> {
-        let factors = factor
-            .evaluate_panel(panel.instruments())
-            .map_err(boundary)?;
-        let labels = target
-            .evaluate_panel(panel.instruments())
-            .map_err(boundary)?;
-        let mut ic = Vec::with_capacity(panel.periods());
-        let mut rank_ic = Vec::with_capacity(panel.periods());
-        for t in 0..panel.periods() {
-            let factor_cohort: Vec<Cell> = factors.iter().map(|column| column[t].clone()).collect();
-            let label_cohort: Vec<Cell> = labels.iter().map(|column| column[t].clone()).collect();
-            ic.push(self.cross_section_correlation(&factor_cohort, &label_cohort)?);
-            let ranked_factor = self
-                .rank
-                .evaluate(&[factor_cohort])
-                .map_err(operator_error)?;
-            let ranked_label = self
-                .rank
-                .evaluate(&[label_cohort])
-                .map_err(operator_error)?;
-            rank_ic.push(self.cross_section_correlation(&ranked_factor, &ranked_label)?);
-        }
-        let ic_statistics = self.statistics(&ic)?;
-        let rank_ic_statistics = self.statistics(&rank_ic)?;
-        Ok(ResearchReport {
-            factors,
-            ic,
-            rank_ic,
-            ic_statistics,
-            rank_ic_statistics,
-        })
-    }
-
-    /// 一个事件只有一个横截面，算子把同一系数广播到每个完整配对，
-    /// 因此取首格即该事件唯一的相关系数。
-    fn cross_section_correlation(&self, xs: &[Cell], ys: &[Cell]) -> Result<Cell, Error> {
-        Ok(self
-            .correlation
-            .evaluate(&[xs.to_vec(), ys.to_vec()])
-            .map_err(operator_error)?
-            .into_iter()
-            .next()
-            .flatten())
-    }
-
-    fn statistics(&self, series: &[Cell]) -> Result<SeriesStatistics, Error> {
-        let defined: Vec<Cell> = series
+    pub fn run(&self, panel: &ResearchPanel, plan: &ResearchPlan) -> Result<ResearchReport, Error> {
+        let definitions = plan.factors.len().saturating_add(plan.targets.len());
+        let panel_cells = panel.periods().saturating_mul(panel.instrument_count());
+        let matrix_cells = panel_cells.saturating_mul(definitions);
+        let definitions_work = plan
+            .factors
             .iter()
-            .filter(|cell| cell.is_some())
-            .cloned()
-            .collect();
-        let mean = self.whole_sample(Operator::RollingMean, &defined)?;
-        let std = self.whole_sample(Operator::RollingStd, &defined)?;
-        let ir = match (&mean, &std) {
-            (Some(mean), Some(std)) => self
-                .divide
-                .evaluate(&[vec![Some(mean.clone())], vec![Some(std.clone())]])
-                .map_err(operator_error)?
-                .into_iter()
-                .next()
-                .flatten(),
-            _ => None,
-        };
-        Ok(SeriesStatistics {
-            observations: defined.len(),
-            mean,
-            std,
-            ir,
+            .map(|(_, expr)| (expr.inputs().len(), expr.resource_budget()))
+            .chain(
+                plan.targets
+                    .iter()
+                    .map(|(_, expr)| (expr.inputs().len(), expr.resource_budget())),
+            );
+        let field_count = panel.instruments()[0].len();
+        let mut vector_work = 0usize;
+        for (inputs, budget) in definitions_work {
+            // 无输入字段的表达式通过扫描每个标的的全部列来确定序列长度。
+            let columns = if inputs == 0 { field_count } else { inputs };
+            vector_work = vector_work
+                .saturating_add(columns.saturating_mul(panel.instrument_count()))
+                .saturating_add(budget.work_per_row.saturating_mul(panel_cells));
+        }
+        let comparison_rows = plan
+            .factors
+            .len()
+            .saturating_mul(plan.targets.len())
+            .saturating_mul(panel.periods() - panel.warmup());
+        if matrix_cells > MAX_CELLS
+            || vector_work > MAX_WINDOW_WORK
+            || comparison_rows > MAX_CELLS
+            || comparison_rows.saturating_mul(panel.instrument_count()) > MAX_WINDOW_WORK
+        {
+            return Err(error("RESEARCH_RESOURCE_BUDGET"));
+        }
+        let factors = evaluate_series(&plan.factors, |expr| {
+            Ok((
+                expr.fingerprint(),
+                expr.evaluate_panel(panel.instruments())?,
+            ))
+        })?;
+        let targets = evaluate_series(&plan.targets, |expr| {
+            Ok((
+                expr.fingerprint(),
+                expr.evaluate_panel(panel.instruments())?,
+            ))
+        })?;
+        let mut comparisons = Vec::new();
+        for (factor_index, factor) in factors.iter().enumerate() {
+            for (target_index, target) in targets.iter().enumerate() {
+                let mut rows = Vec::with_capacity(panel.periods() - panel.warmup());
+                for t in panel.warmup()..panel.periods() {
+                    let pairs = factor
+                        .values
+                        .iter()
+                        .zip(&target.values)
+                        .filter_map(|(x, y)| x[t].as_ref().zip(y[t].as_ref()))
+                        .collect();
+                    rows.push(statistics::row(pairs, plan.minimum_observations)?);
+                }
+                comparisons.push(ResearchComparison {
+                    factor_index,
+                    target_index,
+                    ic_statistics: statistics::summarize(rows.iter().map(|row| row.ic.clone()))?,
+                    rank_ic_statistics: statistics::summarize(
+                        rows.iter().map(|row| row.rank_ic.clone()),
+                    )?,
+                    rows,
+                });
+            }
+        }
+        Ok(ResearchReport {
+            snapshot: panel.snapshot().to_owned(),
+            content_digest: panel.content_digest().to_owned(),
+            instruments: panel.instrument_ids().to_vec(),
+            timestamps: panel.timestamps().to_vec(),
+            warmup: panel.warmup(),
+            minimum_observations: plan.minimum_observations,
+            factors,
+            targets,
+            comparisons,
         })
     }
+}
 
-    fn whole_sample(&self, operator: Operator, values: &[Cell]) -> Result<Cell, Error> {
-        let Some(period) = NonZeroUsize::new(values.len()) else {
-            return Ok(None);
-        };
-        let kernel = Kernel::new(
-            operator,
-            Parameters {
-                period: Some(period),
-                ..Parameters::default()
-            },
-        )
-        .map_err(operator_error)?;
-        Ok(kernel
-            .evaluate(&[values.to_vec()])
-            .map_err(operator_error)?
-            .into_iter()
-            .next_back()
-            .flatten())
-    }
+fn evaluate_series<T>(
+    definitions: &[(String, T)],
+    evaluate: impl Fn(&T) -> onlyalpha_calculation::Result<(&str, Vec<Vec<Cell>>)>,
+) -> Result<Vec<ResearchSeries>, Error> {
+    definitions
+        .iter()
+        .map(|(name, expr)| {
+            let (fingerprint, values) =
+                evaluate(expr).map_err(|failure| Error(failure.to_string()))?;
+            Ok(ResearchSeries {
+                name: name.clone(),
+                fingerprint: fingerprint.to_owned(),
+                values,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -38,7 +38,10 @@ pub mod research;
 mod session;
 pub mod trading;
 
-pub use research::{Cohort, ResearchEngine, ResearchPanel, ResearchReport, SeriesStatistics};
+pub use research::{
+    Cohort, ResearchComparison, ResearchEngine, ResearchPanel, ResearchPlan, ResearchReport,
+    ResearchSeries, SeriesStatistics, StatisticRow, StatisticStatus,
+};
 pub use session::{
     AppliedEvent, CompletedSession, RunBinding, RunConfiguration, Session, TradingInput,
 };
@@ -50,14 +53,37 @@ pub use trading::{
 pub struct OnlyAlphaRuntime;
 impl OnlyAlphaRuntime {
     pub fn new() -> Result<Self, Error>;
-    pub fn run_research(&self, panel: &ResearchPanel, factor: &FactorExpr, target: &TargetExpr)
+    pub fn run_research(&self, panel: &ResearchPanel, plan: &ResearchPlan)
         -> Result<ResearchReport, Error>;
     pub fn trading_engine(&self, instruments: Vec<OnlyInstrumentId>, factors: Vec<NamedFactorExpr>)
         -> Result<TradingEngine, Error>;
 }
 ```
 
-**研究（[src/research.rs](src/research.rs)）**：`ResearchPanel::new` 接收每只标的一组等长列，要求所有标的字段集合一致（`RESEARCH_PANEL_SCHEMA`）且列等长（`RESEARCH_PANEL_LENGTH`）；空面板与无字段面板分别以 `RESEARCH_PANEL_EMPTY`、`RESEARCH_PANEL_NO_FIELDS` 拒绝。`ResearchEngine::run` 只读求值，返回的因子矩阵按 `[标的][事件]` 索引；IC 由研究专用的横截面相关系数算子逐个事件计算，RankIC 先做横截面排名再求相关系数，均值、标准差与 IR 复用 `RollingMean`／`RollingStd`／`Divide`，全程 `Decimal`，不引入浮点实现。缺失事件不参与统计，也不被当作零；`SeriesStatistics::observations` 说明实际参与的数量。研究结果只说明本次切片上的观察，不构成认证或可发布事实。
+**纯因子研究**
+
+1. `ResearchPanel::new(snapshot, instruments, warmup)` 接受读取方提供的冻结快照引用，以及逐标的的 `(OnlyInstrumentId, Vec<OnlyTimestamp>, Cohort)`。`Cohort` 按字段存放 `Option<Decimal>` 列。构造器排序标的，拒绝重复标的，核对各标的严格递增的 i64 纳秒时间轴、字段集合和列长，并在计算摘要前限制输入总格数和字段名字节长度。字段名上限沿用表达式解析器的 `MAX_IDENT_LEN`。预热行参与因子求值；从 `warmup` 下标开始计入统计。重放时，用 `verify_content` 将实际面板摘要与原先留存的预期值核对。快照授权与原始行情封印由读取方负责。[面板实现](src/research_panel.rs)
+2. `ResearchPlan::new(factors, targets, minimum_observations)` 按声明顺序接收 `(String, FactorExpr)` 因子和 `(String, TargetExpr)` 标签；同一角色内名字唯一。最小有效配对数至少为 2。窗口等精确参数在编译表达式时固定，报告沿用包含实参、算子语义版本与数值政策的 DAG 指纹。因子执行器拒绝前视。研究计划只接受逐标的时间序列标签，横截面标签返回 `RESEARCH_TARGET_SHAPE`。标签可以向前读取同一标的在冻结切片内的值，尾部不足保留 NULL。[表达式接口](../calculation/src/factor_expr/mod.rs)
+3. `run_research` 对每个声明分别求值一次。`ResearchReport` 保留快照引用、面板摘要、排序后的标的、完整事件时间、预热行数和最小配对数。报告通过只读访问器提供轴和结果。`factors()` 和 `targets()` 分别返回名字、指纹和 `[标的][事件]` 值矩阵。`comparisons()` 按因子优先、标签其次的声明顺序返回统计，每组保存两侧在报告内的固定索引。结果矩阵和统计行在分配前按算子库的 `MAX_CELLS` 核对。全部表达式的累计向量求值开销、横截面配对槽位分别按 `MAX_WINDOW_WORK` 核对，超限返回 `RESEARCH_RESOURCE_BUDGET`。统计行 `rows[i]` 对应 `timestamps[warmup + i]`。[研究门面](src/lib.rs) · [研究结果](src/research.rs)
+4. 每行对同一时点的完整配对计算等权 Pearson IC 和精确平均秩的 RankIC，保留配对数和状态。配对不足、因子或标签零方差时返回有明确原因的空值。样本摘要只消费已输出的有效 Q12 值，样本标准差分母为 `n−1`，IR 为均值除以样本标准差，不年化。因子 DAG 使用注册表的 28 位政策；研究统计使用 38 位 Decimal 上下文，输出按 half-even 舍入到 Q12。[统计实现](src/research_statistics.rs) · [统计定义](../../docs/adr/0082-research-target-statistics-evaluation-authority.md) · [摘要定义](../../docs/adr/0119-rich-research-statistics-authority-and-factor-quality-evidence-contract.md)
+
+例如，已有冻结快照引用 `snapshot` 和同轴行情 `instruments` 时，下面的调用从第 5 个时点开始，用五期均价检验下一期简单收益。每行至少需要 3 只有效配对标的。`instruments` 至少包含 5 个时点，每只标的均提供 `close` 列。
+
+```rust
+use onlyalpha_calculation::factor_expr::{FactorExpr, TargetExpr};
+use onlyalpha_runtime::{OnlyAlphaRuntime, ResearchPanel, ResearchPlan};
+
+let panel = ResearchPanel::new(snapshot, instruments, 4)?;
+let plan = ResearchPlan::new(
+    vec![("mean5".into(), FactorExpr::compile("Mean($close, 5)")?)],
+    vec![("next_return".into(), TargetExpr::compile("Lead($close, 1) / $close - 1")?)],
+    3,
+)?;
+let report = OnlyAlphaRuntime::new()?.run_research(&panel, &plan)?;
+let comparison = &report.comparisons()[0];
+let first_sample_time = &report.timestamps()[report.warmup()];
+let first_row = &comparison.rows[0];
+```
 
 **主循环（[src/trading.rs](src/trading.rs)）**：
 
@@ -80,7 +106,7 @@ impl OnlyAlphaRuntime {
 
 ## 状态与生命周期
 
-- **统一门面（`OnlyAlphaRuntime`）**：只持有已认证算子 Kernel，不缓存面板、因子结果或运行状态，可克隆共享；`new` 的失败来自算子注册表本身。
+- **统一门面（`OnlyAlphaRuntime`）**：持有无状态研究引擎。研究计划和面板按调用借入，报告由调用方持有。
 - **研究（`ResearchEngine`）**：完全只读，不改变输入面板、因子或标签，也不推进任何事件状态；同一输入重复运行结果逐位相同。
 - **主循环（`TradingEngine`）**：持有各因子的算子滚动状态、最后事件时间与标的声明。任一事件失败都会把因子状态回滚到该事件之前，`TRADING_ROLLBACK_FAILED:<code>` 表示回滚本身失败；已提交的外部事实不回滚，交给执行端口按 `input_id` 幂等对账，引擎不重发已建立的意图。
 - **检查点（`checkpoint`／`restore_checkpoint`）**：只保存恢复内核所需的最小状态——标的集合、最后事件时间、事件数与每个因子的名字、表达式指纹、内核布局和算子状态。恢复时核对 schema、数量、标的、指纹与布局（`TRADING_CHECKPOINT_INVALID`、`TRADING_CHECKPOINT_BINDING`、`TRADING_CHECKPOINT_LAYOUT`）。账户与外部成交事实的恢复和对账由执行端口的持久化事实负责，不进入内核检查点。
