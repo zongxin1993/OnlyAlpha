@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "VSTD30",
+  "expression": "Std($volume, 30)/($volume+1e-12)"
+}

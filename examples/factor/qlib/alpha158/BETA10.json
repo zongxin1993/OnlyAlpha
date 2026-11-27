@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "BETA10",
+  "expression": "Slope($close, 10)/$close"
+}

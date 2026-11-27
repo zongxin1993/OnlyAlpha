@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "KUP2",
+  "expression": "($high-Greater($open, $close))/($high-$low+1e-12)"
+}

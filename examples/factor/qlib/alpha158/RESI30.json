@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "RESI30",
+  "expression": "Resi($close, 30)/$close"
+}

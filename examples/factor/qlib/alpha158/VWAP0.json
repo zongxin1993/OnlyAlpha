@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "VWAP0",
+  "expression": "$vwap/$close"
+}

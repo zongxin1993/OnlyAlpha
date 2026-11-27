@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "RSV10",
+  "expression": "($close-Min($low, 10))/(Max($high, 10)-Min($low, 10)+1e-12)"
+}

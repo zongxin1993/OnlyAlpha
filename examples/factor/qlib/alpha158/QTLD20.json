@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "QTLD20",
+  "expression": "Quantile($close, 20, 0.2)/$close"
+}

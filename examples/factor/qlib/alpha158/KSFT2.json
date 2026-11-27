@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "KSFT2",
+  "expression": "(2*$close-$high-$low)/($high-$low+1e-12)"
+}

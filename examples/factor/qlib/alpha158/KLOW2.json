@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "KLOW2",
+  "expression": "(Less($open, $close)-$low)/($high-$low+1e-12)"
+}

@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "ROC20",
+  "expression": "Ref($close, 20)/$close"
+}

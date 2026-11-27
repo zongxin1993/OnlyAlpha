@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "CORR5",
+  "expression": "Corr($close, Log($volume+1), 5)"
+}

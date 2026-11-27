@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "IMXD20",
+  "expression": "(IdxMax($high, 20)-IdxMin($low, 20))/20"
+}

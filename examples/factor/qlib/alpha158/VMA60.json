@@ -1,0 +1,5 @@
+{
+  "factor_set": "microsoft/qlib:Alpha158@v0.9.8",
+  "name": "VMA60",
+  "expression": "Mean($volume, 60)/($volume+1e-12)"
+}
