@@ -44,6 +44,8 @@ Each library directory uses its responsibility name, with a Cargo package name p
 Provider dependencies stay outside the Kernel. Concrete Rust plugins use their own `src/` under `plugs/`. Each independently
 deployable unit requires a distinct lifecycle, resource, fault or upgrade boundary.
 
+仓内依赖从产品和插件指向基础库。`crates/` 中的库只依赖 `crates/` 成员提供的仓内实现。宿主和具体插件通过公开端口参与装配；涉及工件身份时，由装配方提供可核验的资源描述。各类 Cargo 目标和非 Cargo 引用的约束见[工程指南第 2 节](../AGENTS.md#2-架构边界与工程目录)。
+
 BACKTEST 和 SIM 共用的确定性模拟场所由 [`broker-virtual`](../crates/broker-virtual/README.md) 提供，真实券商协议适配器由 `plugs/` 中的插件实现。插件职责、实际装配限制及发行单元对应关系见[插件能力与历史边界](plugin-capabilities.md)。
 
 目标架构中 Backend 不再内嵌因子／策略算法编写与执行；`python/algorithms/`、旧 Python 因子编译／执行子进程及相关包装按 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 清退。全部量化计算与交易执行语义收拢为 `crates/` 内的 `OnlyAlphaRuntime` 门面，Backend 只装配端口、托管生命周期并暴露正式 API。
