@@ -11,7 +11,7 @@
 
 不负责产品任务准入、权限、队列或 LIVE 授权；不创建第二套交易语义。
 
-直接依赖的仓内库：[`onlyalpha-runtime`](../runtime/README.md)、[`onlyalpha-calculation-bridge`](../calculation-bridge/README.md)、[`onlyalpha-clock`](../clock/README.md)、[`onlyalpha-domain`](../domain/README.md)、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-strategy`](../strategy/README.md)、[`onlyalpha-market-data`](../market-data/README.md)。
+直接依赖的仓内库：[`onlyalpha-runtime`](../runtime/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-broker-virtual`](../../plugs/onlyalpha-broker-virtual/README.md)、[`onlyalpha-calculation-bridge`](../calculation-bridge/README.md)、[`onlyalpha-clock`](../clock/README.md)、[`onlyalpha-domain`](../domain/README.md)、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-strategy`](../strategy/README.md)、[`onlyalpha-market-data`](../market-data/README.md)。
 完整依赖、特性及编译配置见 [Cargo.toml](Cargo.toml)。调用方只能通过公开接口集成，不直接访问私有模块或修改所属状态。
 
 ## 公开接口
@@ -22,6 +22,8 @@
 
 [`verify_finite_backtest`](src/finite.rs) 使用已核对的 Strategy 输出、Execution 事实和 Account 权益点，验证冻结行情对应的 OPEN、BAR 和 END、成交与估值的顺序和关联、逐样本收盘曲线以及分析基准。调用方须按结果计划顺序传入完整的事实和曲线，并用原冻结策略设置与模型绑定调用。正文缺失或不符时返回错误。这个入口不会执行策略、提交订单或重放回测。
 
+[`MemoryBacktestVenue`](src/memory_venue.rs) 把内存虚拟券商接到 `OnlyAlphaRuntime::backtest`。`new` 从 `RunConfiguration` 读取 BACKTEST scope、币种及初始现金，核对券商工件与配置的来源指纹；`input_fingerprint` 将面板快照与内容、完整 `Inputs` 和尾端虚拟时点（Unix 纳秒）绑定为一个摘要。调用方传入冻结时保存的预期摘要。原始输入须与面板逐标的、逐时点对应，两者共有且非缺失的 OHLCV 数值须一致；面板可含派生列和缺值。`VirtualExecution` 通过应用回执确认原场所的待处理回报。最后一个策略截面处理完后，场所按冻结的尾端时点推进并发布已到期回报；`finish` 只在输入关闭、原场所及协议排空后交付 `CompletedMemoryVenue`，尾端时间不足时返回错误。
+
 `Inputs` / `Source` / `MarketInput` / `OpeningInput` 校验输入及其身份；`NextOpenPolicy` 和 `Candidate` 配置并校验运行；`validate_configuration` 只做纯配置校验。
 
 公开入口以 [`src/lib.rs`](src/lib.rs) 为准；以下为当前公开模块和重导出，详细签名、方法和前置条件以源码及 `cargo doc` 为准。Rust 库接口不等同于面向 Web / Agent 的版本化控制 API。
@@ -30,6 +32,7 @@
 pub use finite::verify_finite_backtest;
 pub use inputs::{Inputs, MarketInput, OpeningInput, Source};
 pub use memory::{BacktestRun, CompletedBacktest, ExecutionBinding, MemoryRunSpec};
+pub use memory_venue::MemoryBacktestVenue;
 pub use next_open::NextOpenPolicy;
 pub use onlyalpha_execution::Error;
 pub use run::Candidate;

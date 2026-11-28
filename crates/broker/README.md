@@ -22,6 +22,8 @@ economic_through_ns 是有符号经济时间的封闭前缀，与本次已观察
 
 [`Broker::observed`](src/protocol.rs) 从原 Journal 返回已派发命令对应的原观察及日志关联，不能由 Fact::decode 产生。economic_prefix 只读取实际 Discovery 的 economic_through_ns；Discovery.as_of 仍是供应商序列。实际 producer 可用 with_economic_through 声明经济时间完整前缀；旧记录缺字段时保持原编码和身份，无法证明 Funding 边界完整。
 
+[`Broker::has_observed`](src/protocol.rs) 按完整 scope 和事实身份核对本地已验证日志前缀中首次观察的完整正文摘要（含 `ts_init`）。经济指纹仍用于协议去重。原文核验覆盖待应用和已确认的回报，也适用于无订单的事实。返回 `false` 表示此前缀未见该身份。跨 scope、已记录协议冲突或同身份异文返回错误。需要核对当前 Journal 时先成功调用 `refresh`。该查询只提供观察信息，执行许可仍由准入与派发端口核验。
+
 BrokerCommand / Fact / Scope 解码规范记录；Broker::recover 从 Journal 重建协议状态，dispatch、ingest、acknowledge、reconcile、resolve 推进原命令。TradingPort、RuntimeReader、Journal 及查询端口由调用方实现。
 
 金额、数量与价格按 Domain 类型的精度和规范文本校验，包含八位精度零值与小额的指数表示。解析会在展开前限制指数，并保留 128 字节文本边界及数量非负约束。

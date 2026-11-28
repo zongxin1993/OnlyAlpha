@@ -3,6 +3,8 @@ mod finite;
 mod inputs;
 pub use finite::verify_finite_backtest;
 mod memory;
+mod memory_venue;
+pub use memory_venue::MemoryBacktestVenue;
 pub use memory::{BacktestRun, CompletedBacktest, ExecutionBinding, MemoryRunSpec};
 mod next_open;
 mod run;
@@ -53,3 +55,7 @@ pub fn validate_configuration(configuration: &Value) -> Result<(), Error> {
 #[cfg(test)]
 #[path = "tests/support/execution.rs"]
 mod execution_test_fixture;
+
+#[cfg(test)]
+#[path = "tests/trading_modes.rs"]
+mod trading_modes;

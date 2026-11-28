@@ -3,6 +3,13 @@
 //! 主循环不知道当前模式。行情与时钟、策略、风控／准入／券商／持久化事实全部由注入端口承担，
 //! 因此回测与实盘只在端口实现上不同，不出现 `if mode == Backtest` 之类的分支。
 //! 实盘派单权限属于执行端口；本模块不产出任何外部发单能力。
+pub mod backtest;
+pub mod execution;
+pub mod live;
+pub mod sim;
+mod task;
+pub use task::{TradingTask, VirtualEvents};
+
 use crate::research::Cell;
 use onlyalpha_calculation::factor_expr::{
     DagState, EventExecutor, FactorExpr, PanelDagState, PanelEventExecutor,
@@ -409,6 +416,15 @@ impl TradingEngine {
         S: StrategyPort + ?Sized,
         E: ExecutionPort + ?Sized,
     {
+        self.process(event, Some(strategy), execution)
+    }
+
+    fn process<S: StrategyPort + ?Sized, E: ExecutionPort + ?Sized>(
+        &mut self,
+        event: &TradingEvent,
+        strategy: Option<&S>,
+        execution: &mut E,
+    ) -> Result<EventOutcome> {
         match event {
             TradingEvent::Market(bar) => self
                 .advance(bar, strategy, execution)
@@ -423,23 +439,14 @@ impl TradingEngine {
     fn advance<S, E>(
         &mut self,
         bar: &MarketBar,
-        strategy: &S,
+        strategy: Option<&S>,
         execution: &mut E,
     ) -> Result<BarOutcome>
     where
         S: StrategyPort + ?Sized,
         E: ExecutionPort + ?Sized,
     {
-        if bar.instruments() != self.instruments {
-            return Err(error("TRADING_SCHEMA_MISMATCH"));
-        }
-        if self
-            .timestamp
-            .as_ref()
-            .is_some_and(|last| last >= bar.timestamp())
-        {
-            return Err(error("TRADING_EVENT_ORDER"));
-        }
+        self.validate_bar(bar)?;
         let snapshots: Vec<ExecutorSnapshot> = self
             .factors
             .iter()
@@ -454,7 +461,26 @@ impl TradingEngine {
         }
     }
 
-    fn step<S, E>(&mut self, bar: &MarketBar, strategy: &S, execution: &mut E) -> Result<BarOutcome>
+    fn validate_bar(&self, bar: &MarketBar) -> Result<()> {
+        if bar.instruments() != self.instruments {
+            return Err(error("TRADING_SCHEMA_MISMATCH"));
+        }
+        if self
+            .timestamp
+            .as_ref()
+            .is_some_and(|last| last >= bar.timestamp())
+        {
+            return Err(error("TRADING_EVENT_ORDER"));
+        }
+        Ok(())
+    }
+
+    fn step<S, E>(
+        &mut self,
+        bar: &MarketBar,
+        strategy: Option<&S>,
+        execution: &mut E,
+    ) -> Result<BarOutcome>
     where
         S: StrategyPort + ?Sized,
         E: ExecutionPort + ?Sized,
@@ -466,27 +492,29 @@ impl TradingEngine {
                 row.push(cell);
             }
         }
-        let account = execution.account(bar.timestamp())?;
         let mut intents = Vec::new();
         let mut facts = Vec::new();
-        for (index, instrument) in self.instruments.iter().enumerate() {
-            let mut bindings = Vec::with_capacity(self.factors.len());
-            for (factor, cell) in self.factors.iter().zip(&values[index]) {
-                let value = match cell {
-                    Some(value) => Some(domain_decimal(value)?),
-                    None => None,
-                };
-                bindings.push(NamedFactor::new(&factor.name, value).map_err(boundary)?);
-            }
-            for intent in strategy.decide(instrument, &bindings, &account)? {
-                if intent.instrument() != instrument {
-                    return Err(error("TRADING_INTENT_INSTRUMENT_MISMATCH"));
+        if let Some(strategy) = strategy {
+            let account = execution.account(bar.timestamp())?;
+            for (index, instrument) in self.instruments.iter().enumerate() {
+                let mut bindings = Vec::with_capacity(self.factors.len());
+                for (factor, cell) in self.factors.iter().zip(&values[index]) {
+                    let value = match cell {
+                        Some(value) => Some(domain_decimal(value)?),
+                        None => None,
+                    };
+                    bindings.push(NamedFactor::new(&factor.name, value).map_err(boundary)?);
                 }
-                facts.extend(execution.submit(&intent, bar.timestamp())?);
-                intents.push(StrategyDecision {
-                    instrument: instrument.clone(),
-                    intent,
-                });
+                for intent in strategy.decide(instrument, &bindings, &account)? {
+                    if intent.instrument() != instrument {
+                        return Err(error("TRADING_INTENT_INSTRUMENT_MISMATCH"));
+                    }
+                    facts.extend(execution.submit(&intent, bar.timestamp())?);
+                    intents.push(StrategyDecision {
+                        instrument: instrument.clone(),
+                        intent,
+                    });
+                }
             }
         }
         self.timestamp = Some(bar.timestamp().clone());
@@ -510,15 +538,44 @@ impl TradingEngine {
         source: &mut P,
         strategy: &S,
         execution: &mut E,
-        mut consume: impl FnMut(&TradingEvent, EventOutcome) -> Result<()>,
+        consume: impl FnMut(&TradingEvent, EventOutcome) -> Result<()>,
     ) -> std::result::Result<(), TradingRunError>
     where
         P: TradingEventPort + ?Sized,
         S: StrategyPort + ?Sized,
         E: ExecutionPort + ?Sized,
     {
-        while let Some(event) = source.next_event().map_err(TradingRunError::Source)? {
-            let outcome = match self.handle_event(&event, strategy, execution) {
+        self.drive(
+            |_, _| source.next_event().map_err(TradingRunError::Source),
+            strategy,
+            execution,
+            0,
+            consume,
+        )
+    }
+
+    fn drive<S, E>(
+        &mut self,
+        mut next: impl FnMut(
+            &Self,
+            &mut E,
+        ) -> std::result::Result<Option<TradingEvent>, TradingRunError>,
+        strategy: &S,
+        execution: &mut E,
+        warmup: u64,
+        mut consume: impl FnMut(&TradingEvent, EventOutcome) -> Result<()>,
+    ) -> std::result::Result<(), TradingRunError>
+    where
+        S: StrategyPort + ?Sized,
+        E: ExecutionPort + ?Sized,
+    {
+        while let Some(event) = next(self, execution)? {
+            let result = self.process(
+                &event,
+                (self.events() >= warmup).then_some(strategy),
+                execution,
+            );
+            let outcome = match result {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     return Err(TradingRunError::Processing {

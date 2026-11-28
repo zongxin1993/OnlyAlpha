@@ -605,7 +605,7 @@ fn restarting_from_a_checkpoint_continues_identically() {
     let mut first = trading_engine("Mean($close, 2)");
     let mut book = RecordingBook::new("memory", true);
     for bar in &bars[..2] {
-        first.advance(bar, &strategy, &mut book).unwrap();
+        first.advance(bar, Some(&strategy), &mut book).unwrap();
     }
     let checkpoint = first.checkpoint();
     assert_eq!(checkpoint["events"], json!(2));
@@ -616,7 +616,7 @@ fn restarting_from_a_checkpoint_continues_identically() {
     assert_eq!(resumed.timestamp(), Some(&timestamp(2)));
     let mut tail = Vec::new();
     for bar in &bars[2..] {
-        tail.push(resumed.advance(bar, &strategy, &mut book).unwrap());
+        tail.push(resumed.advance(bar, Some(&strategy), &mut book).unwrap());
     }
     assert_eq!(resumed.events(), baseline.events());
     assert_eq!(resumed.timestamp(), baseline.timestamp());
@@ -635,10 +635,12 @@ fn checkpoint_restore_is_atomic() {
     let mut engine = TradingEngine::new(bars[0].instruments().to_vec(), factors.to_vec()).unwrap();
     let genesis = engine.checkpoint();
     let mut book = RecordingBook::new("memory", false);
-    engine.advance(&bars[0], &Quiet, &mut book).unwrap();
+    engine.advance(&bars[0], Some(&Quiet), &mut book).unwrap();
     let before = engine.checkpoint();
     let mut continuous = engine.clone();
-    let expected = continuous.advance(&bars[1], &Quiet, &mut book).unwrap();
+    let expected = continuous
+        .advance(&bars[1], Some(&Quiet), &mut book)
+        .unwrap();
     let later = continuous.checkpoint();
     let mut bad_factor = later.clone();
     bad_factor["factors"][1]["fingerprint"] = json!("other");
@@ -650,7 +652,7 @@ fn checkpoint_restore_is_atomic() {
         assert!(engine.restore_checkpoint(&invalid).is_err());
         assert_eq!(engine.checkpoint(), before);
     }
-    let actual = engine.advance(&bars[1], &Quiet, &mut book).unwrap();
+    let actual = engine.advance(&bars[1], Some(&Quiet), &mut book).unwrap();
     assert_eq!(actual.values(), expected.values());
     assert_eq!(engine.checkpoint(), later);
     engine.restore_checkpoint(&genesis).unwrap();
@@ -662,7 +664,7 @@ fn a_checkpoint_from_another_definition_is_rejected() {
     let bars = two_instrument_bars();
     let mut source = trading_engine("$close");
     let mut book = RecordingBook::new("memory", false);
-    source.advance(&bars[0], &Quiet, &mut book).unwrap();
+    source.advance(&bars[0], Some(&Quiet), &mut book).unwrap();
     let checkpoint = source.checkpoint();
 
     let mut other = trading_engine("Mean($close, 2)");
@@ -679,16 +681,22 @@ fn the_engine_rejects_wrong_shape_out_of_order_and_foreign_intents() {
     let mut book = RecordingBook::new("memory", false);
     let single = bar(1, &[("000001.XSHE", &[("close", "1")])]);
     assert_eq!(
-        engine.advance(&single, &Quiet, &mut book).unwrap_err(),
+        engine
+            .advance(&single, Some(&Quiet), &mut book)
+            .unwrap_err(),
         Error("TRADING_SCHEMA_MISMATCH".into())
     );
-    engine.advance(&bars[0], &Quiet, &mut book).unwrap();
+    engine.advance(&bars[0], Some(&Quiet), &mut book).unwrap();
     assert_eq!(
-        engine.advance(&bars[0], &Quiet, &mut book).unwrap_err(),
+        engine
+            .advance(&bars[0], Some(&Quiet), &mut book)
+            .unwrap_err(),
         Error("TRADING_EVENT_ORDER".into())
     );
     assert_eq!(
-        engine.advance(&bars[1], &Foreign, &mut book).unwrap_err(),
+        engine
+            .advance(&bars[1], Some(&Foreign), &mut book)
+            .unwrap_err(),
         Error("TRADING_INTENT_INSTRUMENT_MISMATCH".into())
     );
 }
@@ -698,16 +706,16 @@ fn a_failed_event_rolls_the_factor_state_back() {
     let bars = two_instrument_bars();
     let mut engine = trading_engine("Mean($close, 2)");
     let mut book = RecordingBook::new("memory", false);
-    engine.advance(&bars[0], &Quiet, &mut book).unwrap();
+    engine.advance(&bars[0], Some(&Quiet), &mut book).unwrap();
     // 两条因子列都已推进之后才因外部意图失败，状态必须回到本事件之前。
-    assert!(engine.advance(&bars[1], &Foreign, &mut book).is_err());
+    assert!(engine.advance(&bars[1], Some(&Foreign), &mut book).is_err());
     assert_eq!(engine.events(), 1);
     assert_eq!(engine.timestamp(), Some(&timestamp(1)));
 
-    let failed = engine.advance(&bars[1], &Quiet, &mut book).unwrap();
+    let failed = engine.advance(&bars[1], Some(&Quiet), &mut book).unwrap();
     let mut clean = trading_engine("Mean($close, 2)");
-    clean.advance(&bars[0], &Quiet, &mut book).unwrap();
-    let reference = clean.advance(&bars[1], &Quiet, &mut book).unwrap();
+    clean.advance(&bars[0], Some(&Quiet), &mut book).unwrap();
+    let reference = clean.advance(&bars[1], Some(&Quiet), &mut book).unwrap();
     assert_eq!(failed.values(), reference.values());
     assert_eq!(clean.events(), 2);
 }
@@ -782,7 +790,7 @@ fn the_facade_builds_research_and_trading_from_the_same_definition() {
         .trading_engine(bars[0].instruments().to_vec(), factors.to_vec())
         .unwrap();
     let mut book = RecordingBook::new("memory", false);
-    let outcome = engine.advance(&bars[0], &Quiet, &mut book).unwrap();
+    let outcome = engine.advance(&bars[0], Some(&Quiet), &mut book).unwrap();
     let report = runtime
         .run_research(&close_panel(&bars, 0), &research_plan(&factors))
         .unwrap();

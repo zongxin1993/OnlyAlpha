@@ -70,11 +70,16 @@ struct Entry {
     result_recorded: bool,
     discovery: Option<Discovery>,
 }
+#[derive(Clone)]
+struct ObservationFingerprint {
+    economic: String,
+    original: String,
+}
 #[derive(Clone, Default)]
 struct State {
     commands: BTreeMap<String, Entry>,
     pending: Vec<Fact>,
-    seen: BTreeMap<String, String>,
+    seen: BTreeMap<String, ObservationFingerprint>,
     venues: BTreeMap<String, String>,
     order_venues: BTreeMap<String, String>,
     trades: BTreeMap<String, String>,
@@ -122,7 +127,7 @@ fn add_facts(
             }
         }
         if let Some(fp) = state.seen.get(f.identity()) {
-            if fp != f.fingerprint() {
+            if fp.economic != f.fingerprint() {
                 return Err(err("BROKER_FACT_CONFLICT"));
             }
             continue;
@@ -130,9 +135,13 @@ fn add_facts(
         if state.pending.len() == capacity {
             return Err(err("BROKER_INBOUND_OVERFLOW"));
         }
-        state
-            .seen
-            .insert(f.identity().into(), f.fingerprint().into());
+        state.seen.insert(
+            f.identity().into(),
+            ObservationFingerprint {
+                economic: f.fingerprint().into(),
+                original: digest(&f.value),
+            },
+        );
         state.pending.push(f.clone());
     }
     Ok(())
@@ -488,6 +497,20 @@ impl Broker {
     }
     pub fn pending(&self) -> &[Fact] {
         &self.state.pending
+    }
+    /// 核对已校验的本地日志前缀，包含已确认的观察。需要当前前缀时先刷新 Journal。
+    pub fn has_observed(&self, fact: &Fact) -> Result<bool, Error> {
+        if fact.scope() != self.scope {
+            return Err(err("BROKER_FACT_SCOPE"));
+        }
+        if self.state.conflict {
+            return Err(err("BROKER_FACT_CONFLICT"));
+        }
+        match self.state.seen.get(fact.identity()) {
+            Some(fp) if fp.economic != fact.fingerprint() => Err(err("BROKER_FACT_CONFLICT")),
+            Some(fp) if fp.original != digest(&fact.value) => Err(err("BROKER_FACT_PROVENANCE")),
+            observed => Ok(observed.is_some()),
+        }
     }
     pub fn dispatch(
         &mut self,

@@ -48,7 +48,7 @@ pub use session::{
 };
 pub use trading::{
     BarOutcome, EventOutcome, ExecutionPort, MarketBar, NamedFactorExpr, StrategyDecision,
-    StrategyPort, TradingEngine, TradingEvent, TradingEventPort, TradingRunError,
+    StrategyPort, TradingEngine, TradingEvent, TradingEventPort, TradingRunError, TradingTask,
 };
 
 pub struct OnlyAlphaRuntime;
@@ -107,6 +107,20 @@ let slice = report.slice_view(0, 0)?;
 - `TradingEngine::handle_event` 按调用顺序处理一个 `TradingEvent`。`Market` 核对截面形状和行情时间严格递增，推进因子，并用同一份账户快照逐标的调用策略；`ExecutionPort::submit` 接收通过标的检查的意图。`EventOutcome::Market` 包含本次行情观测。
 - `Venue` 携带券商库已经解码的 `Fact`，调用 `ExecutionPort::observe_venue`。端口负责关联原命令、校验范围与重复、处理冲突，并通过所属经济模块应用成交。`VenueObserved` 只表示端口完成了本次观察。回报可在两根 bar 之间或与行情同一时刻到达，保持交付顺序，无需等下一根 bar，也不推进因子。
 - `TradingEventPort::next_event` 逐条交付输入，`Ok(None)` 表示来源结束。`TradingEngine::run` 在 `handle_event` 成功后将原输入和结果交给 `consume(&TradingEvent, EventOutcome) -> Result<()>`。回调返回 `Ok(())` 后才读取下一条事件。读取来源失败时返回 `TradingRunError::Source`。`Processing` 和 `Consumption` 都保留底层错误并归还已取出的原事件，后续事件仍留在来源中。`Processing` 表示处理报错，执行方可能已产生事实，调用方须按原身份查询并对账。`Consumption` 表示当前事件已处理，消费方因预算不足等原因拒绝了结果；因子状态和已提交命令不会回滚。两类错误都不授权重发命令。
+
+**按模式创建交易任务**
+
+`OnlyAlphaRuntime` 的三个构造器各自返回一个独占引擎、输入源、策略和执行端口的 `TradingTask`。调用 `task.run(consume)` 逐事件消费结果，`task.engine()` 可读取本任务的因子检查点。任务装配时核对引擎、运行实例、网关、账户、代次和模式。回测再核对经济端的完整 `RunConfiguration` 指纹，持续交易则核对含内核工件的 `TradingBinding` 指纹。[任务对象](src/trading/task.rs)
+
+| 构造器 | 行情、时钟与执行 |
+| --- | --- |
+| [`backtest`](src/trading/backtest.rs) | `FrozenReplay::new` 接收冻结面板、预期快照和预期内容摘要，按原时点逐行回放。预热行推进因子并产出因子值，样本期才调用策略。有限经济会话与虚拟场所负责模拟执行。 |
+| [`sim`](src/trading/sim.rs) | 宿主逐条交付带事件时间的实时输入。虚拟场所按该截面推进，先前订单在该时点产生的回报先于本次策略决策应用。最后一根行情后的待处理回报也会交付。持续交易的经济端持有持久绑定。 |
+| [`live`](src/trading/live.rs) | 宿主按实际抵达次序交付行情和券商回报。经济端完成风控与准入，`LiveExecution` 核对原命令的 Ready 记录，宿主网关在派发该命令时核验有效的人工授权。回报观察有独立入口。 |
+
+`MemoryBacktestVenue` 使用回测库的冻结原始行情，校验原始输入与因子面板的绑定，并用同一个内存虚拟券商实例推进时钟、模拟撮合和发布回报。最后一次策略决策结束后，有限场所按显式结束时点释放到期回报。任务读完事件后，可从 `task.into_parts()` 取出执行器，再取出场所并调用 `finish()`，核实原始行情已耗尽、场所已排空。正式回测结果仍由有限作业的发布方核对并发布。[回测库的内存虚拟场所](../backtest/src/memory_venue.rs)
+
+`EconomicOwner` 提供账户快照、意图准入与经济回报应用。执行端口先请场所核对原回报，再交经济端应用，最后确认交付。派单结果未知时，调用方按原命令查询和对账。虚拟场所已经推进行情、随后读取回报失败时，`VirtualEvents` 保留该行情，调用方可从 `into_parts()` 取回。[执行端口](src/trading/execution.rs)
 
 **内存会话（[src/session.rs](src/session.rs)）**：[`RunConfiguration`、`RunBinding`、`TradingInput`、`Session`、`AppliedEvent`、`CompletedSession`](src/session.rs) 提供有限作业的内存边界。配置使用真实 Components 校验，绑定只含 Kernel 执行所需的内容身份，不授予数据权限或外部派发资格。`Session::apply` 持有当前 typed owner，按输入身份核对重复和冲突；事件须按序 `acknowledge`，未 drain、失败、未满足经济结束条件均不能 `finish`。普通资金／风控拒绝保留未变化的经济状态；其他异常使会话失效。
 

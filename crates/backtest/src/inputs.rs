@@ -257,6 +257,11 @@ impl Inputs {
         }
         Ok(Self { sources, records })
     }
+    pub(crate) fn matches_snapshot(&self, snapshot: &str) -> bool {
+        self.sources
+            .iter()
+            .all(|source| source.record["snapshot"] == snapshot)
+    }
     pub fn records(&self) -> &[MarketInput] {
         &self.records
     }

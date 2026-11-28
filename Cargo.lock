@@ -1954,6 +1954,8 @@ dependencies = [
 name = "onlyalpha-backtest"
 version = "0.11.1"
 dependencies = [
+ "onlyalpha-broker",
+ "onlyalpha-broker-virtual",
  "onlyalpha-calculation",
  "onlyalpha-calculation-bridge",
  "onlyalpha-clock",

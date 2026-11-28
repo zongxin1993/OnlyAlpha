@@ -11,6 +11,8 @@ path = "src/lib.rs"
 workspace = true
 [dependencies]
 onlyalpha-runtime = { path = "../runtime" }
+onlyalpha-broker = { path = "../broker" }
+onlyalpha-broker-virtual = { path = "../../plugs/onlyalpha-broker-virtual" }
 onlyalpha-calculation-bridge = { path = "../calculation-bridge" }
 onlyalpha-clock = { path = "../clock" }
 onlyalpha-domain = { path = "../domain" }

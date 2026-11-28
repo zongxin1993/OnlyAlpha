@@ -20,7 +20,7 @@ pub use session::{
 };
 pub use trading::{
     BarOutcome, EventOutcome, ExecutionPort, MarketBar, NamedFactorExpr, StrategyDecision,
-    StrategyPort, TradingEngine, TradingEvent, TradingEventPort, TradingRunError,
+    StrategyPort, TradingEngine, TradingEvent, TradingEventPort, TradingRunError, TradingTask,
 };
 
 /// 量化计算与交易语义的统一门面。研究与本机事件主循环共用同一份已编译因子定义，
