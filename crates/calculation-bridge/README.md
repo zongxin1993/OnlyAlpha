@@ -9,7 +9,7 @@
 
 ## 边界与依赖
 
-不拥有产品准入或任务调度；进程创建、部署、权限及生命周期策略由后端提供，库通过显式端口使用。
+宿主负责产品准入、任务调度、进程创建、部署和权限校验，通过显式端口接入算法通道。算法安装目录、发行清单以及从安装文件核验实际执行工件的流程均由宿主管理。
 
 直接依赖的仓内库：[`onlyalpha-operators`](../operators/README.md)、[`onlyalpha-predicates`](../predicates/README.md)、[`onlyalpha-strategy`](../strategy/README.md)、[`onlyalpha-market-data`](../market-data/README.md)、[`onlyalpha-calculation`](../calculation/README.md)、[`onlyalpha-domain`](../domain/README.md)。
 完整依赖、特性及编译配置见 [Cargo.toml](Cargo.toml)。调用方只能通过公开接口集成，不直接访问私有模块或修改所属状态。
@@ -20,9 +20,11 @@
 
 [`ProgramCalculation`](src/program_definition.rs)从已解码且绑定参数的 `BoundProgram` 和因子元数据生成完整 `Definition`、`TypeDeclaration` 与批量／事件实现清单。校验输入输出类型与角色，参数声明来自原程序，warmup 来自实际绑定窗口，数值规范固定为 Decimal28／Half Even／Q12。实现身份绑定泛化程序容器、API 与实际执行镜像；精确参数及其证书由调用方单独绑定。类型、声明或工件格式不符时拒绝。此纯值适配器不读取 PostgreSQL，不证明 READY、资产权限或实际加载镜像；正式调用方必须保留所属读取器和准入证据。
 
-实例按 scope／商品／节点持有可变状态。恢复采用独立候选，核对完整字段、绑定、游标、receipt 与窗口，错误使当前执行失效。`ProgramFactor::new` 和 `ProgramNodes::new` 只校验传入的数学绑定值，不证明 PostgreSQL 证书存在、READY、私有资产权限或发布资格；这些证明必须由 Backend 的 owning reader 提供。
+实例按 scope／商品／节点持有可变状态。恢复采用独立候选，核对完整字段、绑定、游标、receipt 与窗口，错误使当前执行失效。`ProgramFactor::new` 和 `ProgramNodes::new` 只校验传入的数学绑定值，不证明 PostgreSQL 证书存在、READY、私有资产权限或发布资格；这些证明由持有相应事实的宿主读取器提供。
 
-Worker::from_stream 接入已有通道并执行握手和请求；WorkerConnector / ProcessControl 提供连接与生命周期端口。StrategyNodes、StrategyPreparation 连接计算与行情准备；ChartInstallation 校验安装资源；[`native_operators::OperatorCalculation`](src/native_operators.rs) 和 [`native_predicates`](src/native_predicates.rs) 暴露定义、清单与求值。滚动分位数 `onlyalpha.operator.rolling_quantile` 要求同时传入正整数 `period` 和 `[0,1]` 内的 `DECIMAL` 参数 `quantile`；`resolve` 按声明解析参数并纳入精确定义。递推平滑 `onlyalpha.operator.sma` 绑定两个整数 `period` 和 `weight`，其中 `1 ≤ weight ≤ period`。`protocol` 提供协议绑定。fingerprint 计算原始字节摘要。
+[`ImplementationArtifact::new(relative_path, byte_sha256)`](src/implementation_artifact.rs) 接收宿主已核验的执行工件。路径使用 `/` 分隔，必须是规范相对路径，摘要为 64 位小写十六进制 SHA-256。非法输入返回 `IMPLEMENTATION_ARTIFACT_INVALID`。算子、谓词与因子程序把相同格式的资源记录写入实现清单，路径和字节摘要共同参与实现指纹计算。`native_operators::provider_record(artifact, provider_version, distribution_name, distribution_version)` 将提供方指定的内容版本写入 `manifest.provider_version`，将宿主发行名和发行版本写入 `manifest.source`。工件迁址或字节变化会改变内容指纹，提供方须指定新版本；仅更换发行来源时可沿用提供方版本，内容指纹保持一致。目录在准入时核对历史版本与内容的对应关系。
+
+Worker::from_stream 接入已有通道并执行握手和请求；WorkerConnector / ProcessControl 提供连接与生命周期端口。StrategyNodes、StrategyPreparation 连接计算与行情准备；[`native_operators::OperatorCalculation`](src/native_operators.rs) 和 [`native_predicates`](src/native_predicates.rs) 暴露定义、清单与求值。滚动分位数 `onlyalpha.operator.rolling_quantile` 要求同时传入正整数 `period` 和 `[0,1]` 内的 `DECIMAL` 参数 `quantile`；`resolve` 按声明解析参数并纳入精确定义。递推平滑 `onlyalpha.operator.sma` 绑定两个整数 `period` 和 `weight`，其中 `1 ≤ weight ≤ period`。`protocol` 提供协议绑定。fingerprint 计算原始字节摘要。
 
 [`native_operators::SEMANTIC_VERSION`](src/native_operators.rs) 取自内核注册表。`regression_residual3` 绑定 `response`、`x1`、`x2`、`x3`，窗口至少 5 期。`conditional_beta` 绑定 `response`、`predictor`、`condition`，窗口至少 2 期。`cum_product_if` 绑定 `value` 与 `condition`，按标的保存累计乘积。检查点绑定规范化参数所在的定义指纹。标量交易端口只接受时序算子，截面算子通过完整截面批量输入求值。
 
@@ -35,7 +37,7 @@ pub use process::{
 };
 pub use strategy_adapter::StrategyNodes;
 pub use strategy_preparation::StrategyPreparation;
-pub use chart_installation::ChartInstallation;
+pub use implementation_artifact::ImplementationArtifact;
 pub mod native_predicates;
 pub mod protocol;
 pub mod native_operators;

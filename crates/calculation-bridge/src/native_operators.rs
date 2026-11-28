@@ -1,4 +1,5 @@
 //! 原生算子的 Calculation 适配器。事件时间、标的顺序和准入由调用方负责。
+use crate::ImplementationArtifact;
 use onlyalpha_calculation::product::{Definition, TypeDeclaration, normalize_scalar};
 use onlyalpha_operators::algebra::{
     Decimal, Error as KernelError, Kernel, Operator, Parameters, Stream,
@@ -365,23 +366,19 @@ impl OperatorCalculation {
             stream: Stream::new(self.kernel.clone()).map_err(|_| INVALID)?,
         })
     }
-    /// The producer must independently prove the actual running image digest.
-    pub fn implementation_manifest(&self, backend: &str, image_sha256: &str) -> Result<Value> {
+    /// 宿主负责核实工件字节，清单绑定该工件与算子入口。
+    pub fn implementation_manifest(
+        &self,
+        backend: &str,
+        artifact: &ImplementationArtifact,
+    ) -> Result<Value> {
         if !matches!(backend, "RESEARCH" | "TRADING")
             || (backend == "TRADING" && self.kernel.operator().is_cross_section())
-            || image_sha256.len() != 64
-            || !image_sha256
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         {
             return Err(INVALID);
         }
         let record = self.definition.to_record();
-        let resources =
-            json!([{"relative_path":"bin/onlyalpha-backend","byte_sha256":image_sha256}]);
-        let bundle = onlyalpha_strategy::record_fingerprint(
-            &json!({"domain":"onlyalpha.calculation.implementation-bundle","schema_version":1,"resources":resources}),
-        );
+        let (resources, bundle) = artifact.manifest_resources();
         let mut identity = json!({"domain":"onlyalpha.calculation.implementation","schema_version":1,"calculation_type_reference":{"kind":"INDICATOR","type_id":record["type_id"],"semantic_version":SEMANTIC_VERSION},"backend_kind":backend,"entrypoint_identity":if backend=="RESEARCH" {"onlyalpha_calculation_bridge.native_operators:OperatorCalculation.evaluate_batch"}else{"onlyalpha_calculation_bridge.native_operators:OperatorStream.push"},"implementation_bundle_fingerprint":bundle,"semantic_dependencies":[]});
         let fingerprint = onlyalpha_strategy::record_fingerprint(&identity);
         identity.as_object_mut().ok_or(INVALID)?.remove("domain");
@@ -477,14 +474,14 @@ fn calculations() -> Result<Vec<OperatorCalculation>> {
         })
         .collect()
 }
-pub fn implementation_manifests(image_sha256: &str) -> Result<Vec<Value>> {
+pub fn implementation_manifests(artifact: &ImplementationArtifact) -> Result<Vec<Value>> {
     let mut rows = Vec::new();
     for calculation in calculations()? {
         for backend in ["RESEARCH", "TRADING"] {
             if backend == "TRADING" && calculation.kernel.operator().is_cross_section() {
                 continue;
             }
-            rows.push(calculation.implementation_manifest(backend, image_sha256)?);
+            rows.push(calculation.implementation_manifest(backend, artifact)?);
         }
     }
     rows.sort_by_key(|r| {
@@ -499,24 +496,37 @@ pub fn implementation_manifests(image_sha256: &str) -> Result<Vec<Value>> {
     Ok(rows)
 }
 /// Adapter inventory only; it does not grant Definition or Runtime admission.
-pub fn catalog_rows(image_sha256: &str) -> Result<Vec<Value>> {
+pub fn catalog_rows(artifact: &ImplementationArtifact) -> Result<Vec<Value>> {
     let mut rows = Vec::new();
     for c in calculations()? {
         for backend in ["RESEARCH", "TRADING"] {
             if backend == "TRADING" && c.kernel.operator().is_cross_section() {
                 continue;
             }
-            let implementation = c.implementation_manifest(backend, image_sha256)?;
+            let implementation = c.implementation_manifest(backend, artifact)?;
             rows.push(json!({"type_declaration":c.type_declaration()?,"backend_kind":backend,"implementation":implementation,"state_capability":if backend=="TRADING"{json!(c.state_capability())}else{Value::Null},"checkpoint_schema_version":if backend=="TRADING" && c.state_capability()=="CHECKPOINTABLE"{json!(1)}else{Value::Null}}));
         }
     }
     Ok(rows)
 }
 
-/// Shared source-owned native library projection. It binds current ELF bytes
-/// through each manifest; the caller still proves the actual running image.
-pub fn provider_record(image_sha256: &str, distribution_version: &str) -> Result<Value> {
-    if distribution_version.is_empty()
+/// 提供方指定内容版本，宿主提供发行来源；目录在准入时核对历史版本与内容。
+pub fn provider_record(
+    artifact: &ImplementationArtifact,
+    provider_version: &str,
+    distribution_name: &str,
+    distribution_version: &str,
+) -> Result<Value> {
+    let valid_identity = |value: &str| {
+        value.len() <= 256
+            && value.starts_with(|c: char| c.is_ascii_alphanumeric())
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b))
+    };
+    if !valid_identity(provider_version)
+        || !valid_identity(distribution_name)
+        || distribution_version.is_empty()
         || distribution_version.len() > 255
         || distribution_version
             .chars()
@@ -524,7 +534,7 @@ pub fn provider_record(image_sha256: &str, distribution_version: &str) -> Result
     {
         return Err(INVALID);
     }
-    let mut calculations = catalog_rows(image_sha256)?
+    let mut calculations = catalog_rows(artifact)?
         .into_iter()
         .map(|row| {
             json!({
@@ -541,8 +551,8 @@ pub fn provider_record(image_sha256: &str, distribution_version: &str) -> Result
         "kind":"OPERATOR","calculations":calculations,"private_factor_snapshot":null
     }));
     Ok(json!({
-        "manifest":{"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"8","kind":"OPERATOR",
-            "source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":distribution_version}},
+        "manifest":{"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":provider_version,"kind":"OPERATOR",
+            "source":{"kind":"DISTRIBUTION","distribution_name":distribution_name,"distribution_version":distribution_version}},
         "content_fingerprint":content_fingerprint,"calculations":calculations,"private_factor_snapshot":null
     }))
 }
@@ -564,6 +574,9 @@ mod tests {
     }
     #[test]
     fn inventory_is_exact_and_bound_to_current_image() {
+        let image = "a".repeat(64);
+        let artifact = ImplementationArtifact::new("lib/adapter", &image).unwrap();
+        let changed = ImplementationArtifact::new("lib/adapter", &"b".repeat(64)).unwrap();
         let all = calculations().unwrap();
         assert_eq!(all.len(), 43);
         assert_eq!(
@@ -600,15 +613,21 @@ mod tests {
                 c.definition()
             );
             assert_ne!(
-                c.implementation_manifest("RESEARCH", &"a".repeat(64))
-                    .unwrap()["implementation_fingerprint"],
-                c.implementation_manifest("RESEARCH", &"b".repeat(64))
-                    .unwrap()["implementation_fingerprint"]
+                c.implementation_manifest("RESEARCH", &artifact).unwrap()["implementation_fingerprint"],
+                c.implementation_manifest("RESEARCH", &changed).unwrap()["implementation_fingerprint"]
             );
         }
-        assert_eq!(implementation_manifests(&"a".repeat(64)).unwrap().len(), 79);
-        assert_eq!(catalog_rows(&"a".repeat(64)).unwrap().len(), 79);
-        assert!(implementation_manifests(&"A".repeat(64)).is_err());
+        let resources = json!([{"relative_path":"lib/adapter","byte_sha256":image}]);
+        let manifests = implementation_manifests(&artifact).unwrap();
+        assert_eq!(manifests.len(), 79);
+        assert!(manifests.iter().all(|row| row["resources"] == resources));
+        let catalog = catalog_rows(&artifact).unwrap();
+        assert_eq!(catalog.len(), 79);
+        assert!(
+            catalog
+                .iter()
+                .all(|row| row["implementation"]["resources"] == resources)
+        );
     }
     #[test]
     fn rolling_statistics_preserve_their_parameters_and_checkpoint_identity() {
@@ -756,10 +775,12 @@ mod tests {
             c.evaluate(&json!({"value":"-0"})).unwrap()["value"],
             "0.000000000000"
         );
-        let provider = provider_record(&"a".repeat(64), "0.9.0").unwrap();
+        let image = "a".repeat(64);
+        let artifact = ImplementationArtifact::new("lib/adapter", &image).unwrap();
+        let provider = provider_record(&artifact, "8", "sample-host", "0.9.0").unwrap();
         assert_eq!(
             provider["manifest"],
-            json!({"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"8","kind":"OPERATOR","source":{"kind":"DISTRIBUTION","distribution_name":"onlyalpha-backend","distribution_version":"0.9.0"}})
+            json!({"schema_version":1,"provider_id":"onlyalpha.operator.library","provider_version":"8","kind":"OPERATOR","source":{"kind":"DISTRIBUTION","distribution_name":"sample-host","distribution_version":"0.9.0"}})
         );
         let calculations = provider["calculations"].as_array().unwrap();
         assert_eq!(calculations.len(), 79);
@@ -779,12 +800,48 @@ mod tests {
                 &json!({"kind":"OPERATOR","calculations":calculations,"private_factor_snapshot":null})
             )
         );
-        assert_ne!(
-            provider["content_fingerprint"],
-            provider_record(&"b".repeat(64), "0.9.0").unwrap()["content_fingerprint"]
+        let changed = ImplementationArtifact::new("lib/adapter", &"b".repeat(64)).unwrap();
+        let relocated = ImplementationArtifact::new("bin/adapter", &image).unwrap();
+        for (different, next_version) in [(&changed, "9"), (&relocated, "10")] {
+            let next = provider_record(different, next_version, "sample-host", "0.9.0").unwrap();
+            assert_eq!(next["manifest"]["provider_version"], next_version);
+            assert_eq!(next["manifest"]["source"], provider["manifest"]["source"]);
+            assert_ne!(next["content_fingerprint"], provider["content_fingerprint"]);
+            assert_eq!(
+                next["content_fingerprint"],
+                onlyalpha_strategy::record_fingerprint(
+                    &json!({"kind":"OPERATOR","calculations":next["calculations"],"private_factor_snapshot":null})
+                )
+            );
+        }
+        let name = format!("Host._+-{}", "x".repeat(248));
+        let version = "v".repeat(255);
+        let repackaged = provider_record(&artifact, "8", &name, &version).unwrap();
+        assert_eq!(repackaged["manifest"]["provider_version"], "8");
+        assert_eq!(
+            repackaged["manifest"]["source"],
+            json!({"kind":"DISTRIBUTION","distribution_name":name,"distribution_version":version})
         );
-        assert!(provider_record(&"a".repeat(64), "").is_err());
-        assert!(provider_record(&"A".repeat(64), "0.9.0").is_err());
+        assert_eq!(
+            repackaged["content_fingerprint"],
+            provider["content_fingerprint"]
+        );
+        for invalid in ["", "-host", "a/b", "a b", "a\n", "主机", &"x".repeat(257)] {
+            assert_eq!(
+                provider_record(&artifact, invalid, "sample-host", "0.9.0"),
+                Err(INVALID)
+            );
+            assert_eq!(
+                provider_record(&artifact, "8", invalid, "0.9.0"),
+                Err(INVALID)
+            );
+        }
+        for invalid in ["", "0.9 0", "0.9\u{7f}", &"v".repeat(256)] {
+            assert_eq!(
+                provider_record(&artifact, "8", "sample-host", invalid),
+                Err(INVALID)
+            );
+        }
     }
     #[test]
     fn typed_defaults_and_foreign_definition_are_checked() {
@@ -891,10 +948,8 @@ mod tests {
         );
         assert!(c.stream().is_err());
         assert!(c.evaluate(&json!({"value":"1"})).is_err());
-        assert!(
-            c.implementation_manifest("TRADING", &"a".repeat(64))
-                .is_err()
-        );
+        let artifact = ImplementationArtifact::new("lib/adapter", &"a".repeat(64)).unwrap();
+        assert!(c.implementation_manifest("TRADING", &artifact).is_err());
         assert!(
             resolve("add", json!({}))
                 .stream()

@@ -1,6 +1,7 @@
 //! Native graph adapter over already selected programs and implementations.
 //! These values prove mathematics/binding only, never PG certification or admission.
 use crate::{
+    ImplementationArtifact,
     native_operators::{OperatorCalculation, OperatorStream},
     native_predicates::PredicateCalculation,
 };
@@ -58,7 +59,7 @@ pub struct ProgramNodes {
     program: Program,
     definitions: BTreeMap<String, ProductDefinition>,
     factors: BTreeMap<String, ProgramFactor>,
-    image: String,
+    artifact: ImplementationArtifact,
     nodes: BTreeMap<String, Node>,
     failed: bool,
 }
@@ -93,10 +94,9 @@ impl ProgramNodes {
         program: Program,
         definitions: BTreeMap<String, ProductDefinition>,
         factors: BTreeMap<String, ProgramFactor>,
-        image: &str,
+        artifact: &ImplementationArtifact,
     ) -> Result<Self> {
-        if !sha(image)
-            || definitions.len() > 128
+        if definitions.len() > 128
             || definitions
                 .keys()
                 .ne(program.revision().descriptors().keys())
@@ -187,7 +187,7 @@ impl ProgramNodes {
                 Some("INDICATOR") => {
                     let op = OperatorCalculation::from_record(&r).map_err(known)?;
                     let implementation = op
-                        .implementation_manifest("TRADING", image)
+                        .implementation_manifest("TRADING", artifact)
                         .map_err(known)?["implementation_fingerprint"]
                         .as_str()
                         .ok_or(NodeFailure::Known)?
@@ -202,7 +202,7 @@ impl ProgramNodes {
                 Some("PREDICATE") => {
                     let predicate = PredicateCalculation::from_record(&r).map_err(known)?;
                     let implementation = predicate
-                        .implementation_manifest("TRADING", image)
+                        .implementation_manifest("TRADING", artifact)
                         .map_err(known)?["implementation_fingerprint"]
                         .as_str()
                         .ok_or(NodeFailure::Known)?
@@ -237,7 +237,7 @@ impl ProgramNodes {
             program,
             definitions,
             factors,
-            image: image.into(),
+            artifact: artifact.clone(),
             nodes,
             failed: false,
         })
@@ -393,7 +393,7 @@ impl NodePort for ProgramNodes {
             self.program.clone(),
             self.definitions.clone(),
             self.factors.clone(),
-            &self.image,
+            &self.artifact,
         )?;
         let rows = checkpoint["nodes"]
             .as_array()

@@ -1,4 +1,5 @@
 //! Bounded Calculation consumer of native Predicate semantics; no Runtime grant.
+use crate::ImplementationArtifact;
 use onlyalpha_calculation::product::{Definition, normalize_scalar};
 use onlyalpha_predicates::{
     decimal_predicate::{DecimalLiteralPredicate, DecimalOperand, DecimalPredicate},
@@ -135,23 +136,17 @@ impl PredicateCalculation {
     pub fn definition(&self) -> &Definition {
         &self.definition
     }
-    /// A value projection of this actual adapter, not Runtime admission. The
-    /// backend producer must separately prove this exact running ELF image.
-    pub fn implementation_manifest(&self, backend: &str, image_sha256: &str) -> Result<Value> {
-        if !matches!(backend, "RESEARCH" | "TRADING")
-            || image_sha256.len() != 64
-            || !image_sha256
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
+    /// 宿主负责核实工件字节，清单绑定该工件与谓词入口。运行准入另行决定。
+    pub fn implementation_manifest(
+        &self,
+        backend: &str,
+        artifact: &ImplementationArtifact,
+    ) -> Result<Value> {
+        if !matches!(backend, "RESEARCH" | "TRADING") {
             return Err(INVALID);
         }
         let definition = self.definition.to_record();
-        let resources =
-            json!([{"relative_path":"bin/onlyalpha-backend","byte_sha256":image_sha256}]);
-        let bundle = onlyalpha_strategy::record_fingerprint(&json!({
-            "domain":"onlyalpha.calculation.implementation-bundle","schema_version":1,"resources":resources
-        }));
+        let (resources, bundle) = artifact.manifest_resources();
         let mut identity = json!({
             "domain":"onlyalpha.calculation.implementation","schema_version":1,
             "calculation_type_reference":{"kind":"PREDICATE","type_id":definition["type_id"],"semantic_version":definition["semantic_version"]},
@@ -202,7 +197,7 @@ impl PredicateCalculation {
 
 /// Enumerate only the finite types actually supported by this compiled adapter.
 /// No Python registration, Provider, Runtime grant or arbitrary type claim.
-pub fn implementation_manifests(image_sha256: &str) -> Result<Vec<Value>> {
+pub fn implementation_manifests(artifact: &ImplementationArtifact) -> Result<Vec<Value>> {
     let reference = json!({"node_fingerprint":"0".repeat(64),"output_name":"value","source":null});
     let mut nodes = Vec::new();
     for name in [
@@ -242,7 +237,7 @@ pub fn implementation_manifests(image_sha256: &str) -> Result<Vec<Value>> {
     let mut result = Vec::new();
     for node in nodes {
         for backend in ["RESEARCH", "TRADING"] {
-            result.push(node.implementation_manifest(backend, image_sha256)?);
+            result.push(node.implementation_manifest(backend, artifact)?);
         }
     }
     result.sort_by_key(|row| {
@@ -265,7 +260,8 @@ mod native_manifest_tests {
     #[test]
     fn finite_native_manifests_bind_actual_adapter_entrypoint_and_entire_image() {
         let image = "a".repeat(64);
-        let rows = implementation_manifests(&image).unwrap();
+        let artifact = ImplementationArtifact::new("lib/adapter", &image).unwrap();
+        let rows = implementation_manifests(&artifact).unwrap();
         assert_eq!(rows.len(), 36);
         let mut keys = BTreeSet::new();
         for row in &rows {
@@ -282,7 +278,7 @@ mod native_manifest_tests {
             );
             assert_eq!(
                 row["resources"],
-                json!([{"relative_path":"bin/onlyalpha-backend","byte_sha256":image}])
+                json!([{"relative_path":"lib/adapter","byte_sha256":image}])
             );
             assert_eq!(row["semantic_dependencies"], json!([]));
             assert!(
@@ -322,7 +318,7 @@ mod native_manifest_tests {
                 );
             }
         }
-        assert_eq!(implementation_manifests(&image).unwrap(), rows);
+        assert_eq!(implementation_manifests(&artifact).unwrap(), rows);
     }
     #[test]
     fn node_semantics_remain_separate_from_native_implementation_bytes() {
@@ -331,15 +327,24 @@ mod native_manifest_tests {
             &json!({"value":{"node_fingerprint":"b".repeat(64),"output_name":"value","source":null}}),
         ).unwrap();
         let original = node.definition().fingerprint();
-        let a = node
-            .implementation_manifest("RESEARCH", &"a".repeat(64))
+        let image = "a".repeat(64);
+        let artifact = ImplementationArtifact::new("lib/adapter", &image).unwrap();
+        let changed = ImplementationArtifact::new("lib/adapter", &"b".repeat(64)).unwrap();
+        let relocated = ImplementationArtifact::new("bin/adapter", &image).unwrap();
+        let a = node.implementation_manifest("RESEARCH", &artifact).unwrap();
+        let b = node.implementation_manifest("RESEARCH", &changed).unwrap();
+        let moved = node
+            .implementation_manifest("RESEARCH", &relocated)
             .unwrap();
-        let b = node
-            .implementation_manifest("RESEARCH", &"b".repeat(64))
-            .unwrap();
-        let trading = node
-            .implementation_manifest("TRADING", &"a".repeat(64))
-            .unwrap();
+        let trading = node.implementation_manifest("TRADING", &artifact).unwrap();
+        assert_ne!(
+            a["implementation_bundle_fingerprint"],
+            moved["implementation_bundle_fingerprint"]
+        );
+        assert_ne!(
+            a["implementation_fingerprint"],
+            moved["implementation_fingerprint"]
+        );
         assert_eq!(node.definition().fingerprint(), original);
         assert_ne!(
             a["implementation_fingerprint"],
@@ -351,23 +356,19 @@ mod native_manifest_tests {
         );
         assert_eq!(
             a["implementation_bundle_fingerprint"],
-            "1c570bb3ae1b56f450e5bf64fa917ac63cd13a8df33aaa05b3b601426c2f7f87"
+            "7fed734fe19cc106bfe0177cfe9d70386342f5d5f9b7cd3ff4b15349bb8fef9e"
         );
         assert_eq!(
             a["implementation_fingerprint"],
-            "5350fcd513eb40216cc5d531f34e68e2f08943a368e2400a921863f367084ecb"
+            "dd84ede5bb6ba296cec3ad371cc707fe19ac1b4012144457c0774a1df49cf94a"
         );
         assert_eq!(
             node.evaluate(&json!({"value":true})).unwrap(),
             json!({"value":true})
         );
         for invalid in ["".to_owned(), "A".repeat(64), "a".repeat(63)] {
-            assert!(implementation_manifests(&invalid).is_err());
-            assert!(node.implementation_manifest("RESEARCH", &invalid).is_err());
+            assert!(ImplementationArtifact::new("lib/adapter", &invalid).is_err());
         }
-        assert!(
-            node.implementation_manifest("BACKTEST", &"a".repeat(64))
-                .is_err()
-        );
+        assert!(node.implementation_manifest("BACKTEST", &artifact).is_err());
     }
 }

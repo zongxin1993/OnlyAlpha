@@ -1,6 +1,6 @@
 //! Pure mathematical declarations; these values are not PG READY or Run grants.
 use onlyalpha_calculation::program::Program;
-use onlyalpha_calculation_bridge::ProgramCalculation;
+use onlyalpha_calculation_bridge::{ImplementationArtifact, ProgramCalculation};
 use serde_json::{Value, json};
 use std::sync::Arc;
 fn source() -> Value {
@@ -9,7 +9,7 @@ fn source() -> Value {
 fn program() -> Program {
     Program::decode(json!({"schema_version":1,"numeric_policy":"DECIMAL28_HALF_EVEN_Q12_V1","inputs":{"value":{"type":"DECIMAL","role":"MARKET"}},"parameters":[{"name":"period","parameter_type":"INTEGER","required":false,"default":{"type":"INTEGER","value":2},"minimum":{"type":"INTEGER","value":1},"maximum":{"type":"INTEGER","value":100},"enum_values":[],"uppercase":false}],"nodes":[{"op":"input","name":"value"},{"op":"rolling_mean","args":[0],"period":{"parameter":"period"}}],"outputs":{"value":1}}).to_string().as_bytes()).unwrap()
 }
-fn resolved(period: u64) -> ProgramCalculation {
+fn resolved(period: u64, container: &str, artifact: &ImplementationArtifact) -> ProgramCalculation {
     let p = program();
     ProgramCalculation::resolve(
         &source(),
@@ -17,16 +17,18 @@ fn resolved(period: u64) -> ProgramCalculation {
             p.bind(&p.resolve_parameters(&json!({"period":period})).unwrap())
                 .unwrap(),
         ),
-        &"c".repeat(64),
-        &"f".repeat(64),
+        container,
+        artifact,
         &json!({"value":{"node_fingerprint":null,"output_name":"value","source":"bar.close"}}),
     )
     .unwrap()
 }
 #[test]
 fn declaration_binds_real_ir_ports_parameters_warmup_numeric_and_implementation() {
-    let a = resolved(2);
-    let b = resolved(3);
+    let artifact = ImplementationArtifact::new("bin/test-runner", &"f".repeat(64)).unwrap();
+    let container = "c".repeat(64);
+    let a = resolved(2, &container, &artifact);
+    let b = resolved(3, &container, &artifact);
     let d = a.definition().to_record();
     assert_eq!(d["kind"], "FACTOR");
     assert_eq!(d["numeric"]["precision"], 28);
@@ -48,7 +50,8 @@ fn declaration_binds_real_ir_ports_parameters_warmup_numeric_and_implementation(
     );
 }
 #[test]
-fn declarations_cannot_relabel_program_types_or_unbind_code_artifacts() {
+fn declarations_cannot_relabel_program_types() {
+    let artifact = ImplementationArtifact::new("bin/test-runner", &"f".repeat(64)).unwrap();
     let p = program();
     let bound = Arc::new(p.bind(&p.resolve_parameters(&json!({})).unwrap()).unwrap());
     let bindings =
@@ -61,24 +64,57 @@ fn declarations_cannot_relabel_program_types_or_unbind_code_artifacts() {
             "input_contract"
         }]["value"]["type"] = json!("BOOLEAN");
         assert!(
-            ProgramCalculation::resolve(
-                &s,
-                bound.clone(),
-                &"c".repeat(64),
-                &"f".repeat(64),
-                &bindings
-            )
-            .is_err()
+            ProgramCalculation::resolve(&s, bound.clone(), &"c".repeat(64), &artifact, &bindings)
+                .is_err()
         );
     }
-    let a = resolved(2).implementation_manifest("TRADING").unwrap();
-    for (container, image) in [
-        ("b".repeat(64), "f".repeat(64)),
-        ("c".repeat(64), "e".repeat(64)),
+}
+
+#[test]
+fn factor_manifest_binds_artifact_path_and_bytes_independently_of_program_container() {
+    let path = "bin/test-runner";
+    let digest = "f".repeat(64);
+    let container = "c".repeat(64);
+    let manifest = |container: &str, path: &str, digest: &str| {
+        let artifact = ImplementationArtifact::new(path, digest).unwrap();
+        resolved(2, container, &artifact)
+            .implementation_manifest("TRADING")
+            .unwrap()
+    };
+    let baseline = manifest(&container, path, &digest);
+    assert_eq!(baseline, manifest(&container, path, &digest));
+    assert_eq!(
+        baseline["resources"],
+        json!([{"relative_path":path,"byte_sha256":digest}])
+    );
+
+    let changed_digest = "e".repeat(64);
+    for (other_path, other_digest) in [
+        ("bin/other-runner", digest.as_str()),
+        (path, changed_digest.as_str()),
     ] {
-        let other =
-            ProgramCalculation::resolve(&source(), bound.clone(), &container, &image, &bindings)
-                .unwrap();
-        assert_ne!(a, other.implementation_manifest("TRADING").unwrap());
+        let other = manifest(&container, other_path, other_digest);
+        assert_eq!(
+            other["resources"],
+            json!([{"relative_path":other_path,"byte_sha256":other_digest}])
+        );
+        assert_ne!(
+            baseline["implementation_bundle_fingerprint"],
+            other["implementation_bundle_fingerprint"]
+        );
+        assert_ne!(
+            baseline["implementation_fingerprint"],
+            other["implementation_fingerprint"]
+        );
     }
+
+    let other_container = manifest(&"b".repeat(64), path, &digest);
+    assert_eq!(
+        baseline["implementation_bundle_fingerprint"],
+        other_container["implementation_bundle_fingerprint"]
+    );
+    assert_ne!(
+        baseline["implementation_fingerprint"],
+        other_container["implementation_fingerprint"]
+    );
 }

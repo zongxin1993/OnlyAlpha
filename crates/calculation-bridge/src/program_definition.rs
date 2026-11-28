@@ -1,5 +1,6 @@
 //! Pure declarations over a decoded program. PostgreSQL readiness and asset
 //! permissions remain the caller's responsibility; this module performs no I/O.
+use crate::ImplementationArtifact;
 use onlyalpha_calculation::{
     product::{Definition, TypeDeclaration},
     program::BoundProgram,
@@ -21,7 +22,7 @@ pub struct ProgramCalculation {
     definition: Definition,
     program: Arc<BoundProgram>,
     dependencies: Value,
-    image: String,
+    artifact: ImplementationArtifact,
 }
 impl ProgramCalculation {
     /// `program_artifact` identifies the generic program container, never its
@@ -30,10 +31,10 @@ impl ProgramCalculation {
         metadata: &Value,
         program: Arc<BoundProgram>,
         program_artifact: &str,
-        image: &str,
+        artifact: &ImplementationArtifact,
         bindings: &Value,
     ) -> Result<Self> {
-        if !sha(program_artifact) || !sha(image) || metadata.to_string().len() > WORK {
+        if !sha(program_artifact) || metadata.to_string().len() > WORK {
             return Err(INVALID);
         }
         let ir = program.program().record();
@@ -73,7 +74,7 @@ impl ProgramCalculation {
         let result = Self {
             definition,
             program,
-            image: image.into(),
+            artifact: artifact.clone(),
             dependencies: json!([{"kind":"FACTOR_PROGRAM_CONTAINER","fingerprint":program_artifact},{"kind":"FACTOR_API","version":1,"fingerprint":api},{"kind":"NUMERIC_POLICY","identity":"DECIMAL28_HALF_EVEN_Q12_V1"}]),
         };
         result
@@ -128,16 +129,13 @@ impl ProgramCalculation {
             .collect::<Result<serde_json::Map<_, _>>>()?;
         TypeDeclaration::from_record(&json!({"schema_version":1,"descriptor":{"kind":r["kind"],"type_id":r["type_id"],"semantic_version":r["semantic_version"],"parameters":parameters,"inputs":r["inputs"],"outputs":r["outputs"],"missing_values":r["missing_values"],"timestamp":r["timestamp"],"numeric":r["numeric"],"factor_kind":r["factor_kind"],"execution_shape":"TIME_SERIES","semantic_bounds":bounds},"parameter_values":values}),WORK).map_err(|_|INVALID)
     }
-    /// The caller must prove that `image` is the actual loaded executable.
+    /// 调用方负责核验传入的实现工件与实际加载的可执行文件一致。
     pub fn implementation_manifest(&self, backend: &str) -> Result<Value> {
         if !matches!(backend, "RESEARCH" | "TRADING") {
             return Err(INVALID);
         }
         let r = self.definition.to_record();
-        let resources = json!([{"relative_path":"bin/onlyalpha-backend","byte_sha256":self.image}]);
-        let bundle = onlyalpha_strategy::record_fingerprint(
-            &json!({"domain":"onlyalpha.calculation.implementation-bundle","schema_version":1,"resources":resources}),
-        );
+        let (resources, bundle) = self.artifact.manifest_resources();
         let mut identity = json!({"domain":"onlyalpha.calculation.implementation","schema_version":1,"calculation_type_reference":{"kind":"FACTOR","type_id":r["type_id"],"semantic_version":r["semantic_version"]},"backend_kind":backend,"entrypoint_identity":if backend=="RESEARCH" {"onlyalpha_calculation.program:evaluate_batch"} else {"onlyalpha_calculation.program:ProgramInstance.step"},"implementation_bundle_fingerprint":bundle,"semantic_dependencies":self.dependencies});
         let fp = onlyalpha_strategy::record_fingerprint(&identity);
         identity.as_object_mut().ok_or(INVALID)?.remove("domain");

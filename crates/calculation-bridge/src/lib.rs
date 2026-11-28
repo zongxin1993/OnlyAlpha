@@ -15,8 +15,8 @@ mod strategy_preparation;
 pub use program_nodes::{ProgramFactor, ProgramNodes};
 pub use strategy_preparation::StrategyPreparation;
 
-mod chart_installation;
-pub use chart_installation::ChartInstallation;
+mod implementation_artifact;
+pub use implementation_artifact::ImplementationArtifact;
 
 pub mod native_predicates;
 

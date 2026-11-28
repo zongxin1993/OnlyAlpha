@@ -1,7 +1,7 @@
 //! Shared integration construction using actual native Program/Operator/Predicate owners.
 use onlyalpha_calculation::{Definition, Graph, program::Program as Factor};
 use onlyalpha_calculation_bridge::{
-    ProgramFactor, ProgramNodes, native_operators::OperatorCalculation,
+    ImplementationArtifact, ProgramFactor, ProgramNodes, native_operators::OperatorCalculation,
     native_predicates::PredicateCalculation,
 };
 use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar, time::OnlyTimestamp};
@@ -33,7 +33,7 @@ pub fn executor() -> onlyalpha_strategy::Executor<ProgramNodes> {
     onlyalpha_strategy::Executor::new(program, nodes).unwrap()
 }
 pub fn parts() -> (Program, ProgramNodes) {
-    let image = "f".repeat(64);
+    let artifact = ImplementationArtifact::new("bin/test-runner", &"f".repeat(64)).unwrap();
     let root = OperatorCalculation::resolve(
         "onlyalpha.operator.rolling_mean",
         "3",
@@ -67,7 +67,17 @@ pub fn parts() -> (Program, ProgramNodes) {
         signals
             .push(SignalBinding::new(&native(leaf.definition()).fingerprint(), "value").unwrap());
         for p in [predicate, leaf] {
-            descriptors.push(NodeDescriptor { definition:native(p.definition()),native_definition:p.definition().fingerprint(),implementation:p.implementation_manifest("TRADING",&image).unwrap()["implementation_fingerprint"].as_str().unwrap().into(),state_capability:"STATELESS".into(),checkpoint_schema:None });
+            let manifest = p.implementation_manifest("TRADING", &artifact).unwrap();
+            descriptors.push(NodeDescriptor {
+                definition: native(p.definition()),
+                native_definition: p.definition().fingerprint(),
+                implementation: manifest["implementation_fingerprint"]
+                    .as_str()
+                    .unwrap()
+                    .into(),
+                state_capability: "STATELESS".into(),
+                checkpoint_schema: None,
+            });
             products.push(p.definition().clone());
         }
     }
@@ -113,7 +123,7 @@ pub fn parts() -> (Program, ProgramNodes) {
         program.clone(),
         definitions,
         BTreeMap::from([(root_native.fingerprint(), factor_binding)]),
-        &image,
+        &artifact,
     )
     .unwrap();
     (program, nodes)
