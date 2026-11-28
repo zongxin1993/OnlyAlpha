@@ -438,6 +438,46 @@ crate::base::domain_field!(OnlyTradingDay);
 
 #[cfg(test)]
 mod tests {
+    use super::{BigInt, OnlyTimestamp};
+
+    #[test]
+    fn unix_units_preserve_large_signed_values() {
+        let huge = BigInt::from(10).pow(1000);
+        for value in [
+            -&huge,
+            BigInt::from(-1),
+            BigInt::from(0),
+            BigInt::from(1),
+            huge,
+        ] {
+            let micros = OnlyTimestamp::from_unix_micros(value.clone());
+            let millis = OnlyTimestamp::from_unix_millis(value.clone());
+            let seconds = OnlyTimestamp::from_unix_seconds(value.clone());
+            assert_eq!(micros.to_unix_nanos(), &value * 1_000);
+            assert_eq!(millis.to_unix_nanos(), &value * 1_000_000);
+            assert_eq!(seconds.to_unix_nanos(), &value * 1_000_000_000);
+            assert_eq!(micros.to_unix_micros(), value);
+            assert_eq!(millis.to_unix_millis(), value);
+            assert_eq!(seconds.to_unix_seconds(), value);
+        }
+    }
+
+    #[test]
+    fn unix_units_floor_fractional_values_before_and_after_epoch() {
+        for (nanos, micros, millis, seconds) in [
+            (-1_000_000_001, -1_000_001, -1_001, -2),
+            (-1_001, -2, -1, -1),
+            (-1, -1, -1, -1),
+            (999, 0, 0, 0),
+            (1_000_000_001, 1_000_000, 1_000, 1),
+        ] {
+            let timestamp = OnlyTimestamp::from_unix_nanos(nanos.into());
+            assert_eq!(timestamp.to_unix_micros(), BigInt::from(micros));
+            assert_eq!(timestamp.to_unix_millis(), BigInt::from(millis));
+            assert_eq!(timestamp.to_unix_seconds(), BigInt::from(seconds));
+        }
+    }
+
     #[test]
     fn all_pinned_tzif_files_parse_without_system_discovery() {
         for (name, _) in crate::tzdb_rules::ZONES {
