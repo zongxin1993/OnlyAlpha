@@ -8,6 +8,10 @@ mod projection;
 pub mod provider;
 mod venue;
 
+#[cfg(test)]
+#[path = "tests/binding.rs"]
+mod binding_tests;
+
 use config::Config;
 use onlyalpha_broker::*;
 use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar, value::OnlyMoney};
@@ -45,7 +49,7 @@ impl VirtualBroker {
             return Err(err("VIRTUAL_ARTIFACT_DIGEST"));
         }
         let config = Config::parse(extensions)?;
-        let binding = json!({"implementation":"rust","plugin_id":"virtual","release_id":"plugin-onlyalpha-broker-virtual",
+        let binding = json!({"implementation":"rust","plugin_id":"virtual","release_id":"libs",
             "version":IMPLEMENTATION_VERSION,"artifact_sha256":artifact_sha256,"scope":scope.record(),
             "initial_cash":initial_cash.to_record(),"configuration":config.record});
         Ok(Self {

@@ -412,7 +412,7 @@ Order Service
 
 Gateway 和 SDK callback 不持有或修改 Runtime Manager。重复、乱序和迟到 update 通过正式 identity、sequence、dedup 与 reconciliation 处理。
 
-Virtual Broker 是独立 Broker plugin，负责 deterministic matching、Accepted/Trade/Terminal、whole/partial/multi-fill、slippage、fill plan 和 checkpointable external execution state；它不修改 Account、Position、Risk 或正式 Fee authority。Backtest 与目标 Sim 使用 Virtual Broker。Sim 永远不能解析或提交到 Real Broker。
+Virtual Broker 是 BACKTEST 和 SIM 显式装配的 Rust 基础库，负责 deterministic matching、Accepted/Trade/Terminal、whole/partial/multi-fill、slippage、fill plan 和 checkpointable external execution state；它不修改 Account、Position、Risk 或正式 Fee authority。Backtest 与目标 Sim 使用 Virtual Broker。Sim 永远不能解析或提交到 Real Broker。
 
 目标 Live 使用 Real Broker，并在启用真实资金前补齐 durable outbound command、idempotency、ACK/Reject/Unknown、Broker query/synchronization、reconciliation、reconnect 和 long-running recovery。
 
@@ -573,7 +573,7 @@ Concrete DataSource / Broker Plugin
 → Core orchestration
 ```
 
-Virtual Broker 和 Tushare 位于各自 distribution；当前不可用的 MiniQMT adapter 按 ADR 0139 下线，历史 provenance 和通用交易语义保留。插件必须提供稳定 descriptor/capability/config/lifecycle，把 SDK 异常转换为可诊断错误，并将 callback 数据标准化后送入 Runtime queue；不得在 import 时访问外部环境、泄漏 SDK 对象或持有 Runtime Manager。
+[原生 Virtual Broker](../crates/broker-virtual/README.md) 随 Rust 库 `libs` 统一发行，历史运行按原发行身份和工件摘要恢复。Tushare 作为数据源插件独立发行。当前不可用的 MiniQMT adapter 按 ADR 0139 下线，历史 provenance 和通用交易语义保留。插件必须提供稳定 descriptor/capability/config/lifecycle，把 SDK 异常转换为可诊断错误，并将 callback 数据标准化后送入 Runtime queue；不得在 import 时访问外部环境、泄漏 SDK 对象或持有 Runtime Manager。
 
 缺失或不兼容插件必须明确失败，Core 不提供隐藏 Synthetic/Virtual/Placeholder fallback。
 

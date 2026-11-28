@@ -22,7 +22,7 @@ onlyalpha-research-statistics = { path = "../research-statistics" }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 criterion = { workspace = true }
-onlyalpha-broker-virtual = { path = "../../plugs/onlyalpha-broker-virtual" }
+onlyalpha-broker-virtual = { path = "../broker-virtual" }
 onlyalpha-risk = { path = "../risk" }
 
 [[bench]]

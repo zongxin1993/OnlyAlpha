@@ -11,7 +11,7 @@
 
 不负责产品任务准入、权限、队列或 LIVE 授权；不创建第二套交易语义。
 
-直接依赖的仓内库：[`onlyalpha-runtime`](../runtime/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-broker-virtual`](../../plugs/onlyalpha-broker-virtual/README.md)、[`onlyalpha-calculation-bridge`](../calculation-bridge/README.md)、[`onlyalpha-clock`](../clock/README.md)、[`onlyalpha-domain`](../domain/README.md)、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-strategy`](../strategy/README.md)、[`onlyalpha-market-data`](../market-data/README.md)。
+直接依赖的仓内库：[`onlyalpha-runtime`](../runtime/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-broker-virtual`](../broker-virtual/README.md)、[`onlyalpha-calculation-bridge`](../calculation-bridge/README.md)、[`onlyalpha-clock`](../clock/README.md)、[`onlyalpha-domain`](../domain/README.md)、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-strategy`](../strategy/README.md)、[`onlyalpha-market-data`](../market-data/README.md)。
 完整依赖、特性及编译配置见 [Cargo.toml](Cargo.toml)。调用方只能通过公开接口集成，不直接访问私有模块或修改所属状态。
 
 ## 公开接口

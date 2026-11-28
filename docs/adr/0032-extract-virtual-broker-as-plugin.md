@@ -1,12 +1,11 @@
 # ADR 0032: Extract Virtual Broker as an Independent Plugin
 
-- Status: Accepted; trade-journal wording superseded by ADR 0033
+- 状态：部分替代。交易日志以 ADR 0033 为准。原生 Rust 模拟场所的目录与发行归属以[仓库架构](../repository-product-architecture.md)为准。
 - Date: 2026-07-22
 
 ## Context
 
-> Historical note: references below to the Applied Trade Journal describe the boundary at this ADR's acceptance time.
-> ADR 0033 replaces that model without changing this ADR's plugin-extraction decision.
+> 以下记录保留原插件的发行和发现方式。原生 Rust 模拟场所现由 `crates/broker-virtual` 提供，随 `libs` 统一发行，Provider ID 仍为 `virtual`。已发行插件和旧运行继续绑定原身份及原工件。场所拥有模拟订单与成交观察，Runtime 负责本地经济事实的应用。原决定中的 Applied Trade Journal 已由 ADR 0033 替代。
 
 Core previously contained a concrete Virtual Broker and Backtest Runtime directly imported its queue, gateway, config,
 `on_bar()`/`run_due()` methods, dynamic `bind_market_rules`, and Broker trade query. This reversed the plugin dependency,

@@ -19,7 +19,7 @@ tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 onlyalpha-market-crypto = { path = "../../plugs/onlyalpha-market-crypto" }
 onlyalpha-backtest = { path = "../../crates/backtest" }
 onlyalpha-broker = { path = "../../crates/broker" }
-onlyalpha-broker-virtual = { path = "../../plugs/onlyalpha-broker-virtual" }
+onlyalpha-broker-virtual = { path = "../../crates/broker-virtual" }
 onlyalpha-execution = { path = "../../crates/execution" }
 onlyalpha-account = { path = "../../crates/account" }
 arrow-array = { version = "=59.3.2", default-features = false }

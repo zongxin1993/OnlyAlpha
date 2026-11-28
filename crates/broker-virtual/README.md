@@ -2,15 +2,15 @@
 
 ## 目的与职责
 
-`onlyalpha-broker-virtual` 提供确定性的模拟场所订单、成交与查询投影，Provider ID 为 `virtual`。接收命令、接受订单、场所成交和向 Broker 发布观察分别发生。场所负责自己的虚拟外部事实，Runtime 负责风控、正式资金与仓位、费用和结算。发行单元为 `plugin-onlyalpha-broker-virtual`，版本取自 [Cargo manifest](Cargo.toml)。
+`onlyalpha-broker-virtual` 提供确定性的模拟场所订单、成交与查询投影，Provider ID 为 `virtual`。接收命令、接受订单、场所成交和向 Broker 发布观察分别发生。场所负责自己的虚拟外部事实，Runtime 负责风控、正式资金与仓位、费用和结算。本库随 `libs` 统一发行，版本继承自[根 Cargo 清单](../../Cargo.toml)。
 
 ## 边界与依赖
 
-适用 BACKTEST 和 SIM 的 Rust 库装配。正式回测产品继续走原先绑定的 `NextOpenPolicy` 和 Spot 模型；本库没有新增 Web、API、SIM 服务或 LIVE 准入。输入采用 [Domain](../../crates/domain/src/lib.rs) 的不可变 Bar、初始 Money 和 [Broker](../../crates/broker/src/lib.rs) 的 Scope、命令和 Journal，金额按十进制定点精度运算，配置和检查点使用 serde_json。依赖 BigDecimal 做归一化、截断与舍入，不访问墙钟、随机数、网络或数据库。
+适用于 BACKTEST 和 SIM。输入采用 [Domain](../domain/src/lib.rs) 的不可变 Bar、初始 Money 和 [Broker](../broker/src/lib.rs) 的 Scope、命令和 Journal。调用方显式推进模拟时钟。金额按十进制定点精度运算，BigDecimal 用于归一化、截断与舍入，serde_json 用于配置和检查点。
 
 ## 公开接口
 
-[`provider::VIRTUAL_BROKER_TYPE_ID`、`descriptor` 和 `normalize_configuration`](src/provider.rs) 分别提供 Product 类型 `onlyalpha.virtual_broker`、类别为 `BROKER` 的公开描述符，以及原生配置的规范化结果。当前公开描述符接受 `latency`（各操作纳秒数）与 `maximum_fill_quantity`（精确十进制字符串）。宿主先按描述符核验公开字段和类型，再把原配置交给插件解析。解析失败返回 Broker 错误；成功结果供核对 `source_binding()["configuration"]`，创建场所仍使用原配置。生产节点按 `BROKER` 类别注册该描述符和原生校验函数，使用 [IMPLEMENTATION_VERSION](src/lib.rs) 核对已链接的插件版本，并用 [provider::CAPABILITIES](src/provider.rs) 核对场所支持的操作。
+[`provider::VIRTUAL_BROKER_TYPE_ID`、`descriptor` 和 `normalize_configuration`](src/provider.rs) 分别提供 Product 类型 `onlyalpha.virtual_broker`、类别为 `BROKER` 的公开描述符，以及原生配置的规范化结果。当前公开描述符接受 `latency`（各操作纳秒数）与 `maximum_fill_quantity`（精确十进制字符串）。宿主先按描述符核验公开字段和类型，再把原配置交给模拟场所解析。解析失败返回 Broker 错误；成功结果供核对 `source_binding()["configuration"]`，创建场所仍使用原配置。生产节点按 `BROKER` 类别注册该描述符和原生校验函数，使用 [IMPLEMENTATION_VERSION](src/lib.rs) 核对已链接的库版本，并用 [provider::CAPABILITIES](src/provider.rs) 核对场所支持的操作。
 
 新增 Discovery 的 economic_through_ns 仅声明 `now - 1ns` 的封闭前缀，使用实际有符号时钟 checked subtraction，最小值溢出时拒绝。Virtual 未来事实使用当时的 now，时钟不倒退，因此当前纳秒仍可继续出现成交，不能当作 inclusive 封口。该语义不修改旧 CLOCK、Bar 或 checkpoint 编码；真实 driver 应先消费边界成交，再将时钟推进越过边界并读取前缀。as_of 保持供应商序列，Runtime 另核对原成交 Ready 投影。
 
@@ -43,4 +43,4 @@
 
 ## 使用与验证
 
-从 [Rust 端口集成用例](tests/venue.rs) 与 [受控持续交易场所用例](tests/controlled_trading_venue.rs) 查看提交、驱动 Bar、查询、发布、UNKNOWN 对账、内存回放和恢复调用。仓库根目录运行 `cargo test --locked -p onlyalpha-broker-virtual`，或使用 `python3 scripts/dev_verification.py run -- cargo test --locked -p onlyalpha-broker-virtual` 在隔离环境验证。正常产品调用需由各自正式装配入口和权限检查接入。
+从 [Rust 端口集成用例](tests/venue.rs) 与 [受控持续交易场所用例](tests/controlled_trading_venue.rs) 查看提交、驱动 Bar、查询、发布、UNKNOWN 对账、内存回放和恢复调用。当前在 Mac 主机运行 `python3 scripts/unit_tests.py`，仓库脚本会选中本库的 `--lib` 单元测试。正常产品调用需由各自正式装配入口和权限检查接入。

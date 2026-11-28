@@ -1,6 +1,6 @@
 # Virtual Broker 模拟场所
 
-Virtual Broker 的发行单元是 `plugin-onlyalpha-broker-virtual`，Cargo 包名为 `onlyalpha-broker-virtual`，Provider ID 为 `virtual`。原生库在一个 BACKTEST 或 SIM Scope 中持有模拟场所的订单、成交和查询投影。正式资金、策略、风控、费用和结算继续由各自的 Runtime 模块负责。创建、驱动和查询接口见[插件 README](../plugs/onlyalpha-broker-virtual/README.md)及 [Rust 入口](../plugs/onlyalpha-broker-virtual/src/lib.rs)。
+`onlyalpha-broker-virtual` 是 BACKTEST 和 SIM 共用的 Rust 基础库，随 `libs` 统一发行，Provider ID 为 `virtual`。每个实例在自己的 Scope 中持有模拟场所的订单、成交和查询投影。正式资金、策略、风控、费用和结算由各自的 Runtime 模块负责。创建、驱动和查询接口见[模拟券商 README](../crates/broker-virtual/README.md)及 [Rust 入口](../crates/broker-virtual/src/lib.rs)。
 
 ## 端口与实际装配
 

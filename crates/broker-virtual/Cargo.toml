@@ -1,6 +1,6 @@
 [package]
 name = "onlyalpha-broker-virtual"
-version = "0.11.1"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
@@ -13,7 +13,7 @@ path = "src/lib.rs"
 workspace = true
 
 [dependencies]
-onlyalpha-broker = { path = "../../crates/broker" }
-onlyalpha-domain = { path = "../../crates/domain" }
+onlyalpha-broker = { path = "../broker" }
+onlyalpha-domain = { path = "../domain" }
 bigdecimal = { version = "=0.4.11", default-features = false, features = ["std"] }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std", "arbitrary_precision"] }

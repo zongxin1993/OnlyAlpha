@@ -13,7 +13,7 @@ crates/                                 one directory per reusable Rust library
   market-data/                          pipeline, state and delivery
   market-data-construction/             independent construction rules
   order/  position/  account/  strategy-ledger/  risk/
-  fee/  settlement/  margin/  broker/  execution/
+  fee/  settlement/  margin/  broker/  broker-virtual/  execution/
   integration-contract/  metadata-json/  calculation-bridge/  runtime/  backtest/
   operators/  indicators/              pure Rust libraries (target placement)
 packages/
@@ -44,7 +44,7 @@ Each library directory uses its responsibility name, with a Cargo package name p
 Provider dependencies stay outside the Kernel. Concrete Rust plugins use their own `src/` under `plugs/`. Each independently
 deployable unit requires a distinct lifecycle, resource, fault or upgrade boundary.
 
-插件职责、实际装配限制及发行单元对应关系见[插件能力与历史边界](plugin-capabilities.md)。
+BACKTEST 和 SIM 共用的确定性模拟场所由 [`broker-virtual`](../crates/broker-virtual/README.md) 提供，真实券商协议适配器由 `plugs/` 中的插件实现。插件职责、实际装配限制及发行单元对应关系见[插件能力与历史边界](plugin-capabilities.md)。
 
 目标架构中 Backend 不再内嵌因子／策略算法编写与执行；`python/algorithms/`、旧 Python 因子编译／执行子进程及相关包装按 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 清退。全部量化计算与交易执行语义收拢为 `crates/` 内的 `OnlyAlphaRuntime` 门面，Backend 只装配端口、托管生命周期并暴露正式 API。
 

@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 onlyalpha-runtime = { path = "../runtime" }
 onlyalpha-broker = { path = "../broker" }
-onlyalpha-broker-virtual = { path = "../../plugs/onlyalpha-broker-virtual" }
+onlyalpha-broker-virtual = { path = "../broker-virtual" }
 onlyalpha-calculation-bridge = { path = "../calculation-bridge" }
 onlyalpha-clock = { path = "../clock" }
 onlyalpha-domain = { path = "../domain" }
