@@ -202,6 +202,9 @@ impl Session {
         self.state.sequence()
     }
     pub fn apply(&mut self, input: &TradingInput) -> Result<Arc<AppliedEvent>, Error> {
+        if input.record().get("broker_record").is_some() {
+            return Err(error("MEMORY_ORIGINAL_VENUE_REQUIRED"));
+        }
         let operation = if input.record()["op"] == "ADMIT" {
             "memory.admission"
         } else {
@@ -215,6 +218,40 @@ impl Session {
             0,
             || self.apply_inner(input, None),
         )
+    }
+    pub(crate) fn apply_cash_venue(
+        &mut self,
+        input: &TradingInput,
+        observed: &onlyalpha_broker::ObservedFact,
+    ) -> Result<Arc<AppliedEvent>, Error> {
+        let fact = observed.fact();
+        self.finite_scope(&fact.scope())
+            .map_err(|e| Error(e.to_string()))?;
+        let original = fact.record();
+        let value = input.record();
+        if self.configuration.record()["schema_version"] == 3
+            || value.get("broker_record") != Some(&original)
+            || value["payload"]["order"] != original["payload"]["order"]
+            || value["time"] != original["ts_event"]
+            || !matches!(
+                (value["op"].as_str(), original["kind"].as_str()),
+                (Some("ACCEPT"), Some("ACCEPTED")) | (Some("FILL"), Some("TRADE"))
+            )
+        {
+            return Err(error("MEMORY_ORIGINAL_VENUE_MISMATCH"));
+        }
+        if let Some(&index) = self.broker_facts.get(fact.identity()) {
+            let prior = &self.facts[index];
+            if prior.input() != value {
+                return Err(error("MEMORY_INPUT_CONFLICT"));
+            }
+            return Ok(Arc::clone(prior));
+        }
+        let evidence = self.state.check_cash_observation(value, observed)?;
+        let applied = self.apply_inner(input, Some(evidence))?;
+        self.broker_facts
+            .insert(fact.identity().into(), applied.sequence() as usize - 1);
+        Ok(applied)
     }
     pub fn apply_original(
         &mut self,
@@ -373,8 +410,7 @@ impl Session {
         self.ready().map_err(broker_error)?;
         let cfg = self.configuration.record();
         let raw = scope.record();
-        if cfg["schema_version"] != 3
-            || cfg["runtime_kind"] != "BACKTEST"
+        if cfg["runtime_kind"] != "BACKTEST"
             || [
                 "engine",
                 "runtime",
@@ -450,8 +486,14 @@ impl onlyalpha_broker::FiniteRuntimeReader for Session {
             return Ok(None);
         };
         let event = &self.facts[*index];
-        let original = &event.input()["payload"]["broker"];
-        if original["record"] != fact.record() || original["fingerprint"] != fact.fingerprint() {
+        let input = event.input();
+        let matches = if let Some(record) = input.get("broker_record") {
+            record == &fact.record()
+        } else {
+            let original = &input["payload"]["broker"];
+            original["record"] == fact.record() && original["fingerprint"] == fact.fingerprint()
+        };
+        if !matches {
             return Err(broker_error("original"));
         }
         onlyalpha_broker::ApplicationReceipt::new(

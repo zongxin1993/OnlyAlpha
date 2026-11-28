@@ -4,7 +4,10 @@ use crate::{
     model::{err, integer},
 };
 use bigdecimal::num_bigint::BigInt;
-use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar, time::OnlyTimestamp};
+use onlyalpha_domain::{
+    base::OnlyDomainModel, identifiers::OnlyInstrumentId, market::OnlyBar, time::OnlyTimestamp,
+    value::OnlyPrice,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -92,6 +95,28 @@ pub fn source_input_time(previous: &BigInt, scope: &Scope, input: &Value) -> Res
     let row = input.as_array().ok_or_else(|| err("BROKER_SOURCE_INPUT"))?;
     let at = match (row.first().and_then(Value::as_str), row.len()) {
         (Some("CLOCK"), 2) => integer(&row[1], false)?,
+        (Some("OPEN"), 5) => {
+            let invalid = || err("BROKER_SOURCE_OPEN");
+            if scope.record()["runtime_kind"] != "BACKTEST"
+                || row[1].as_u64().is_none_or(|n| n == 0)
+            {
+                return Err(invalid());
+            }
+            let instrument = OnlyInstrumentId::from_record(&row[3]).map_err(|_| invalid())?;
+            let price = OnlyPrice::from_record(&row[4]).map_err(|_| invalid())?;
+            if instrument.to_record() != row[3]
+                || price.to_record() != row[4]
+                || price.value().is_zero()
+                || price.value().is_negative()
+            {
+                return Err(invalid());
+            }
+            row[2]
+                .as_i64()
+                .filter(|at| *at >= 0)
+                .ok_or_else(invalid)?
+                .into()
+        }
         (Some("BAR"), 3) => {
             if row[1].as_u64().is_none_or(|n| n == 0) {
                 return Err(err("BROKER_SOURCE_BAR"));
@@ -119,6 +144,41 @@ pub fn source_input_time(previous: &BigInt, scope: &Scope, input: &Value) -> Res
         return Err(err("BROKER_SOURCE_TIME_REGRESSION"));
     }
     Ok(at)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_clock_accepts_only_backtest_opening_evidence() {
+        let scope = |kind: &str| {
+            Scope::decode(&json!({"engine":"engine","runtime":"runtime","gateway":"gateway","account":"account","generation":"a".repeat(64),"runtime_kind":kind})).unwrap()
+        };
+        let instrument = json!({"schema_version":1,"symbol":{"schema_version":1,"value":"A"},"venue":{"schema_version":1,"value":"X"}});
+        let price = json!({"schema_version":1,"value":"10.00","precision":2});
+        let open = json!(["OPEN", 1, 17, instrument, price]);
+        let backtest = scope("BACKTEST");
+        assert_eq!(
+            source_input_time(&17.into(), &backtest, &open).unwrap(),
+            17.into()
+        );
+        assert!(source_input_time(&18.into(), &backtest, &open).is_err());
+        for kind in ["SIM", "LIVE"] {
+            assert!(source_input_time(&0.into(), &scope(kind), &open).is_err());
+        }
+        for (index, invalid) in [
+            (1, json!(0)),
+            (2, json!(-1)),
+            (3, Value::Null),
+            (4, json!({"schema_version":1,"value":"0.00","precision":2})),
+            (4, json!({"schema_version":1,"value":"-1.00","precision":2})),
+        ] {
+            let mut changed = open.clone();
+            changed[index] = invalid;
+            assert!(source_input_time(&0.into(), &backtest, &changed).is_err());
+        }
+    }
 }
 
 pub fn check_admission_clock(

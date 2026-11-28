@@ -37,11 +37,7 @@
 
 ## 使用与验证
 
-在仓库根目录运行以下命令，使用固定的 onlyalpha-dev 环境进行离线验证。
-
-```sh
-python3 scripts/dev_verification.py run -- cargo test --locked --offline -p onlyalpha-broker-binance
-```
+当前阶段在 Mac 主机运行[仓库单测脚本](../../scripts/unit_tests.py)，范围为 `crates/` 下的 Rust 库。以下插件专项用例待恢复插件验证时运行。
 
 [协议用例](src/tests/protocol_cases.rs)、[真实 Broker 恢复用例](src/tests/venue_recovery.rs)和[本机 TLS 协议用例](src/tests/loopback_tls.rs)使用固定输入。TLS 测试复用仓内公开的 loopback 专用证书与叶证书测试私钥。真实 Binance Spot Testnet、生产账户、实盘权限和后端产品安装均需独立验收。
 

@@ -7,7 +7,11 @@ use crate::{
 use bigdecimal::{BigDecimal as D, Zero};
 use onlyalpha_broker::*;
 use onlyalpha_domain::{
-    base::OnlyDomainModel, market::OnlyBar, time::OnlyTimestamp, value::OnlyMoney,
+    base::OnlyDomainModel,
+    identifiers::OnlyInstrumentId,
+    market::OnlyBar,
+    time::OnlyTimestamp,
+    value::{OnlyMoney, OnlyPrice},
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -45,7 +49,16 @@ impl Order {
 }
 
 #[derive(Clone)]
+struct Opening {
+    at: i64,
+    instrument: OnlyInstrumentId,
+    price: OnlyPrice,
+    submitted: bool,
+}
+
+#[derive(Clone)]
 pub(crate) struct State {
+    opening: Option<Opening>,
     pub now: i64,
     pub bar_sequence: u64,
     last_bar: BTreeMap<String, Value>,
@@ -61,7 +74,8 @@ pub(crate) struct State {
 }
 impl State {
     pub(crate) fn finite_quiescent(&self) -> bool {
-        self.due.is_empty()
+        self.opening.is_none()
+            && self.due.is_empty()
             && self.outbox.is_empty()
             && self.orders.iter().all(|o| {
                 matches!(
@@ -73,6 +87,7 @@ impl State {
 
     pub fn new(cash: &OnlyMoney) -> Result<Self, Error> {
         Ok(Self {
+            opening: None,
             now: 0,
             bar_sequence: 0,
             last_bar: BTreeMap::new(),
@@ -97,6 +112,9 @@ impl State {
         ready: bool,
     ) -> Result<DispatchResult, Error> {
         let result = self.queue(cfg, c, ready)?;
+        if cfg.next_open.is_some() && result == DispatchResult::Received {
+            self.advance(cfg, self.now)?;
+        }
         if result == DispatchResult::Rejected {
             self.commands.insert(c.id().into(), c.clone());
             self.rejected.insert(c.id().into());
@@ -133,6 +151,26 @@ impl State {
                     || request["execution_intent"]["close_scope"] != "ANY"
                 {
                     return Ok(DispatchResult::Rejected);
+                }
+                if cfg.next_open.is_some() {
+                    let eligible = self.opening.as_mut().filter(|opening| {
+                        !opening.submitted
+                            && opening.at == self.now
+                            && opening.instrument.to_record() == request["instrument_id"]
+                            && request["order_type"] == "MARKET"
+                            && request["execution_intent"]["position_side"] == "LONG"
+                            && matches!(
+                                (
+                                    request["side"].as_str(),
+                                    request["execution_intent"]["position_effect"].as_str()
+                                ),
+                                (Some("BUY"), Some("OPEN")) | (Some("SELL"), Some("CLOSE"))
+                            )
+                    });
+                    let Some(opening) = eligible else {
+                        return Ok(DispatchResult::Rejected);
+                    };
+                    opening.submitted = true;
                 }
                 self.orders.push(Order {
                     submit: c.clone(),
@@ -238,7 +276,22 @@ impl State {
         let Some(reference) = reference else {
             return self.terminal(i, c, "REJECTED", json!("MARKET_REFERENCE_MISSING"));
         };
-        let price = number(&reference["value"])?;
+        let opening_fill = cfg
+            .next_open
+            .as_ref()
+            .map(|model| -> Result<_, Error> {
+                let open = &self
+                    .opening
+                    .as_ref()
+                    .ok_or_else(|| err("VIRTUAL_OPEN_MISSING"))?
+                    .price;
+                Ok((open.to_record(), model.price(open, &req["side"])?))
+            })
+            .transpose()?;
+        let price = match &opening_fill {
+            Some((_, execution)) => number(&execution["value"])?,
+            None => number(&reference["value"])?,
+        };
         if price <= D::zero() {
             return self.terminal(i, c, "REJECTED", json!("NONPOSITIVE_REFERENCE"));
         }
@@ -268,7 +321,9 @@ impl State {
         o.plan = Some(plan);
         o.status = "ACCEPTED";
         self.emit(c, "ACCEPTED", json!({"order":c.order(),"venue":venue}), 0)?;
-        if control["action"] == "ACCEPT_THEN_EXPIRE" {
+        if let Some((reference, price)) = opening_fill {
+            self.fill_at(i, cfg, &qty, &reference, price)?;
+        } else if control["action"] == "ACCEPT_THEN_EXPIRE" {
             self.terminal(i, c, "EXPIRED", control)?;
         }
         Ok(())
@@ -301,7 +356,51 @@ impl State {
         }
         Ok(())
     }
+    pub fn open(
+        &mut self,
+        cfg: &Config,
+        seq: u64,
+        at: i64,
+        instrument: &OnlyInstrumentId,
+        price: &OnlyPrice,
+    ) -> Result<(), Error> {
+        if cfg.next_open.is_none()
+            || self.opening.is_some()
+            || self.bar_sequence.checked_add(1) != Some(seq)
+            || price.value().is_zero()
+            || price.value().is_negative()
+            || self
+                .last_bar
+                .values()
+                .any(|bar| bar["bar_type"]["instrument_id"] != instrument.to_record())
+        {
+            return Err(err("VIRTUAL_OPEN_INPUT"));
+        }
+        self.advance(cfg, at)?;
+        self.projection
+            .marks
+            .insert(instrument.to_record().to_string(), price.to_record());
+        self.opening = Some(Opening {
+            at,
+            instrument: instrument.clone(),
+            price: price.clone(),
+            submitted: false,
+        });
+        Ok(())
+    }
     pub fn bar(&mut self, cfg: &Config, seq: u64, bar: &OnlyBar) -> Result<(), Error> {
+        if cfg.next_open.is_some() {
+            let opening = self
+                .opening
+                .as_ref()
+                .ok_or_else(|| err("VIRTUAL_OPEN_MISSING"))?;
+            if &opening.instrument != bar.instrument_id()
+                || opening.price.to_record() != bar.open().to_record()
+                || OnlyTimestamp::from_datetime(*bar.bar_start()).unix_nanos() != &opening.at.into()
+            {
+                return Err(err("VIRTUAL_OPEN_CLOSE_CONFLICT"));
+            }
+        }
         let record = bar.to_record();
         let instrument = bar.instrument_id().to_record();
         let key = record["bar_type"].to_string();
@@ -334,6 +433,9 @@ impl State {
         self.projection
             .marks
             .insert(instrument.to_string(), record["close"].clone());
+        if self.opening.take().is_some() {
+            return Ok(());
+        }
         for i in 0..self.orders.len() {
             if !self.orders[i].open() {
                 continue;
@@ -395,7 +497,19 @@ impl State {
                 };
             }
         }
-        let price = price_record(&price, p)?;
+        self.fill_at(i, cfg, q, reference, price_record(&price, p)?)
+    }
+    fn fill_at(
+        &mut self,
+        i: usize,
+        cfg: &Config,
+        q: &D,
+        reference: &Value,
+        price: Value,
+    ) -> Result<(), Error> {
+        let o = &mut self.orders[i];
+        let c = o.submit.clone();
+        let req = &c.record()["request"];
         let quantity =
             quantity_record(q, req["quantity"]["precision"].as_i64().expect("validated"))?;
         let left = number(&req["quantity"]["value"])? - &o.filled - q;

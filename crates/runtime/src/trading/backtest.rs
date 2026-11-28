@@ -8,6 +8,51 @@ use super::{
 use crate::{OnlyAlphaRuntime, ResearchPanel, RunConfiguration};
 use onlyalpha_domain::time::OnlyTimestamp;
 
+mod finite;
+mod inputs;
+mod memory;
+mod memory_venue;
+pub(crate) mod next_open;
+mod playback;
+pub use playback::FiniteBacktestTask;
+pub(crate) mod trading;
+pub use finite::verify_finite_backtest;
+pub use inputs::{Inputs, MarketInput, OpeningInput, Source};
+pub use memory::{CompletedBacktest, ExecutionBinding, FrozenVenue, MemoryRunSpec};
+pub use memory_venue::MemoryBacktestVenue;
+pub(crate) use next_open::NextOpenModel;
+pub use next_open::NextOpenPolicy;
+pub use onlyalpha_execution::Error;
+use serde_json::Value;
+
+fn err(s: &str) -> Error {
+    Error(format!("BACKTEST_REPLAY_{s}"))
+}
+fn hash(v: &Value) -> String {
+    onlyalpha_execution::digest(v.to_string().as_bytes())
+}
+fn boundary<T, E: std::fmt::Display>(r: std::result::Result<T, E>) -> Result<T> {
+    r.map_err(|e| err(&e.to_string()))
+}
+fn fields(v: &Value, keys: &[&str]) -> Result<()> {
+    if v.as_object()
+        .is_none_or(|m| m.len() != keys.len() || keys.iter().any(|k| !m.contains_key(*k)))
+    {
+        return Err(err("FIELDS"));
+    }
+    Ok(())
+}
+fn sha(s: &str) -> Result<()> {
+    if s.len() != 64
+        || !s
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    {
+        return Err(err("IDENTITY"));
+    }
+    Ok(())
+}
+
 pub struct FrozenReplay<'a> {
     panel: &'a ResearchPanel,
     next_row: usize,
@@ -62,7 +107,7 @@ impl TradingEventPort for FrozenReplay<'_> {
 }
 
 impl OnlyAlphaRuntime {
-    pub fn backtest<'a, S, O, V>(
+    pub fn backtest_with_ports<'a, S, O, V>(
         &self,
         replay: FrozenReplay<'a>,
         configuration: &RunConfiguration,
@@ -75,6 +120,25 @@ impl OnlyAlphaRuntime {
         O: FiniteEconomicOwner,
         V: BacktestVenue<O>,
     {
+        let engine = self.backtest_engine(&replay, configuration, factors, &execution)?;
+        let warmup = replay.panel.warmup() as u64;
+        Ok(TradingTask::new(
+            engine,
+            VirtualEvents::new(replay),
+            strategy,
+            execution,
+            warmup,
+            |source, engine, _, execution| source.next(engine, execution),
+        ))
+    }
+
+    fn backtest_engine<O: FiniteEconomicOwner, V: BacktestVenue<O>>(
+        &self,
+        replay: &FrozenReplay<'_>,
+        configuration: &RunConfiguration,
+        factors: Vec<NamedFactorExpr>,
+        execution: &VirtualExecution<O, V>,
+    ) -> Result<super::TradingEngine> {
         check_scope(configuration, "BACKTEST", execution.scope())?;
         if configuration.fingerprint() != execution.owner().configuration().fingerprint() {
             return Err(error("TRADING_TASK_BINDING_MISMATCH"));
@@ -85,19 +149,18 @@ impl OnlyAlphaRuntime {
         execution
             .venue()
             .verify_inputs(configuration, replay.panel)?;
-        let engine = self.trading_engine(replay.panel.instrument_ids().to_vec(), factors)?;
-        let warmup = replay.panel.warmup() as u64;
-        Ok(TradingTask::new(
-            engine,
-            VirtualEvents::new(replay),
-            strategy,
-            execution,
-            warmup,
-            VirtualEvents::next,
-        ))
+        self.trading_engine(replay.panel.instrument_ids().to_vec(), factors)
     }
 }
 
 #[cfg(test)]
 #[path = "../tests/backtest_replay.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/trading_modes.rs"]
+mod trading_modes;
+
+#[cfg(test)]
+#[path = "../tests/finite_playback.rs"]
+mod finite_playback;

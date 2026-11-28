@@ -1,27 +1,5 @@
-# OnlyAlpha Process Entrypoints
+# 产品接口与命令行
 
-OnlyAlpha 不提供 Product CLI。Human 通过 Web 使用版本化 Product API；Agent、自动化和其他 machine consumer 直接消费同一
-OpenAPI/HTTPS contract。HTTP 不可用时不得 fallback 到本地 Engine、Runtime 或数据库。
+人通过 Web 使用版本化 Product API，Agent 与自动化客户端通过正式 HTTPS API 操作。HTTP 接入服务退役期间，依赖后端的流程暂停。产品没有可替代这些流程的本地 CLI，客户端不得绕过身份、风控和持久化边界直接调用交易内核或访问数据库。
 
-保留的命令行入口属于进程或 provider-local infrastructure tooling：
-
-```text
-onlyalpha-backend              Product HTTP adapter process
-onlyalpha-research-worker  fenced Research execution worker
-onlyalpha-tushare          provider-local environment diagnostics
-```
-
-`onlyalpha-backend` 默认绑定本机地址，只验证 schema compatibility，不自动执行 migration。PostgreSQL DSN 通过 infrastructure
-environment 注入，不属于 Trading semantic configuration。
-
-以下入口不是支持的产品面，也没有兼容 alias：
-
-```text
-onlyalpha ...
-onlyalpha-client ...
-runtime YAML/JSON launch
-direct Engine/Runtime construction
-```
-
-Scenario parser、runner 与 assertions 是 `tests`/CI 使用的工程验证能力，不暴露为 Product CLI 或 Product API。Research operational
-diagnostic service 保留为唯一 application semantics；数据库运维通过受控 infrastructure tooling 使用，不通过 root CLI 建立第二入口。
+正式请求与响应见 [OpenAPI v2](../contracts/product-api/v2/openapi.json)。Rust 库调用入口见 [Runtime](../crates/runtime/README.md)。库接口供宿主装配，开发和验证入口见[工程指南](../AGENTS.md)。

@@ -6,7 +6,7 @@
 
 一个场所实例接收作用域、原生工件摘要、初始资金和显式配置。宿主通过 Broker 的 RuntimeReader 和 Journal 提交原命令；确定性驱动使用已闭合 Bar 和显式纳秒时钟。发布端通过 Broker 持久化规范化观察。只有拥有方 Runtime 的应用回执能证明观察已被本地应用。
 
-产品现行回测由 [PreparedNextOpen](../packages/backend/src/workers/backtest.rs) 装配已绑定的 SpotSimulationPolicy 和 [NextOpenPolicy](../crates/backtest/src/next_open.rs)，其固定全量、开盘成交和费用依据保持原绑定。该产品路径尚未安装 Virtual Broker；库的可构造性也不代表 SIM 产品或 LIVE 已经开放。
+[Runtime 回测](../crates/runtime/src/trading/backtest.rs)通过虚拟场所端口装配执行。`NEXT_OPEN_LONG_ONLY_V1` 要求按后继 Bar 的真实开盘时刻、开盘价和冻结参数准入；只有通过准入的原命令才可由场所按该开盘整笔成交。通用模拟订单仍遵循其绑定的延迟、分笔与容量模型。详见[回测事件顺序](rust-backtest-replay.md)。
 
 ## 价格、数量与外部投影
 

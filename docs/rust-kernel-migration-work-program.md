@@ -5,6 +5,8 @@ It specifies construction order, deliverables and the behavior each unit must pr
 ledger, certification report or second acceptance Authority. Every implementation unit still needs its in-context Task Contract
 and AGENTS.md impact-aware validation. No Rust implementation or QMT removal is claimed by publishing this program.
 
+本文保留 ADR 0139 制定时的迁移顺序。下文的 Python 源码树、SDK、Backend 和 Linux Compose 开发环境属于当时的基线。现行 Rust 库在 Mac 主机原生开发，因子表达式和统一交易门面遵循 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md)，验证入口见[工程指南](../AGENTS.md)。
+
 ## Repository alignment and mandatory Python cleanup
 
 [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md) governs release boundaries.
@@ -318,8 +320,7 @@ Its versioned Definition3 identity correction is not Python Definition2 wire/has
 remain exact calculation/plugin execution, scoped state/readiness, then MarketData/Cluster composition. Consult the
 [responsibility map](rust-kernel-development.md#calculation-responsibility-map) and existing R3-R8 migration gates.
 
-Calculation 负责节点执行游标。当前 Rust 进程与节点调度位于
-`packages/backend/src/workers/{algorithm,research_calculations,trading_nodes,trading_program}.rs`，可复用协议和原生适配位于 `crates/calculation-bridge/`，Gateway 消息的正式定义保持原归属。受限私有 Factor 执行器位于 `packages/backend/python/algorithms/`。参见
+Calculation 负责节点执行游标。原 Backend 的进程调度、节点调度和 Python 私有因子执行器随旧包退役。可复用协议和原生适配位于 `crates/calculation-bridge/`，Gateway 消息定义位于 `contracts/gateway/v1/`。历史设计见
 [execution boundary design](superpowers/specs/2026-10-18-rust-calculation-worker-design.md) for lifecycle, exact binding,
 checkpoint admission and UNKNOWN behavior. This isolated comparison does not activate a Runtime participant or authorize
 historic data conversion. Subsequent MarketData/Cluster composition must consume the same ordered facts, exact generation

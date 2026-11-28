@@ -55,7 +55,7 @@ a competing `qualified` flag. Current qualification subjects/metrics are not sil
 
 Human operations use official Web interface → versioned Product API → owning Authority; Agent actions use the formal API. Chat transcripts,
 model confidence and browser calculations are not acceptance, numeric or authorization authorities. Canonical backend business
-belongs in `packages/backend` and UI belongs in `packages/frontend`. Agent uses the formal API. The backend validates proposals
+belongs to the product host, whose previous implementation has been retired. The UI remains in `packages/frontend`. The product host validates proposals
 and owns formal Factor confirmation and Research authorization. The placement and API of future conversational orchestration
 require a separate bounded design under ADR 0150.
 

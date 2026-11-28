@@ -30,7 +30,7 @@ impl OnlyAlphaRuntime {
             strategy,
             execution,
             0,
-            VirtualEvents::next,
+            |source, engine, _, execution| source.next(engine, execution),
         ))
     }
 }

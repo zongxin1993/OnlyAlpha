@@ -271,9 +271,9 @@
       ]
     },
     {
-      "crate": "backtest",
-      "target": "retained",
-      "operation": "BacktestRun in-memory execution and finite result reading",
+      "crate": "runtime",
+      "target": "finite_backtest",
+      "operation": "OnlyAlphaRuntime::backtest in-memory execution and verified finite result reading",
       "unit": "bars",
       "sizes": [
         256
@@ -298,22 +298,6 @@
       ],
       "status": "reference-required",
       "scope": "memory.recovery"
-    },
-    {
-      "crate": "backend",
-      "target": "backtest_chain",
-      "operation": "PreparedNextOpen / memory Session, PG official fact recovery, and finite result reading",
-      "unit": "chains",
-      "sizes": [
-        1
-      ],
-      "rounds": 3,
-      "scopes": [
-        "memory.execution",
-        "pg.recovery",
-        "result.read"
-      ],
-      "status": "reference-required"
     },
     {
       "crate": "observability",

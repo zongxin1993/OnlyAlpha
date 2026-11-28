@@ -50,8 +50,6 @@ pub mod registry;
 
 ```sh
 python3 scripts/unit_tests.py
-python3 scripts/dev_verification.py run -- python scripts/rust_kernel_check.py --package onlyalpha-operators
-python3 scripts/rust_kernel_check.py
 cargo doc -p onlyalpha-operators --no-deps
 ```
 

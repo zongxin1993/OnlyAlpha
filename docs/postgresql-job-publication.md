@@ -1,6 +1,6 @@
 # PostgreSQL 构建内容与有限作业发布
 
-本说明落实 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 与[有限作业契约](job-execution-contract.md)。源码入口是 Backend 的 [`factor_build`](../packages/backend/src/persistence/factor_build.rs) 和 [`job_publication`](../packages/backend/src/persistence/job_publication.rs)。这里只负责存储边界，不实现因子编译、认证算法、行情加载或交易执行，不新增正式状态机。
+本说明落实 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 与[有限作业契约](job-execution-contract.md)，约束产品存储边界。原仓储实现随 Backend 退役。因子编译、行情加载、交易执行及内存结果核验各归所属组件。
 
 ## 表与事实归属
 
@@ -16,7 +16,7 @@
 
 仓储要求真实认证的 `session_user` 是无管理权限 LOGIN，`current_user` 是获准的组；管理员连接 SET ROLE 不能伪装普通运行连接，RESET ROLE 也不得升为管理员。Node LOGIN 仅继承控制组，不能 SET 到该组；reader／publisher 成员关系为 INHERIT FALSE、SET TRUE、ADMIN FALSE，不获得 builder 成员关系。迁移管理员和独立 builder 账户继续分离。权限是受信 Backend 服务边界，不是允许客户端任意选择 owner 的租户 API；owner 不能取未鉴权请求字段。
 
-正式 Host 在原 `PendingRead` 仍持有 Client 和 driver 时，核对真实 `session_user`、配置用户、默认角色和权限；失败、取消或超时撤销该连接，启动不创建角色或授权。Rust 与显式运维工具共用 [node_access.sql](../packages/backend/src/persistence/node_access.sql) 的只读检查，覆盖成员关系、列 ACL、有效 PUBLIC 权限、GRANT OPTION、对象所有权、角色配置、源码读取和封闭 Chart 入口。它不是存储函数或新的准入 Authority。开发／测试账户仅由操作者显式调用 [node_database.py](../scripts/node_database.py) 准备；未知角色及既存权限污染直接拒绝，不自动修复。
+正式宿主持有实际连接及其 driver 时，须只读核对 `session_user`、配置用户、默认角色、成员关系、列 ACL、PUBLIC 的有效权限、GRANT OPTION、对象所有权、角色配置、源码读取和封闭 Chart 入口。失败、取消或超时应撤销连接。启动不得自动授权，未知角色和权限污染须拒绝。
 
 发布和观察复用原 `AuthoritySession` 物理连接，不另开业务写连接。角色作用域在首个 await 前取得连接与 driver 的独占所有权，操作结束后确认默认角色及原锁；取消、未知提交、恢复角色失败或锁失效均不能复用连接。认领事务需要暂时读取发布内容时，原 Run 锁贯穿临时角色、恢复普通 LOGIN 和控制 CAS。
 
@@ -45,17 +45,7 @@ PublicationError 区分 Denied、MissingEvidence、Unavailable、Integrity、Mis
 
 ## 验证与阶段边界
 
-专用 Cargo 测试目标 `application_job_publication` 挂载同一生产源码，私有测试生产器仅在测试工件中存在。它使用真实 PostgreSQL、真实无管理权限 LOGIN，限定 `onlyalpha_dev_validation_test`，每个测试进程显式准备受控 schema；不得在开发业务库运行。测试程序正文和证书标为 STORAGE_FIXTURE_ONLY，不证明真实因子认证或回测完成。
-
-经固定 onlyalpha-dev 的冻结源码执行：
-
-```text
-cargo test --frozen --offline -p onlyalpha-backend --test application_job_publication -- --test-threads=1
-cargo test --release --frozen --offline -p onlyalpha-backend --test application_job_publication tests::postgres_publication_performance_matrix -- --ignored --exact --nocapture
-cargo clippy --frozen --offline -p onlyalpha-backend --lib --test application_job_publication -- -D warnings
-```
-
-实际命令须使用 scripts/dev_verification.py 与现有 compiler_environment，不另建数据库拓扑。性能矩阵记录固定合成正文的准备、锁等待、成员 SQL、终态与读回、COMMIT、未归因部分和独立读取；每档预热一轮、记录三轮，原始内容摘要保持一致，报告缓存与进程累计峰值局限。方法与结果见 [BENCHMARK.md](../packages/backend/BENCHMARK.md)，不能冒充完整回测 bars/s 或相对旧链路的加速比。
+原 Backend 的 PostgreSQL 发布测试与组合基准已退役。恢复验证须使用隔离测试数据库、真实低权限 LOGIN 和实际事务。分别验证准备、锁、终态与成员、COMMIT、独立读取和不确定结果，不得用 Rust 内存完成或存储夹具替代正式发布证据。
 
 BuildPublication、FrozenBindingRegistration 和 CompletedJobCandidate 必须由其真实构建、受理和结束 owner 签发，不接受外部 JSON、布尔值或任意 hash 获取许可。Research 原受理消费已验证的策略 Run、PreparedInputs、实际保留 Dataset 与 PostgreSQL 封闭行情元数据，核对 Source、Runtime、输入轴和精确执行绑定，再在原 Run、授权与回执的同一事务中登记。重复受理只读取原登记；缺证或不匹配不能从当前准备输入补写。冻结输入登记不证明物理行情已加载、交易执行已结束或结果已发布。
 

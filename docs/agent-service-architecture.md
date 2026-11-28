@@ -24,7 +24,7 @@ from actual dependencies; they are not frozen by illustrative names in this docu
 
 ```text
 crates/                         existing reusable Rust libraries and dependency boundaries
-packages/backend/               Rust Product API, canonical business, execution and algorithm children
+Product API host (planned)      正式认证、业务、持久化与生命周期；原服务已退役
 packages/frontend/              unified Shipping Web; two explicit service API clients
 packages/agent/
   pyproject.toml                Agent distribution/version authority

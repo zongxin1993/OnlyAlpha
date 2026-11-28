@@ -1,26 +1,7 @@
-# Product transport contracts
+# 产品传输契约
 
-The versioned HTTP Product API is authored by the native HTTP adapter's
-`packages/backend/src/transport/routes.rs` route declarations and
-`packages/backend/src/transport/wire.rs` typed wire declarations, which
-also drive actual serving. The native executable's pure `--export-openapi`
-mode exports the contract without starting Product owners, opening stores,
-loading configuration or issuing credentials. Its sole committed HTTP
-projection is `contracts/product-api/v2/openapi.json`; the OpenAPI governance
-command retains canonical versioning, freshness, immutable-baseline comparison
-and breaking-change classification.
+产品 HTTP API 的版本化接口见 [OpenAPI v2](../../contracts/product-api/v2/openapi.json)。字段、状态码和兼容性按[兼容策略](../../contracts/product-api/v2/compatibility-policy.json)核对。行情 WebSocket 使用独立的[消息 Schema](../../contracts/product-api/v2/market-data-stream.schema.json)。前端继续消费这两份协议。
 
-The Market Data WebSocket contract is authored by
-`packages/backend/src/transport/stream_wire.rs`, shared by native ingress
-and the executable's pure `--export-websocket` mode.
-`scripts/market_data_stream_contract.py` projects this declaration to the sole
-committed WebSocket schema,
-`contracts/product-api/v2/market-data-stream.schema.json`, and the Web Zod
-validator. CI checks both projections for freshness. Python and Node generation
-tools are projection consumers; Python DTOs do not author either native wire
-contract. Strict field validation, exact decimal and timestamp representation,
-Source authorization and physical send fences remain owning transport
-requirements; generation cannot grant permission or relax those requirements.
+原 Backend 的 HTTP、WebSocket 服务与契约导出程序已经退役。接入新的服务实现时，需同时核对实际路由、请求和响应、错误体、消息帧及其与已提交协议的一致性，并按版本规则评估变更。
 
-The two transport contracts describe different protocols. Neither is a second
-Authority for Market Data facts or resolution planning.
+服务端必须严格校验字段、十进制值与时间戳表示，核对主体与 Source 授权，在实际发送时执行相应权限检查。行情事实及解析计划仍归各自的所有者。客户端类型、Schema 校验或静态契约检查均不能授予访问权。

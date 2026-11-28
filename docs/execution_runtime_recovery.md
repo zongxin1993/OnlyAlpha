@@ -73,7 +73,7 @@ prepare → commit（committed / unready）→ 投影 → ready → 业务查询
 
 ### SIM 恢复入口
 
-`packages/backend/src/workers/sim.rs` 的 `recover_economic_state` 校验绑定必须为 `SIM`，读取事实：
+产品宿主恢复 SIM 时须先校验绑定为 `SIM`，再读取原事实。原服务入口已退役。
 
 - 尾行已 Ready：直接返回恢复结果；
 - 尾行未 Ready：在原前缀上重新安装投影、重新读回，要求同一 Prepared 行变为 Ready 且前缀不变，否则
@@ -99,7 +99,4 @@ Projection Before/After、Committed Fact、authority hash 与 payload hash 中�
 
 ## 验证
 
-- Rust 库：`cargo test -p onlyalpha-runtime`，覆盖提交、投影、恢复冲突与幂等；
-- OpenAPI 整体测试：`packages/backend` 按真实 API 与权限边界验证 SIM 恢复和正式发布；
-- PostgreSQL 恢复吞吐与结果读取基准：`packages/backend/benches/backtest_chain.rs` 的 `pg.recovery` 与 `result.read`
-  口径，见 [后端基准](../packages/backend/BENCHMARK.md)。
+库单元测试按[工程指南](../AGENTS.md)在 Mac 主机运行。SIM 正式恢复、PostgreSQL 发布、结果读回与吞吐仍须由实际产品宿主分别验证。原组合基准与 OpenAPI 服务测试现已退役。

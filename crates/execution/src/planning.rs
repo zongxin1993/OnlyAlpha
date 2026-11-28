@@ -145,27 +145,32 @@ impl AdmissionPreview {
 
 impl Components {
     pub(crate) fn validate_planning_input(&self, input: &Value) -> Result<u64, Error> {
-        row(
-            input,
-            &[
-                "engine",
-                "runtime",
-                "account",
-                "gateway",
-                "generation",
-                "runtime_kind",
-                "cluster",
-                "revision",
-                "input_id",
-                "time",
-                "runtime_sequence",
-                "trading_day",
-                "day_index",
-                "source_ref",
-                "op",
-                "payload",
-            ],
-        )?;
+        const FIELDS: &[&str] = &[
+            "engine",
+            "runtime",
+            "account",
+            "gateway",
+            "generation",
+            "runtime_kind",
+            "cluster",
+            "revision",
+            "input_id",
+            "time",
+            "runtime_sequence",
+            "trading_day",
+            "day_index",
+            "source_ref",
+            "op",
+            "payload",
+        ];
+        if let Some(record) = input.get("broker_record") {
+            let mut fields = FIELDS.to_vec();
+            fields.push("broker_record");
+            row(input, &fields)?;
+            self.validate_cash_broker_record(input, record)?;
+        } else {
+            row(input, FIELDS)?;
+        }
         if input.to_string().len() > 65536 {
             return Err(err("EXECUTION_INPUT_BOUND"));
         }
@@ -205,16 +210,62 @@ impl Components {
         }
         Ok(n)
     }
+    fn validate_cash_broker_record(&self, input: &Value, record: &Value) -> Result<(), Error> {
+        let fact = boundary(onlyalpha_broker::Fact::decode(record))?;
+        let p = &input["payload"];
+        if self.config["schema_version"] == 3
+            || self.config["runtime_kind"] != "BACKTEST"
+            || [
+                "engine",
+                "runtime",
+                "account",
+                "gateway",
+                "generation",
+                "runtime_kind",
+            ]
+            .iter()
+            .any(|key| record["scope"][key] != self.config[key])
+            || fact.order() != Some(id(&p["order"])?)
+            || record["correlation"] != p["order"]
+            || record["quality"] != json!([])
+            || record["ts_event"] != input["time"]
+            || record["ts_init"] != input["time"]
+        {
+            return Err(err("EXECUTION_CASH_BROKER_RELATION"));
+        }
+        let body = &record["payload"];
+        match (input["op"].as_str(), record["kind"].as_str()) {
+            (Some("ACCEPT"), Some("ACCEPTED")) if p["venue_order"] == body["venue"] => Ok(()),
+            (Some("FILL"), Some("TRADE")) => {
+                let fill = &body["fill"];
+                if p["quantity"] != fill["quantity"]["value"]
+                    || p["price"] != fill["price"]["value"]
+                    || p["price_precision"] != fill["price"]["precision"]
+                    || p["trade"] != fill["trade_id"]["value"]
+                    || p["venue_order"] != fill["venue_order_id"]["value"]
+                    || p["venue_trade"] != fill["venue_trade_id"]["value"]
+                    || fill["ts_init"]["unix_nanos"] != record["ts_init"]
+                    || fill["ts_event"]["unix_nanos"] != record["ts_event"]
+                    || fill["external_sequence"] != record["source_sequence"]
+                {
+                    return Err(err("EXECUTION_CASH_BROKER_FILL"));
+                }
+                Ok(())
+            }
+            _ => Err(err("EXECUTION_CASH_BROKER_RELATION")),
+        }
+    }
     pub fn prepare<S: crate::Store>(&self, store: &S, input: &Value) -> Result<Prepared, Error> {
         self.require_original_evidence(input)?;
         self.prepare_input(store, input)
     }
     pub(crate) fn require_original_evidence(&self, input: &Value) -> Result<(), Error> {
-        if self.config["schema_version"] == 3
-            && matches!(
-                input["op"].as_str(),
-                Some("ACCEPT" | "FILL" | "TERMINAL" | "MARK" | "FUNDING")
-            )
+        if input.get("broker_record").is_some()
+            || (self.config["schema_version"] == 3
+                && matches!(
+                    input["op"].as_str(),
+                    Some("ACCEPT" | "FILL" | "TERMINAL" | "MARK" | "FUNDING")
+                ))
         {
             return Err(err("EXECUTION_ORIGINAL_EVIDENCE_REQUIRED"));
         }
@@ -908,9 +959,13 @@ impl Components {
         let payload = &input["payload"];
         row(payload, &["order", "venue_order"])?;
         let venue_order = id(&payload["venue_order"])?;
-        let mut command = self.external(input, "ACCEPT", order);
-        command["venue_order_id"] = json!(venue_order);
-        self.order_apply(&command)?;
+        if let Some(record) = input.get("broker_record") {
+            self.apply_native_order_fact(input, order, record)?;
+        } else {
+            let mut command = self.external(input, "ACCEPT", order);
+            command["venue_order_id"] = json!(venue_order);
+            self.order_apply(&command)?;
+        }
         Ok(())
     }
     pub(crate) fn accept(&mut self, input: &Value) -> Result<(), Error> {
@@ -918,12 +973,7 @@ impl Components {
         row(p, &["order", "venue_order"])?;
         let relation = self.relation(input)?;
         let order = id(&p["order"])?;
-        if let Some(broker) = input.get("broker_record") {
-            id(&p["venue_order"])?;
-            self.apply_native_order_fact(input, order, broker)?;
-        } else {
-            self.apply_spot_order_accept(input, order)?;
-        }
+        self.apply_spot_order_accept(input, order)?;
         if relation["side"] == "BUY" {
             let payload =
                 json!({"schema_version":1,"reservation":order,"stage":"BROKER_ACKNOWLEDGED"});
@@ -978,6 +1028,9 @@ impl Components {
         input: &Value,
         order: &str,
     ) -> Result<Value, Error> {
+        if let Some(record) = input.get("broker_record") {
+            return self.apply_native_order_fact(input, order, record);
+        }
         let p = &input["payload"];
         let before = boundary(self.order.get(text(&input["cluster"])?, order))?.to_record();
         let precision = if before["order_type"] == "MARKET" {

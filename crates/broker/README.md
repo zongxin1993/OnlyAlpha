@@ -16,7 +16,7 @@
 
 ## 公开接口
 
-[`SourceHistory`](src/source.rs) 按绑定代际逐步校验模拟来源的原 CLOCK、闭合 BAR、命令和发布记录。每个子事实的出生时刻须等于该步经济钟。Funding 的最早闭合引用取第一步满足 `B < clock <= input.time` 的原记录，且该步及因果前缀实际已可见（BAR 同时核对 ts_init）。原观察与成交的 Ready 应用须在 Funding 的处理时刻可用。来源保留原时刻不晚于 B 的成交身份与完整原文摘要。`TradingPort::check_dispatch` 在记入 DISPATCHED 前检查原 Ready 准入时刻。
+[`SourceHistory`](src/source.rs) 按绑定代际逐步校验模拟来源的原 CLOCK、闭合 BAR、命令和发布记录。BACKTEST 还可记录 OPEN，绑定原行情序号、非负开盘纳秒、规范标的和正开盘价，经济钟允许与上一根收盘相等。每个子事实的出生时刻须等于该步经济钟。Funding 的最早闭合引用取第一步满足 `B < clock <= input.time` 的原记录，且该步及因果前缀实际已可见（BAR 同时核对 ts_init）。原观察与成交的 Ready 应用须在 Funding 的处理时刻可用。来源保留原时刻不晚于 B 的成交身份与完整原文摘要。`TradingPort::check_dispatch` 在记入 DISPATCHED 前检查原 Ready 准入时刻。
 
 economic_through_ns 是有符号经济时间的封闭前缀，与本次已观察的最大事件时间分开。查询可以同时携带较新的已知事实，不能因此声称同刻不会再有事实；旧缺字段 Discovery 编码保持。RuntimeReader::order_view 的 CANCEL 读回仍返回原 SUBMIT 的 OrderView；ready_intent 对取消命令的完整 pending 请求、reason、metadata 和派发资格校验不因只读查询而放宽。
 

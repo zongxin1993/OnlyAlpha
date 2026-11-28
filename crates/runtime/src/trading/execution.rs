@@ -149,6 +149,12 @@ impl<O: EconomicOwner, V: VirtualVenue<O>> VirtualExecution<O, V> {
     pub fn owner(&self) -> &O {
         &self.owner
     }
+    pub(super) fn parts_mut(&mut self) -> (&mut O, &mut V) {
+        (&mut self.owner, &mut self.venue)
+    }
+    pub(super) fn owner_mut(&mut self) -> &mut O {
+        &mut self.owner
+    }
     pub fn scope(&self) -> &Scope {
         self.owner.scope()
     }

@@ -22,7 +22,7 @@
 
 **派单权限属于执行端口。** 主循环只产出规范化意图并交给调用方注入的 `ExecutionPort`；本库不产出任何外部发单能力，也不绕过风控、准入与持久化。
 
-直接依赖的仓内库：[`onlyalpha-domain`](../domain/README.md)（标的、时间、数值与 `OrderIntent`／只读账户等交易值对象）、[`onlyalpha-operators`](../operators/README.md)（已认证算子与精确十进制）、[`onlyalpha-calculation`](../calculation/README.md)（声明式因子表达式编译、向量与事件内核、快照）、[`onlyalpha-research-statistics`](../research-statistics/README.md)（已求值矩阵的截面统计与报告）、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-observability`](../observability/README.md)。
+直接依赖的仓内库：[`onlyalpha-domain`](../domain/README.md)（标的、时间、数值与 `OrderIntent`／只读账户等交易值对象）、[`onlyalpha-operators`](../operators/README.md)（已认证算子与精确十进制）、[`onlyalpha-calculation`](../calculation/README.md)（声明式因子表达式编译、向量与事件内核、快照）、[`onlyalpha-research-statistics`](../research-statistics/README.md)（已求值矩阵的截面统计与报告）、[`onlyalpha-execution`](../execution/README.md)、[`onlyalpha-broker`](../broker/README.md)、[`onlyalpha-broker-virtual`](../broker-virtual/README.md)（有限回测虚拟场所与原始回报）、[`onlyalpha-clock`](../clock/README.md)（冻结事件时间）、[`onlyalpha-strategy`](../strategy/README.md)（冻结策略执行与回执核验）、[`onlyalpha-observability`](../observability/README.md)。
 
 观测仅接入内存会话及诊断边界（`memory.admission`、`memory.apply`），记录原操作耗时与已有输入计数；不改变事实、恢复结果或状态摘要。公开调用方自行管理诊断 Session，库不读取环境或安装全局订阅器。
 
@@ -114,11 +114,15 @@ let slice = report.slice_view(0, 0)?;
 
 | 构造器 | 行情、时钟与执行 |
 | --- | --- |
-| [`backtest`](src/trading/backtest.rs) | `FrozenReplay::new` 接收冻结面板、预期快照和预期内容摘要，按原时点逐行回放。预热行推进因子并产出因子值，样本期才调用策略。有限经济会话与虚拟场所负责模拟执行。 |
+| [`backtest`](src/trading/backtest/playback.rs) | 构造绑定冻结行情、策略程序、经济政策与内存虚拟券商的有限回测任务。需要自行装配策略与场所端口时，使用 [`backtest_with_ports`](src/trading/backtest.rs)。 |
 | [`sim`](src/trading/sim.rs) | 宿主逐条交付带事件时间的实时输入。虚拟场所按该截面推进，先前订单在该时点产生的回报先于本次策略决策应用。最后一根行情后的待处理回报也会交付。持续交易的经济端持有持久绑定。 |
 | [`live`](src/trading/live.rs) | 宿主按实际抵达次序交付行情和券商回报。经济端完成风控与准入，`LiveExecution` 核对原命令的 Ready 记录，宿主网关在派发该命令时核验有效的人工授权。回报观察有独立入口。 |
 
-`MemoryBacktestVenue` 使用回测库的冻结原始行情，校验原始输入与因子面板的绑定，并用同一个内存虚拟券商实例推进时钟、模拟撮合和发布回报。最后一次策略决策结束后，有限场所按显式结束时点释放到期回报。任务读完事件后，可从 `task.into_parts()` 取出执行器，再取出场所并调用 `finish()`，核实原始行情已耗尽、场所已排空。正式回测结果仍由有限作业的发布方核对并发布。[回测库的内存虚拟场所](../backtest/src/memory_venue.rs)
+`MemoryBacktestVenue` 核对 `Inputs` 中的原始行情、冻结面板、场所配置和来源指纹。它在同一内存虚拟券商实例上推进时钟、模拟撮合并发布原始回报。普通回放在冻结结束时点释放到期回报，`finish()` 核对行情耗尽和场所排空。[冻结输入](src/trading/backtest/inputs.rs) · [内存虚拟场所](src/trading/backtest/memory_venue.rs)
+
+`OnlyAlphaRuntime::backtest` 接收 `FrozenReplay`、`MemoryRunSpec`、原始 `Inputs`、从初始状态启动的策略执行器、`NextOpenPolicy` 与 `FrozenVenue`。`ExecutionBinding` 将政策、初始时间、场所来源和面板摘要绑定到作业。预热行产生策略回执；样本期的收盘信号只在下一根原始行情开盘时进入准入。资金或规则拒绝时保留原因，已准入的订单以虚拟券商受理与成交原件入账。最后一根行情的待处理信号以 `INPUT_EXHAUSTED` 结束，持仓按最后收盘估值。[有限回测装配](src/trading/backtest/playback.rs)
+
+`FiniteBacktestTask::run` 逐事件通知调用方。若消费中止，`session()` 仍可查询已入账的交易。成功处理全部事件后，调用 `task.finish()` 核验并取得 `CompletedBacktest`。结果包含原始策略输出、计算回执、检查点、经济结果、收盘权益曲线、分析基准和券商轨迹。生成结果前，`verify_finite_backtest` 对照冻结输入、场所原始记录和经济前缀复核。正式作业发布由外层持久化事务负责。[结果访问器](src/trading/backtest/memory.rs) · [只读核验](src/trading/backtest/finite.rs)
 
 `EconomicOwner` 提供账户快照、意图准入与经济回报应用。执行端口先请场所核对原回报，再交经济端应用，最后确认交付。派单结果未知时，调用方按原命令查询和对账。虚拟场所已经推进行情、随后读取回报失败时，`VirtualEvents` 保留该行情，调用方可从 `into_parts()` 取回。[执行端口](src/trading/execution.rs)
 

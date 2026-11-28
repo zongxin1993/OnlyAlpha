@@ -1,8 +1,5 @@
-# Plugin Testing
+# 插件验证
 
-插件仓库至少验证 Descriptor/API、Capability、extensions、生命周期幂等、失败回滚、标准事件转换和确定性。OnlyAlpha 的
-`onlyalpha-test-plugin` 位于 `test-data/external_plugins`，作为独立 distribution 安装，并通过真实 Entry Point 发现；
-测试不得手工注册它绕过 metadata。
+插件的功能测试按公开接口核对能力声明、生命周期幂等、失败回滚、标准事件转换和确定性。市场政策的精确数值对照由所属插件维护，例如[现货模拟政策测试](../plugs/onlyalpha-market-crypto/tests/spot_simulation.rs)。Gateway 的协议源与夹具归属见[网关协议](gateway_protocol.md)。
 
-核心门禁包括内建 Synthetic/Virtual 回测、外部插件正式 CLI、dry-run、Broker Queue/ExecutionProcessor、35 个 Vertical
-Slice 场景、确定性重放、全仓 pytest、Ruff 与 strict Mypy。
+当前阶段按[工程指南](../AGENTS.md)仅运行 `crates/` 下 Rust 库的模块单测。插件功能测试保留在各插件目录，待恢复对应验证范围后执行。

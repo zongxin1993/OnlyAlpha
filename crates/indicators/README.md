@@ -49,7 +49,7 @@ pub use onlyalpha_operators::algebra::{Columns, Decimal, Error as IndicatorError
 在仓库根目录执行：
 
 ```sh
-python3 scripts/dev_verification.py run -- python scripts/rust_kernel_check.py --package onlyalpha-indicators
+python3 scripts/unit_tests.py
 cargo doc -p onlyalpha-indicators --no-deps
 ```
 

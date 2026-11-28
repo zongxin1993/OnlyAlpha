@@ -1,0 +1,19 @@
+{
+  "first_open_ns": 1735861200000000000,
+  "bar_duration_ns": 60000000000,
+  "warmup_rows": 20,
+  "volume": "100.00000",
+  "bars": [
+    {"count": 20, "open": "100000.00", "close": "100000.00"},
+    {"count": 1, "open": "100000.00", "close": "100200.00"},
+    {"count": 1, "open": "100100.00", "close": "99900.00"},
+    {"count": 1, "open": "99800.00", "close": "99700.00"},
+    {"count": 716, "open": "99700.00", "close": "99700.00"},
+    {"count": 1, "open": "99700.00", "close": "100000.00"}
+  ],
+  "quantity": "0.01000",
+  "signals": [
+    {"close_row": 20, "side": "BUY", "multiplier": "1.0002"},
+    {"close_row": 21, "side": "SELL", "multiplier": "0.9998"}
+  ]
+}

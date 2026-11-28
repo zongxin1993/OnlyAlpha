@@ -1,7 +1,10 @@
-﻿# Internal Backtest Engine Contract
+# 回测入口与历史 Engine 设计
 
-> 本文描述 Kernel 内部 Backtest Engine/Runtime 组合，不是外部 Product client 使用指南。正式 Product 操作由现有 versioned Backtest Product API 与 Shipping Web 工作台承接（原生组合见 [Rust Backtest Replay](rust-backtest-replay.md)）；
-> direct `OnlyEngine` composition 仅供 Worker、Scenario 和测试使用，外部用户不得据此绕过 Product Control Plane。
+现行入口为 `OnlyAlphaRuntime::backtest`。冻结行情、开盘成交、完成与恢复见 [Rust 回测契约](rust-backtest-replay.md)，结果成员与正式发布见[回测结果契约](backtest_result.md)。原 Backend 退役期间，产品 Web 和 API 的回测操作暂停。
+
+## 历史 Engine 设计
+
+以下记录 Python Engine 时代的场景、文件恢复与结果模型，仅用于解读旧设计。
 
 验证边界的 `scenario-exact` 通过 DataSource SPI 和正式 Historical Replay 提供 exact bars；它不注册到默认 Product composition。
 Action Strategy 只经 `ctx.orders` 下单。
@@ -40,8 +43,6 @@ facts被抑制且不补发。Continuation transaction 的 durable Outbox 保持 
 Runtime READY 且 start 打开 Router 后才交付，随后才 resume Cluster 并发布 `RUNTIME_STARTED`。
 Committed-but-not-ready transaction 只进入恢复/管理 diagnostic，即使失败运行构建部分 Result，也不会成为正式 execution fact。
 
-依据 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 与 [Rust 回测事件执行与恢复契约](rust-backtest-replay.md)，现行原生回测统一采用内存 `BacktestRun` / `Session` 执行，不创建文件目录或 SQLite；终态结果经后端 PostgreSQL 原子发布，中断或进程丢失后由原 Run 的新 Attempt 按冻结输入重算。旧 SQLite `runtime.sqlite3` 文件持久化路径已完整退役。
-
 Only ReplayService advances the data-driven Clock. The product loop never reads DataFrames or online APIs and never calls
 Pipeline, Cluster or Managers directly. Runtime marks Account and Strategy values from closed Bars before Broker
 reconciliation and strategy dispatch. Calendar TradingDay changes invoke SettlementService; strategies only see the resulting
@@ -55,7 +56,7 @@ equity timelines, one `final_account`, final Position/Allocation/Ledger snapshot
 final Runtime/Ledger reconciliation and stable fingerprints. The ambiguous `performance` and `final_accounts` fields were
 deleted without aliases. Engine 在 Runtime 完成后依次调用纯 Analytics、原子 Artifact Writer 与 Report；Runtime 和 Result 不写文件。
 
-## Current limits
+## 原 Engine 的支持范围
 
 First-phase Backtest 支持一个共享 Account、一个 Base Currency 和多个显式 `FIXED_CAPITAL` Cluster。单 Cluster 可省略
 capital，此时等于 Account initial cash；多 Cluster 必须逐个声明，且精确加总为 Account initial cash。当前不支持
@@ -68,4 +69,4 @@ metadata and are not part of that fingerprint. `result_fingerprint` likewise exc
 retaining failures, warnings and all economic result fields; this makes an interrupted/recovered run comparable with its
 uninterrupted product baseline without hiding business differences.
 
-The isolated native [Result / Final Seal](backtest_result.md) has its own explicit Execution-transcript completion boundary and artifact identity. It does not replace the admitted Python Backtest Runtime or certify R5.
+当前结果与完成边界见[回测结果契约](backtest_result.md)。

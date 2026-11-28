@@ -45,14 +45,6 @@ sensitive_path_patterns = [
   "src/onlyalpha/persistence/postgres/private_strategy_research_composition_store.py",
   "src/onlyalpha/persistence/postgres/integration_probe_store.py",
   "src/onlyalpha/quant_assets/private_strategy_composition.py",
-  "packages/backend/src/onlyalpha_http_server/*.py",
-  "packages/backend/src/onlyalpha_http_server/research/*.py",
-  "packages/backend/src/onlyalpha_http_server/search/*.py",
-  "packages/backend/src/onlyalpha_http_server/strategy/*.py",
-  "packages/backend/src/onlyalpha_http_server/backtest/*.py",
-  "packages/backend/src/onlyalpha_http_server/integration_types/*.py",
-  "packages/backend/src/onlyalpha_http_server/integrations/*.py",
-  "packages/backend/src/onlyalpha_http_server/watchlists/*.py",
   "scripts/regenerate_*.py",
 ]
 
@@ -606,57 +598,6 @@ actor = "A01"
 pattern = "src/onlyalpha/kernel/*.py"
 actor = "A12"
 [[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/app.py"
-actor = "A03"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/main.py"
-actor = "A03"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/composition.py"
-actor = "A03"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/__init__.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/health.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/private_assets.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/local_read_access.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/dev_web.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/research/*.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/search/*.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/strategy/*.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/backtest/*.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/integration_types/*.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/integrations/*.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/market_data/*.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/chart_studies/*.py"
-actor = "A04"
-[[actor_paths]]
-pattern = "packages/backend/src/onlyalpha_http_server/watchlists/*.py"
-actor = "A04"
-[[actor_paths]]
 pattern = "src/onlyalpha/application/watchlists.py"
 actor = "A26"
 [[actor_paths]]
@@ -851,9 +792,6 @@ actor = "A25"
 [[actor_paths]]
 pattern = "scripts/regenerate_*.py"
 actor = "T01"
-[[actor_paths]]
-pattern = "scripts/openapi_contract.py"
-actor = "T02"
 [[actor_paths]]
 pattern = "scripts/pytest_metrics.py"
 actor = "T01"

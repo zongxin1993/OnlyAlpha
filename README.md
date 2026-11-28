@@ -23,7 +23,7 @@ Correctness
 
 OnlyAlpha 使用一套 canonical Domain 与 Trading Kernel，不按市场复制 Engine、Runtime 或经济 Manager。
 
-当前产品由 `packages/backend`、`packages/frontend` 和可复用 Rust 库构成。人工操作通过正式 Web 提交到 Product API。
+当前工程由 `crates/` 基础库、`plugs/` 插件和 `packages/frontend` 前端构成。原 Backend 已退役，依赖后端的 Web、API 和结果发布流程暂停。产品目标仍要求人工操作通过正式 Web 提交到版本化 Product API。
 Agent 作为研究客户端使用 OnlyAlpha 的正式 API。工程目录、发行边界和因子与策略的目标契约见
 [ADR 0150](docs/adr/0150-product-layout-and-programmable-quant-assets.md)。
 
@@ -152,11 +152,9 @@ Task Contract
 
 机器职责：
 
-- [`quality-policy.toml`](quality-policy.toml)：持续 CI 的必需作业集合（Rust 库单测与 OpenAPI、Gateway 契约检查）；
+- [质量工作流](.github/workflows/quality.yml)在面向 `master` 的拉取请求、推送到 `master` 或手动触发时运行 `unit-tests`。[`quality-policy.toml`](quality-policy.toml) 是门禁声明，实际执行的作业以工作流为准。
 - [`scripts/unit_tests.py`](scripts/unit_tests.py)：仓库唯一的单元测试脚本，运行 `crates/` 下的 Rust 模块自测；
-- [`scripts/test_suite.py`](scripts/test_suite.py)：现有功能和专项验证通道的调度器；
-- [`scripts/verify.py`](scripts/verify.py)：当前工作区的 Impact-Aware 验证选择器；
-- [`pyproject.toml`](pyproject.toml)：测试、静态检查、类型与 package 配置。
+- [版本化产品契约](contracts/product-api/v2/) 和 [网关契约](contracts/gateway/v1/) 分别定义产品与外部网关边界。
 
 不使用 Exact-SHA / Final-SHA 工程认证，不维护每个 Increment 的 VERIFIED/READY/COMPLETE 状态，不在仓库保存每步质量/审计/closure 报告。
 
@@ -180,46 +178,13 @@ Existing Spot foundation
 
 ## 开发
 
-Python 要求以根目录 [`pyproject.toml`](pyproject.toml) 为准。推荐使用 `uv` 管理 workspace 与环境。
-
-本地 Python 调试只使用根目录的一个 uv `.venv`，IDE 指向 `.venv/bin/python`，不为包、任务或验证轮次新增环境：
-
-```bash
-uv sync --all-packages
-uv run --no-sync python --version
-```
-
-真实本机 Web/API（复用现有 dev 数据，不初始化或自动采集）：
-
-```bash
-uv run --no-sync python -m scripts.dev start
-# 打开 http://127.0.0.1:5173，无需手填凭据
-uv run --no-sync python -m scripts.dev stop
-```
-
-启动工具通过唯一 dev 验证环境构建 Rust 服务、Web 资源和隔离算法环境，然后运行 Rust HTTP/WebSocket 后端。
-当前 backend 运行中的 Python 仅用于构建工具和隔离的因子/指标算法执行；目标独立 Agent 使用自己的 Python 环境。
-当前工作台提供 K 线、指标和因子元数据看板；
-研究、独立数据页、策略、回测和系统页明确标记为未实现。历史不足会明确显示，不会用测试 fixture 补齐。
-普通启动保留已有数据，不初始化数据库或自动采集。
-
-Rust 库单测只运行 Cargo 的库内测试目标，不需要应用或数据库：
+开发在 Mac 主机原生进行。库单测只运行 Cargo 的库内测试目标，无需启动应用或数据库。
 
 ```bash
 python3 scripts/unit_tests.py
 ```
 
-功能测试按被测边界选择。产品整体功能验收复用 `onlyalpha-dev` 下现有验证服务，与日常 uv 调试区分，不要求额外只读凭据配置：
-
-```bash
-python3 scripts/dev_verification.py run -- python scripts/verify.py plan
-python3 scripts/dev_verification.py run -- python scripts/verify.py run
-python3 scripts/dev_verification.py run -- python scripts/test_suite.py --help
-```
-
-`verify.py` 只选择和执行当前工作区的影响验证，不是任务完成 Authority；实际验收范围仍必须遵守 `AGENTS.md` 的 Task Contract、Impact Scope、风险分级与 Stop Condition。
-
-Rust 变更交给现有 Cargo owner/直接消费方检查；SDK 和算法协议交给现有 Python/ABI owner。数据库、正式 API、Web 与质量接线变化保留对应验证范围，需要明确确认后执行。出现 `LOCAL_IMPACT_REVIEW_REQUIRED` 时，应按实际影响通过上述统一入口选择场景；不得改用退役的 Research 通道或自动取 HEAD 充当 API 兼容基线。
+`deploy/docker-compose.dev.yml` 管理独立开发数据库。Web 与 OpenAPI 整体验证待后端重建后恢复。
 
 ## 文档入口
 

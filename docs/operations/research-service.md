@@ -1,33 +1,6 @@
 # Research Service Operations
 
-本页保留旧 Research API/Worker 的运行与恢复约束，不是当前完整的部署或恢复操作手册。
-当前入口以[部署文档](../deployment.md)和 [Rust 后端规范](../rust-product-backend.md)为准。下文的旧 Python 服务接线不能运行。
-
-## Supported environment
-
-- Python 3.12.
-- PostgreSQL server major 18; the development Compose topology pins PostgreSQL 18.6.
-- `pg_dump` and `pg_restore` client major 18. A different major fails closed.
-- One writable, durable Research semantic-store namespace shared by the API and Worker. Local mount paths may differ, but each path must
-  expose the same immutable namespace identity.
-- `ONLYALPHA_POSTGRES_DSN` supplied through the environment, never argv.
-
-Worker presence is diagnostic only. Attempt leases remain the execution-ownership authority. PostgreSQL server time owns lease and presence coordination.
-
-## Startup
-
-当前日常 Web/API 启停使用[部署文档中的原生应用入口](../deployment.md#ordinary-shipping-webapi-startup)。
-旧 Compose `api`、`bootstrap` 和 Python Worker 启动流程已退役，不要按旧顺序执行。
-
-The explicit initialization command creates immutable `research/.onlyalpha-semantic-store.json`, binds that namespace ID to the
-PostgreSQL deployment, and creates the canonical semantic directories. It is idempotent only for the same binding. It refuses a
-non-empty root without identity and refuses a different existing PostgreSQL binding; there is no rebind command.
-
-API and Worker startup check schema compatibility, PostgreSQL major and exact deployment/store identity but never initialize, migrate,
-rebind or repair authority. A mismatch keeps the API not-ready and blocks Research product routes. Worker startup fails before presence,
-claim or semantic execution. Worker startup also checks its required roots and Calculation/plugin composition before it may claim work.
-
-A Worker establishes one `OnlyEngineServices` plugin/component composition at process startup. Specification re-resolution and every Research Runtime execution in that process consume the same Calculation registry from those services. Each claimed Attempt still creates a fresh `OnlyEngine` and a fresh Research Runtime lifecycle; restarting the Worker is the only boundary that re-establishes process composition. This is a process-lifetime wiring invariant, not a new durable identity or store.
+原 API 与 Worker 已退役。以下是产品宿主恢复时须满足的运行、排空与恢复约束。数据库拓扑见[部署说明](../deployment.md)。PostgreSQL 服务器时间用于判断 lease；进程在线状态仅供诊断。验证角色、schema 与命名空间前禁止受理或认领任务。
 
 ## Operational PostgreSQL I/O bounds
 
@@ -57,8 +30,8 @@ and drains normally; the next claim is forbidden. Housekeeping expiry and cancel
 they advance existing durable operational truth rather than admit new semantic work. `DRAINING` is a process lifecycle notion, not a Run,
 Attempt, or PostgreSQL state.
 
-The Worker returns the existing application lifecycle exit codes: normal service return is `0`, `SIGINT`/`KeyboardInterrupt` is `130`,
-and `SIGTERM` is `143`. A signal does not request semantic cancellation and does not make a Run fail.
+进程退出或系统信号本身不构成语义取消或失败。
+
 
 If the Worker is forcibly killed, its heartbeat stops. After the lease expires, the existing Scheduler expires the Attempt and a fresh Worker creates a new Attempt for forward recovery. Never reset a Run or Attempt.
 
@@ -78,11 +51,7 @@ Each operational snapshot is one PostgreSQL `READ ONLY`, `REPEATABLE READ` trans
 
 Never edit an applied migration, repair the checksum ledger, delete an unknown migration, or use a force flag. `AHEAD`, `CHECKSUM_MISMATCH`, and `HISTORY_DIVERGED` require investigation and fail closed.
 
-当前 PostgreSQL 迁移走 Rust 后端的显式运维命令
-`onlyalpha-backend --migrate-postgres-schema <absolute-sql-directory>`。
-该命令不在启动时运行，使用 advisory lock 和单个事务核验并应用待执行迁移。
-旧 Python `status`、`plan`、`backup`、`restore-test` 和 `validate` 流程已退役；不能把 Rust 迁移命令视为完整替代。
-缺少经过验证的成对备份和恢复路径时，不得对正式数据执行迁移或恢复。
+产品迁移工具已随 Backend 退役。迁移必须显式执行，以 advisory lock 和事务核验迁移历史。缺少经过验证的成对备份和恢复路径时，不得对正式数据执行迁移或恢复。
 
 ## Backup and restore
 

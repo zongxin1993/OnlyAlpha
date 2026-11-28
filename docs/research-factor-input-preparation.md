@@ -1,6 +1,6 @@
 # Exact conversational Factor input preparation
 
-This backend Research capability refines ADRs 0116, 0139, 0141, 0145 and 0146. It compiles the already
+原 Backend 已退役。本页保留 Research 输入准备的精确绑定与授权要求；涉及历史 Python 执行环境的描述只用于解释当时的工件。The original capability compiles the
 selected bounded conversational grammar into the existing Product Definition V2 / Graph V1 values.
 It does not introduce a second Calculation graph, translate arbitrary Python programs, interpret
 Factor arithmetic in Rust, select an executable implementation or grant Research permission.
@@ -140,19 +140,7 @@ Research/TRADING equivalence, provider snapshot and Generation implementation re
 same verified Dataset and authorized input window. Source/API/operator/implementation substitutions,
 missing facts and released/mismatched work bindings fail closed.
 
-Pure Factor adapters and source validation belong to
-`packages/backend/python/algorithms/src/onlyalpha_backend_algorithms/sdk/`. The executable source DTO
-is an opaque input, not publication or consent proof. The original pure provider-snapshot DTO remains
-at its existing source location while legacy consumers still require its single canonical type; the
-minimal installed algorithm SDK projects only that DTO and an empty namespace, not Product services.
-Retire it after those real consumers migrate, without a second implementation or compatibility alias.
-The old Python private Factor execution module is replaced by the algorithm constituent. Authoring
-publication/permission, Runtime lifecycle and Research Run business remain outside the minimal SDK.
-Artifact wire DTOs live in the gateway-protocol constituent and use canonical primitive JSON without
-importing the legacy backend. Existing build/lifecycle consumers declare that protocol dependency;
-actual algorithm consumers declare their algorithm dependency. Root `src/` must not depend on the
-algorithm worker at runtime. Still-used Python business consumers are not retired merely because a
-Rust reader now exists.
+可执行源码 DTO 仅传递输入。产品宿主须独立核对发布与人工同意的证据、Runtime 生命周期和 Run 归属。旧随包 Python SDK 已退役，跨进程协议定义见 [Gateway v1](../contracts/gateway/v1/)。
 
 `PreparedInputs` is input eligibility, **not Human Research authorization**. It requires the exact
 `RESEARCH_RUNTIME` artifact in the existing Generation and its mandatory tested-Core relation, with

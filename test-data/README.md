@@ -12,16 +12,12 @@ OnlyAlpha 测试数据根目录。放置规则见根目录 `AGENTS.md` 的 “Te
 | `contracts/` | Research advisory bundle 合同样例 | `tests/application`、`tests/contracts` |
 | `domain/` | Python/Rust Domain 共享独立参考向量（含时间精度和区间运算） | `tests/domain`、Rust Domain tests；[职责映射](../docs/rust-kernel-development.md#time-responsibility-map) |
 | `event/` | Python/Rust Event 独立记录与投递动作向量 | `tests/event/test_rust_event_vectors.py`、Rust Event conformance |
-| `external_plugins/` | `onlyalpha-test-plugin` 可安装 distribution | uv workspace editable；`scripts/version_sync.py` |
 | `legacy_macd/` | 旧引擎的 cluster 配置样本 | 历史测试资料 |
 | `miniqmt/` | MiniQMT 冻结历史数据 | `tests/conformance/cn_a_share_cash` |
 | `reference/` | A 股离线参考数据集 | `tests/reference`、`tests/scenario` |
-| `remote_gateway/` | 远程网关 fake server | `tests/integration` |
 | `results/` | 已封存的 Engine Result 参考样本 | 生成命令保留在各自清单中 |
 | `runtime/` | Runtime 装配测试 YAML | `tests/config`、`tests/integration` |
-| `runtime_factor_provider/` | `onlyalpha-test-factor-provider` distribution | uv workspace editable |
 | `scenarios/` | 场景 YAML | `tests/market`、`tests/scenario` |
-| `test-durations.json` | pytest 时长权威缓存 | `scripts/test_suite.py` 读写 |
 
 - [market-data-state](market-data-state/README.md): independent common state operations and strict schema-2 records; no whole-module Python parity or Runtime admission claim.
 

@@ -3,6 +3,9 @@
 //! [`OnlyAlphaRuntime`] is the single façade owning quant computation and trading semantics:
 //! Research and the Backtest/SIM/LIVE event loop are constructed from the same compiled declarative
 //! factor definitions and the same numeric policy (ADR 0152 §2.1, §2.2).
+#[cfg(test)]
+extern crate self as onlyalpha_runtime;
+
 pub mod durability;
 pub mod research;
 mod session;

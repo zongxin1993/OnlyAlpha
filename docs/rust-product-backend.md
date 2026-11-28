@@ -1,9 +1,6 @@
-# Rust Product backend construction
+# 原 Rust 产品后端的设计与契约
 
-Organization and release target: [ADR 0142](adr/0142-library-product-boundaries-and-independent-releases.md),
-[repository architecture](repository-product-architecture.md) and [work program](repository-migration-work-program.md) select
-backend business/worker modules, frontend and reusable versioned libraries;
-[ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md) defines Agent as a formal API client. The capability dependency order below remains; source navigation is not migration status.
+原产品宿主及其构建、启动和验证接线已退役。以下各节保留原服务的行为和安全、存储、恢复要求，供重建时核对。现行目录见[仓库与产品架构](repository-product-architecture.md)，保留的 HTTP 与 WebSocket 协议见[产品传输契约](architecture/product-transport-contracts.md)。
 
 ADR 0141 selects Rust services/business logic and isolated Python authoring execution as refined by ADR 0150. The Constitution and existing owning Contracts define semantics. A library build does not admit a Product writer or certify a migrated Web flow.
 
@@ -36,7 +33,7 @@ require a whole-backend rewrite or substitute transient chart studies. Reuse exi
 boundaries. Migrate useful Python assertions and retire implementations only when their actual consumers and admission dependencies
 permit. Follow the [bounded migration sequence](repository-migration-work-program.md#conversational-factor-research-follow-up).
 
-## First native Shipping slice
+## 原生工作台的历史范围
 
 The 0.11.0 slice is the existing chart workstation: Source management and
 watchlists needed by charts, historical and realtime K-lines, transient chart
@@ -55,22 +52,11 @@ upgrades, without old-version execution or schema fallbacks.
 
 ## Placement
 
-The target follows [repository architecture](repository-product-architecture.md): shared metadata/Integration contracts,
-protocol bindings, Trading persistence, algorithm bridge and backtest driver are reusable libraries under `crates/`.
-Product business and storage, HTTP/security/startup, Generation and backend worker composition are modules in `packages/backend`;
-The official Web interface is `packages/frontend`. Preserve transport → Application → owning library/store direction inside
-backend. Backend Python contains only the minimal admitted algorithm runtime and authoring SDK.
-
-The paragraphs below describe existing source locations for navigation until their atomic migration, not target independent packages.
+产品宿主须通过 Application 调用各事实所有者，负责业务命令、存储、HTTP、安全、任务认领及生命周期。前端位于 `packages/frontend`，回测和其他交易模式通过 [Runtime](../crates/runtime/README.md) 装配。
 
 `crates/metadata-json/` owns the shared pure metadata identity codec. `crates/integration-contract/` owns provider-neutral public Type/Field/Probe declarations. Concrete plugins and Product depend on these pure libraries; neither library depends on Product, HTTP, PostgreSQL or provider implementations. They add no service or store.
 
-`packages/backend/src/application/` owns transport-neutral Product Commands/Queries and composition;
-`persistence/` owns Product PostgreSQL/ClickHouse adapters; `security/` owns credentials and ingress policy;
-`transport/` owns HTTP/WebSocket adapters and `bootstrap/` owns configuration and startup. These are internal modules
-of the single `onlyalpha-backend` product, not separate release packages. Transport uses owning Application/session
-operations rather than bypassing command/receipt or source authorization boundaries. Concrete provider/market/Broker
-implementations remain under `plugs/`. Shipping Web sources are in `packages/frontend/`.
+外部请求须使用正式会话、命令回执和 Source 授权。具体市场与券商由 `plugs/` 的适配器负责。
 
 ## Permanent verification obligations
 

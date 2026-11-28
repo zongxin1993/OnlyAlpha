@@ -1,12 +1,6 @@
 # Research HTTP APIs V2
 
-Artifact queries are served by the unique Product API. Configure it explicitly:
-
-```bash
-ONLYALPHA_POSTGRES_DSN='postgresql://...' onlyalpha-backend --user-data-root /absolute/path/to/user-data
-```
-
-It binds `127.0.0.1:8000` by default and exposes:
+Research 产品接口由 [OpenAPI v2](../contracts/product-api/v2/openapi.json) 定义。服务端已经退役，以下路径用于说明保留的读取和控制契约。统计读取使用以下接口。
 
 - `GET /api/v2/research/artifacts/{research_result_fingerprint}`
 - `GET /api/v2/research/artifacts/{research_result_fingerprint}/statistics`
@@ -14,20 +8,13 @@ It binds `127.0.0.1:8000` by default and exposes:
 
 Series parameters are `from_ts_event_ns`, `to_ts_event_ns`, `after_ts_event_ns`, and `limit`. Ranges are `[from,to)`, cursors are
 strictly greater-than, the default limit is 1000, and the maximum is 5000. HTTP `from/to/after`, `ts_event_ns`, and
-`next_after_ts_event_ns` are canonical decimal strings; routes parse request strings to Query Core Python integers. Decimal values
+`next_after_ts_event_ns` are canonical decimal strings. Decimal values
 are canonical fixed strings or null. Query Core schema remains 1, while top-level HTTP DTO/error `schema_version` is independently 2.
 Error bodies are `{schema_version, code, detail}` with invalid query=400, missing identity=404, and corrupt verified Artifact=500.
 
-The deterministic OpenAPI contract is `contracts/product-api/v2/openapi.json`, generated from FastAPI by
-`scripts/openapi_contract.py`. `packages/frontend` generates compile-time transport types from it and separately performs
-strict Zod admission before mapping timestamps to `bigint`. There are no v1 product routes or compatibility wrapper.
+前端根据版本化契约生成传输类型，消费前严格校验字段和时间戳，再映射为 `bigint`。
 
-The Artifact query family is read-only and exact-addressed. It has no catalog/search/latest endpoint, mutation, raw Parquet download, query cache,
-semantic recomputation, authentication, Trading endpoint, or Runtime control. The read-only Research Web consumer uses only these
-same-origin endpoints and never reads Artifact filesystem layout or execution Stores.
-
-The full local control API uses `onlyalpha-backend --user-data-root /absolute/user-data`, reads the PostgreSQL DSN only from
-`ONLYALPHA_POSTGRES_DSN`, checks schema compatibility without migrating, and adds:
+Artifact 查询按精确身份只读，禁止经文件路径或执行存储绕过正式权限与读取验证。研究作业的受理、查询和取消遵循以下请求契约。
 
 - `POST /api/v2/research/runs` with required canonical UUID4 `Idempotency-Key` (`202` + `Location`);
 - `GET /api/v2/research/runs/{run_id}`;
@@ -36,5 +23,4 @@ The full local control API uses `onlyalpha-backend --user-data-root /absolute/us
 
 Run responses contain operational facts and exact Result/Artifact references, not their content or Attempt history. Command errors use
 `{error:{phase,code,detail}}`. Artifact routes retain their independent `{schema_version,code,detail}` query error contract when they
-are composed into the full API; sharing one FastAPI process does not merge the two transport error planes. The full API does not start
-Scheduler, Worker, Runtime or Engine and defaults to `127.0.0.1` without permissive CORS.
+are composed into the full API. Hosting both families must preserve their distinct error contracts and authorization checks.

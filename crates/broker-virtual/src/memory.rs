@@ -5,13 +5,19 @@ use onlyalpha_broker::source::{
     SourceHistory, SourceStep, SourceTimeline, source_fact_link, source_step_digest,
 };
 use onlyalpha_broker::*;
-use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar, value::OnlyMoney};
+use onlyalpha_domain::{
+    base::OnlyDomainModel,
+    identifiers::OnlyInstrumentId,
+    market::OnlyBar,
+    value::{OnlyMoney, OnlyPrice},
+};
 use serde_json::{Value, json};
 struct Source {
     venue: VirtualBroker,
     timeline: SourceTimeline,
     healthy: bool,
     bytes: usize,
+    opens: std::collections::BTreeMap<u64, String>,
     bars: std::collections::BTreeMap<u64, String>,
     trace: Vec<SourceTrace>,
 }
@@ -21,6 +27,12 @@ struct Source {
 #[derive(Debug)]
 pub enum SourceAction {
     Clock(Value),
+    Open {
+        sequence: u64,
+        at: i64,
+        instrument: OnlyInstrumentId,
+        price: OnlyPrice,
+    },
     Bar {
         sequence: u64,
         fingerprint: String,
@@ -59,6 +71,14 @@ impl SourceTrace {
     pub fn record(&self) -> Value {
         let action = match &self.action {
             SourceAction::Clock(at) => json!({"kind":"CLOCK","at":at}),
+            SourceAction::Open {
+                sequence,
+                at,
+                instrument,
+                price,
+            } => {
+                json!({"kind":"OPEN", "sequence":sequence, "bar_start":at, "instrument":instrument.to_record(), "open":price.to_record()})
+            }
             SourceAction::Bar {
                 sequence,
                 fingerprint,
@@ -121,6 +141,15 @@ impl Source {
         );
         let action = match input[0].as_str() {
             Some("CLOCK") => SourceAction::Clock(input[1].clone()),
+            Some("OPEN") => {
+                let (sequence, at, instrument, price) = crate::decode_open(&input)?;
+                SourceAction::Open {
+                    sequence,
+                    at,
+                    instrument,
+                    price,
+                }
+            }
             Some("BAR") => SourceAction::Bar {
                 sequence: input[1]
                     .as_u64()
@@ -294,6 +323,7 @@ impl MemoryVirtualActor {
                 timeline,
                 healthy: true,
                 bytes: 0,
+                opens: std::collections::BTreeMap::new(),
                 bars: std::collections::BTreeMap::new(),
                 trace: Vec::new(),
             },
@@ -318,6 +348,35 @@ impl MemoryVirtualActor {
     }
     pub fn advance(&mut self, at: i64) -> Result<(), Error> {
         self.source.step(json!(["CLOCK", at]), None)
+    }
+    pub fn on_open(
+        &mut self,
+        sequence: u64,
+        bar_start: i64,
+        instrument: &OnlyInstrumentId,
+        open: &OnlyPrice,
+    ) -> Result<(), Error> {
+        if !self.source.healthy {
+            return Err(err("VIRTUAL_MEMORY_FAILED"));
+        }
+        let input = json!([
+            "OPEN",
+            sequence,
+            bar_start,
+            instrument.to_record(),
+            open.to_record()
+        ]);
+        let fingerprint = digest(&input);
+        if let Some(original) = self.source.opens.get(&sequence) {
+            if original == &fingerprint {
+                return Ok(());
+            }
+            self.source.healthy = false;
+            return Err(err("VIRTUAL_OPEN_CONFLICT"));
+        }
+        self.source.step(input, None)?;
+        self.source.opens.insert(sequence, fingerprint);
+        Ok(())
     }
     pub fn on_bar(&mut self, sequence: u64, bar: &OnlyBar) -> Result<(), Error> {
         if !self.source.healthy {

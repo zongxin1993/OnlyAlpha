@@ -11,10 +11,18 @@ mod venue;
 #[cfg(test)]
 #[path = "tests/binding.rs"]
 mod binding_tests;
+#[cfg(test)]
+#[path = "tests/matching.rs"]
+mod matching_tests;
 
 use config::Config;
 use onlyalpha_broker::*;
-use onlyalpha_domain::{base::OnlyDomainModel, market::OnlyBar, value::OnlyMoney};
+use onlyalpha_domain::{
+    base::OnlyDomainModel,
+    identifiers::OnlyInstrumentId,
+    market::OnlyBar,
+    value::{OnlyMoney, OnlyPrice},
+};
 use plan::err;
 use serde_json::{Value, json};
 use venue::State;
@@ -49,6 +57,9 @@ impl VirtualBroker {
             return Err(err("VIRTUAL_ARTIFACT_DIGEST"));
         }
         let config = Config::parse(extensions)?;
+        if config.next_open.is_some() && scope.record()["runtime_kind"] != "BACKTEST" {
+            return Err(err("VIRTUAL_OPEN_REQUIRES_BACKTEST"));
+        }
         let binding = json!({"implementation":"rust","plugin_id":"virtual","release_id":"libs",
             "version":IMPLEMENTATION_VERSION,"artifact_sha256":artifact_sha256,"scope":scope.record(),
             "initial_cash":initial_cash.to_record(),"configuration":config.record});
@@ -88,6 +99,27 @@ impl VirtualBroker {
     pub fn advance(&mut self, now: i64) -> Result<(), Error> {
         self.update(json!(["CLOCK", now]), |s, cfg| s.advance(cfg, now))
     }
+    pub fn on_open(
+        &mut self,
+        sequence: u64,
+        bar_start: i64,
+        instrument: &OnlyInstrumentId,
+        open: &OnlyPrice,
+    ) -> Result<(), Error> {
+        let input = json!([
+            "OPEN",
+            sequence,
+            bar_start,
+            instrument.to_record(),
+            open.to_record()
+        ]);
+        if self.inputs.iter().rev().any(|i| i == &input) {
+            return Ok(());
+        }
+        self.update(input, |s, cfg| {
+            s.open(cfg, sequence, bar_start, instrument, open)
+        })
+    }
     /// sequence 从 1 连续增加；同一已闭合 Bar 重放只有原序号和内容均相同才幂等。
     pub fn on_bar(&mut self, sequence: u64, bar: &OnlyBar) -> Result<(), Error> {
         let input = json!(["BAR", sequence, bar.to_record()]);
@@ -100,9 +132,14 @@ impl VirtualBroker {
         self.update(input, |s, cfg| s.bar(cfg, sequence, bar))
     }
     /// 在当前场所前缀查询原始派发回执，尚未收到命令时返回 None。
-    pub fn dispatch_result(&self, command: &BrokerCommand) -> Result<Option<DispatchResult>, Error> {
+    pub fn dispatch_result(
+        &self,
+        command: &BrokerCommand,
+    ) -> Result<Option<DispatchResult>, Error> {
         self.owner(command.scope())?;
-        let Some(original) = self.state.commands.get(command.id()) else { return Ok(None) };
+        let Some(original) = self.state.commands.get(command.id()) else {
+            return Ok(None);
+        };
         if original != command {
             return Err(err("VIRTUAL_COMMAND_CONFLICT"));
         }
@@ -137,6 +174,10 @@ impl VirtualBroker {
                 &self.config,
                 input[1].as_i64().ok_or_else(|| err("VIRTUAL_CLOCK"))?,
             ),
+            Some("OPEN") => {
+                let (seq, at, instrument, price) = decode_open(input)?;
+                self.state.open(&self.config, seq, at, &instrument, &price)
+            }
             Some("BAR") => {
                 let bar = OnlyBar::from_record(&input[2]).map_err(|_| err("VIRTUAL_BAR"))?;
                 self.state.bar(
@@ -266,6 +307,10 @@ impl VirtualBroker {
             Some("CLOCK") => {
                 self.advance(input[1].as_i64().ok_or_else(|| err("VIRTUAL_CLOCK"))?)?
             }
+            Some("OPEN") => {
+                let (seq, at, instrument, price) = decode_open(input)?;
+                self.on_open(seq, at, &instrument, &price)?;
+            }
             Some("BAR") => {
                 let bar = OnlyBar::from_record(&input[2]).map_err(|_| err("VIRTUAL_BAR"))?;
                 self.on_bar(
@@ -284,6 +329,18 @@ impl VirtualBroker {
         Ok(())
     }
 }
+fn decode_open(input: &Value) -> Result<(u64, i64, OnlyInstrumentId, OnlyPrice), Error> {
+    let invalid = || err("VIRTUAL_OPEN_INPUT");
+    let seq = input[1].as_u64().ok_or_else(invalid)?;
+    let at = input[2].as_i64().ok_or_else(invalid)?;
+    let instrument = OnlyInstrumentId::from_record(&input[3]).map_err(|_| invalid())?;
+    let price = OnlyPrice::from_record(&input[4]).map_err(|_| invalid())?;
+    if *input != json!(["OPEN", seq, at, instrument.to_record(), price.to_record()]) {
+        return Err(invalid());
+    }
+    Ok((seq, at, instrument, price))
+}
+
 impl ConnectionPort for VirtualBroker {
     fn connect(&mut self) -> Result<Connection, Error> {
         if self.connection == Connection::Disconnected {

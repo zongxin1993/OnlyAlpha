@@ -12,20 +12,19 @@
 | operators | Native Operator v2 十进制stream | benches/workload.rs：rolling_mean/delay 20窗口，16/128/740 samples | 使用实际algebra::Stream，非未被该回测使用的固定整数SMA |
 | calculation | scoped cursor/receipt 有序批处理 | benches/workload.rs：1/32/256 events | prepare+commit，精确工作量和revision断言 |
 | strategy | graph executor与checkpoint | benches/workload.rs：16/128/740 bars | 复用公开集成测试NodePort，单独测调度，不冒充真实私有Python因子成本 |
-| calculation-bridge | typed Calculation与native operator适配 | benches/workload.rs：stream push/restore | 实际rolling_mean/delay adapter；子进程/IPC成本由后端组合链路追踪 |
+| calculation-bridge | typed Calculation与native operator适配 | benches/workload.rs：stream push/restore | 实际rolling_mean/delay adapter；子进程／IPC 成本须待正式服务恢复后另测 |
 | market-data | 行情状态cache更新/恢复 | benches/workload.rs：16/128/740 actual bars | history_limit128，输入读取在外，状态候选创建在外 |
 | market-data-construction | Provider-native dependency graph校验/编译 | benches/workload.rs：1/8/32 graphs | 使用当前原始图，不声称执行了未使用的聚合算法 |
 | metadata-json | configuration/manifest/证据元数据身份 | benches/workload.rs：实际Bar元数据canonical fingerprint | byte吞吐，预算8MiB，完整canonical一致性预检 |
 | integration-contract | source type规范化/选择 | benches/workload.rs：16/128/740 type identifiers | 只测当前source类型入口，不包含网络probe |
 | broker | 原生BrokerCommand校验 | benches/workload.rs：16/128/740 submits | 使用原OrderRequest并显式绑定受控account_id，未发送订单，不包含模拟成交或网络 |
 | execution | typed组件cold restore / 准入规划 | benches/recovery.rs | 同前缀ADMIT规划、成功/资金不足拒绝的cold/reused检查与恢复分开，完整输入与结果断言 |
-| runtime | 内存会话执行、PG 正式事实恢复与结果读取 | benches/retained.rs：memory.execute／result.read／durability.recovery；recovery.rs：8/32/128 事实行恢复与 apply | 事实行由公开 prepare 接口生成，不依赖 SQLite 快照或文件日志 |
-| backtest | 有限内存回测与终态结果读取 | benches/retained.rs，固定次数 | 真实策略/规则/输入，包含内部重复复核 |
+| runtime | 内存会话执行、持久化端口恢复与结果读取 | benches/retained.rs：memory.execute／result.read／durability.recovery；recovery.rs：8/32/128 事实行恢复与 apply | 事实行由公开 prepare 接口生成，不依赖 SQLite 快照或文件日志 |
+| runtime（有限回放） | 冻结输入、有限内存回测与结果读取 | [benches/finite_backtest.rs](../../crates/runtime/benches/finite_backtest.rs) 分别记录 `memory.execute` 和 `result.read` 的耗时 | 按实际 Bar 数计量，逐轮比对结果摘要 |
 
 ## 尚未认定实际执行的候选
 
-- indicators 的直接消费者是后端 chart/native_indicators；当前回测的数学节点来自 operators/native_operators。不能仅凭 backend Cargo 依赖就把 indicators 数学调用认定为此回测已执行。若实战追踪证明调用，则补相应基准。
-- event 未在当前 backtest 本地依赖闭包或该调用路径证明使用，不创建占位目录。
+- 指标或事件库是否计入测量，由被测路径的实际调用证明。
 - 市场/数据源/模拟Broker插件与后端持久化、HTTP、工作监督单列链路成本，不用纯库跑分代替。
 
 ## 统一条件
@@ -40,6 +39,6 @@ Criterion固定为0.7.0，只启用cargo_bench_support，默认features关闭，
 
 ## 诊断基础设施的独立成本
 
-`crates/observability` 不属于回测业务依赖闭包的23库基线。它新增 `overhead` bench，分别测 Off/Basic/Detail 下 no-op、显式 operation、摘要 event 和跨任务传播，工作量为1/32/256项。Session 创建、输出线程启动、flush/关闭和结果 Drop 在计时外；每次迭代使用独立容量1024的队列，最大批次事件数小于容量，关闭时断言无丢失和无 I/O 错误。该吞吐只描述已列出的基础设施操作，不代表持久化磁盘吞吐或完整 Web 链路。
+清单中的 `observability` 是独立诊断基准，统计回测业务库时单独列出。其 `overhead` 目标分别测 Off/Basic/Detail 下 no-op、显式 operation、摘要 event 和跨任务传播，工作量为1/32/256项。Session 创建、输出线程启动、flush/关闭和结果 Drop 在计时外；每次迭代使用独立容量1024的队列，最大批次事件数小于容量，关闭时断言无丢失和无 I/O 错误。该吞吐只描述已列出的基础设施操作，不代表持久化磁盘吞吐或完整 Web 链路。
 
 观测依赖沿用 tracing0.1.44，新增 tracing-subscriber0.3.23、tracing-appender0.2.5及实际14个增量 registry 包，现有依赖版本未改变。新增包为 MIT/Apache-2.0 许可，明确声明的最高 MSRV 为 time0.3.55/time-core0.1.9/time-macros0.2.32 的 Rust1.88，低于当前 Rust1.99.1。具体闭包由 Cargo.lock 约束；库不读取环境或安装全局 subscriber，应用负责唯一初始化。

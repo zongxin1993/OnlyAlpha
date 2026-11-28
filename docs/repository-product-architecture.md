@@ -14,25 +14,9 @@ crates/                                 one directory per reusable Rust library
   market-data-construction/             independent construction rules
   order/  position/  account/  strategy-ledger/  risk/
   fee/  settlement/  margin/  broker/  broker-virtual/  execution/
-  integration-contract/  metadata-json/  calculation-bridge/  runtime/  backtest/
+  integration-contract/  metadata-json/  calculation-bridge/  runtime/
   operators/  indicators/              pure Rust libraries (target placement)
 packages/
-  backend/
-    Cargo.toml
-    src/
-      main.rs  lib.rs
-      application/                     product commands/queries invoking the runtime facade
-      transport/                       HTTP/WebSocket and DTO mapping
-      security/                        authentication, authorization and Source grants
-      persistence/                     Product stores and schema migration integration
-      execution/                       composition using reusable libraries
-      runtime_generation/              exact environment/binding/activation lifecycle
-      workers/                         task claim, supervision, shutdown and recovery
-      bootstrap/                       explicit startup configuration and assembly
-    python/
-      gateway_protocol/                generated bindings and infrastructure client constituent
-    examples/                          technical conformance/diagnostics, not Product activation
-    tests/
   frontend/                            official Web UI
 plugs/                                 market rules, brokers, data sources (Rust preferred, Python second)
 contracts/                             canonical versioned Product and cross-boundary protocols
@@ -48,7 +32,7 @@ deployable unit requires a distinct lifecycle, resource, fault or upgrade bounda
 
 BACKTEST 和 SIM 共用的确定性模拟场所由 [`broker-virtual`](../crates/broker-virtual/README.md) 提供，真实券商协议适配器由 `plugs/` 中的插件实现。插件职责、实际装配限制及发行单元对应关系见[插件能力与历史边界](plugin-capabilities.md)。
 
-目标架构中 Backend 不再内嵌因子／策略算法编写与执行；`python/algorithms/`、旧 Python 因子编译／执行子进程及相关包装按 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 清退。全部量化计算与交易执行语义收拢为 `crates/` 内的 `OnlyAlphaRuntime` 门面，Backend 只装配端口、托管生命周期并暴露正式 API。
+Backend 实现已退役。目标产品宿主负责权限、正式 API、持久化和生命周期；量化计算与交易执行由 `OnlyAlphaRuntime` 提供。
 
 ### Rust 库的内部目录与说明
 
@@ -75,11 +59,7 @@ BACKTEST 和 SIM 共用的确定性模拟场所由 [`broker-virtual`](../crates/
 使用与验证。内容明确负责与不负责的范围、事实归属、输入输出、主要公开模块/类型/trait/函数、错误及约束、
 直接依赖和适用的持久化恢复语义，并链接实际 Rust 公开入口。没有状态或持久化能力时明确说明。
 README 是职责和调用导航，详细签名以源码及 Rust 文档为准，不创造另一份正式契约或验收 Authority。
-修改公开接口时同步维护 README；目录白名单和必需章节由 `scripts/rust_kernel_check.py` 的源码检查入口校验。
-
-Backend owns package/binary `onlyalpha-backend`. Frontend owns package `onlyalpha-frontend`.
-These are the two runtime projects under `packages/`. Agent clients use the formal API. Quantitative asset authoring
-and ownership follow [ADR 0150](adr/0150-product-layout-and-programmable-quant-assets.md). Release metadata is documented in [release versioning](release-versioning.md).
+修改公开接口时同步维护 README。产品目录现保留 Frontend。Agent 通过正式 API 操作，依赖服务的产品流程暂停。发行元数据见[发行规则](release-versioning.md)。
 
 ## Root Python source retirement
 
@@ -112,7 +92,6 @@ subject to their original contracts. AGENTS.md §2 governs execution and accepta
 | Integration and metadata libraries | Shared SPI, exact normalization/fingerprints; never depend on Product business |
 | Runtime | The sole abstract facade `OnlyAlphaRuntime`: research vector engine, unified Backtest/SIM/LIVE event engine, deterministic snapshot/replay and typed ports; no HTTP, authentication, storage driver or Product admission |
 | Calculation bridge | Generated Gateway bindings and reusable adapters; the Python algorithm client and old protocol bindings retire with ADR 0152 |
-| Backtest | Immutable-input replay/run-loop using the same Kernel; no Product admission, user authorization or task queue ownership |
 | Plugins | Concrete external rules and algorithms through public contracts; no backend-internal dependency |
 
 Calculation parameters, graph, registry and recovery remain internal modules of Calculation. Allocation/reservations/valuation
@@ -128,10 +107,7 @@ separate release units or external control APIs.
 
 ## Processes and lifecycle
 
-Default operator startup uses one `onlyalpha-backend` executable with `serve` and `worker` roles. Multiple processes are allowed
-for actual fault/resource/security/lifecycle or exact Generation isolation; no package or service per worker. These startup
-commands do not provide business operations around the Shipping UI/API. Deployment tools keep node/container lifecycle;
-backend supervises its admitted workers/algorithm children without competing supervisors or duplicate Authority.
+原产品进程及其服务和 Worker 角色已退役。未来的产品宿主仍须在资源、安全和生命周期边界内监督获准的工作，避免重复认领或重复派单。
 
 API/control remains responsive during bounded execution load. Execution workers claim only work admitted to their exact
 implementation/Generation. Agent clients use the formal versioned API.
@@ -140,45 +116,20 @@ IPC contracts; process isolation alone is not authentication, authorization or a
 Native process spawning/supervision belongs in backend; the reusable libraries accept the supplied channel/lifecycle port.
 Checkpoint candidate reconstruction uses an explicit caller-supplied connector, not a hidden policy
 inside library adapters. Failed kill/wait retains the same child and capacity until a positive join; explicit drain recovers
-that owner without retrying work. The retired Python algorithm child is not a target execution path. Technical diagnostic/reference executables belong to backend examples and confer no formal
-Product admission. The historical native Backtest artifact family and wire contract remain distinct from the Cargo target name;
-new binaries bind their actual owning backend version and bytes, without rewriting old immutable artifacts.
+that owner without retrying work. New hosts bind their actual version and artifact bytes without rewriting immutable history.
 
 Cross-process interactions use explicit contracts and owning durable admission/claim APIs, not arbitrary DB integration.
 On crash, recover from existing durable facts/leases/reconciliation. Preserve cancellation, observation, UNKNOWN and risk
 reduction; no blind retry, second order identity or inferred success. Deterministic fault tests cover API restart, worker
 termination, child failures and interrupted durable boundaries. Role/permission checks precede claim and execution.
 
-All backend roles and backend base Python resources ship under one backend version. Old backend/worker artifacts can remain for already-bound
-work; new activation/rollback changes only new-work selection under ADR 0117. Version equality is not permission to claim work,
-and a process restart is not a valid handover protocol. Keep required historical artifacts, readers, facts and keys.
+激活与回退仅影响新任务；已绑定的工作保留原工件、读取能力、事实及密钥。进程重启不能替代交接协议。
 
-## 原工程职责与当前实现归属
+## 原工程职责与退役边界
 
-下表保留原工程名称用于定位历史职责；当前实现归属以右侧源码为准。
+前端位于 `packages/frontend`，交易语义归 [Runtime](../crates/runtime/README.md)。冻结回放通过 `OnlyAlphaRuntime::backtest` 进入同一交易主循环。行情、因子、策略和经济组件按各自公开接口装配。
 
-| 原 `packages/onlyalpha-*` 工程 | 当前职责归属 |
-|---|---|
-| `web-console` | `packages/frontend` |
-| `http-server` | backend transport/security/bootstrap and program entry |
-| `product-runtime` | backend Application, Product persistence and execution composition modules |
-| `integration-contract`, `metadata-json` | `crates/integration-contract/` and `crates/metadata-json/` |
-| `gateway-protocol` | Rust bindings in `crates/calculation-bridge/src/protocol/`, canonical definitions in `contracts/gateway/`, Python bindings in backend resources |
-| `runtime-persistence` | reusable non-Kernel `crates/runtime/` library |
-| `backtest-driver` | reusable `onlyalpha-backtest`; admission/task/process entry belongs in backend |
-| `calculation-worker` | `crates/calculation-bridge` 保留生成的 Gateway 绑定与可复用适配；后端 `workers/algorithm.rs`、`trading_nodes.rs`、`research_calculations.rs` 的节点调度按 ADR 0152 收拢至统一 Runtime；`backend/python/algorithms` 与旧 Python 因子编译／执行子进程列入清退 |
-| `authoring-execution-worker` | 后端 `workers/research.rs`、`application/research_admission.rs` 和 `persistence/research_execution.rs` 负责准入证明、认领、执行与恢复 |
-| `runtime-generation-manager` | 后端 `persistence/research_runtime.rs` 及其 `lifecycle.rs` / `contracts.rs` 负责原有 Generation 日志、工件验证与工作绑定 |
-| `operators` | `crates/operators` 目标为双内核算子注册表（`VectorKernel`／`EventKernel`）与等价认证；当前正式 Calculation 定义、实现清单与检查点适配仍在 `crates/calculation-bridge/src/native_operators.rs`，按 ADR 0152 阶段 1 迁移 |
-
-Moving Python business into `backend/python` is not Rust migration. A retained interim implementation must be explicitly
-classified in task context and follow the existing official-writer binding. No general compatibility re-export is added.
-
-## Python resources, releases and retirement
-
-Backend ships the exact artifacts of any Python runtime or bindings that retain a live owning boundary; the Python
-algorithm executor and authoring SDK are retired under ADR 0152. Remaining Python implementations belong to their own
-plugin or tool boundaries. Internal wheels may be build constituents; they are not worker product release lines.
+网关协议定义位于 `contracts/gateway/`，Rust 绑定归 `crates/calculation-bridge`。旧 Backend 的服务端、Worker、Python SDK 和随包资源已退役。正式业务准入、工件验证、Generation 的不可变工作绑定、数据库发布和恢复仍属产品宿主的职责。
 Use one authoritative dependency description per actual installation closure; package metadata and deployment
 must agree. Do not resolve latest packages on startup or use the host venv/node_modules as container dependencies.
 
@@ -188,8 +139,7 @@ Changing bundled
 plugin or executor content requires the owning release. No algorithm child may own backend Product stores, Commands,
 trading state or Generation selection.
 
-The library set, backend and frontend release independently; plugins have their own distribution versions. Build inputs bind
-exact library/plugin content, locks, toolchain, features, target and relevant non-secret configuration. Frontend/backend
+现有 Rust 库、前端和插件按各自发行边界绑定精确源码、工件、锁文件、工具链和目标平台。Frontend/backend
 compatibility requires API-contract evidence for declared
 combinations, not matching version numbers. See
 [release versioning](release-versioning.md) for metadata, tags and refusal rules.
@@ -220,11 +170,7 @@ declare a module migrated or authorize deletion by directory name.
 禁止以二进制浮点或运算重排改变结果，也不得据此修改资金、数量或 Ledger 的所属精度。截面算子要求调用方证明同一
 事件时刻的完整规范平面，时间序列不能冒充截面。
 
-当前实现状态：`crates/operators` 仍只包含少量流式算子，正式 Calculation 定义、实现清单与检查点适配位于
-`crates/calculation-bridge/src/native_operators.rs`，`crates/indicators` 中仍有指标自持手写状态，发行 Manifest `3`
-仍将内置算子 Provider 与原生实现清单绑定到同一个 `BACKEND_RUNTIME` ELF。旧受限 Python AST 因子接口见
-[factor-program.md](factor-program.md)，已列入 ADR 0152 清退范围，不再是目标契约。双内核算子注册表、声明式因子表达式与
-指标算子化按 ADR 0152 阶段 1 实施，完成前不得声称该架构已实现。
+已注册算子的定义、实现清单与执行工件绑定见[计算桥](../crates/calculation-bridge/README.md)。正式运行必须核实宿主提供的工件身份。旧 Python AST 因子接口的历史背景见 [factor-program.md](factor-program.md)。
 
 ## Research／回测存储与信号边界演进
 

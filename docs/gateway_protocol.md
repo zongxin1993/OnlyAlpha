@@ -35,32 +35,9 @@ The compatibility-major authority is the Protobuf package:
 package onlyalpha.gateway.v1;
 ```
 
-Generated Python messages/stubs and `descriptor.pb` in `onlyalpha-gateway-protocol` are deterministic projections, not another contract.
-The descriptor SHA256 is diagnostic/deployment evidence only. Within v1, existing field number/type/removal or reserved reuse, RPC
-removal/signature changes, enum removal/value renumbering/reserved reuse, and package-major drift fail closed. Breaking semantics require
-a new `v2` namespace.
+网关实现从[六份 v1 协议源文件](../contracts/gateway/v1/onlyalpha_gateway_protocol/v1/)生成所需的语言绑定。描述符的 SHA256 仅用于诊断及部署核对。v1 必须保留已有字段的编号和类型、保留号、RPC 签名以及枚举成员和编号。删除已有字段、RPC 或枚举成员、复用保留号及其他破坏兼容性的变更需要新的 `v2` 命名空间。
 
-Generation is pinned to:
-
-```text
-grpcio-tools 1.73.1
-grpcio       1.73.1
-protobuf     6.33.5
-```
-
-The protobuf pin was updated to 6.33.5 by the P9.K.7 post-commit security closure; canonical `.proto` bytes, protocol major,
-generated descriptor identity, and Gateway business semantics remained unchanged.
-
-The generation input excludes timestamps, hostnames, absolute paths, Git SHA, random values, and build numbers. Governance commands are:
-
-```bash
-uv run python scripts/gateway_protocol.py write
-uv run python scripts/gateway_protocol.py check
-uv run python scripts/gateway_protocol.py verify --base <immutable-40-char-git-sha>
-```
-
-`verify` extracts historical `.proto` bytes from the immutable Git object. The first K7 revision is an explicit bootstrap when the base
-contains no Gateway protocol; subsequent changes compare descriptors mechanically.
+P9.K.7 曾随 Python 包发行消息类、gRPC stub 和 `descriptor.pb`，通过比对历史 Git 提交中的协议源文件检查兼容性。原 Python 包、生成脚本和安装流程随 Backend 退役。
 
 ## Identity taxonomy
 
@@ -162,8 +139,7 @@ resnapshot/resubscribe; execution gaps will generally require provider reconcili
 ## Security
 
 Production remote Gateway traffic must use authenticated encrypted transport, expected to be TLS/mTLS or a later explicitly governed
-equivalent. K7 uses an insecure localhost channel only in the deterministic test fixture. It does not build PKI, certificate rotation,
-Vault, SPIFFE, a service mesh, or authorization semantics. Security metadata stays outside business fingerprints.
+equivalent. The retired K7 test fixture used an insecure localhost channel for its deterministic test service. Security metadata stays outside business fingerprints.
 
 ## Future provider extension rules
 

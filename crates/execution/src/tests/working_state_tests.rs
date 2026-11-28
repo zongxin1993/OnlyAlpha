@@ -38,6 +38,32 @@ fn reseal_account_command(
 }
 
 #[test]
+fn cash_accept_requires_the_observed_record_and_matching_order() {
+    let config = support::config();
+    let owners = Components::new(config.clone()).unwrap();
+    let mut input = support::input(
+        3,
+        "ACCEPT",
+        json!({"schema_version":1,"order":"order-1","venue_order":"venue-1"}),
+    );
+    let scope = json!({"engine":config["engine"],"runtime":config["runtime"],"gateway":config["gateway"],"generation":config["generation"],"runtime_kind":config["runtime_kind"],"account":config["account"]});
+    input["broker_record"] = json!({"scope":scope,"session":"virtual","update_id":"update-1","source_sequence":2,"ts_event":3,"ts_init":3,"correlation":"order-1","causation":"submit-1","quality":[],"kind":"ACCEPTED","payload":{"order":"order-1","venue":"venue-1"}});
+    assert_eq!(owners.validate_planning_input(&input).unwrap(), 3);
+    let mut owner = WorkingState::new(config).unwrap();
+    assert_eq!(
+        owner.apply(&input).err().unwrap().0,
+        "EXECUTION_ORIGINAL_EVIDENCE_REQUIRED"
+    );
+    for (key, invalid) in [("order", "other"), ("venue_order", "other")] {
+        let mut changed = input.clone();
+        changed["payload"][key] = json!(invalid);
+        assert!(owners.validate_planning_input(&changed).is_err());
+    }
+    input["broker_record"]["ts_init"] = json!(4);
+    assert!(owners.validate_planning_input(&input).is_err());
+}
+
+#[test]
 fn finite_spot_accept_uses_the_production_payload_contract() {
     let mut configuration = support::config();
     configuration["schema_version"] = json!(2);

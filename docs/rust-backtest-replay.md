@@ -1,16 +1,18 @@
 # Rust 回测事件执行与恢复契约
 
-本页依据[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)取代原文件Source／SQLite续接及跨介质发布要求。详见[冻结身份和接口](job-execution-contract.md)。旧文件型`RunLoop::create/open`、`TerminalSnapshot`与`native_read`已完整退役，现行实现统一使用`BacktestRun`内存执行、`verify_finite_backtest`终态验证与PostgreSQL原子发布。
+有限回测调用 `runtime.backtest(replay, spec, &inputs, executor, policy, venue)`，传入冻结行情回放、运行规格、逐条输入、策略执行器、下一开盘策略和冻结场所配置，成功后取得 `FiniteBacktestTask<'_, C>`。调用 `task.run(consume)` 进入与 SIM、LIVE 共用的交易事件循环，回调接收每个事件及其处理结果。`run` 成功返回后，调用 `task.finish()` 消费任务，核验成功后返回 `CompletedBacktest`。见[有限任务实现](../crates/runtime/src/trading/backtest/playback.rs)。
+
+需要自行装配因子、策略和执行端口时，使用 [`OnlyAlphaRuntime::backtest_with_ports`](../crates/runtime/src/trading/backtest.rs)，返回通用 `TradingTask`。有限作业的内存完成与正式发布遵循 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 和[有限作业契约](job-execution-contract.md)。原 Backend 退役期间没有 PostgreSQL 发布服务。
 
 ## 输入与唯一信号
 
-Research和回测使用同一不可变策略版本、因子程序和精确参数。共同信号只依赖行情、因子和显式参数，输出eligibility／entry／exit；资金、仓位、风控、订单及成交由后续交易环节处理。batch/event同前缀逐点一致，不能把交易过滤后的NO_SIGNAL与Research原始信号比较。
+Research 与交易按同一冻结因子定义和精确参数逐点对齐。预热推进因子，不产生订单意图。Research 标签可使用未来数据，仅用于评估；回测策略只读取当时已知的因子和只读交易状态。
 
 每Attempt加载一次原ClickHouse精确切片，绑定来源、商品／Bar语义、原版本／Seal／segment、时间范围、轴、行数和规范化内容摘要。warmup与sample分别计数，不能只按时间范围读取最新值，不能从Research状态直接携带隐含交易初始信号。
 
 ## 经济与事件顺序
 
-回测仿真实时，使用共同交易Kernel。信号在已关闭Bar上形成，最早下一OPEN执行；不得在OPEN偷看未来close。撮合／滑点／费用／数量／风险与时钟均是显式绑定。市场差异留插件。
+`NEXT_OPEN_LONG_ONLY_V1` 在 T 收盘保留信号，到 T+1 的真实 `bar_start`，用开盘价、冻结的买卖乘数、费用和当时账户状态准入。拒绝须保留原因，订单、派发、成交均为零。通过后由绑定的虚拟场所按同一开盘整笔成交，场所回报依次经 `stage → apply_venue → acknowledge` 入账。该 Bar 的收盘估值与策略决策发生在其后。
 
 当前next-open示例保留0.01 BTC、10000 USDT、单多头、无加仓／做空／杠杆及原有费用／滑点规则；这些是例子的绑定，不是通用Kernel硬编码。全量成交模型必须证明其实际capacity／fee资源假设，不能用任意摘要替代；其他市场模型按各自精确规则执行。
 
@@ -20,7 +22,7 @@ Research和回测使用同一不可变策略版本、因子程序和精确参数
 
 typed owner常驻，维护完整因果与必要紧凑结果。不每Bar重读持久历史、全量组件restore或构造整套checkpoint比较，也不把旧Source表原样改成Vec<Value>。预算不足明确拒绝，不自动落文件或SQLite。
 
-`BacktestRun::finish(self)`只在实际输入耗尽、事件／broker drain、完整经济不变量及结果成员成立后返回私有CompletedBacktest；Backend补足实际子进程回收后产生私有完成候选。该对象不能从客户端JSON反序列化，内部经济transcript、空队列、hash相同均不能单独建立完成。
+有限任务完成要求实际耗尽输入、标记末根无后继开盘的信号、排空场所回报并验证经济应用及终态。[独立核验函数 `verify_finite_backtest`](../crates/runtime/src/trading/backtest/finite.rs) 按原冻结输入和回执重建执行前缀、收盘权益、回撤、基准及闭合交易周期。产品宿主还须证明实际子进程已回收、Attempt 仍持有有效认领。客户端数据、空队列或摘要相同均不足以建立完成。
 
 正式结果由PostgreSQL一次原子发布，全成员和Run／Attempt终态同时可见；查询读取正式成员，不重新跑整段回测。
 

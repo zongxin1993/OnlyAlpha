@@ -15,7 +15,7 @@
 
 - `cargo bench --frozen --offline -p onlyalpha-runtime --bench retained`（`OA_BENCH_ROUNDS` 默认 3，`OA_BENCH_DIAGNOSTICS=off|detail`）。
 - `cargo bench --frozen --offline -p onlyalpha-runtime --bench recovery`。
-- 统一运行器：`python -m scripts.run_rust_benchmarks reference --crate runtime --target retained --diagnostics off --output <新结果目录>`。
+- `cargo bench --frozen --offline -p onlyalpha-runtime --bench finite_backtest`。
 
 输入/元数据准备在计时外；各阶段含其内部复核，每轮核对完整结果摘要一致。原 SQLite 产物已退役，不再作为新基准的隐含输入，也不与旧 SQLite 样本直接比较声称优化。
 
@@ -27,11 +27,11 @@
 
 `retained` harness 显式支持 `OA_BENCH_DIAGNOSTICS=off|detail`（默认 off）。计时只包含 `memory.execute`、`result.read` 与 `durability.recovery`；Session 创建、线程启动及关闭/flush 在计时外，sink 使用标准库空 writer，队列容量 65536，关闭时必须无丢失及 I/O 错误。每轮核对相同结果摘要。该对照测量 JSON 编码、关联与队列提交成本，不代表真实磁盘写入开销。
 
-统一运行器可选择 `--crate runtime --target retained --diagnostics off` 或 `detail`；两种模式使用同一冻结源码和同一编译工件。身份文件与报告记录模式及关闭收据。普通代码回归比较拒绝跨模式；`compare_observation_overhead` 仅允许模式不同，并要求输入、结果、工作量、完整样本、环境、二进制和源码完全相同。
+比较观测开销时，在同一份冻结源码和同一编译工件上分别设置 `OA_BENCH_DIAGNOSTICS=off` 和 `detail`。记录模式及关闭收据，核对两次运行的输入、结果、工作量、样本数和环境一致。
 
 ## 内存会话口径
 
-`cargo bench -p onlyalpha-runtime --bench recovery -- memory.runtime` 分别量化实际 Session 创建、准入成功、成交 apply、最终对账／结果整理，并比较完整买卖流程在 observability Off／Detail 下的开销。计时外建立前置状态，各观测模式先断言完整经济结果相同；日志关闭收据必须完整且没有丢弃或 I/O 错误。这里的吞吐是经济输入／秒，不能冒充回测 K 线／秒。逐 Bar 的整体执行样本及输入规模增长见 [Backtest 基准](../backtest/BENCHMARK.md)。
+`cargo bench -p onlyalpha-runtime --bench recovery -- memory.runtime` 分别量化实际 Session 创建、准入成功、成交 apply、最终对账／结果整理，并比较完整买卖流程在 observability Off／Detail 下的开销。计时外建立前置状态，各观测模式先断言完整经济结果相同；日志关闭收据必须完整且没有丢弃或 I/O 错误。这里的吞吐是经济输入／秒，不能冒充回测 K 线／秒。逐 Bar 的整体执行与输入规模对照由 Runtime 的 [finite_backtest 基准](benches/finite_backtest.rs)维护。
 
 2026-11-15 固定 onlyalpha-dev、Linux aarch64、Rust 1.99.1、release，冻结源码 `b34f9f2b5663634be469cd43048e448e35774a16a129c906079a2733a9ed98a2`，工件 SHA256 `e7b9d6952eb12ffd1ded1a9668cb542735c8caac3b665a6021f3bed924f09a66`。Criterion 各 10 个样本，原日志与独立进程监控保留在主工作区 `test-results/strategy-research-framework-stage5-performance-final/`。
 

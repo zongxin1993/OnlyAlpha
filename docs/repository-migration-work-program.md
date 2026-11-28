@@ -6,6 +6,8 @@ This is the construction sequence for [ADR 0142](adr/0142-library-product-bounda
 or second acceptance Authority. Use AGENTS.md for each in-context Task Contract and risk/impact selection. This document-only
 design does not move/delete code, release artifacts, reset data or activate execution. Constitution Impact: NO.
 
+本文保留原 Backend 合并、发行与 Python 清退的历史顺序。下文的 Backend 包、SDK 和构建命令均按当时的目录理解。现行组件归属见[仓库与产品架构](repository-product-architecture.md)，后端重写待单独启动。
+
 ## Scope and order
 
 First reorganize the engineering/product boundary while preserving admitted behavior. Then continue remaining native

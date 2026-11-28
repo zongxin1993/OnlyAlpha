@@ -7,7 +7,7 @@ use crate::{RunConfiguration, durability::TradingBinding};
 use onlyalpha_broker::Scope;
 
 type NextEvent = std::result::Result<Option<TradingEvent>, TradingRunError>;
-type ReadEvent<P, E> = fn(&mut P, &TradingEngine, &mut E) -> NextEvent;
+type ReadEvent<P, S, E> = fn(&mut P, &TradingEngine, &S, &mut E) -> NextEvent;
 
 pub struct TradingTask<P, S, E> {
     engine: TradingEngine,
@@ -15,7 +15,7 @@ pub struct TradingTask<P, S, E> {
     strategy: S,
     execution: E,
     warmup: u64,
-    read: ReadEvent<P, E>,
+    read: ReadEvent<P, S, E>,
 }
 
 impl<P, S: StrategyPort, E: ExecutionPort> TradingTask<P, S, E> {
@@ -25,7 +25,7 @@ impl<P, S: StrategyPort, E: ExecutionPort> TradingTask<P, S, E> {
         strategy: S,
         execution: E,
         warmup: u64,
-        read: ReadEvent<P, E>,
+        read: ReadEvent<P, S, E>,
     ) -> Self {
         Self {
             engine,
@@ -56,7 +56,7 @@ impl<P, S: StrategyPort, E: ExecutionPort> TradingTask<P, S, E> {
         consume: impl FnMut(&TradingEvent, EventOutcome) -> Result<()>,
     ) -> std::result::Result<(), TradingRunError> {
         self.engine.drive(
-            |engine, execution| (self.read)(&mut self.source, engine, execution),
+            |engine, execution| (self.read)(&mut self.source, engine, &self.strategy, execution),
             &self.strategy,
             &mut self.execution,
             self.warmup,

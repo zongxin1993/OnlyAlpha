@@ -52,6 +52,7 @@ fn order(side: &str) -> Value {
     row["price"] = Value::Null;
     row["instrument_id"] = json!({"schema_version":1,"symbol":{"schema_version":1,"value":"BTCUSDT"},"venue":{"schema_version":1,"value":"BINANCE"}});
     row["side"] = json!(side);
+    row["offset"] = json!(if side == "BUY" { "NONE" } else { "CLOSE" });
     row["execution_intent"]["side"] = json!(side);
     row["execution_intent"]["position_effect"] =
         json!(if side == "BUY" { "OPEN" } else { "CLOSE" });
@@ -301,6 +302,124 @@ fn model_instrument_uses_snapshot_money_precision_without_rewriting_the_original
             .unwrap()
             .to_record(),
         before
+    );
+}
+
+#[test]
+fn frozen_btc_roundtrip_binds_both_next_opens_and_settles_exact_usdt_costs() {
+    use onlyalpha_domain::{
+        numeric::{OnlyDecimal, only_add, only_multiply, only_subtract},
+        value::OnlyMoney,
+    };
+
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/btc-next-open-roundtrip.json")).unwrap();
+    let bars: Vec<_> = fixture["bars"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|segment| {
+            std::iter::repeat_n(
+                segment,
+                usize::try_from(segment["count"].as_u64().unwrap()).unwrap(),
+            )
+        })
+        .collect();
+    let first = fixture["first_open_ns"].as_u64().unwrap();
+    let interval = fixture["bar_duration_ns"].as_u64().unwrap();
+    let warmup = usize::try_from(fixture["warmup_rows"].as_u64().unwrap()).unwrap();
+    assert_eq!((bars.len(), warmup, bars[warmup..].len()), (740, 20, 720));
+    let open_at = |row: usize| first + u64::try_from(row).unwrap() * interval;
+    assert_eq!(open_at(warmup), 1_735_862_400_000_000_000);
+    assert_eq!(open_at(bars.len()), 1_735_905_600_000_000_000);
+    let snapshot = SpotRuleSnapshot::capture(
+        symbol(),
+        OnlyTimestamp::from_datetime("2026-11-01T00:00:00Z".parse().unwrap()),
+        "controlled-native-composition",
+    )
+    .unwrap();
+    let cfg = configuration();
+    let policy = SpotSimulationPolicy::new(snapshot, cfg.clone()).unwrap();
+    let q = quantity(fixture["quantity"].as_str().unwrap());
+    let decimal = |v: &Value| v.as_str().unwrap().parse::<OnlyDecimal>().unwrap();
+    let initial = decimal(&cfg["initial_cash"]);
+    let mut cash = initial.clone();
+    let mut fees: OnlyDecimal = "0".parse().unwrap();
+    let expected = [
+        (
+            "100100.00",
+            "100120.020000",
+            "1.00120020",
+            1_735_862_460_000_000_000u64,
+        ),
+        (
+            "99800.00",
+            "99780.040000",
+            "0.99780040",
+            1_735_862_520_000_000_000u64,
+        ),
+    ];
+    let signals = fixture["signals"].as_array().unwrap();
+    assert_eq!(signals.len(), expected.len());
+    for (signal, (raw_open, executed, charge, time)) in signals.iter().zip(expected) {
+        let row = usize::try_from(signal["close_row"].as_u64().unwrap()).unwrap() + 1;
+        assert_eq!(open_at(row), time);
+        let open = OnlyPrice::new(decimal(&bars[row]["open"]), 2).unwrap();
+        assert_eq!(open.to_record()["value"], raw_open);
+        let value = only_multiply(open.value(), &decimal(&signal["multiplier"])).unwrap();
+        let precision = u8::try_from(value.fractional_precision()).unwrap();
+        let execution = OnlyPrice::new(value, precision).unwrap();
+        assert_eq!(execution.precision(), 6);
+        assert_eq!(execution.to_record()["value"], executed);
+        let side = signal["side"].as_str().unwrap();
+        let mut request = order(side);
+        request["order_id"]["value"] = json!(format!("btc-order-{row}"));
+        request["client_order_id"]["value"] = json!(format!("btc-client-{row}"));
+        let mut ctx = json!({"schema_version":1,"time":time,"day_index":739254,"trading_day":"2025-01-03","cause":onlyalpha_fee::digest(signal)});
+        let admission = policy.admission(&request, &execution, &ctx).unwrap();
+        assert_eq!(admission["accepted"], true);
+        for (field, bound) in [
+            ("fee_policy_binding", "binding"),
+            ("fee_estimate", "estimate"),
+            ("funding_plan", "funding"),
+        ] {
+            request[field] = admission["contract"][bound].clone();
+        }
+        ctx["trade"] = json!(format!("btc-trade-{row}"));
+        let fill = policy.fill(&request, &execution, &q, &ctx).unwrap();
+        assert_eq!(fill["charge_target"], charge);
+        assert!(decimal(&fill["rebate_target"]).is_zero());
+        let gross = OnlyMoney::from_record(&fill["gross_notional"]).unwrap();
+        assert_eq!(gross.currency().to_record(), cfg["currency"]);
+        cash = match side {
+            "BUY" => only_subtract(&cash, gross.amount()),
+            "SELL" => only_add(&cash, gross.amount()),
+            _ => panic!("unexpected side {side}"),
+        }
+        .unwrap();
+        cash = only_subtract(&cash, &decimal(&fill["charge_target"])).unwrap();
+        fees = only_add(&fees, &decimal(&fill["charge_target"])).unwrap();
+    }
+    assert_eq!(fees.to_string(), "1.99900060");
+    assert_eq!(cash.to_string(), "9994.60119940");
+
+    let entry = only_multiply(
+        &decimal(&bars[warmup]["open"]),
+        &decimal(&signals[0]["multiplier"]),
+    )
+    .unwrap();
+    let mut quote_context = context();
+    quote_context["time"] = json!(open_at(warmup));
+    quote_context["day_index"] = json!(739254);
+    let quote = policy
+        .analytical_entry_quote(&OnlyPrice::new(entry, 6).unwrap(), &q, &quote_context)
+        .unwrap();
+    let remaining = only_subtract(&initial, &decimal(&quote["gross_notional"]["amount"])).unwrap();
+    let remaining = only_subtract(&remaining, &decimal(&quote["charges"]["amount"])).unwrap();
+    let final_mark = only_multiply(&decimal(&bars.last().unwrap()["close"]), q.value()).unwrap();
+    assert_eq!(
+        only_add(&remaining, &final_mark).unwrap(),
+        "9998.7998".parse::<OnlyDecimal>().unwrap()
     );
 }
 

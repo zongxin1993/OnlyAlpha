@@ -30,7 +30,7 @@ impl OnlyAlphaRuntime {
             strategy,
             execution,
             0,
-            |source, _, _| source.next_event().map_err(TradingRunError::Source),
+            |source, _, _, _| source.next_event().map_err(TradingRunError::Source),
         ))
     }
 }

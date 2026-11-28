@@ -1,6 +1,6 @@
 # 一次构建的因子程序
 
-> **已退役（目标）：** 本文描述的受限 Python AST 因子编写接口由 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 替代。目标实现为声明式因子表达式、类型化算子 DAG 与双内核执行；本文、对应编译器、`packages/backend/python/algorithms/` 及相关构建路径按 ADR 0152 阶段 4 清退。本文仅用于说明清退前的当前源码与既有绑定，不再是目标契约，也不得用于新增实现。
+> **历史实现。** 本文记录原 Backend 的受限 Python AST 构建、精确参数认证和数值语义。该产品路径已退役。现行基础库通过 [`FactorExpr::compile`](../crates/calculation/src/factor_expr/mod.rs) 将声明式表达式编译为类型化算子 DAG，供向量或事件内核执行。因子与研究标签的边界见 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md)。
 
 ## 职责与身份
 
@@ -22,12 +22,8 @@ Rust 负责 DECIMAL28_HALF_EVEN_Q12_V1，复用 operators；不是资金／数�
 
 `ProgramInstance` 只服务一个 instrument／连续 sequence；不同 Run/instrument 创建不同实例，窗口不共享。每 step 先构造完整候选，成功才推进。快照绑定精确程序和参数，恢复检查 schema、位置、窗口长度，不能借另一参数或程序的状态。
 
-## 产品接线边界
+## 历史产品接线
 
-本阶段提供真实构建、精确认证、owning READY reader、原生 batch/event 和示例验证。完整行情准备、Research／Backtest 作业及完成发布按总计划后续阶段接线；尚未提供完整产品可用性或 Web 超时结论。现有 `research_preparation.prepare_strategy → _prepare_factor` 仍耦合旧源码认证，旧运行环境准备也受此退役影响；共用输入准备迁移时必须拆除该依赖，相关集成断言保留。
+原 Backend 通过 `research_preparation.prepare_strategy → _prepare_factor` 读取源码认证结果。直接执行旧源码会返回 `PRIVATE_FACTOR_NATIVE_BUILD_REQUIRED` 或 `PRIVATE_FACTOR_NATIVE_PROGRAM_REQUIRED`。原 PostgreSQL builder、Python 编译器测试及 Backend 作业验证入口均已随原宿主退役。
 
-旧源码直接执行路径明确拒绝 `PRIVATE_FACTOR_NATIVE_BUILD_REQUIRED`／`PRIVATE_FACTOR_NATIVE_PROGRAM_REQUIRED`，没有 AST 解释回退。Research 不在每次作业隐式构建或认证。只有独立审查通过的 reader 可以供后续正式入口使用。
-
-## 验证入口
-
-纯库：`cargo test -p onlyalpha-calculation`、`cargo test -p onlyalpha-strategy`。固定开发环境：`application_job_publication` target 的 factor_build_tests 和 `test_factor_program_compiler.py`。公开动量示例通过正式 Draft→不可变版本→同一队列→隔离编译→Rust 认证→native batch/event 验证；示例自身不是正式准入或收益承诺。基准参见 calculation 和 backend 的 BENCHMARK.md。
+现行声明式示例按来源和因子集收录在[因子示例目录](../examples/factor/)。仓库通过[单元测试入口](../scripts/unit_tests.py)验证 Rust 库的模块自测。

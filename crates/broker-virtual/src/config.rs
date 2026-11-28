@@ -1,11 +1,65 @@
 use crate::plan::{err, fields, keyword, policy, setting_number};
 use bigdecimal::BigDecimal;
 use onlyalpha_broker::Error;
+use onlyalpha_domain::{
+    base::OnlyDomainModel,
+    numeric::{OnlyDecimal, only_multiply},
+    value::OnlyPrice,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 #[derive(Clone)]
+pub(crate) struct NextOpenMatching {
+    buy: OnlyDecimal,
+    sell: OnlyDecimal,
+}
+
+impl NextOpenMatching {
+    fn parse(matching: &Value) -> Result<Self, Error> {
+        let multiplier = |field: &str| -> Result<OnlyDecimal, Error> {
+            let text = matching[field]
+                .as_str()
+                .filter(|s| {
+                    !s.is_empty()
+                        && s.len() <= 36
+                        && s.bytes().all(|c| c.is_ascii_digit() || c == b'.')
+                })
+                .ok_or_else(|| err("VIRTUAL_OPEN_MULTIPLIER"))?;
+            let n: OnlyDecimal = text.parse().map_err(|_| err("VIRTUAL_OPEN_MULTIPLIER"))?;
+            if n.is_zero() || n.fractional_precision() > 18 {
+                return Err(err("VIRTUAL_OPEN_MULTIPLIER"));
+            }
+            Ok(n)
+        };
+        let buy = multiplier("buy_multiplier")?;
+        let sell = multiplier("sell_multiplier")?;
+        let one: OnlyDecimal = "1".parse().expect("decimal one");
+        if buy < one || sell > one {
+            return Err(err("VIRTUAL_OPEN_MULTIPLIER"));
+        }
+        Ok(Self { buy, sell })
+    }
+
+    pub(crate) fn price(&self, open: &OnlyPrice, side: &Value) -> Result<Value, Error> {
+        let multiplier = match side.as_str() {
+            Some("BUY") => &self.buy,
+            Some("SELL") => &self.sell,
+            _ => return Err(err("VIRTUAL_OPEN_SIDE")),
+        };
+        let price =
+            only_multiply(open.value(), multiplier).map_err(|_| err("VIRTUAL_OPEN_PRICE"))?;
+        let precision =
+            u8::try_from(price.fractional_precision()).map_err(|_| err("VIRTUAL_PRECISION"))?;
+        Ok(OnlyPrice::new(price, precision)
+            .map_err(|_| err("VIRTUAL_OPEN_PRICE"))?
+            .to_record())
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct Config {
+    pub next_open: Option<NextOpenMatching>,
     pub fill: Value,
     pub offset: Option<BigDecimal>,
     pub submit_ns: i64,
@@ -32,7 +86,17 @@ impl Config {
         let latency = v.get("latency").unwrap_or(&empty);
         let slip = v.get("slippage").unwrap_or(&empty);
         let simulation = v.get("simulation").unwrap_or(&empty);
-        fields(matching, &["type", "maximum_fill_quantity", "partial_fill"])?;
+        let next_open = match keyword(matching, "type", "NEXT_BAR")?.as_str() {
+            "NEXT_BAR" => {
+                fields(matching, &["type", "maximum_fill_quantity", "partial_fill"])?;
+                None
+            }
+            "NEXT_OPEN_LONG_ONLY_V1" => {
+                fields(matching, &["type", "buy_multiplier", "sell_multiplier"])?;
+                Some(NextOpenMatching::parse(matching)?)
+            }
+            _ => return Err(err("VIRTUAL_MATCHING")),
+        };
         fields(
             latency,
             &[
@@ -45,9 +109,6 @@ impl Config {
         )?;
         fields(slip, &["type", "price_offset"])?;
         fields(simulation, &["submissions"])?;
-        if keyword(matching, "type", "NEXT_BAR")? != "NEXT_BAR" {
-            return Err(err("VIRTUAL_MATCHING"));
-        }
         let partial = matching
             .get("partial_fill")
             .filter(|v| !v.is_null())
@@ -138,10 +199,24 @@ impl Config {
                 return Err(err("VIRTUAL_SUBMISSION_INDEX_DUPLICATE"));
             }
         }
-        let record = json!({"fill":fill,"price_offset":offset.as_ref().map(|n| n.normalized().to_plain_string()),
+        let mut record = json!({"fill":fill,"price_offset":offset.as_ref().map(|n| n.normalized().to_plain_string()),
             "latency":{"submit_ns":submit,"acceptance_ns":acceptance,"fill_ns":fill_ns,"cancel_ns":cancel_ns,"query_ns":query_ns},
             "controls":controls.values().collect::<Vec<_>>()});
+        if let Some(model) = &next_open {
+            if fill["mode"] != "WHOLE"
+                || offset.is_some()
+                || submit_ns != 0
+                || fill_ns != 0
+                || cancel_ns != 0
+                || query_ns != 0
+                || !controls.is_empty()
+            {
+                return Err(err("VIRTUAL_OPEN_CONFIGURATION"));
+            }
+            record["matching"] = json!({"type":"NEXT_OPEN_LONG_ONLY_V1", "buy_multiplier":model.buy.to_string(), "sell_multiplier":model.sell.to_string()});
+        }
         Ok(Self {
+            next_open,
             fill,
             offset,
             submit_ns,

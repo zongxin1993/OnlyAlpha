@@ -21,7 +21,7 @@ repository root. They identify source owners and consumers, not a second semanti
 | Backend-neutral type definitions, parameters and semantic references | `src/onlyalpha/calculation/predicate.py` | Exact type/version resolution in `crates/predicates/src/{predicate,integer_predicate,boolean_equality,string_equality}.rs`; 当前原生定义和解析器位于 `crates/calculation-bridge/src/native_predicates.rs` |
 | Scalar TRADING evaluation | `src/onlyalpha/runtime/trading/predicate.py` | The same four Rust modules implement the selected typed scalar semantics; they do not provide Python backend registration or Runtime composition |
 | Exact finite Decimal reference/literal comparison | `src/onlyalpha/calculation/value_semantics.py` via the registered Predicate backends | `crates/predicates/src/decimal_predicate.rs` implements the twelve typed comparisons, with immutable literal/position configuration; no arithmetic or diagnostic transport |
-| Batch RESEARCH evaluation | `src/onlyalpha/research/calculation/predicate.py` | 后端 Rust 图执行器 `packages/backend/src/workers/research_calculations.rs` 组合原生 Predicate 适配器完成批量计算 |
+| Batch RESEARCH evaluation | 历史 Python 批量执行 | 冻结输入由 Runtime 的 Research 接口按向量内核执行 |
 | Isolated exact-artifact comparison orchestration | 随旧 Generation manager 包退役的比较服务 | `crates/predicates/src/bin/predicate-diagnostic.rs` 保留私有诊断入口，其允许范围由原比较契约限定 |
 | Independent shared expected values | `test-data/predicate/`, regenerated and byte-guarded by the owning scripts/tests | Both languages consume the same corpora; neither implementation generates the other's expected results |
 | Language-specific verification | `tests/calculation/test_{predicate,integer_predicate,scalar_equality}_vectors.py` | `crates/predicates/tests/` contains the corresponding Rust corpus, literal and diagnostic tests |
@@ -77,38 +77,7 @@ apply the owning [Clock Contract](clock.md). Building the library does not claim
 
 ## Toolchain and build boundary
 
-`rust-toolchain.toml` pins the official stable Rust 1.99.1 toolchain with rustfmt and Clippy. `deploy/Dockerfile.dev` obtains it from
-the official `rust:1.99.1-slim-bookworm` image with its committed manifest-list digest, adding those components during image preparation.
-Only the existing test/browser-test stages receive the compiler and GNU native linker. The existing validation service mounts
-the exact compiler/proxy directories from that image read-only, with exact source image and subpath checks. The production runtime stage is unchanged.
-The native GNU Linux targets are `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`; the check refuses other hosts and binds
-its compiler host explicitly. Evidence is target-specific; a successful ARM64 run does not certify x86-64 or macOS/Windows.
-
-Use the single dev project and source-mounted verification entry, never a parallel Compose deployment:
-
-```sh
-python scripts/dev_verification.py --rebuild prepare
-python scripts/dev_verification.py run -- python scripts/test_suite.py rust-kernel
-```
-
-Rebuild only for changed toolchain/dependency/environment inputs. Rust source edits reuse the image. The formal entry verifies the
-previous frozen inventory before reusing unchanged files with their existing timestamps and read-only permissions, so Cargo and
-TypeScript can retain their incremental state. Changed bytes or execution permissions refresh the affected file; final inventory,
-source-change, Git, lifecycle and mount guards remain required. This is file reuse, never reuse of a test result for changed inputs.
-The formal entry freezes source
-and serializes shared dev verification. Build output is under ignored `test-results/rust-kernel/target`, never inside frozen source;
-no host Cargo directory or Rust installation is used. The canonical `rust-kernel` check is also a required Linux CI job.
-
-The checker requires locked/offline Cargo, one build job and one test thread, and runs formatting and Clippy, then tests and builds in
-both debug and release. It refuses unexpected lockfile packages pending dependency review. Ambient Cargo/Rust profile flags and
-wrappers are removed. Missing toolchains/components fail rather than installing during tests. Compiler/Cargo identity, target,
-source/lock/vector digests and the distinct debug/release artifact digests are retained in ignored test output only. These are
-technical build observations, not formal Calculation equivalence Evidence, Runtime Generations or a certification registry.
-
-Root `pyproject.toml` remains the sole release-number Authority. `scripts/version_sync.py` synchronizes `[workspace.package].version`
-and the workspace package in `Cargo.lock` with the existing Python/Web graph. Cargo package version is implementation/distribution
-identity, not the Predicate semantic version. `publish = false` prevents accidental registry publication; no external crates,
-build scripts or native extensions are admitted. Standard library/compiler code is provided by the pinned official toolchain.
+开发、编译和单元测试在 Mac 主机原生进行，工具链以 [rust-toolchain.toml](../rust-toolchain.toml) 为准。仓库当前只运行 [scripts/unit_tests.py](../scripts/unit_tests.py) 发现的 `crates/` 库模块自测。原应用镜像与容器验证入口已退役。某一平台的结果只证明当次构建与测试，不能作为跨平台、产品集成或性能证据。
 
 ## Semantic and failure boundaries
 
@@ -351,13 +320,7 @@ matching receipts. It has no Domain, process, plugin or transport dependency and
 fingerprints bind generation, worker artifact, component Definition3, native Definition2, native implementation and input context;
 instance scope is explicit. These identity domains remain distinct.
 
-策略技术探针通过 `scripts/strategy_execution_check.py` 调用正式的 Rust Strategy Executor 和
-`InstalledTradingNodes`。Rust 负责策略状态、谓词、结果和恢复校验。已封存的 Python 数值接口仅负责
-声明的算子或因子计算。探针验证真实子进程的取消和回收，从同一检查点启动新子进程，并比较后续决策与状态。
-
-Generate Python projections with `scripts/gateway_protocol.py write`; generate Rust projections in the admitted Linux tool
-environment with `scripts/gateway_protocol.py write-rust`. The Rust canonical lane checks the Rust projection; the existing
-Gateway lane checks Python bytes and additive wire compatibility.
+策略状态、谓词、结果和检查点核验由 [Rust 策略库](../crates/strategy/README.md)负责。原 Backend 的 Python 子进程技术探针和协议投影生成流程已退役。Gateway 消息保留在[版本化协议目录](../contracts/gateway/v1/)，当前 CI 运行[仓库 Rust 库单测](../scripts/unit_tests.py)。
 
 ### Scoped state and readiness
 
@@ -387,7 +350,7 @@ admitted semantic closure; the worker closure adds its existing Gateway protocol
 
 ## Strategy decision responsibility map
 
-`crates/strategy` 负责 Revision2、确切执行 Program、确定性图计算、readiness、策略决策与组件恢复，只依赖 Domain、Calculation 和 Construction 值模型。进程与节点调度位于 `packages/backend/src/workers/{algorithm,trading_nodes,trading_program}.rs`，可复用协议和原生适配位于 `crates/calculation-bridge/`。受限私有 Factor 执行器作为后端构件位于 `packages/backend/python/algorithms/`。
+`crates/strategy` 负责 Revision2、精确的执行程序、确定性图计算、readiness、策略决策与组件恢复。可复用协议和原生适配位于 [calculation-bridge](../crates/calculation-bridge/README.md)，交易任务通过 [Runtime](../crates/runtime/README.md) 装配。原产品 Worker 与 Python 算法执行器已退役。
 
 Audit corrections include withdrawing the entire owner after a possibly partial node update, fresh atomic restore, and rejecting stale
 upstream readiness. The Python reference is preserved for classified comparison, not reproduced when those audited behaviors are defective.

@@ -5,6 +5,7 @@
 //! 实盘派单权限属于执行端口；本模块不产出任何外部发单能力。
 pub mod backtest;
 pub mod execution;
+pub mod finite_owner;
 pub mod live;
 pub mod sim;
 mod task;

@@ -117,6 +117,35 @@ impl WorkingState {
         self.ready()?;
         self.owners.require_original_evidence(input)
     }
+    pub fn check_cash_observation(
+        &self,
+        input: &Value,
+        observed: &onlyalpha_broker::ObservedFact,
+    ) -> Result<OriginalEvidence, Error> {
+        self.ready()?;
+        let fact = observed.fact();
+        let order = id(&input["payload"]["order"])?;
+        let admission = self.admission(order)?;
+        let intent = observed.intent().record();
+        if input.get("broker_record") != Some(&fact.record())
+            || fact.order() != Some(order)
+            || intent["command"]["scope"] != fact.scope().record()
+            || intent["command"]["order"] != order
+            || intent["command"]["request"] != admission.input()["payload"]["request"]
+            || intent["transaction"] != admission.transaction()
+            || intent["payload_hash"] != admission.payload_fingerprint()
+            || input["cluster"] != admission.input()["cluster"]
+            || input["revision"] != admission.input()["revision"]
+        {
+            return Err(err("EXECUTION_CASH_OBSERVATION_MISMATCH"));
+        }
+        Ok(OriginalEvidence {
+            seal: Arc::clone(&self.seal),
+            sequence: self.sequence(),
+            input: hash(input),
+            origin: Value::Null,
+        })
+    }
     pub fn check_original_input(
         &self,
         input: &Value,

@@ -8,7 +8,7 @@
 ```text
 Web (packages/frontend) / Agent (backend-owned formal API client)
     ↓ versioned Product API (contracts/)
-Backend transport → Application Commands/Queries (packages/backend)
+Product HTTP adapter → Application Commands/Queries（产品宿主职责，原服务已退役）
     ↓ explicit library ports and canonical semantics
 Reusable Rust libraries (crates/; Kernel and Infrastructure remain distinct)
 Concrete plugins (plugs/) → public Plugin SPI / library ports
@@ -22,10 +22,7 @@ Only the two product packages belong under `packages/`; workers are backend role
 Gateway bindings are a reusable library; canonical protocol sources remain in `contracts/`. Web and HTTP are not Kernel.
 The direct typed deterministic trading chain and sole fact Authorities remain unchanged.
 
-This is the target layout, not a statement that current package paths have moved. Detailed source maps below may name existing
-`onlyalpha-backend`, `onlyalpha-backend`, worker packages and Python source; migrate those consumers atomically
-under the [repository work program](repository-migration-work-program.md). Do not treat an old package path as a permanent
-independent deployment or maintain Python business merely because it is still named in a source map.
+现行目录见[仓库与产品架构](repository-product-architecture.md)。下文保留过往设计中的模块和阶段名称。产品权限、业务持久化及 API 接线待新宿主实现；有限回放入口见 [Runtime](../crates/runtime/src/trading/backtest.rs)。
 
 Runtime 产品分类与迁移方向由 [ADR 0068](adr/0068-runtime-product-taxonomy-and-trading-semantic-equivalence.md) 决定；多市场
 拓扑与异构生命周期由 [ADR 0080](adr/0080-multi-market-platform-and-heterogeneous-runtime-lifecycle.md) 决定；目标 Live
@@ -68,7 +65,7 @@ OnlyAlpha 是多市场平台：Domain 定义跨市场 canonical vocabulary，具
 
 ## 2. Engine / Runtime Model
 
-目标顶层模型：
+早期 `OnlyEngine` 设计用下图描述运行实例与工作负载的关系。当前 Rust 库的计算与交易门面为 [`OnlyAlphaRuntime`](../crates/runtime/src/lib.rs)。
 
 ```text
 OnlyEngine
@@ -102,13 +99,9 @@ Web / Agent
 
 Engine 负责 Cluster Definition、typed specification/extension validation、Runtime environment grouping、Runtime/Cluster Session、共享资源引用、装配、生命周期、Result/Artifact 聚合、`user_data` 布局和失败清理。Engine 不拥有 Order、Position、Account 或其他交易经济状态。
 
-当前 `OnlyEngine.run()` 只接受有限 `BACKTEST`。Streaming 路径使用 `initialize/start/wait/stop/close`。有限 Research 通过
-`add_research_workload()` 注册，并由 `initialize/start/run_runtime/stop/close` 驱动；它使用 Research Job/Sweep Plan，不创建
-Trading Cluster。P7.11 仍显式拒绝 Research 与 Trading 在同一 Engine 中混合，完整异构生命周期尚未实现。
+历史 Python 实现中，`OnlyEngine.run()` 驱动有限回测，流式任务和 Research 通过各自的生命周期方法运行。P7.11 当时拒绝在同一 Engine 中混合 Research 和 Trading。
 
-目标 Engine 允许四种 Runtime Session 同时存在且生命周期独立。Research/Backtest 完成不得隐式停止 Sim/Live；一个 Runtime 的
-start/stop/failure 不能成为另一个 Runtime 的 lifecycle command。Web/Application 未来通过 Engine 控制单个 Runtime；Engine 的
-跨 Runtime Result/diagnostic aggregation 保持只读。当前 Engine 尚未实现四种 Runtime 的完整异构同时组合。
+独立启停仍是多实例产品宿主的设计目标。有限 Research 或 Backtest 完成后，其他 SIM 或 LIVE 实例继续按各自的授权和生命周期运行。跨实例结果和诊断仅提供只读汇总。
 
 ## 3. Runtime Product Taxonomy
 
@@ -146,7 +139,11 @@ Historical Dataset
 
 Research 可复用 MarketData Domain、Instrument、Reference、Calendar、canonical data model 和无交易副作用的 Indicator/Factor 定义。Research Job / Plan 描述 Dataset、Universe、Time Range、计算定义、Parameter Grid、Statistics 与 Output，不伪装成 Trading Cluster。
 
-当前已实现 immutable Dataset Snapshot、batch/vectorized Calculation、Calculation Result、Research Job、Factor/Feature/Score、Sweep，
+当前[研究统计库](../crates/research-statistics/README.md)根据输入和统计计划输出客观报告。参数搜索、调优和因子优选由外层负责。
+
+### 历史 Research 产品实现（P7–P8）
+
+原产品曾实现 immutable Dataset Snapshot、batch/vectorized Calculation、Calculation Result、Research Job、Factor/Feature/Score、Sweep，
 以及 Research-only Target/Forward Return、exact alignment、IC/Rank IC 和 immutable Statistics Result。统一 Factor semantic 仍以
 `TIME_SERIES/CROSS_SECTION` 表达数学 execution shape，以 `RESEARCH/TRADING` 表达物理 backend；Runtime type 不进入 Factor identity。
 Evaluation 只允许消费 verified Feature/Target Result，Evaluation → Feature dependency 在 Calculation Graph construction 时 fail closed。
@@ -157,7 +154,7 @@ P7.11 已激活 finite Research Factory：Runtime 从 exact verified Dataset Sna
 Artifact 与 final verified load 顺序编排既有 authority，并使用 verified immutable authority + deterministic re-entry 恢复；不创建
 Runtime checkpoint 或 workload semantic fingerprint。P7.8 已实现 composition-only immutable Research Result，P7.9 已实现只复制该 Result
 精确选择的 Statistics rows、可脱离全部上游 Store 自验证的 immutable Research Artifact。P7.10 已在 Artifact 之上实现无状态、
-transport-neutral Query Model/Service，并由独立 `onlyalpha-backend` package 提供三个 exact-identity GET endpoint。Artifact 不是新的
+transport-neutral Query Model/Service，产品协议保留按精确身份读取的 GET 接口。Artifact 不是新的
 Statistics 或 Research authority，Query Result 只是 ephemeral projection。P7.12 将 HTTP transport 独立升级为 schema v2，以 canonical
 decimal string 表达纳秒和 cursor，并建立 `packages/frontend` browser consumer：OpenAPI generated type + Zod admission 后映射为
 `bigint`/exact Decimal text，URL 拥有 selection，TanStack Query 只拥有 disposable cache，Lightweight Charts 只消费显式 lossy projection。
@@ -180,7 +177,7 @@ Result 和 Artifact final verification；失败或取消留下的 upstream facts
 
 ## 5. Trading Runtime
 
-The owner-approved long-term implementation target is a Rust Trading Kernel with Python-oriented indicators/factors and language-appropriate market plugins, as defined in [ADR 0139](adr/0139-linux-first-rust-trading-kernel-migration.md). Initial Rust construction targets Linux in the existing single dev Compose environment. Current Python implementation remains implementation truth until each corresponding slice is migrated and validated. Temporary Python/Rust comparison never creates a second official writer; final retirement preserves exact historical artifacts and durable facts. The [migration work program](rust-kernel-migration-work-program.md) defines construction order, not completion or latency certification.
+[ADR 0139](adr/0139-linux-first-rust-trading-kernel-migration.md) 记录了早期在 Linux Compose 中分模块替换 Python 内核的决策。当前 Rust 开发和验证环境见[工程指南](../AGENTS.md)。[迁移计划](rust-kernel-migration-work-program.md)保留当时的建设顺序。
 
 Canonical Rust libraries occupy direct directories under `crates/` under ADR 0149. `crates/predicates/` owns Predicate semantics.
 It is not a separately deployed service or Plugin. The initial stateless Predicate library is exercised by the existing shared
@@ -193,19 +190,16 @@ under `crates/domain/`; Kernel consumers may depend on Domain, while Domain cann
 Infrastructure adapters or concrete plugins. Internal primitive steps are not whole-module completion or Runtime admission.
 
 
-All modules under `src/onlyalpha/` are within responsibility assessment. ADR 0141 selects Rust backend business and ADR 0142 selects its organization; Python algorithm APIs/helpers remain only where required. Python and Rust align
-by domain/module responsibility and dependency direction, with language-native file/type organization. Align incrementally with
-real migration consumers; do not create empty parallel trees or move correct Python code only for symmetry. Application and
-Infrastructure migration remain separate from canonical Kernel ownership; Python-oriented algorithms and language-appropriate
-plugins retain their boundaries. ADR 0139 section 1.1 defines placement and source/provenance rules; the existing development
-[Predicate responsibility map](rust-kernel-development.md#predicate-responsibility-map) links the implementations and shared Contracts.
+早期迁移以 `src/onlyalpha/` 为评估范围。ADR 0141、0142 分别记录了后端语言和组件组织的决策。原 Backend 已退役；现行算子、指标和因子表达式的实现归属见 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md)。
 
 
 Backtest、Sim、Live 是 Trading Runtime。每个实例独占其 mutable trading authorities，并通过同一语义核心处理 Strategy、Market Rule、Risk、Reservation、Order、Broker facts、Transaction、Projection、Position、Allocation、Account、Ledger、Fee、Settlement、Result 和 Recovery。
 
-P6.0 已将这个共享语义边界固化为 Runtime-neutral `OnlyTradingKernel`：Kernel config 不含 Runtime mode，Kernel 通过 builder 创建并唯一持有 Position、Allocation、Reservation、Account、Strategy Ledger、Settlement、Margin 与 Fee authorities，随后一次性安装 Order/Risk/Execution/Transaction/Projection 和共享 MarketData/Strategy processing graph。`OnlyRuntime` 只保留 identity、lifecycle、plugin resource 与 operational state，并通过临时兼容 delegate 暴露既有管理查询；这些 delegate 不是新的 Service Locator 合同。
+现行 Rust 实现通过 [`TradingTask::run`](../crates/runtime/src/trading/task.rs) 调用同一 `TradingEngine::drive` 事件循环。有限回测使用冻结历史行情与虚拟券商，[回测入口](../crates/runtime/src/trading/backtest/playback.rs)完成输入消费后核验经济事实和场所原件。SIM 使用实时行情与虚拟券商，LIVE 通过真实券商端口装配。
 
-当前组合和依赖方向为：
+### 历史 Python Runtime 结构（P6）
+
+P6.0 曾将共享语义封装为 Runtime-neutral `OnlyTradingKernel`。Kernel 持有 Position、Allocation、Reservation、Account、Strategy Ledger、Settlement、Margin 与 Fee。`OnlyRuntime` 负责当时的身份、生命周期、插件资源和运行状态。旧实现的组合关系如下。
 
 ```text
 OnlyBacktestRuntime ──→ OnlyTradingRuntimeFacade ──→ OnlyTradingKernel
@@ -254,9 +248,7 @@ Streaming `STOP` 表示撤销未来处理权限，不是推进 market event time
 `STOPPING` 后 Worker 不 drain inbound queue、不 close pending Live Bar，也不开始新的 MarketData processing/result
 callback；未处理输入的 checkpoint/restart/gap recovery 仍属于后续阶段。
 
-Backtest 具备完整正式 durable trading product path。SIM 已具备 realtime Virtual Broker、gap/reconnect、durable checkpoint
-与 new-process restart，Accepted/Trade 经相同 Durable Transaction 与 Ordered Projection。Live 尚未具备 durable outbound
-Broker command、同步、对账和长期恢复闭环。
+原产品曾接通 Backtest 持久化，以及 SIM 的实时虚拟券商、断线续接、检查点和跨进程重启。以上能力属于该阶段的产品实现记录。现行有限回测在 Rust 库内完成执行与核验，数据库发布、SIM／LIVE 跨进程恢复仍需宿主接入并验证。
 
 ## 6. Cluster / Strategy / Factor / Indicator
 
@@ -628,9 +620,9 @@ that artifact is not the authoring Authority. Hot plug and rollback create/selec
 never reload modules or rebind an active Run/StrategyRevision. Missing exact historical artifacts fail closed rather than falling
 forward. Dynamic Research outcomes remain in OnlyAlpha Evidence, not Asset/Draft/Revision status fields or registries.
 
-ADR 0116 规定候选来源的执行绑定。Authoring Execution Generation 将确切 Revision、源码、候选可执行内容、Candidate Provider 和完整 Catalog Generation 绑定到同一执行组合。后端 `packages/backend/src/workers/research.rs` 与 `persistence/research_execution.rs` 在认领前核对该绑定和保留的安装。普通 Research Worker 只能认领未绑定的 Run，Authoring Worker 只能在原事务性 Attempt Authority 中认领绑定到自身确切 Generation 的 Run。活动 Run 保持原绑定，Evidence 准入要求可执行 Provider 内容一致。Release、Catalog 激活、Strategy 晋级和 LIVE 授权各有正式归属。
+ADR 0116 规定候选来源的执行绑定。Authoring Execution Generation 将确切 Revision、源码、候选可执行内容、Candidate Provider 和完整 Catalog Generation 绑定到同一执行组合。产品宿主须在认领前核对该绑定和保留的安装。普通 Research Worker 只能认领未绑定的 Run，Authoring Worker 只能在原事务性 Attempt Authority 中认领绑定到自身确切 Generation 的 Run。活动 Run 保持原绑定，Evidence 准入要求可执行 Provider 内容一致。Release、Catalog 激活、Strategy 晋级和 LIVE 授权各有正式归属。
 
-ADR 0117 规定发行工件与 Runtime 的绑定。与位置无关的 Distribution Artifact Manifest 绑定确切 wheel 字节、源码版本、Provider 内容、资产清单、实现指纹及已验证的执行身份。Rust Runtime Registry 位于 `packages/backend/src/persistence/research_runtime.rs` 及其 `lifecycle.rs`、`contracts.rs`，负责核对内容寻址工件与完整 Provider、Catalog、实现闭包。后端准备流程绑定保留的隔离编写环境和原生可执行映像，再生成不可变 RuntimeGeneration。`PREPARING → READY` 只接受正式 RuntimeGeneration Validation Evidence。Worker 在具备认领能力前核对安装封印、保留的确切 wheel、安装文件摘要和完整实现闭包。
+ADR 0117 规定发行工件与 Runtime 的绑定。与位置无关的 Distribution Artifact Manifest 绑定确切 wheel 字节、源码版本、Provider 内容、资产清单、实现指纹及已验证的执行身份。产品宿主的 Runtime Registry 负责核对内容寻址工件与完整 Provider、Catalog、实现闭包。后端准备流程绑定保留的隔离编写环境和原生可执行映像，再生成不可变 RuntimeGeneration。`PREPARING → READY` 只接受正式 RuntimeGeneration Validation Evidence。Worker 在具备认领能力前核对安装封印、保留的确切 wheel、安装文件摘要和完整实现闭包。
 
 同一 Artifact Store 可以保留 [Rust 开发](rust-kernel-development.md#retained-native-diagnostic-artifacts) 定义的 SUPPORT 专用 Linux Kernel 诊断 ELF。其 target 和确切字节属于保留输入。正式准入仍要求相应执行工件及验证证据。
 
@@ -643,7 +635,11 @@ StrategyRevision resolution matches exact RESEARCH/TRADING implementation finger
 `CatalogGeneration != RuntimeGeneration`, `StrategyRevision != RuntimeGeneration`, artifact identity excludes its locator, and neither
 release nor activation grants Agent or LIVE authority.
 
-Core exposes only the stable `onlyalpha.runtime_generation_work_authority` port and installed entry-point group needed by formal Research
+### 原 Python 产品的 Generation 接线
+
+下文记录原 Worker 的绑定和领取流程。后端重写时需重新接入正式 Generation 与作业契约。
+
+The retired Core exposed the `onlyalpha.runtime_generation_work_authority` port and installed entry-point group needed by formal Research
 and Backtest admission/claim paths. The runtime-generation-manager supplies the sole concrete binding/activation Authority; Core workers do
 not import that infrastructure implementation. Formal admission binds the existing Product Run ID before durable queue acceptance, while
 claim predicates select only IDs bound to the process generation and execution rechecks the same immutable binding. Run stores remain the
@@ -657,11 +653,7 @@ only one argument is invalid; formal claim capability always requires the pair a
 
 ### DB-native Example / Private Asset Contract Parity
 
-`examples/private-assets/factor` and `examples/private-assets/strategy` are portable import/demo seeds for the public Private Asset
-contracts. They are not packages, Providers, execution sources or Runtime Authority. Contract coverage imports each seed through the
-Private Asset Authority and then exercises the same validation, immutable Revision, Calculation Registry, Catalog and Runtime boundaries
-used by production assets. A hidden private-only Core integration path fails closed as `EXAMPLE_CONTRACT_COVERAGE_REQUIRED`.
-There is no hidden private-only Core integration path.
+开源因子示例按来源及因子集放在[因子示例目录](../examples/factor/)。原产品曾从 `examples/private-assets/factor` 和 `examples/private-assets/strategy` 导入私有资产示例。产品契约要求公开示例与私有资产使用相同的导入、不可变版本、校验与执行边界；缺少公开示例覆盖时以 `EXAMPLE_CONTRACT_COVERAGE_REQUIRED` 拒绝。
 
 Private Factor/Strategy authoring does not require Git hooks, a PR, a wheel or a package release. Optional Git/package import-export pipelines
 may still run their own validation and provenance checks. If a Revision is admitted as executable Provider content, the existing
@@ -681,7 +673,7 @@ OBV and Stochastic retain explicit financial inputs and do not create a second F
 Human → Web
 Agent / Automation → canonical versioned Product API
 → HTTPS / JSON
-→ backend HTTP/WebSocket transport (current onlyalpha-backend)
+→ 产品 HTTP/WebSocket 传输边界（待接入服务）
 → Product Command / Query
 → Stateful Kernel / Application authority
 ```

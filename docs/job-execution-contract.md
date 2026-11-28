@@ -1,6 +1,6 @@
 # 有限作业的冻结身份、结果计划与接口
 
-本契约落实[ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md)与 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md)，约束 Research／Backtest 的新框架。实现入口为 Backend [`application::job_contract`](../packages/backend/src/application/job_contract.rs)。纯值模型之外，第二阶段已提供 PostgreSQL 类型化内容仓储与原子发布原语，见[存储接口说明](postgresql-job-publication.md)；真实构建／结束 owner 和外部 API 尚未接线。旧 worker 尚未迁移，不以其行为推翻本契约，也不宣称目标已经运行。
+本契约落实 [ADR 0151](adr/0151-postgresql-business-publication-and-memory-work.md) 与 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md)。[Runtime](../crates/runtime/README.md) 承担内存执行。构建准入、任务认领、数据库输入与[原子发布](postgresql-job-publication.md)仍归产品宿主；原 Backend 退役后这些产品链路暂停。
 
 ## 事实归属和权限
 
@@ -73,22 +73,22 @@ ContractError 分开表达 Invalid、MissingEvidence、Unavailable、Mismatch、
 
 ## 分阶段接口和权限约束
 
-第四阶段输入实现位于 [`application::job_input`](../packages/backend/src/application/job_input.rs)。`market.source_revision` 使用既有 Revision fingerprint，读取 `market-data-revision:<fingerprint>`；`seals` 使用既有 `seal:` 后的摘要；`segments` 使用每个完整 `[segment_id, content_hash]` 引用的 canonical fingerprint；`versions` 使用原 data_version 字符串的 canonical fingerprint，不要求外部版本字符串本身是摘要。`bar_semantic` 使用原语义记录摘要，`axis` 使用有序 `[instrument_id, bar_start_ns, bar_end_ns, ts_event_ns, revision]` 行列的 canonical fingerprint。完整原值仍由所属 Revision／Seal／segment 证明，不用这些摘要推断权限。
+产品宿主准备冻结输入时，须核对以下身份。`market.source_revision` 使用既有 Revision fingerprint，读取 `market-data-revision:<fingerprint>`；`seals` 使用既有 `seal:` 后的摘要；`segments` 使用每个完整 `[segment_id, content_hash]` 引用的 canonical fingerprint；`versions` 使用原 data_version 字符串的 canonical fingerprint，不要求外部版本字符串本身是摘要。`bar_semantic` 使用原语义记录摘要，`axis` 使用有序 `[instrument_id, bar_start_ns, bar_end_ns, ts_event_ns, revision]` 行列的 canonical fingerprint。完整原值仍由所属 Revision／Seal／segment 证明，不用这些摘要推断权限。
 
 `MemoryBudget` 同时限制行数、传输／保留的逻辑字节及声明分配量；加载前检查计数、整数运算和向量槽位，再从 owning reader 读取精确不可变程序／证书／参数的声明字节数，按受限 IR 的解码与绑定副本预留工作区（编码字节的 64 倍），不对每个小因子机械预留存储最大值。该查询只计费、不产生 READY；正文仍需独立完整核验。物理读取使用更小的每次上限，不修改共享 Host 配置；加载中继续计费，超限不 spill。该预算不是操作系统 RSS 限额，RSS 单独实测。正式 Run／Attempt 与完成发布不在输入模块内创建；其后续接线仍须真实 owner 证明。
 
-受控图证明由 `application::calculation_build` 在明确的构建准备中写入 PostgreSQL `calculation_build_proof`，精确绑定图／参数、实现／工件、Source 构建语义和固定合成语料；六类案例及逐节点覆盖完整保留。实际作业携带原证明引用，`restore_strategy_inputs` 和恢复缺证只拒绝，不构建、不选择最新证明。Formal Run 和手工策略验证的 owning 读取事务核对该原始不可变事实；逐节点 Witness 使用相同完整正文派生。合成语料不是实际行情事实，不能替代 ClickHouse 切片验证或 Source 权限。
+受控图证明须由产品构建方在明确的构建准备中写入 PostgreSQL `calculation_build_proof`，精确绑定图／参数、实现／工件、Source 构建语义和固定合成语料；六类案例及逐节点覆盖完整保留。实际作业携带原证明引用，`restore_strategy_inputs` 和恢复缺证只拒绝，不构建、不选择最新证明。Formal Run 和手工策略验证的 owning 读取事务核对该原始不可变事实；逐节点 Witness 使用相同完整正文派生。合成语料不是实际行情事实，不能替代 ClickHouse 切片验证或 Source 权限。
 
 同一精确构建键在明确的 Read Committed 自有事务内通过 PostgreSQL 非等待事务锁隔离在途构建，已忙时结构化拒绝，只有正向 join 后才原子持久化证明。事务锁的生命周期参考 [PostgreSQL 18 锁文档](https://www.postgresql.org/docs/18/explicit-locking.html#ADVISORY-LOCKS)；平台行为不替代 OnlyAlpha 的正文校验与事实归属。历史工件保留原严格验证，新作业没有旧受控执行回退。
 
-以下是实现者必须遵守的接口约定。第二阶段提供仓储 publish／observe／read 原语；read 直接由 PublicationRepository 实现，不另加空壳 ResultReader。其他接口按后续阶段落实，没有返回伪成功或 todo 的生产 stub。
+以下是实现者必须遵守的接口约定。产品宿主负责仓储 publish／observe／read 原语；read 直接由 PublicationRepository 实现，不另加空壳 ResultReader。其他接口按后续阶段落实，没有返回伪成功或 todo 的生产 stub。
 
 | 所属模块／接口 | 输入和输出 | 必需的真实检查 |
 |---|---|---|
 | 构建 owner：request／resolve_ready_binding | 精确版本＋解析参数 → 构建请求／确切就绪绑定 | 真实程序与证书、权限、版本和参数；不发明全域认证 |
 | 输入 owner：JobInputLoader::load | FrozenJobBinding＋MemoryBudget → PreparedJobInput | CH切片正文、引用、轴／行数／摘要及权限，内存分配预算 |
 | 交易 owner：Session::new／apply | 纯RunBinding＋RunConfiguration／TradingInput → 当前typed会话／AppliedEvent | 不依赖Backend或DB；信号后执行完整经济规则 |
-| 结束 owner：BacktestRun::finish／Research结束 | 实际输入耗尽、经济状态、drain → 私有CompletedBacktest／CompletedResearch | 不公开DTO反序列化构造；真实子进程回收由Backend owner补足 |
+| 结束 owner：Runtime 有限回测／Research 收尾 | 输入耗尽、事件排空、完整经济状态和只读核验 → 已完成的内存结果 | 客户端不能构造完成证明；宿主另证真实子进程回收与发布资格 |
 | 仓储：PublicationRepository::publish | 既有AttemptClaim＋私有CompletedJobCandidate → Committed／AlreadyPublished／明确错误或未知 | 当前Run锁、修订、有效lease/fence、全成员与冻结绑定、唯一发布、终态同事务 |
 | 仓储：PublicationRepository::observe | 原Run → Published／ConfirmedUnpublished／Unresolved | 原事务已解决的锁和合法状态；普通SELECT查空不等于ConfirmedUnpublished |
 | 恢复：JobRecovery::resolve | 原Run观察 → 已发布复用／新Claim重算／完成取消／等待／拒绝 | 保留Run、遵循现有重试规则；缺工件／数据不能换最新 |
@@ -97,9 +97,11 @@ ContractError 分开表达 Invalid、MissingEvidence、Unavailable、Mismatch、
 
 AttemptClaim 继续由现有认领模块私有构造，不新增可由客户端反序列化的 claim。CompletedJobCandidate 只由真实 owner 和 joined 证明构造。Backend 派单还要求正式仓储确认提交及既有准入后产生的私有 DispatchPermit；内存结果、任意port实现及外部布尔值不可转换。第一阶段不新增这些权限对象的伪构造器。
 
-## 实际调用迁移对应
+## 历史实施分工
 
-| 当前入口／消费者 | 迁移目的地 | 实施阶段 |
+下表为原迁移分工，左列保留退役时的名称，现行回测入口见 [Runtime 有限回测](../crates/runtime/src/trading/backtest/playback.rs)。
+
+| 原入口／消费者 | 迁移目的地 | 实施阶段 |
 |---|---|---|
 | private_assets/authoring、private_factor_postgres、Python private_factor_execution | 因子表达式规范化、类型化算子 DAG 编译与精确认证；旧 Python 因子执行路径清退 | 一、四 |
 | strategy_research/execution::observe_graph／run_case、workers/research | 纯因子 Research 向量化执行；解除策略修订与信号图绑定 | 一、三、四、六 |
@@ -128,7 +130,7 @@ AttemptClaim 继续由现有认领模块私有构造，不新增可由客户端�
 | result.read／response | 正式GET读取／校验至后端响应，再至浏览器可见；不触发回测执行 | 六、九 |
 | trading.restore | 持续PG事实读取、typed状态重建、投影与对账；与有限作业重算分开 | 七 |
 
-现有[inventory](../test-data/backtest-benchmarks/inventory.json)有25个crate/工程名字：原23库闭包、Backend和observability。operators／calculation／strategy及原组件bench保留语义基准；新typed程序数值执行接入第三阶段bench，若indicators进入实际闭包须同步补其bench与BENCHMARK.md。runtime retained／recovery及backtest／backend链路中依赖旧SQLite文件的样本由第五、七、八阶段分别迁为内存执行、PG正式事实恢复、结果发布／读取；不能借旧Source产物隐式保留业务SQLite。
+[基准清单](../test-data/backtest-benchmarks/inventory.json)按 `crate` 和 `target` 登记。Runtime 的 `finite_backtest`、`retained` 和 `recovery` 是同一个库的三个目标，统计库数时按 `crate` 去重。算子、计算、策略和经济组件保留各自的基准。[有限回测基准](../crates/runtime/benches/finite_backtest.rs)分别计量内存执行和结果读取。PostgreSQL 正式发布、恢复和产品查询耗时须由产品宿主恢复后的实际链路测量。
 
 总墙钟按排他阶段及真实并行等待解释，嵌套span不相加；准备、交易、收尾各单列，未闭合耗时明确列出。冻结代码／工件、机器／资源、输入／版本、样本数、缓存、内存预算和观测开关。既有300/120秒门槛不放宽，不新增硬吞吐阈值；新长时专项须有单独预算。
 

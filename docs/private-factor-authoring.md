@@ -1,17 +1,15 @@
 # Private Factor authoring
 
-> **目标形态（ADR 0152）：** 因子采用声明式因子表达式（`FactorExpr`）。本文描述的清退前实现——Python 编写／AST 构建前端、`private_factor_execution` 与相关构建路径——列入 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 阶段 4 清退范围。PostgreSQL 草稿／不可变版本、精确构建认证与 READY 绑定的归属不变。
+> 原 Backend 和 Python 因子 SDK 已退役。本文保留私有因子的产品契约、编辑要求和历史实现记录，供后端重写时核对。当前 Rust 基础库接受声明式 [`FactorExpr`](../crates/calculation/src/factor_expr/mod.rs)，按 [ADR 0152](adr/0152-unified-runtime-dual-kernel-operators-qlib-dag-and-wasm-plugins.md) 编译和执行。产品宿主负责 PostgreSQL 草稿、不可变版本、精确参数绑定和授权。
 
 This Product capability derives from ADRs 0104, 0124, 0129 and 0142. PostgreSQL Private Asset tables own mutable Drafts and
 immutable Revisions. The backend owns authoring Commands; Web submits intent and displays returned facts. Saving authoring content never executes source, admits a Calculation, activates a Generation, qualifies a Factor or starts Research/Backtest. Immutable publication requests an independent build under ADR 0151; it does not claim build success.
 
-## 新构建边界（ADR 0151）
+## 历史构建边界（ADR 0151）
 
-[有限作业契约](job-execution-contract.md)定义新框架的版本、构建程序和精确参数认证；本节取代下文对稳定旧Python执行接口及“发布不触发任何构建”的承诺。当前编写／执行边界已由 typed 程序与独立构建认证实现；完整产品准备／作业接线见[因子程序说明](factor-program.md)，不据模块交付宣称整条产品链路可用。草稿保存仍不执行；不可变版本创建后独立建立构建／默认参数认证任务，资产已保存不等于程序或所有参数已READY。
+原产品在保存草稿后保留可编辑内容，冻结版本后由后台单独构建并认证默认参数。原编译器只解析受限 Python AST，生成 Rust 执行的有界程序。认证绑定确切程序与参数，同一程序可以分别认证多组参数。历史数值、构建和恢复规则见[因子程序说明](factor-program.md)。
 
-受限Python只作编写与AST构建前端，降为Rust拥有的typed程序；不执行用户字节码、不允许任意while／可变容器／隐藏IO，不逐行解析源码。声明式窗口调用复用原生数学语义。源码／接口／构建器／数值规范／原语实现决定构建身份；解析后的精确参数和对应证书决定认证绑定。新参数不重新解析相同通用程序。
-
-新数值规范为28位有效数字、HALF_EVEN、q12输出与正零；null／warmup／除零等沿精确原语规则，不改变资金／数量的精度。构建认证和实际输入校验分别执行。Research只消费真实owning reader确认的确切READY绑定，不在热路径隐式补认证。公开示例必须与私有资产共用导入、校验与执行，不另设特供接口；不保留旧API兼容层。
+新宿主仍需分别证明版本保存、精确参数准入和作业完成。公开示例与私有资产共用导入、校验和执行边界。作业的发布与读取语义见[有限作业契约](job-execution-contract.md)。
 
 ## Conversational consumer boundary
 
@@ -49,8 +47,7 @@ The ordinary editor separates name/usage from version annotations; renaming does
 Revision. Backend returns history as exact `{display_version, revision}` entries only after verifying the complete chain;
 ordinals start at 1, stay attached to their exact Revision and are independent of `semantic_version`, filtering and rename.
 Revision/source/API identities retain their existing canonical contracts. API V1's frozen fingerprint is
-`18235355e46a704c55b115242e50999cf7d583ab72e100b5b12bdde4ddd14ccd`; the Python algorithm SDK remains its semantic owner and
-conformance must prove this exact binding. Mutable Draft identity is the canonical fingerprint of
+`18235355e46a704c55b115242e50999cf7d583ab72e100b5b12bdde4ddd14ccd`; the retired Python algorithm SDK defined this historical binding. Mutable Draft identity is the canonical fingerprint of
 `{"contract":"ONLYALPHA_PRIVATE_FACTOR_DRAFT_V1","draft":DRAFT}`. It is a concurrency token, never a Revision or runtime identity.
 
 Saving includes the full Draft and expected saved-Draft fingerprint (null for first save), with Draft base equal to the exact
@@ -136,12 +133,7 @@ Revision, its ordinal or source content. If current display cannot be refreshed,
 content; cached display is not presented as a successful current lookup. Version annotations and exact IDs/fingerprints remain
 under technical details. The exact Revision endpoint and its immutable response are unchanged.
 
-Legacy Python Product query/search-projection code and its re-export can retire once their current caller closure is removed.
-Preserve Registry identity/order/draft exclusion, exact/no-latest/mismatch/failure, projection-only Authority and search-result
-semantics at the native owner/client boundaries. Disposable persisted-search-cache rebuild/staleness tests retire with that
-unused implementation; do not build a new cache to preserve them. Existing migration ledger/tables/facts are not removed.
-Still-used Private Asset models/Store, Revision binding, algorithm SDK and execution/Generation/reference consumers remain.
-Reference-chain preparation uses its existing exact imported Revision references, never Product search as execution authority.
+原 Python 查询投影、缓存和算法 SDK 已随宿主退役。重建产品查询时，Registry 仍按精确身份、顺序和草稿排除规则返回结果。执行准备从已导入的确切 Revision 解析引用，搜索结果只用于展示和选择。
 
 Acceptance requires ordinary Web creation/publication, directory discovery by name and purpose, exact selection, rename and a
 second publication without retargeting an already open detail, plus reload/restart and clear error/empty states. Prove stable
@@ -252,15 +244,6 @@ existing formal API and Rust Authority. Tests may observe exact pins; user steps
 | Content and presentation identity | A real contract edit follows saved-Draft CAS and explicit content publication; old Revision content remains exact. Rename/usage alone and all mode-only operations do not publish or change content pins. No source rewrite, unknown-field loss, numerical coercion or extra schema/version ledger. |
 | Usability | Follow the normal discoverable editor entry; labels/help, add/remove, per-section advanced controls and recovery are keyboard accessible and usable on desktop/narrow viewport. Run same-path dogfooding and state the observed interaction/time budget in task context, not a second repository status ledger. |
 
-## Implementation boundary
+## 现行因子示例
 
-The pure authoring model remains inside backend's Private Asset Application module; PostgreSQL adapts its owning tables and
-Commands. The current Python `calculate(api, inputs, parameters)` SDK remains implemented until phase three; its execution API will evolve directly to the typed-program build boundary above, without compatibility shims. Old Python business/reference consumers may
-retire only after their actual callers and assertions migrate; source stored in a Factor is user content, not Python backend
-business code eligible for deletion. Research, Strategy authoring, Registry admission and execution remain separate capabilities.
-
-## 一次构建与精确参数认证
-
-受限 Python 编写接口现在生成有界 typed program，数值统一 Rust Decimal28／HALF_EVEN／q12。版本冻结后自动请求默认参数构建；独立后台 owner 使用 sealed SDK 隔离解析一次源码，实际数学与参数认证在 Rust 完成。新参数组合复用程序，只追加精确证书。加载与逐 Bar 执行不解析 AST，不隐式认证。
-
-完整限制、身份、状态、错误、恢复、产品接线阶段见[因子程序说明](factor-program.md)。公开[动量示例](../examples/private-assets/factor/simple_momentum/asset.json)使用 `delay(close, period)` 表达前收盘价；warmup／除零缺值属于输出契约，不能补零伪造可用结果。
+公开声明式因子按来源和因子集收录。例如，[Qlib Alpha158](../examples/factor/qlib/alpha158/) 中的表达式由 Rust 编译为算子 DAG。预热期和除零产生的缺值按算子契约保留。产品草稿和版本的持久化、作业准入及正式结果发布由未来产品宿主接线。
