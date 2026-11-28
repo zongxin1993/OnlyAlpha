@@ -47,8 +47,8 @@ pub use session::{
     AppliedEvent, CompletedSession, RunBinding, RunConfiguration, Session, TradingInput,
 };
 pub use trading::{
-    BarOutcome, ExecutionPort, MarketBar, MarketPort, NamedFactorExpr, StrategyDecision,
-    StrategyPort, TradingEngine,
+    BarOutcome, EventOutcome, ExecutionPort, MarketBar, NamedFactorExpr, StrategyDecision,
+    StrategyPort, TradingEngine, TradingEvent, TradingEventPort, TradingRunError,
 };
 
 pub struct OnlyAlphaRuntime;
@@ -104,10 +104,9 @@ let slice = report.slice_view(0, 0)?;
 
 - `MarketBar` 承载一个事件时间的完整横截面：构造时按标的身份排序并拒绝重复（`TRADING_DUPLICATE_INSTRUMENT`），缺失字段保持 `None` 而不当作零。
 - `NamedFactorExpr` 把一个名字与一份已编译表达式绑定。名字是策略绑定身份，1..128 字符，重名以 `TRADING_FACTOR_NAME` 拒绝。`compile_with_allowed_fields` 声明扩展算子的派生字段集合，只有列在其中的 `$<field>` 才能进入表达式。
-- `TradingEngine::new` 排序并校验标的集合与因子定义；`advance` 先核对横截面形状（`TRADING_SCHEMA_MISMATCH`）与事件时间严格递增（`TRADING_EVENT_ORDER`），再按标的逐个调用 `StrategyPort::decide`，拒绝把意图下给其他标的（`TRADING_INTENT_INSTRUMENT_MISMATCH`），随后交 `ExecutionPort::submit`。
-- `MarketPort`、`StrategyPort`、`ExecutionPort` 是仅有的三个边界端口。券商、风控、准入与持久化事实都在执行端口内部完成；策略端口只读取已绑定因子与只读账户快照。
-
-本库刻意不提供第四套能力：派单授权（属执行端口）、独立 `BrokerPort`（券商由执行端口封装）、执行端口上的 `reconcile` 方法（对账由 `durability::RecoveryFacts` 对 `MATCHED` 的强制要求保证）。主循环不复制后端已有的准入、风控与持久化语义。
+- `TradingEngine::handle_event` 按调用顺序处理一个 `TradingEvent`。`Market` 核对截面形状和行情时间严格递增，推进因子，并用同一份账户快照逐标的调用策略；`ExecutionPort::submit` 接收通过标的检查的意图。`EventOutcome::Market` 包含本次行情观测。
+- `Venue` 携带券商库已经解码的 `Fact`，调用 `ExecutionPort::observe_venue`。端口负责关联原命令、校验范围与重复、处理冲突，并通过所属经济模块应用成交。`VenueObserved` 只表示端口完成了本次观察。回报可在两根 bar 之间或与行情同一时刻到达，保持交付顺序，无需等下一根 bar，也不推进因子。
+- `TradingEventPort::next_event` 逐条交付输入，`Ok(None)` 表示来源结束。`TradingEngine::run` 在 `handle_event` 成功后将原输入和结果交给 `consume(&TradingEvent, EventOutcome) -> Result<()>`。回调返回 `Ok(())` 后才读取下一条事件。读取来源失败时返回 `TradingRunError::Source`。`Processing` 和 `Consumption` 都保留底层错误并归还已取出的原事件，后续事件仍留在来源中。`Processing` 表示处理报错，执行方可能已产生事实，调用方须按原身份查询并对账。`Consumption` 表示当前事件已处理，消费方因预算不足等原因拒绝了结果；因子状态和已提交命令不会回滚。两类错误都不授权重发命令。
 
 **内存会话（[src/session.rs](src/session.rs)）**：[`RunConfiguration`、`RunBinding`、`TradingInput`、`Session`、`AppliedEvent`、`CompletedSession`](src/session.rs) 提供有限作业的内存边界。配置使用真实 Components 校验，绑定只含 Kernel 执行所需的内容身份，不授予数据权限或外部派发资格。`Session::apply` 持有当前 typed owner，按输入身份核对重复和冲突；事件须按序 `acknowledge`，未 drain、失败、未满足经济结束条件均不能 `finish`。普通资金／风控拒绝保留未变化的经济状态；其他异常使会话失效。
 
@@ -123,8 +122,8 @@ let slice = report.slice_view(0, 0)?;
 
 - **统一门面（`OnlyAlphaRuntime`）**：持有无状态研究引擎。研究计划和面板按调用借入，报告由调用方持有。
 - **研究（`ResearchEngine`）**：完全只读，不改变输入面板、因子或标签，也不推进任何事件状态；同一输入重复运行结果逐位相同。
-- **主循环（`TradingEngine`）**：持有各因子的算子滚动状态、最后事件时间与标的声明。任一事件失败都会把因子状态回滚到该事件之前，`TRADING_ROLLBACK_FAILED:<code>` 表示回滚本身失败；已提交的外部事实不回滚，交给执行端口按 `input_id` 幂等对账，引擎不重发已建立的意图。
-- **检查点（`checkpoint`／`restore_checkpoint`）**：只保存恢复内核所需的最小状态——标的集合、最后事件时间、事件数与每个因子的名字、表达式指纹、内核布局和算子状态。恢复时核对 schema、数量、标的、指纹与布局（`TRADING_CHECKPOINT_INVALID`、`TRADING_CHECKPOINT_BINDING`、`TRADING_CHECKPOINT_LAYOUT`）。账户与外部成交事实的恢复和对账由执行端口的持久化事实负责，不进入内核检查点。
+- **主循环（`TradingEngine`）**：持有各因子的滚动状态、最后行情时间与标的声明，`events()` 表示已处理的行情截面数。行情处理失败时回滚本次因子推进；已提交的外部事实仍有效。同一截面有多条意图而中途失败时，调用方须先核对原命令及已提交前缀，再决定如何恢复。
+- **检查点（`checkpoint`／`restore_checkpoint`）**：只保存恢复内核所需的最小状态——标的集合、最后事件时间、事件数与每个因子的名字、表达式指纹、内核布局和算子状态。恢复时先核对版本、数量、标的、时间与行情计数的组合，再在临时副本中恢复各因子，校验绑定、布局及各自的步数。整份检查点通过后才一起替换因子状态与最后行情时间。任一校验或恢复失败，调用前的引擎状态完整保留。账户与外部成交事实的恢复和对账由执行端口的持久化事实负责，不进入内核检查点。
 - **有限作业会话（`Session`）**：纯内存运行，不写文件或 SQLite。事件须按序 `acknowledge`，任意异常使会话进入失效状态并拒绝继续推进。
 - **持续交易持久端口（`durability`）**：由后端 PostgreSQL 适配实现，维护原绑定、前驱与 committed-unready 投影边界；恢复失败或数据库不可用时拒绝新增风险，保留观察和恢复能力。
 

@@ -19,8 +19,8 @@ pub use session::{
     AppliedEvent, CompletedSession, RunBinding, RunConfiguration, Session, TradingInput,
 };
 pub use trading::{
-    BarOutcome, ExecutionPort, MarketBar, MarketPort, NamedFactorExpr, StrategyDecision,
-    StrategyPort, TradingEngine,
+    BarOutcome, EventOutcome, ExecutionPort, MarketBar, NamedFactorExpr, StrategyDecision,
+    StrategyPort, TradingEngine, TradingEvent, TradingEventPort, TradingRunError,
 };
 
 /// 量化计算与交易语义的统一门面。研究与本机事件主循环共用同一份已编译因子定义，

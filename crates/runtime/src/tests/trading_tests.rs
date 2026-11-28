@@ -157,26 +157,32 @@ impl StrategyPort for Foreign {
 /// 两种模式共用同一套断言：只有回报事实不同，其余观测必须逐项相同。
 struct RecordingBook {
     venue: &'static str,
-    fills: bool,
+    received: bool,
     submissions: Vec<String>,
+    observations: Vec<onlyalpha_broker::Fact>,
+    observation_error: Option<Error>,
 }
 
 impl RecordingBook {
-    fn new(venue: &'static str, fills: bool) -> Self {
+    fn new(venue: &'static str, received: bool) -> Self {
         Self {
             venue,
-            fills,
+            received,
             submissions: Vec::new(),
+            observations: Vec::new(),
+            observation_error: None,
         }
     }
 }
 
 impl ExecutionPort for RecordingBook {
     fn account(&self, at: &OnlyTimestamp) -> Result<ReadonlyAccountState> {
-        Ok(
-            ReadonlyAccountState::new(at.clone(), dom("1000000"), dom("1000000"), Vec::new())
-                .unwrap(),
-        )
+        let cash = if self.observations.is_empty() {
+            "1000000"
+        } else {
+            "999900"
+        };
+        Ok(ReadonlyAccountState::new(at.clone(), dom(cash), dom("1000000"), Vec::new()).unwrap())
     }
 
     fn submit(&mut self, intent: &OrderIntent, _at: &OnlyTimestamp) -> Result<Vec<Value>> {
@@ -191,8 +197,20 @@ impl ExecutionPort for RecordingBook {
             intent.quantity(),
             price
         ));
-        let kind = if self.fills { "fill" } else { "accepted" };
-        Ok(vec![json!({"kind": kind, "venue": self.venue})])
+        Ok(vec![
+            json!({"dispatch_received": self.received, "venue": self.venue}),
+        ])
+    }
+
+    fn observe_venue(&mut self, fact: &onlyalpha_broker::Fact) -> Result<()> {
+        if fact.scope().record()["gateway"] != self.venue {
+            return Err(error("TEST_VENUE_SCOPE"));
+        }
+        self.observations.push(fact.clone());
+        if let Some(error) = self.observation_error.take() {
+            return Err(error);
+        }
+        Ok(())
     }
 }
 
@@ -200,20 +218,39 @@ struct FrozenSlice {
     bars: std::vec::IntoIter<MarketBar>,
 }
 
-impl MarketPort for FrozenSlice {
-    fn next_bar(&mut self) -> Result<Option<MarketBar>> {
-        Ok(self.bars.next())
+impl TradingEventPort for FrozenSlice {
+    fn next_event(&mut self) -> Result<Option<TradingEvent>> {
+        Ok(self.bars.next().map(TradingEvent::Market))
     }
 }
 
 struct LiveStream {
-    bars: VecDeque<MarketBar>,
+    events: VecDeque<TradingEvent>,
 }
 
-impl MarketPort for LiveStream {
-    fn next_bar(&mut self) -> Result<Option<MarketBar>> {
-        Ok(self.bars.pop_front())
+impl TradingEventPort for LiveStream {
+    fn next_event(&mut self) -> Result<Option<TradingEvent>> {
+        Ok(self.events.pop_front())
     }
+}
+
+fn collect_market(
+    engine: &mut TradingEngine,
+    source: &mut impl TradingEventPort,
+    strategy: &impl StrategyPort,
+    execution: &mut impl ExecutionPort,
+) -> Vec<BarOutcome> {
+    let mut bars = Vec::new();
+    engine
+        .run(source, strategy, execution, |_, outcome| {
+            let EventOutcome::Market(bar) = outcome else {
+                return Err(error("TEST_EXPECTED_MARKET"));
+            };
+            bars.push(bar);
+            Ok(())
+        })
+        .unwrap();
+    bars
 }
 
 fn two_instrument_bars() -> Vec<MarketBar> {
@@ -284,15 +321,14 @@ fn factor_values_match_the_vectorized_panel_pointwise() {
         .trading_engine(bars[0].instruments().to_vec(), factors.to_vec())
         .unwrap();
     assert_eq!(engine.instruments(), report.instruments());
-    let outcomes = engine
-        .run(
-            &mut FrozenSlice {
-                bars: bars.into_iter(),
-            },
-            &Quiet,
-            &mut RecordingBook::new("memory", false),
-        )
-        .unwrap();
+    let outcomes = collect_market(
+        &mut engine,
+        &mut FrozenSlice {
+            bars: bars.into_iter(),
+        },
+        &Quiet,
+        &mut RecordingBook::new("memory", false),
+    );
     let event_times: Vec<_> = outcomes
         .iter()
         .map(|outcome| outcome.timestamp().clone())
@@ -339,25 +375,24 @@ fn one_engine_two_port_sets_produce_identical_decisions() {
     };
     let mut backtest = trading_engine("$close");
     let mut memory = RecordingBook::new("memory", true);
-    let filled = backtest
-        .run(
-            &mut FrozenSlice {
-                bars: bars.clone().into_iter(),
-            },
-            &strategy,
-            &mut memory,
-        )
-        .unwrap();
+    let replayed = collect_market(
+        &mut backtest,
+        &mut FrozenSlice {
+            bars: bars.clone().into_iter(),
+        },
+        &strategy,
+        &mut memory,
+    );
     let mut simulation = trading_engine("$close");
     let mut gateway = RecordingBook::new("gateway", false);
-    let mut stream = LiveStream { bars: bars.into() };
-    let accepted = simulation
-        .run(&mut stream, &strategy, &mut gateway)
-        .unwrap();
+    let mut stream = LiveStream {
+        events: bars.into_iter().map(TradingEvent::Market).collect(),
+    };
+    let streamed = collect_market(&mut simulation, &mut stream, &strategy, &mut gateway);
 
     assert_eq!(backtest.events(), simulation.events());
-    assert_eq!(filled.len(), accepted.len());
-    for (left, right) in filled.iter().zip(&accepted) {
+    assert_eq!(replayed.len(), streamed.len());
+    for (left, right) in replayed.iter().zip(&streamed) {
         assert_eq!(left.timestamp(), right.timestamp());
         assert_eq!(left.values(), right.values());
         assert_eq!(left.intents(), right.intents());
@@ -372,6 +407,184 @@ fn one_engine_two_port_sets_produce_identical_decisions() {
     assert_eq!(memory.submissions.len(), 4);
 }
 
+fn accepted_event(gateway: &str) -> onlyalpha_broker::Fact {
+    onlyalpha_broker::Fact::decode(&json!({
+        "scope": {"engine":"engine", "runtime":"runtime", "gateway":gateway, "account":"account",
+            "generation":"a".repeat(64), "runtime_kind":"BACKTEST"},
+        "session":"session", "update_id":"update", "source_sequence":1, "ts_event":1, "ts_init":1,
+        "correlation":"order", "causation":"submit", "quality":[], "kind":"ACCEPTED",
+        "payload":{"order":"order", "venue":"order-at-venue"}
+    }))
+    .unwrap()
+}
+
+#[test]
+fn same_time_venue_and_market_events_follow_delivery_order() {
+    struct CaptureCash(std::cell::RefCell<Vec<OnlyDecimal>>);
+    impl StrategyPort for CaptureCash {
+        fn decide(
+            &self,
+            _: &OnlyInstrumentId,
+            _: &[NamedFactor],
+            account: &ReadonlyAccountState,
+        ) -> Result<Vec<OrderIntent>> {
+            self.0.borrow_mut().push(account.cash_available().clone());
+            Ok(Vec::new())
+        }
+    }
+
+    let fact = accepted_event("gateway");
+    let market = TradingEvent::Market(bar(1, &[("000001.XSHE", &[("close", "1")])]));
+    let venue = TradingEvent::Venue(fact.clone());
+    for (events, expected_cash, observed_first) in [
+        ([venue.clone(), market.clone()], "999900", true),
+        ([market, venue], "1000000", false),
+    ] {
+        let mut source = LiveStream {
+            events: events.into(),
+        };
+        let strategy = CaptureCash(Default::default());
+        let mut book = RecordingBook::new("gateway", false);
+        let mut engine = TradingEngine::new(
+            vec![instrument("000001.XSHE")],
+            vec![NamedFactorExpr::compile("price", "$close").unwrap()],
+        )
+        .unwrap();
+        let mut outcomes = Vec::new();
+        engine
+            .run(&mut source, &strategy, &mut book, |_, outcome| {
+                outcomes.push(matches!(outcome, EventOutcome::VenueObserved));
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(outcomes, [observed_first, !observed_first]);
+        assert_eq!(strategy.0.into_inner(), [dom(expected_cash)]);
+        assert_eq!(book.observations.as_slice(), std::slice::from_ref(&fact));
+        assert_eq!(engine.events(), 1);
+        assert_eq!(engine.timestamp(), Some(&timestamp(1)));
+    }
+}
+
+#[test]
+fn rejected_venue_observation_stops_at_the_failed_input() {
+    let mut bars = two_instrument_bars().into_iter();
+    let first = bars.next().unwrap();
+    let second = bars.next().unwrap();
+    let mut source = LiveStream {
+        events: [
+            TradingEvent::Market(first),
+            TradingEvent::Venue(accepted_event("foreign")),
+            TradingEvent::Market(second),
+        ]
+        .into(),
+    };
+    let mut book = RecordingBook::new("gateway", false);
+    let mut engine = trading_engine("Mean($close, 2)");
+    let mut delivered = 0;
+    let failure = engine
+        .run(&mut source, &Quiet, &mut book, |_, outcome| {
+            assert!(matches!(outcome, EventOutcome::Market(_)));
+            delivered += 1;
+            Ok(())
+        })
+        .unwrap_err();
+    let TradingRunError::Processing {
+        event,
+        error: cause,
+    } = failure
+    else {
+        panic!("expected processing failure");
+    };
+    assert!(matches!(*event, TradingEvent::Venue(_)));
+    assert_eq!(cause, error("TEST_VENUE_SCOPE"));
+    assert_eq!(delivered, 1);
+    assert_eq!(source.events.len(), 1);
+    assert!(book.observations.is_empty());
+    assert_eq!(engine.events(), 1);
+    assert_eq!(engine.timestamp(), Some(&timestamp(1)));
+}
+
+#[test]
+fn uncertain_venue_observation_returns_the_fact_for_reconciliation() {
+    let fact = accepted_event("gateway");
+    let market = two_instrument_bars().remove(0);
+    let mut source = LiveStream {
+        events: [
+            TradingEvent::Venue(fact.clone()),
+            TradingEvent::Market(market),
+        ]
+        .into(),
+    };
+    let mut engine = trading_engine("$close");
+    let mut book = RecordingBook::new("gateway", true);
+    book.observation_error = Some(error("TEST_OBSERVATION_UNKNOWN"));
+    let failure = engine
+        .run(&mut source, &Quiet, &mut book, |_, _| {
+            panic!("unexpected result")
+        })
+        .unwrap_err();
+    let TradingRunError::Processing {
+        event,
+        error: cause,
+    } = failure
+    else {
+        panic!("expected processing failure");
+    };
+    assert_eq!(cause, error("TEST_OBSERVATION_UNKNOWN"));
+    let TradingEvent::Venue(returned) = *event else {
+        panic!("expected venue fact");
+    };
+    assert_eq!(returned, fact);
+    assert_eq!(engine.events(), 0);
+    assert_eq!(source.events.len(), 1);
+    let observed = book
+        .observations
+        .iter()
+        .find(|item| item.identity() == returned.identity());
+    assert_eq!(observed, Some(&returned));
+
+    let bars = collect_market(&mut engine, &mut source, &Quiet, &mut book);
+    assert_eq!(bars.len(), 1);
+    assert_eq!(bars[0].timestamp(), &timestamp(1));
+    assert_eq!(book.observations, [fact]);
+}
+
+#[test]
+fn rejected_result_preserves_submissions_and_leaves_next_event_unread() {
+    let mut source = FrozenSlice {
+        bars: two_instrument_bars().into_iter(),
+    };
+    let mut engine = trading_engine("$close");
+    let mut book = RecordingBook::new("memory", true);
+    let strategy = Momentum {
+        threshold: dom("0"),
+    };
+    let failure = engine
+        .run(&mut source, &strategy, &mut book, |event, outcome| {
+            let (TradingEvent::Market(input), EventOutcome::Market(result)) = (event, outcome)
+            else {
+                panic!("expected market event and result");
+            };
+            assert_eq!(input.timestamp(), result.timestamp());
+            assert_eq!(result.intents().len(), 2);
+            Err(error("TEST_RESULT_BUDGET"))
+        })
+        .unwrap_err();
+    let TradingRunError::Consumption {
+        event,
+        error: cause,
+    } = failure
+    else {
+        panic!("expected consumption failure");
+    };
+    assert_eq!(cause, error("TEST_RESULT_BUDGET"));
+    assert!(matches!(*event, TradingEvent::Market(input) if input.timestamp() == &timestamp(1)));
+    assert_eq!(engine.events(), 1);
+    assert_eq!(engine.timestamp(), Some(&timestamp(1)));
+    assert_eq!(book.submissions.len(), 2);
+    assert_eq!(source.bars.as_slice()[0].timestamp(), &timestamp(2));
+}
+
 #[test]
 fn restarting_from_a_checkpoint_continues_identically() {
     let bars = two_instrument_bars();
@@ -380,15 +593,14 @@ fn restarting_from_a_checkpoint_continues_identically() {
     };
     let mut baseline = trading_engine("Mean($close, 2)");
     let mut book = RecordingBook::new("memory", false);
-    let whole = baseline
-        .run(
-            &mut FrozenSlice {
-                bars: bars.clone().into_iter(),
-            },
-            &strategy,
-            &mut book,
-        )
-        .unwrap();
+    let whole = collect_market(
+        &mut baseline,
+        &mut FrozenSlice {
+            bars: bars.clone().into_iter(),
+        },
+        &strategy,
+        &mut book,
+    );
 
     let mut first = trading_engine("Mean($close, 2)");
     let mut book = RecordingBook::new("memory", true);
@@ -413,6 +625,36 @@ fn restarting_from_a_checkpoint_continues_identically() {
         assert_eq!(restarted.values(), continuous.values());
         assert_eq!(restarted.intents(), continuous.intents());
     }
+}
+
+#[test]
+fn checkpoint_restore_is_atomic() {
+    let bars = two_instrument_bars();
+    let factors = ["Mean($close, 2)", "CSDemean($close)"]
+        .map(|source| NamedFactorExpr::compile(source, source).unwrap());
+    let mut engine = TradingEngine::new(bars[0].instruments().to_vec(), factors.to_vec()).unwrap();
+    let genesis = engine.checkpoint();
+    let mut book = RecordingBook::new("memory", false);
+    engine.advance(&bars[0], &Quiet, &mut book).unwrap();
+    let before = engine.checkpoint();
+    let mut continuous = engine.clone();
+    let expected = continuous.advance(&bars[1], &Quiet, &mut book).unwrap();
+    let later = continuous.checkpoint();
+    let mut bad_factor = later.clone();
+    bad_factor["factors"][1]["fingerprint"] = json!("other");
+    let mut missing_time = later.clone();
+    missing_time["timestamp"] = Value::Null;
+    let mut invalid_genesis = genesis.clone();
+    invalid_genesis["timestamp"] = later["timestamp"].clone();
+    for invalid in [bad_factor, missing_time, invalid_genesis] {
+        assert!(engine.restore_checkpoint(&invalid).is_err());
+        assert_eq!(engine.checkpoint(), before);
+    }
+    let actual = engine.advance(&bars[1], &Quiet, &mut book).unwrap();
+    assert_eq!(actual.values(), expected.values());
+    assert_eq!(engine.checkpoint(), later);
+    engine.restore_checkpoint(&genesis).unwrap();
+    assert_eq!(engine.checkpoint(), genesis);
 }
 
 #[test]

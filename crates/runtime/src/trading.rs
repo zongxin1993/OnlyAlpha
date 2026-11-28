@@ -221,9 +221,54 @@ struct BoundFactor {
     executor: FactorExecutor,
 }
 
-/// 行情与时钟端口：按事件时间给出完整横截面，由实现决定是冻结切片还是实时流。
-pub trait MarketPort {
-    fn next_bar(&mut self) -> Result<Option<MarketBar>>;
+#[derive(Clone, Debug)]
+pub enum TradingEvent {
+    Market(MarketBar),
+    Venue(onlyalpha_broker::Fact),
+}
+
+#[derive(Clone, Debug)]
+pub enum EventOutcome {
+    Market(BarOutcome),
+    VenueObserved,
+}
+
+#[derive(Debug)]
+pub enum TradingRunError {
+    Source(Error),
+    Processing {
+        event: Box<TradingEvent>,
+        error: Error,
+    },
+    Consumption {
+        event: Box<TradingEvent>,
+        error: Error,
+    },
+}
+
+impl std::fmt::Display for TradingRunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Source(error) => write!(f, "读取交易事件失败：{error}"),
+            Self::Processing { error, .. } => write!(f, "处理交易事件失败：{error}"),
+            Self::Consumption { error, .. } => write!(f, "消费交易事件结果失败：{error}"),
+        }
+    }
+}
+
+impl std::error::Error for TradingRunError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Source(error)
+            | Self::Processing { error, .. }
+            | Self::Consumption { error, .. } => Some(error),
+        }
+    }
+}
+
+/// 按应用顺序交付输入；同一时刻的回报和行情保持原始先后关系。
+pub trait TradingEventPort {
+    fn next_event(&mut self) -> Result<Option<TradingEvent>>;
 }
 
 /// 策略端口：只读取已绑定因子与只读账户快照，产出规范化下单意图。
@@ -244,6 +289,8 @@ pub trait StrategyPort {
 pub trait ExecutionPort {
     fn account(&self, at: &OnlyTimestamp) -> Result<ReadonlyAccountState>;
     fn submit(&mut self, intent: &OrderIntent, at: &OnlyTimestamp) -> Result<Vec<Value>>;
+    /// 由执行方核对范围、关联、重复与冲突；观察成功本身不证明成交。
+    fn observe_venue(&mut self, fact: &onlyalpha_broker::Fact) -> Result<()>;
 }
 
 /// 策略在一个标的上的确定性产出。
@@ -352,11 +399,28 @@ impl TradingEngine {
         self.timestamp.as_ref()
     }
 
-    /// 推进一个事件：求值因子、读取只读账户、调用策略、按标的上报意图。
-    ///
-    /// 任一步失败都会把因子状态回滚到本事件之前；已经提交的外部事实留给执行端口对账，
-    /// 引擎不会重发已建立的意图。
-    pub fn advance<S, E>(
+    pub fn handle_event<S, E>(
+        &mut self,
+        event: &TradingEvent,
+        strategy: &S,
+        execution: &mut E,
+    ) -> Result<EventOutcome>
+    where
+        S: StrategyPort + ?Sized,
+        E: ExecutionPort + ?Sized,
+    {
+        match event {
+            TradingEvent::Market(bar) => self
+                .advance(bar, strategy, execution)
+                .map(EventOutcome::Market),
+            TradingEvent::Venue(fact) => {
+                execution.observe_venue(fact)?;
+                Ok(EventOutcome::VenueObserved)
+            }
+        }
+    }
+
+    fn advance<S, E>(
         &mut self,
         bar: &MarketBar,
         strategy: &S,
@@ -441,23 +505,34 @@ impl TradingEngine {
         Ok(())
     }
 
-    /// 主循环本身：同一份代码在回测、仿真与实盘上运行，差异只在端口实现。
-    pub fn run<M, S, E>(
+    pub fn run<P, S, E>(
         &mut self,
-        market: &mut M,
+        source: &mut P,
         strategy: &S,
         execution: &mut E,
-    ) -> Result<Vec<BarOutcome>>
+        mut consume: impl FnMut(&TradingEvent, EventOutcome) -> Result<()>,
+    ) -> std::result::Result<(), TradingRunError>
     where
-        M: MarketPort + ?Sized,
+        P: TradingEventPort + ?Sized,
         S: StrategyPort + ?Sized,
         E: ExecutionPort + ?Sized,
     {
-        let mut outcomes = Vec::new();
-        while let Some(bar) = market.next_bar()? {
-            outcomes.push(self.advance(&bar, strategy, execution)?);
+        while let Some(event) = source.next_event().map_err(TradingRunError::Source)? {
+            let outcome = match self.handle_event(&event, strategy, execution) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    return Err(TradingRunError::Processing {
+                        event: Box::new(event),
+                        error,
+                    });
+                }
+            };
+            consume(&event, outcome).map_err(|error| TradingRunError::Consumption {
+                event: Box::new(event),
+                error,
+            })?;
         }
-        Ok(outcomes)
+        Ok(())
     }
 
     /// 恢复所需的最小内核状态：标的集合、因子身份与布局、各因子算子滚动状态、最后事件时间。
@@ -495,7 +570,15 @@ impl TradingEngine {
         let events = record["events"]
             .as_u64()
             .ok_or_else(|| error("TRADING_CHECKPOINT_INVALID"))?;
-        for (factor, stored) in self.factors.iter_mut().zip(
+        let timestamp = match (events, record.get("timestamp")) {
+            (0, Some(Value::Null)) => None,
+            (1.., Some(value)) if !value.is_null() => {
+                Some(OnlyTimestamp::from_record(value).map_err(boundary)?)
+            }
+            _ => return Err(error("TRADING_CHECKPOINT_INVALID")),
+        };
+        let mut restored = self.factors.clone();
+        for (factor, stored) in restored.iter_mut().zip(
             record["factors"]
                 .as_array()
                 .ok_or_else(|| error("TRADING_CHECKPOINT_INVALID"))?,
@@ -511,10 +594,8 @@ impl TradingEngine {
                 return Err(error("TRADING_CHECKPOINT_BINDING"));
             }
         }
-        self.timestamp = match &record["timestamp"] {
-            Value::Null => None,
-            value => Some(OnlyTimestamp::from_record(value).map_err(boundary)?),
-        };
+        self.factors = restored;
+        self.timestamp = timestamp;
         Ok(())
     }
 }
